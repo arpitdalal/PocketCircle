@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { ledgerDrilldownHref, transactionDetailHref, withQuery } from "./ledger-url.js";
+import {
+  categoryDetailHref,
+  ledgerDrilldownHref,
+  transactionDetailHref,
+  withQuery,
+} from "./ledger-url.js";
+
+describe("categoryDetailHref", () => {
+  it("builds the bare category detail path (origin is carried by returnTo, not here)", () => {
+    expect(categoryDetailHref({ ref: "trip-c1" }, { ref: "groceries-cat1" })).toBe(
+      "/circles/trip-c1/categories/groceries-cat1",
+    );
+  });
+});
 
 describe("transactionDetailHref", () => {
   it("builds the bare detail path (origin is carried by returnTo, not here)", () => {

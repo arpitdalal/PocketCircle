@@ -26,6 +26,7 @@ import {
   useCategoriesPage,
   useCategoryHistory,
 } from "~/lib/data.js";
+import { categoryDetailHref } from "~/lib/ledger-url.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
@@ -185,6 +186,9 @@ function CategoryList({
   const [editingId, setEditingId] = useState<Category["id"] | null>(null);
   const [historyId, setHistoryId] = useState<Category["id"] | null>(null);
   const { categories, status, loadMore } = page;
+  // The list's current URL (type, status, search) is the origin a row's detail link
+  // returns to via `returnTo` (#123) — same contract as the ledger Transaction rows.
+  const origin = useReturnToOrigin();
 
   // The open-editor / open-history selection is only meaningful while its row is
   // ON the current page. The Category Filter (search, status, type) and reactive
@@ -229,6 +233,7 @@ function CategoryList({
             key={category.id}
             category={category}
             circle={circle}
+            origin={origin}
             editing={editingId === category.id}
             onEditToggle={(open) => setEditingId(open ? category.id : null)}
             historyOpen={historyId === category.id}
@@ -251,6 +256,7 @@ function CategoryList({
 function CategoryRow({
   category,
   circle,
+  origin,
   editing,
   onEditToggle,
   historyOpen,
@@ -258,6 +264,7 @@ function CategoryRow({
 }: {
   category: Category;
   circle: Circle;
+  origin: string;
   editing: boolean;
   onEditToggle: (open: boolean) => void;
   historyOpen: boolean;
@@ -293,7 +300,13 @@ function CategoryRow({
             style={{ backgroundColor: swatch?.hex }}
           />
           <span className={cn("text-sm font-medium", isArchived && "text-muted-foreground")}>
-            {category.name}
+            <Link
+              to={withReturnTo(categoryDetailHref(circle, category), origin)}
+              className="hover:underline"
+              aria-label={`View ${category.name}`}
+            >
+              {category.name}
+            </Link>
           </span>
           {/* Text pill (not color alone) so expense vs income is legible now that
               both types interleave under the default All view (issue #138). */}

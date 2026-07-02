@@ -62,6 +62,7 @@ export const MOCK_CIRCLES: Circle[] = [
 export const MOCK_CATEGORIES: Category[] = [
   {
     id: "mock-cat-groceries" as Category["id"],
+    ref: buildRef("Groceries", "mock-cat-groceries"),
     name: "Groceries",
     type: "expense",
     color: "green",
@@ -72,6 +73,7 @@ export const MOCK_CATEGORIES: Category[] = [
   },
   {
     id: "mock-cat-rent" as Category["id"],
+    ref: buildRef("Rent", "mock-cat-rent"),
     name: "Rent",
     type: "expense",
     color: "amber",
@@ -82,6 +84,7 @@ export const MOCK_CATEGORIES: Category[] = [
   },
   {
     id: "mock-cat-salary" as Category["id"],
+    ref: buildRef("Salary", "mock-cat-salary"),
     name: "Salary",
     type: "income",
     color: "teal",
@@ -94,6 +97,7 @@ export const MOCK_CATEGORIES: Category[] = [
   // muted-name + "Archived" treatment offline (CAT-4).
   {
     id: "mock-cat-subscriptions" as Category["id"],
+    ref: buildRef("Old Subscriptions", "mock-cat-subscriptions"),
     name: "Old Subscriptions",
     type: "expense",
     color: "rose",
@@ -112,10 +116,7 @@ export function mockCategoryDetail(id: string): CategoryDetail {
   if (!base) {
     throw new Error("mock categories missing");
   }
-  return {
-    ...base,
-    ref: buildRef(base.name, id),
-  };
+  return base;
 }
 
 /**

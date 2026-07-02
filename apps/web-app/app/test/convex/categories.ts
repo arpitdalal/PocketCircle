@@ -1,5 +1,5 @@
 import { api } from "@spend-circle/convex";
-import { textIncludes } from "@spend-circle/domain";
+import { buildRef, textIncludes } from "@spend-circle/domain";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { Category, CategoryDetail, PaginationStatus, Transaction } from "~/lib/data.js";
@@ -98,9 +98,12 @@ export function categoriesDouble(state: CategoriesState): EntityDouble {
 }
 
 export function makeCategoryView(over: Partial<Category> = {}): Category {
+  const id = over.id ?? testId<Category["id"]>("cat-groceries");
+  const name = over.name ?? "Groceries";
   return {
-    id: testId<Category["id"]>("cat-groceries"),
-    name: "Groceries",
+    id,
+    ref: over.ref ?? buildRef(name, id),
+    name,
     type: "expense",
     color: "green",
     status: "active",

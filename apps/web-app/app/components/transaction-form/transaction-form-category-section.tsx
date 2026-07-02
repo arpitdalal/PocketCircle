@@ -1,4 +1,5 @@
 import {
+  buildRef,
   categoryInputSchema,
   MUTATION_ERRORS,
   paletteColorForSeed,
@@ -37,6 +38,7 @@ function toInlineCreatedCategory(
 ): Category {
   return {
     id,
+    ref: buildRef(name, id),
     name,
     type,
     color,

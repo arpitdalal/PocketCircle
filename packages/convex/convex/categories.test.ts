@@ -1275,6 +1275,18 @@ async function filterPage(
 }
 
 describe("filterCategories — name search (CAT-4)", () => {
+  it("includes the canonical ref on each row for Category Detail links (issue #240)", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await seedCategories(t, circleId, owner._id, [{ name: "Groceries", createdAt: 1 }]);
+    const page = await filterPage(t, owner, { circleId });
+    const row = page.page[0];
+    if (!row) {
+      throw new Error("expected a category row");
+    }
+    expect(row.ref).toBe(buildRef("Groceries", row.id));
+  });
+
   it("matches a substring of the name, case-insensitively, whitespace-normalized", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));

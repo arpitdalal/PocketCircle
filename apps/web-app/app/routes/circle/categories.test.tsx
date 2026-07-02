@@ -122,6 +122,15 @@ afterEach(() => {
 });
 
 describe("CircleCategories — list and create (CAT-1; issue #138 all types)", () => {
+  it("links each category name to the Category Detail route with returnTo", async () => {
+    const view = setup({ categories: [makeCategoryView()] });
+    await waitFor(() => expect(view.location()).toBe("/?type=all&status=all"));
+    const href = screen.getByRole("link", { name: "View Groceries" }).getAttribute("href") ?? "";
+    const dest = new URL(href, "http://t");
+    expect(dest.pathname).toBe("/circles/trip-c1/categories/groceries-cat-groceries");
+    expect(dest.searchParams.get("returnTo")).toBe("/?type=all&status=all");
+  });
+
   it("lists all types together by default (income + expense interleaved)", () => {
     setup({
       categories: [

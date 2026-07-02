@@ -73,6 +73,10 @@ export async function toCategoryView(
   const isCreator = category.creatorUserId === viewer.userId;
   return {
     id: category._id,
+    // Canonical slug-id ref (ADR 0016): list rows link to `/categories/<ref>` and the
+    // detail resolver canonicalizes stale slugs — built from the same name + id the row
+    // already carries so the link and the resolved object never disagree (issue #240).
+    ref: buildRef(category.name, category._id),
     name: category.name,
     type: category.type,
     color: category.color,
@@ -93,10 +97,7 @@ export async function toCategoryDetailView(
   category: Doc<"categories">,
   viewer: CategoryViewer,
 ) {
-  return {
-    ...(await toCategoryView(ctx, category, viewer)),
-    ref: buildRef(category.name, category._id),
-  };
+  return toCategoryView(ctx, category, viewer);
 }
 
 export type CategoryDetailView = Awaited<ReturnType<typeof toCategoryDetailView>>;
