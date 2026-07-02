@@ -2,7 +2,7 @@ import { COLOR_PALETTE } from "@spend-circle/domain";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CategoryLifecycleButton, EditCategoryForm } from "~/components/category-actions.js";
-import { HistoryList } from "~/components/history-list.js";
+import { CategoryHistory } from "~/components/category-history.js";
 import { InfiniteScrollFooter } from "~/components/infinite-scroll-footer.js";
 import { RowsSkeleton, SkeletonRegion } from "~/components/skeleton.js";
 import { Button } from "~/components/ui/button.js";
@@ -19,13 +19,7 @@ import {
   readCategoriesFilters,
   type TypeFilter,
 } from "~/lib/categories-filter-url.js";
-import {
-  type CategoriesPage,
-  type Category,
-  type Circle,
-  useCategoriesPage,
-  useCategoryHistory,
-} from "~/lib/data.js";
+import { type CategoriesPage, type Category, type Circle, useCategoriesPage } from "~/lib/data.js";
 import { categoryDetailHref } from "~/lib/ledger-url.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
@@ -359,22 +353,5 @@ function CategoryRow({
         </div>
       ) : null}
     </li>
-  );
-}
-
-/** The Category History panel (PRD story 78) — the paginated audit fed into the shared
- * {@link HistoryList}. Kept a thin wrapper so the data hook stays out of the row shell. */
-function CategoryHistory({
-  circleId,
-  categoryId,
-  name,
-}: {
-  circleId: Circle["id"];
-  categoryId: Category["id"];
-  name: string;
-}) {
-  const { events, status, loadMore } = useCategoryHistory(circleId, categoryId);
-  return (
-    <HistoryList events={events} status={status} loadMore={loadMore} label={`${name} history`} />
   );
 }

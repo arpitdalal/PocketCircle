@@ -5,18 +5,13 @@ import {
   categoryColorSwatch,
   EditCategoryForm,
 } from "~/components/category-actions.js";
-import { HistoryList } from "~/components/history-list.js";
+import { CategoryHistory } from "~/components/category-history.js";
 import { Splash } from "~/components/splash.js";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { circlePath } from "~/lib/circle-path.js";
-import {
-  type CategoryDetail,
-  type Circle,
-  useCategoryHistory,
-  useRecentCategoryTransactions,
-} from "~/lib/data.js";
+import { type CategoryDetail, type Circle, useRecentCategoryTransactions } from "~/lib/data.js";
 import { categoryTransactionSearchHref } from "~/lib/ledger-url.js";
 import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import { useResolvedCategoryDetail } from "~/lib/use-resolved-category-detail.js";
@@ -140,20 +135,5 @@ function CategoryDetailView({
 
       <CategoryHistory circleId={circle.id} categoryId={category.id} name={category.name} />
     </div>
-  );
-}
-
-function CategoryHistory({
-  circleId,
-  categoryId,
-  name,
-}: {
-  circleId: Circle["id"];
-  categoryId: CategoryDetail["id"];
-  name: string;
-}) {
-  const { events, status, loadMore } = useCategoryHistory(circleId, categoryId);
-  return (
-    <HistoryList events={events} status={status} loadMore={loadMore} label={`${name} history`} />
   );
 }

@@ -118,7 +118,6 @@ export function makeCategoryDetailView(over: Partial<CategoryDetail> = {}): Cate
   const base = makeCategoryView(over);
   return {
     ...base,
-    ref: over.ref ?? "groceries-cat-groceries",
     ...over,
   };
 }
