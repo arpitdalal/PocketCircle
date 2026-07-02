@@ -217,9 +217,10 @@ export async function seedTransaction(
     paidByMemberId?: Id<"members">;
     categoryIds?: Id<"categories">[];
     status?: "active" | "archived";
+    createdAt?: number;
   } = {},
 ): Promise<Id<"transactions">> {
-  const now = Date.now();
+  const now = opts.createdAt ?? Date.now();
   const recordedByMemberId = opts.recordedByMemberId ?? f.ownerMemberId;
   const date = opts.date ?? "2026-05-15";
   const status = opts.status ?? "active";
@@ -243,6 +244,8 @@ export async function seedTransaction(
       circleId: f.circleId,
       transactionId,
       categoryId,
+      transactionDate: date,
+      transactionCreatedAt: now,
     });
   }
   const txn = await ctx.db.get(transactionId);
@@ -285,6 +288,8 @@ export async function seedTransactionsBulk(
       circleId: f.circleId,
       transactionId,
       categoryId: f.groceriesId,
+      transactionDate: date,
+      transactionCreatedAt: now,
     });
     if (syncSearch) {
       const txn = await ctx.db.get(transactionId);

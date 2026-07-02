@@ -915,6 +915,30 @@ describe("updateTransaction — field edits", () => {
     });
   });
 
+  it("syncs transactionCategories ordering fields when only the date changes", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const id = await t.run((ctx) =>
+      seedTransaction(ctx, f, { date: "2026-05-15", createdAt: 100 }),
+    );
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await t.mutation(api.transactions.updateTransaction, {
+      transactionId: id,
+      date: "2026-06-02",
+    });
+
+    await t.run(async (ctx) => {
+      const links = await ctx.db
+        .query("transactionCategories")
+        .withIndex("by_transaction", (q) => q.eq("transactionId", id))
+        .collect();
+      expect(links).toHaveLength(1);
+      expect(links[0]?.transactionDate).toBe("2026-06-02");
+      expect(links[0]?.transactionCreatedAt).toBe(100);
+    });
+  });
+
   it("is a true no-op when nothing actually changes (no patch, no history)", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));

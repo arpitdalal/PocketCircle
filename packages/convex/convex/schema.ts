@@ -194,9 +194,17 @@ export default defineSchema({
     circleId: v.id("circles"),
     transactionId: v.id("transactions"),
     categoryId: v.id("categories"),
+    transactionDate: v.string(),
+    transactionCreatedAt: v.number(),
   })
     .index("by_transaction", ["transactionId"])
-    .index("by_category", ["categoryId"]),
+    .index("by_category", ["categoryId"])
+    .index("by_category_recent", [
+      "categoryId",
+      "transactionDate",
+      "transactionCreatedAt",
+      "transactionId",
+    ]),
 
   invitations: defineTable({
     circleId: v.id("circles"),

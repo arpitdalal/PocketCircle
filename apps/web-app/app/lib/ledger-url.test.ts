@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { ledgerDrilldownHref, transactionDetailHref, withQuery } from "./ledger-url.js";
+import {
+  categoryDetailHref,
+  categoryTransactionSearchHref,
+  ledgerDrilldownHref,
+  transactionDetailHref,
+  withQuery,
+} from "./ledger-url.js";
+
+describe("categoryDetailHref", () => {
+  it("builds the bare category detail path (origin is carried by returnTo, not here)", () => {
+    expect(categoryDetailHref({ ref: "trip-c1" }, { ref: "groceries-cat1" })).toBe(
+      "/circles/trip-c1/categories/groceries-cat1",
+    );
+  });
+});
+
+describe("categoryTransactionSearchHref", () => {
+  it("builds a category-scoped search URL with type filter, status all, and no date range", () => {
+    const href = categoryTransactionSearchHref(
+      { ref: "trip-c1" },
+      { id: "cat-groceries", type: "expense" },
+    );
+    expect(href).toBe("/circles/trip-c1/search?type=expense&status=all&categories=cat-groceries");
+    const params = new URL(href, "http://t").searchParams;
+    expect(params.get("from")).toBeNull();
+    expect(params.get("to")).toBeNull();
+  });
+});
 
 describe("transactionDetailHref", () => {
   it("builds the bare detail path (origin is carried by returnTo, not here)", () => {

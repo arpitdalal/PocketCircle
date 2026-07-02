@@ -59,6 +59,10 @@ export default [
         // Create Category (issue #96). Same static-segment pattern: a dedicated page
         // lifts the new-Category form off the list, deep-linked with the active type tab.
         route("categories/new", "routes/circle/category-new.tsx"),
+        // The Category DETAIL object route (issue #240, ADR 0016/0017) — the Category
+        // sibling of Transaction Detail: canonical `slug-id` ref under the resolved
+        // Circle, resolving its own target by ID via `useResolvedCategoryDetail`.
+        route("categories/:categoryRef", "routes/circle/category-detail.tsx"),
         route("members", "routes/circle/members.tsx"),
         route("history", "routes/circle/history.tsx"),
         route("settings", "routes/circle/settings.tsx"),

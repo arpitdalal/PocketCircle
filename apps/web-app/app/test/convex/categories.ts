@@ -1,9 +1,10 @@
 import { api } from "@spend-circle/convex";
-import { textIncludes } from "@spend-circle/domain";
+import { buildRef, textIncludes } from "@spend-circle/domain";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
-import type { Category, PaginationStatus } from "~/lib/data.js";
+import type { Category, CategoryDetail, PaginationStatus, Transaction } from "~/lib/data.js";
 import type { EntityDouble } from "./contract.js";
+import { resolveWith } from "./contract.js";
 import { testId } from "./ids.js";
 
 /** Models the `listCategories` backend contract: filter by type, optionally include
@@ -32,6 +33,13 @@ export interface CategoriesState {
    * `null` ≡ inaccessible Circle (ADR 0016). The same rows feed the paginated
    * `filterCategories` double (CAT-4), narrowed per ITS query args. */
   categories?: Category[] | null;
+  /** `getCategory` detail target (issue #240); `undefined` ≡ loading, `null` ≡ unavailable. */
+  categoryDetail?:
+    | CategoryDetail
+    | null
+    | ((args: Record<string, unknown>) => CategoryDetail | null | undefined);
+  /** `listRecentCategoryTransactions` rows for Category Detail preview. */
+  recentCategoryTransactions?: Transaction[];
   /** The `filterCategories` pagination lifecycle (CAT-4); defaults to "Exhausted". */
   categoriesPageStatus?: PaginationStatus;
   /** The `filterCategories` `loadMore`; assert against it for the Categories
@@ -56,6 +64,8 @@ export interface CategoriesState {
 export function categoriesDouble(state: CategoriesState): EntityDouble {
   const {
     categories,
+    categoryDetail,
+    recentCategoryTransactions = [],
     categoriesPageStatus = "Exhausted",
     categoriesLoadMore = () => {},
     createCategory,
@@ -67,6 +77,9 @@ export function categoriesDouble(state: CategoriesState): EntityDouble {
     queries: {
       [getFunctionName(api.categories.listCategories)]: (args) =>
         categories == null ? categories : fakeListCategories(categories, args),
+      [getFunctionName(api.categories.getCategory)]: (args) => resolveWith(categoryDetail, args),
+      [getFunctionName(api.categories.listRecentCategoryTransactions)]: () =>
+        recentCategoryTransactions,
     },
     paginatedQueries: {
       [getFunctionName(api.categories.filterCategories)]: (args) => ({
@@ -85,15 +98,26 @@ export function categoriesDouble(state: CategoriesState): EntityDouble {
 }
 
 export function makeCategoryView(over: Partial<Category> = {}): Category {
+  const id = over.id ?? testId<Category["id"]>("cat-groceries");
+  const name = over.name ?? "Groceries";
   return {
-    id: testId<Category["id"]>("cat-groceries"),
-    name: "Groceries",
+    id,
+    ref: over.ref ?? buildRef(name, id),
+    name,
     type: "expense",
     color: "green",
     status: "active",
     creator: { displayName: "You", image: undefined },
     canEditFields: true,
     canArchive: true,
+    ...over,
+  };
+}
+
+export function makeCategoryDetailView(over: Partial<CategoryDetail> = {}): CategoryDetail {
+  const base = makeCategoryView(over);
+  return {
+    ...base,
     ...over,
   };
 }

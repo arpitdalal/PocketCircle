@@ -1,4 +1,5 @@
 import {
+  buildRef,
   categoryInputSchema,
   categoryUpdateSchema,
   colorLabel,
@@ -27,6 +28,7 @@ import {
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { notifyCategoryLifecycleChange } from "./notify.js";
 import schema from "./schema.js";
+import { newViewCaches, toTransactionView } from "./transactions.js";
 
 const transactionType = v.union(v.literal("expense"), v.literal("income"));
 
@@ -71,6 +73,10 @@ export async function toCategoryView(
   const isCreator = category.creatorUserId === viewer.userId;
   return {
     id: category._id,
+    // Canonical slug-id ref (ADR 0016): list rows link to `/categories/<ref>` and the
+    // detail resolver canonicalizes stale slugs — built from the same name + id the row
+    // already carries so the link and the resolved object never disagree (issue #240).
+    ref: buildRef(category.name, category._id),
     name: category.name,
     type: category.type,
     color: category.color,
@@ -85,6 +91,16 @@ export async function toCategoryView(
 }
 
 export type CategoryView = Awaited<ReturnType<typeof toCategoryView>>;
+
+export async function toCategoryDetailView(
+  ctx: QueryCtx,
+  category: Doc<"categories">,
+  viewer: CategoryViewer,
+) {
+  return toCategoryView(ctx, category, viewer);
+}
+
+export type CategoryDetailView = Awaited<ReturnType<typeof toCategoryDetailView>>;
 
 interface CreateCategoryForMemberArgs {
   access: AuthorizedCircle;
@@ -185,6 +201,76 @@ export const listCategories = query({
 
     const viewer = { userId: access.user._id, isOwner: access.isOwner };
     return await Promise.all(visible.map((category) => toCategoryView(ctx, category, viewer)));
+  },
+});
+
+/**
+ * Resolves one Category for its **Category Detail** object route (issue #240). The mirror
+ * of {@link getTransaction}: normalize ids, verify Circle access, load by id, collapse
+ * missing / inaccessible / wrong-Circle to `null` (ADR 0016). Archived Categories resolve —
+ * detail is a read surface.
+ */
+export const getCategory = query({
+  args: { circleId: v.string(), categoryId: v.string() },
+  handler: async (ctx, args) => {
+    const categoryId = ctx.db.normalizeId("categories", args.categoryId);
+    const circleId = ctx.db.normalizeId("circles", args.circleId);
+    if (!categoryId || !circleId) {
+      return null;
+    }
+    const access = await resolveCircleAccess(ctx, circleId);
+    if (!access) {
+      return null;
+    }
+    const category = await ctx.db.get(categoryId);
+    if (!category || category.circleId !== circleId) {
+      return null;
+    }
+    const viewer = { userId: access.user._id, isOwner: access.isOwner };
+    return toCategoryDetailView(ctx, category, viewer);
+  },
+});
+
+/**
+ * The five most recent Transactions linked to a Category (issue #240), ordered by
+ * Transaction Date descending, then `createdAt` descending, then `transactionId` as a
+ * deterministic tie-breaker. Includes active and archived Transactions. Returns `[]` for
+ * the same anti-enumeration cases as other supporting list reads below a resolved object
+ * route (malformed ids, missing Category, inaccessible Circle, wrong-Circle Category).
+ */
+export const listRecentCategoryTransactions = query({
+  args: { circleId: v.string(), categoryId: v.string() },
+  handler: async (ctx, args) => {
+    const categoryId = ctx.db.normalizeId("categories", args.categoryId);
+    const circleId = ctx.db.normalizeId("circles", args.circleId);
+    if (!categoryId || !circleId) {
+      return [];
+    }
+    const access = await resolveCircleAccess(ctx, circleId);
+    if (!access) {
+      return [];
+    }
+    const category = await ctx.db.get(categoryId);
+    if (!category || category.circleId !== circleId) {
+      return [];
+    }
+
+    const links = await ctx.db
+      .query("transactionCategories")
+      .withIndex("by_category_recent", (q) => q.eq("categoryId", categoryId))
+      .order("desc")
+      .take(5);
+
+    const caches = newViewCaches();
+    const rows = [];
+    for (const link of links) {
+      const txn = await ctx.db.get(link.transactionId);
+      if (!txn || txn.circleId !== circleId) {
+        continue;
+      }
+      rows.push(await toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner));
+    }
+    return rows;
   },
 });
 

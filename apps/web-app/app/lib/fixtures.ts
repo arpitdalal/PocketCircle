@@ -1,4 +1,5 @@
 import {
+  buildRef,
   type ComparisonRangeMonths,
   comparisonWindowMonths,
   PERSONAL_CIRCLE_COLOR_ID,
@@ -13,6 +14,7 @@ import type { InvitationPreview } from "./data/invitations.js";
 import type {
   Category,
   CategoryAnalytics,
+  CategoryDetail,
   CategoryHistoryEvent,
   Circle,
   CircleHistoryEvent,
@@ -60,6 +62,7 @@ export const MOCK_CIRCLES: Circle[] = [
 export const MOCK_CATEGORIES: Category[] = [
   {
     id: "mock-cat-groceries" as Category["id"],
+    ref: buildRef("Groceries", "mock-cat-groceries"),
     name: "Groceries",
     type: "expense",
     color: "green",
@@ -70,6 +73,7 @@ export const MOCK_CATEGORIES: Category[] = [
   },
   {
     id: "mock-cat-rent" as Category["id"],
+    ref: buildRef("Rent", "mock-cat-rent"),
     name: "Rent",
     type: "expense",
     color: "amber",
@@ -80,6 +84,7 @@ export const MOCK_CATEGORIES: Category[] = [
   },
   {
     id: "mock-cat-salary" as Category["id"],
+    ref: buildRef("Salary", "mock-cat-salary"),
     name: "Salary",
     type: "income",
     color: "teal",
@@ -92,6 +97,7 @@ export const MOCK_CATEGORIES: Category[] = [
   // muted-name + "Archived" treatment offline (CAT-4).
   {
     id: "mock-cat-subscriptions" as Category["id"],
+    ref: buildRef("Old Subscriptions", "mock-cat-subscriptions"),
     name: "Old Subscriptions",
     type: "expense",
     color: "rose",
@@ -101,6 +107,17 @@ export const MOCK_CATEGORIES: Category[] = [
     canArchive: true,
   },
 ];
+
+/**
+ * Synthesizes a Category DETAIL view for the detail object route under MOCKS (issue #240).
+ */
+export function mockCategoryDetail(id: string): CategoryDetail {
+  const base = MOCK_CATEGORIES.find((category) => category.id === id) ?? MOCK_CATEGORIES[0];
+  if (!base) {
+    throw new Error("mock categories missing");
+  }
+  return base;
+}
 
 /**
  * The `filterCategories` narrowing applied to the fixtures under MOCKS (CAT-4):

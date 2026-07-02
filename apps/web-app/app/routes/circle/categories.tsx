@@ -1,8 +1,8 @@
-import { COLOR_PALETTE, categoryUpdateSchema, LIMITS } from "@spend-circle/domain";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { COLOR_PALETTE } from "@spend-circle/domain";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ColorPicker } from "~/components/category-form.js";
-import { HistoryList } from "~/components/history-list.js";
+import { CategoryLifecycleButton, EditCategoryForm } from "~/components/category-actions.js";
+import { CategoryHistory } from "~/components/category-history.js";
 import { InfiniteScrollFooter } from "~/components/infinite-scroll-footer.js";
 import { RowsSkeleton, SkeletonRegion } from "~/components/skeleton.js";
 import { Button } from "~/components/ui/button.js";
@@ -19,20 +19,9 @@ import {
   readCategoriesFilters,
   type TypeFilter,
 } from "~/lib/categories-filter-url.js";
-import {
-  type CategoriesPage,
-  type Category,
-  type Circle,
-  useArchiveCategory,
-  useCategoriesPage,
-  useCategoryHistory,
-  useRestoreCategory,
-  useUpdateCategory,
-} from "~/lib/data.js";
-import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
+import { type CategoriesPage, type Category, type Circle, useCategoriesPage } from "~/lib/data.js";
+import { categoryDetailHref } from "~/lib/ledger-url.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
-import { useCategoryRefHighlight } from "~/lib/use-category-ref-highlight.js";
-import { useDoubleCheck } from "~/lib/use-double-check.js";
 import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
@@ -75,7 +64,6 @@ export default function CircleCategories() {
   const circle = useCircle();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = readCategoriesFilters(searchParams);
-  const categoryRefRaw = searchParams.get("categoryRef") ?? undefined;
   const writable = circle.status === "active";
   // The list's full URL (its type, status, search) is the origin the New-category CTA
   // returns to via `returnTo` (#123), so a filtered view round-trips through the new page.
@@ -85,27 +73,16 @@ export default function CircleCategories() {
     status: filters.status,
     ...(filters.q ? { query: filters.q } : {}),
   });
-  const { highlightedId, categoryRefConsumed } = useCategoryRefHighlight({
-    categoryRefRaw,
-    categories: page.categories,
-    status: page.status,
-    loadMore: page.loadMore,
-  });
 
   // Canonicalize the address bar (replace) so a copied URL always carries
-  // type+status — the transactions route's contract applied here. When a
-  // one-shot `categoryRef` deep link is consumed, drop it here so canonicalize
-  // and strip never race (#202).
+  // type+status — the transactions route's contract applied here.
   // react-doctor-disable-next-line react-doctor/no-event-handler -- URL must self-heal on load and when reactive filters diverge from the bar; no single user event owns that.
   useEffect(() => {
     const next = canonicalCategoriesParams(filters, searchParams);
-    if (categoryRefConsumed) {
-      next.delete("categoryRef");
-    }
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
-  }, [categoryRefConsumed, filters, searchParams, setSearchParams]);
+  }, [filters, searchParams, setSearchParams]);
 
   // Discrete control changes (type segment, status segment) PUSH a history entry.
   const applyFilters = (next: CategoriesFilters) => {
@@ -165,12 +142,7 @@ export default function CircleCategories() {
         </p>
       )}
 
-      <CategoryList
-        page={page}
-        narrowed={hasCategoriesNarrowing(filters)}
-        circle={circle}
-        highlightedId={highlightedId}
-      />
+      <CategoryList page={page} narrowed={hasCategoriesNarrowing(filters)} circle={circle} />
     </div>
   );
 }
@@ -200,16 +172,17 @@ function CategoryList({
   page,
   narrowed,
   circle,
-  highlightedId,
 }: {
   page: CategoriesPage;
   narrowed: boolean;
   circle: Circle;
-  highlightedId: Category["id"] | null;
 }) {
   const [editingId, setEditingId] = useState<Category["id"] | null>(null);
   const [historyId, setHistoryId] = useState<Category["id"] | null>(null);
   const { categories, status, loadMore } = page;
+  // The list's current URL (type, status, search) is the origin a row's detail link
+  // returns to via `returnTo` (#123) — same contract as the ledger Transaction rows.
+  const origin = useReturnToOrigin();
 
   // The open-editor / open-history selection is only meaningful while its row is
   // ON the current page. The Category Filter (search, status, type) and reactive
@@ -254,7 +227,7 @@ function CategoryList({
             key={category.id}
             category={category}
             circle={circle}
-            highlighted={highlightedId === category.id}
+            origin={origin}
             editing={editingId === category.id}
             onEditToggle={(open) => setEditingId(open ? category.id : null)}
             historyOpen={historyId === category.id}
@@ -277,7 +250,7 @@ function CategoryList({
 function CategoryRow({
   category,
   circle,
-  highlighted,
+  origin,
   editing,
   onEditToggle,
   historyOpen,
@@ -285,7 +258,7 @@ function CategoryRow({
 }: {
   category: Category;
   circle: Circle;
-  highlighted: boolean;
+  origin: string;
   editing: boolean;
   onEditToggle: (open: boolean) => void;
   historyOpen: boolean;
@@ -294,25 +267,6 @@ function CategoryRow({
   const writable = circle.status === "active";
   const swatch = COLOR_PALETTE.find((c) => c.id === category.color);
   const isArchived = category.status === "archived";
-  const scrolledRef = useRef(false);
-
-  useEffect(() => {
-    if (!highlighted) {
-      scrolledRef.current = false;
-    }
-  }, [highlighted]);
-
-  const rowRef = useCallback(
-    (node: HTMLLIElement | null) => {
-      if (!node || !highlighted || scrolledRef.current) {
-        return;
-      }
-      scrolledRef.current = true;
-      node.scrollIntoView({ block: "center", behavior: "smooth" });
-      node.focus({ preventScroll: true });
-    },
-    [highlighted],
-  );
 
   // Whether this row may edit is SERVER-derived data (the capability flag, the
   // row's status, the Circle's status) — `editing` alone is just UI state, so the
@@ -329,15 +283,7 @@ function CategoryRow({
   }, [editing, canEdit, onEditToggle]);
 
   return (
-    <li
-      ref={rowRef}
-      tabIndex={highlighted ? -1 : undefined}
-      className={cn(
-        "rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors duration-500 outline-none",
-        highlighted &&
-          "ring-2 ring-ring ring-offset-2 ring-offset-background animate-highlight-flash",
-      )}
-    >
+    <li className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm">
       {editing && canEdit ? (
         <EditCategoryForm category={category} onClose={() => onEditToggle(false)} />
       ) : (
@@ -348,7 +294,13 @@ function CategoryRow({
             style={{ backgroundColor: swatch?.hex }}
           />
           <span className={cn("text-sm font-medium", isArchived && "text-muted-foreground")}>
-            {category.name}
+            <Link
+              to={withReturnTo(categoryDetailHref(circle, category), origin)}
+              className="hover:underline"
+              aria-label={`View ${category.name}`}
+            >
+              {category.name}
+            </Link>
           </span>
           {/* Text pill (not color alone) so expense vs income is legible now that
               both types interleave under the default All view (issue #138). */}
@@ -375,7 +327,10 @@ function CategoryRow({
             </Button>
           ) : null}
           {writable && category.canArchive ? (
-            <LifecycleButton category={category} action={isArchived ? "restore" : "archive"} />
+            <CategoryLifecycleButton
+              category={category}
+              action={isArchived ? "restore" : "archive"}
+            />
           ) : null}
           <Button
             type="button"
@@ -398,245 +353,5 @@ function CategoryRow({
         </div>
       ) : null}
     </li>
-  );
-}
-
-/**
- * The inline rename/recolor form (creator-only — the server enforces it, ADR 0015).
- * Sends only the fields that differ from the current Category, so an untouched
- * submit is a server-side no-op that records no history.
- */
-function EditCategoryForm({ category, onClose }: { category: Category; onClose: () => void }) {
-  return <EditCategoryFormFields key={category.id} category={category} onClose={onClose} />;
-}
-
-function EditCategoryFormFields({
-  category,
-  onClose,
-}: {
-  category: Category;
-  onClose: () => void;
-}) {
-  const updateCategory = useUpdateCategory();
-  // react-doctor-disable-next-line react-doctor/no-derived-useState -- parent key={category.id} remounts this editor per row/session.
-  const [name, setName] = useState(category.name);
-  // react-doctor-disable-next-line react-doctor/no-derived-useState -- parent key={category.id} remounts this editor per row/session.
-  const [color, setColor] = useState(category.color);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const inputId = `edit-category-${category.id}`;
-  const errorId = `${inputId}-error`;
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    const parsed = categoryUpdateSchema.safeParse({ name, color });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Please check the category details.");
-      return;
-    }
-
-    const changedName = parsed.data.name !== category.name ? parsed.data.name : undefined;
-    const changedColor = parsed.data.color !== category.color ? parsed.data.color : undefined;
-    if (changedName === undefined && changedColor === undefined) {
-      onClose(); // nothing changed — just close, no write
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await updateCategory({
-        categoryId: category.id,
-        ...(changedName !== undefined ? { name: changedName } : {}),
-        ...(changedColor !== undefined ? { color: changedColor } : {}),
-      });
-      onClose();
-    } catch (caught) {
-      setError(
-        mutationErrorMessageForUser(caught, "Couldn't save the category. Please try again."),
-      );
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-3" aria-label={`Edit ${category.name}`}>
-      <div className="space-y-1.5">
-        <label htmlFor={inputId} className="block text-sm font-medium">
-          Name
-        </label>
-        <input
-          id={inputId}
-          name="name"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-            if (error) {
-              setError(null);
-            }
-          }}
-          maxLength={LIMITS.categoryNameMax}
-          autoComplete="off"
-          aria-invalid={error != null}
-          aria-describedby={error ? errorId : undefined}
-          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
-        />
-      </div>
-
-      <ColorPicker legend="Color" color={color} onChange={setColor} />
-
-      {error ? (
-        <p id={errorId} role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-
-      <div className="flex gap-2">
-        <Button type="submit" disabled={submitting || name.trim() === ""}>
-          {submitting ? "Saving…" : "Save"}
-        </Button>
-        <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-const LIFECYCLE_COPY = {
-  archive: {
-    idle: "Archive",
-    confirm: "Confirm archive",
-    busy: "Archiving…",
-    error: "Couldn't archive the category.",
-  },
-  restore: { idle: "Restore", busy: "Restoring…", error: "Couldn't restore the category." },
-};
-
-/**
- * The archive/restore moderation affordance (creator or Owner — the server enforces
- * it, ADR 0015). The action derives from the row's own `status`, so the widened
- * active+archived list shows Archive on active rows and Restore on archived ones.
- * Failures surface inline next to the action (`role="alert"`), never swallowed.
- */
-function LifecycleButton({
-  category,
-  action,
-}: {
-  category: Category;
-  action: "archive" | "restore";
-}) {
-  if (action === "restore") {
-    return <RestoreLifecycleButton category={category} />;
-  }
-  return <ArchiveLifecycleButton category={category} />;
-}
-
-function ArchiveLifecycleButton({ category }: { category: Category }) {
-  const archiveCategory = useArchiveCategory();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const copy = LIFECYCLE_COPY.archive;
-
-  const runArchive = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      await archiveCategory({ categoryId: category.id });
-    } catch (caught) {
-      console.error("archiveCategory failed", caught);
-      setError(mutationErrorMessageForUser(caught, `${copy.error} Please try again.`));
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const { armed, getButtonProps } = useDoubleCheck({
-    onConfirm: runArchive,
-    identity: category.id,
-  });
-  const idleAriaLabel = `${copy.idle} ${category.name}`;
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant={armed && !pending ? "destructive" : "outline"}
-        size="sm"
-        disabled={pending}
-        aria-label={
-          pending ? idleAriaLabel : armed ? `${copy.confirm} ${category.name}` : idleAriaLabel
-        }
-        {...getButtonProps()}
-      >
-        {pending ? copy.busy : armed ? copy.confirm : copy.idle}
-      </Button>
-      {error ? (
-        <p role="alert" className="w-full text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function RestoreLifecycleButton({ category }: { category: Category }) {
-  const restoreCategory = useRestoreCategory();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const copy = LIFECYCLE_COPY.restore;
-
-  const onClick = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      await restoreCategory({ categoryId: category.id });
-    } catch (caught) {
-      console.error("restoreCategory failed", caught);
-      setError(mutationErrorMessageForUser(caught, `${copy.error} Please try again.`));
-    } finally {
-      // Always clear the in-flight flag: on success the row stays mounted in the
-      // widened list and `action` flips with the new `status` (the TXN-3 lesson,
-      // issue #82).
-      setPending(false);
-    }
-  };
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={pending}
-        onClick={onClick}
-        aria-label={`${copy.idle} ${category.name}`}
-      >
-        {pending ? copy.busy : copy.idle}
-      </Button>
-      {error ? (
-        <p role="alert" className="w-full text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-/** The Category History panel (PRD story 78) — the paginated audit fed into the shared
- * {@link HistoryList}. Kept a thin wrapper so the data hook stays out of the row shell. */
-function CategoryHistory({
-  circleId,
-  categoryId,
-  name,
-}: {
-  circleId: Circle["id"];
-  categoryId: Category["id"];
-  name: string;
-}) {
-  const { events, status, loadMore } = useCategoryHistory(circleId, categoryId);
-  return (
-    <HistoryList events={events} status={status} loadMore={loadMore} label={`${name} history`} />
   );
 }
