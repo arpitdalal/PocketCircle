@@ -510,6 +510,7 @@ async function rewriteTransactionCategories(
   circleId: Id<"circles">,
   transactionId: Id<"transactions">,
   categoryIds: Id<"categories">[],
+  ordering: { transactionDate: string; transactionCreatedAt: number },
 ): Promise<void> {
   const existing = await ctx.db
     .query("transactionCategories")
@@ -519,7 +520,30 @@ async function rewriteTransactionCategories(
     await ctx.db.delete(link._id);
   }
   for (const categoryId of categoryIds) {
-    await ctx.db.insert("transactionCategories", { circleId, transactionId, categoryId });
+    await ctx.db.insert("transactionCategories", {
+      circleId,
+      transactionId,
+      categoryId,
+      transactionDate: ordering.transactionDate,
+      transactionCreatedAt: ordering.transactionCreatedAt,
+    });
+  }
+}
+
+/** Keeps denormalized ordering fields on join rows in sync when a Transaction's date changes. */
+async function syncTransactionCategoryOrderingFields(
+  ctx: MutationCtx,
+  transaction: Doc<"transactions">,
+): Promise<void> {
+  const links = await ctx.db
+    .query("transactionCategories")
+    .withIndex("by_transaction", (q) => q.eq("transactionId", transaction._id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.patch(link._id, {
+      transactionDate: transaction.date,
+      transactionCreatedAt: transaction.createdAt,
+    });
   }
 }
 
@@ -607,6 +631,8 @@ export const createTransaction = mutation({
         circleId: args.circleId,
         transactionId,
         categoryId: category._id,
+        transactionDate: input.date,
+        transactionCreatedAt: now,
       });
     }
     const createdTransaction = await ctx.db.get(transactionId);
@@ -857,7 +883,13 @@ export const updateTransaction = mutation({
         txn.circleId,
         txn._id,
         newCategories.map((category) => category._id),
+        {
+          transactionDate: updatedTransaction.date,
+          transactionCreatedAt: updatedTransaction.createdAt,
+        },
       );
+    } else if (input.date !== undefined && input.date !== txn.date) {
+      await syncTransactionCategoryOrderingFields(ctx, updatedTransaction);
     }
     await syncTransactionSearchDocument(ctx, updatedTransaction, {
       categoryIds: categoriesChanged

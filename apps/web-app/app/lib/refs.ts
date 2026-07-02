@@ -38,8 +38,8 @@ export function parseTransactionRef(ref: string | undefined): ParsedRef | null {
 }
 
 /**
- * Parses a Category ref from the `categoryRef` deep-link query param (#202).
- * Same parsing as the other ref parsers; only the source (query, not path) differs.
+ * Parses a Category ref from `/categories/:categoryRef` object routes (issue #240).
+ * Same parsing as the other ref parsers; only the route param differs.
  */
 export function parseCategoryRef(ref: string | undefined): ParsedRef | null {
   if (!ref) {

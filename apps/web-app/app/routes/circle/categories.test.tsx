@@ -1,9 +1,9 @@
-import { buildRef, MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
 import { Route, useNavigate } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Category, CategoryHistoryEvent, Circle, PaginationStatus } from "~/lib/data.js";
 import {
   configureConvex,
@@ -49,24 +49,6 @@ function GoBack() {
       test-go-back
     </button>
   );
-}
-
-/** Captures `useNavigate` so tests can simulate a second in-app notification link. */
-function makeNavigateCapture() {
-  const holder: { current?: ReturnType<typeof useNavigate> } = {};
-  function Capture() {
-    holder.current = useNavigate();
-    return null;
-  }
-  return {
-    Capture,
-    navigate: (to: string) => {
-      if (holder.current == null) {
-        throw new Error("Router navigate function unavailable.");
-      }
-      return act(() => holder.current?.(to));
-    },
-  };
 }
 
 function setup(
@@ -813,135 +795,6 @@ describe("CircleCategories — archive / restore (CAT-2)", () => {
     await armArchive(user, "Groceries");
     await user.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "Archive Groceries" })).toBeInTheDocument();
-  });
-});
-
-describe("CircleCategories — categoryRef deep link (#202)", () => {
-  const groceriesId = testId<Category["id"]>("catgroceries");
-  const groceriesRef = buildRef("Groceries", groceriesId);
-
-  beforeEach(() => {
-    Element.prototype.scrollIntoView = vi.fn();
-  });
-
-  it("highlights the matching row and scrolls it into view", async () => {
-    setup({
-      categories: [makeCategoryView({ id: groceriesId })],
-      initialEntries: [`/?categoryRef=${groceriesRef}`],
-    });
-
-    const row = rowFor("Groceries");
-    await waitFor(() => expect(row).toHaveClass("animate-highlight-flash"));
-    expect(row).toHaveFocus();
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
-      block: "center",
-      behavior: "smooth",
-    });
-  });
-
-  it("strips categoryRef from the URL after the row is highlighted", async () => {
-    const view = setup({
-      categories: [makeCategoryView({ id: groceriesId })],
-      initialEntries: [`/?categoryRef=${groceriesRef}`],
-    });
-
-    await waitFor(() => expect(rowFor("Groceries")).toHaveClass("animate-highlight-flash"));
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
-    expect(view.location()).toBe("/?type=all&status=all");
-  });
-
-  it("auto-loads until the target category appears", async () => {
-    const targetId = testId<Category["id"]>("cattarget");
-    const targetRef = buildRef("Target Cat", targetId);
-    const categoriesLoadMore = vi.fn();
-    const view = setup({
-      categories: [makeCategoryView({ id: testId<Category["id"]>("cdecoy"), name: "Decoy" })],
-      categoriesPageStatus: "CanLoadMore",
-      categoriesLoadMore,
-      initialEntries: [`/?categoryRef=${targetRef}`],
-    });
-
-    await waitFor(() => expect(categoriesLoadMore).toHaveBeenCalled());
-    expect(screen.queryByText("Target Cat")).not.toBeInTheDocument();
-
-    configureConvex({
-      categories: [
-        makeCategoryView({ id: testId<Category["id"]>("cdecoy"), name: "Decoy" }),
-        makeCategoryView({ id: targetId, name: "Target Cat" }),
-      ],
-      categoriesPageStatus: "Exhausted",
-      categoriesLoadMore,
-      createCategory,
-      updateCategory,
-      archiveCategory,
-      restoreCategory,
-    });
-    view.rerender();
-
-    const row = rowFor("Target Cat");
-    await waitFor(() => expect(row).toHaveClass("animate-highlight-flash"));
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
-  });
-
-  it("shows the unavailable snackbar and strips categoryRef when the target is not found", async () => {
-    const view = setup({
-      categories: [makeCategoryView({ id: groceriesId })],
-      categoriesPageStatus: "Exhausted",
-      initialEntries: [`/?categoryRef=${buildRef("Missing", "catmissing")}`],
-    });
-
-    expect(await screen.findByText("That link isn't available.")).toBeInTheDocument();
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
-    expect(rowFor("Groceries")).not.toHaveClass("animate-highlight-flash");
-  });
-
-  it("no-ops on an unparseable categoryRef and strips the param", async () => {
-    const view = setup({
-      categories: [makeCategoryView({ id: groceriesId })],
-      initialEntries: ["/?categoryRef=not-a-!"],
-    });
-
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
-    expect(rowFor("Groceries")).not.toHaveClass("animate-highlight-flash");
-    expect(screen.queryByText("That link isn't available.")).not.toBeInTheDocument();
-  });
-
-  it("highlights a second categoryRef when already on the route", async () => {
-    const salaryId = testId<Category["id"]>("catsalary");
-    const salaryRef = buildRef("Salary", salaryId);
-    const nav = makeNavigateCapture();
-    const view = renderCircleRoutes(
-      makeCircleView(),
-      <Route path="/" element={<CircleCategories />} />,
-      {
-        initialEntries: [`/?categoryRef=${groceriesRef}`],
-        chrome: (
-          <>
-            <GoBack />
-            <nav.Capture />
-          </>
-        ),
-      },
-    );
-    configureConvex({
-      categories: [
-        makeCategoryView({ id: groceriesId }),
-        makeCategoryView({ id: salaryId, name: "Salary", type: "income" }),
-      ],
-      createCategory,
-      updateCategory,
-      archiveCategory,
-      restoreCategory,
-    });
-
-    await waitFor(() => expect(rowFor("Groceries")).toHaveClass("animate-highlight-flash"));
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
-
-    await nav.navigate(`/?type=all&status=all&categoryRef=${salaryRef}`);
-
-    await waitFor(() => expect(rowFor("Salary")).toHaveClass("animate-highlight-flash"));
-    expect(rowFor("Groceries")).not.toHaveClass("animate-highlight-flash");
-    await waitFor(() => expect(view.location()).not.toContain("categoryRef"));
   });
 });
 

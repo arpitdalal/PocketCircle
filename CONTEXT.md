@@ -188,6 +188,10 @@ _Avoid_: Deleted Category
 The immutable change history for a **Category**, including created, edited, archived, and restored events. Current Members can view Category History, including the acting Member, changed field names, and old and new values for name and Category Color; internal IDs are not shown.
 _Avoid_: Hidden Category Audit
 
+**Category Detail**:
+A focused view of one **Category** inside its **Circle**, reached from Category notifications or the Category list. It shows the Category's name, type, color, lifecycle status, creator attribution, edit and archive or restore actions when allowed, recent Transactions that use the Category ordered by Transaction Date, a link to all matching Transactions in all-time **Transaction Search**, and **Category History**. Archived Categories still have a Category Detail view because they remain attached to historical Transactions.
+_Avoid_: Category Profile, Category Page
+
 **Category Filter**:
 A lightweight way to narrow a **Circle's** **Category** list of one **Transaction** type by Category name text and lifecycle scope: active, archived, or all. The Category Filter is a view over the type-scoped Category list; it does not change which Categories can be attached to Transactions. It parallels **Ledger Filter** and is distinct from **Transaction Search**, which finds Transactions, not Categories.
 _Avoid_: Category Search, Category Lookup

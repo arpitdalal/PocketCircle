@@ -1,9 +1,10 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { buildRef, MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest, type TestConvex } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
+import { seedFixture, seedTransaction } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
@@ -1757,5 +1758,135 @@ describe("filterCategories — access and anti-enumeration (CAT-4)", () => {
     expect(await flagsAs(creator)).toEqual({ canEditFields: true, canArchive: true });
     expect(await flagsAs(owner)).toEqual({ canEditFields: false, canArchive: true });
     expect(await flagsAs(bystander)).toEqual({ canEditFields: false, canArchive: false });
+  });
+});
+
+describe("getCategory — Category Detail (issue #240)", () => {
+  it("returns detail with canonical ref for active and archived categories", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, creator, circleId, categoryId } = await seedCategoryScenario(t);
+    mockCurrentUser.mockResolvedValue(creator);
+
+    const active = await t.query(api.categories.getCategory, {
+      circleId,
+      categoryId,
+    });
+    expect(active?.name).toBe("Groceries");
+    expect(active?.ref).toBe(buildRef("Groceries", categoryId));
+    expect(active?.canEditFields).toBe(true);
+
+    await t.mutation(api.categories.archiveCategory, { categoryId });
+    const archived = await t.query(api.categories.getCategory, {
+      circleId,
+      categoryId,
+    });
+    expect(archived?.status).toBe("archived");
+    expect(archived?.ref).toBe(buildRef("Groceries", categoryId));
+
+    mockCurrentUser.mockResolvedValue(owner);
+    expect(await t.query(api.categories.getCategory, { circleId, categoryId })).not.toBeNull();
+  });
+
+  it("returns null for missing, malformed, inaccessible, and wrong-circle ids", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId, categoryId } = await seedCategoryScenario(t);
+    const other = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    expect(await t.query(api.categories.getCategory, { circleId, categoryId: "!" })).toBeNull();
+    expect(
+      await t.query(api.categories.getCategory, {
+        circleId,
+        categoryId: "categories;missing",
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(api.categories.getCategory, {
+        circleId: other.circleId,
+        categoryId,
+      }),
+    ).toBeNull();
+
+    mockCurrentUser.mockResolvedValue(null);
+    expect(await t.query(api.categories.getCategory, { circleId, categoryId })).toBeNull();
+  });
+});
+
+describe("listRecentCategoryTransactions — Category Detail preview (issue #240)", () => {
+  it("returns up to five transactions ordered by date then createdAt", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    const older = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Older shop",
+        date: "2026-05-01",
+        categoryIds: [f.groceriesId],
+        createdAt: 100,
+      }),
+    );
+    const newer = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Newer shop",
+        date: "2026-05-20",
+        categoryIds: [f.groceriesId],
+        createdAt: 200,
+      }),
+    );
+    await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Same date later create",
+        date: "2026-05-20",
+        categoryIds: [f.groceriesId],
+        createdAt: 300,
+      }),
+    );
+    await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Other category",
+        date: "2026-06-01",
+        categoryIds: [f.diningId],
+      }),
+    );
+
+    const recent = await t.query(api.categories.listRecentCategoryTransactions, {
+      circleId: f.circleId,
+      categoryId: f.groceriesId,
+    });
+    expect(recent.map((txn) => txn.title)).toEqual([
+      "Same date later create",
+      "Newer shop",
+      "Older shop",
+    ]);
+    expect(recent.some((txn) => txn.id === older)).toBe(true);
+    expect(recent.some((txn) => txn.id === newer)).toBe(true);
+  });
+
+  it("includes archived transactions and returns [] for anti-enumeration cases", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    const archivedTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Archived txn",
+        status: "archived",
+        categoryIds: [f.groceriesId],
+      }),
+    );
+
+    const recent = await t.query(api.categories.listRecentCategoryTransactions, {
+      circleId: f.circleId,
+      categoryId: f.groceriesId,
+    });
+    expect(recent.some((txn) => txn.id === archivedTxnId && txn.status === "archived")).toBe(true);
+
+    expect(
+      await t.query(api.categories.listRecentCategoryTransactions, {
+        circleId: f.circleId,
+        categoryId: "categories;missing",
+      }),
+    ).toEqual([]);
   });
 });

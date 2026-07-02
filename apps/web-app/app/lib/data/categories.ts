@@ -11,7 +11,12 @@ import type { FunctionReturnType } from "convex/server";
 // .paginate().
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import { MOCKS } from "../env.js";
-import { MOCK_CATEGORIES, mockFilterCategories } from "../fixtures.js";
+import {
+  MOCK_CATEGORIES,
+  MOCK_TRANSACTIONS,
+  mockCategoryDetail,
+  mockFilterCategories,
+} from "../fixtures.js";
 import type { Circle } from "./circles.js";
 import type { PaginationStatus } from "./transactions.js";
 
@@ -24,6 +29,12 @@ import type { PaginationStatus } from "./transactions.js";
 export type Category = NonNullable<
   FunctionReturnType<typeof api.categories.listCategories>
 >[number];
+
+/**
+ * The single Category DETAIL view contract (issue #240), derived from `getCategory`
+ * so it cannot drift from `toCategoryDetailView` (ADR 0003).
+ */
+export type CategoryDetail = NonNullable<FunctionReturnType<typeof api.categories.getCategory>>;
 
 /**
  * A Circle's Categories of one type — active only by default, or active + archived
@@ -140,4 +151,33 @@ export function useArchiveCategory() {
 /** The Restore-Category mutation (CAT-2): the mirror of {@link useArchiveCategory}. */
 export function useRestoreCategory() {
   return useMutation(api.categories.restoreCategory);
+}
+
+/**
+ * The Category DETAIL read (issue #240): one Category shaped for its object route.
+ * `undefined` while loading; `null` when inaccessible (ADR 0016).
+ */
+export function useCategoryDetail(circleId: Circle["id"], categoryId: Category["id"]) {
+  const queried = useQuery(api.categories.getCategory, MOCKS ? "skip" : { circleId, categoryId });
+  if (MOCKS) {
+    return mockCategoryDetail(categoryId);
+  }
+  return queried;
+}
+
+/**
+ * Up to five recent Transactions for a Category Detail preview (issue #240).
+ * `undefined` while loading; `[]` when the supporting read is empty.
+ */
+export function useRecentCategoryTransactions(circleId: Circle["id"], categoryId: Category["id"]) {
+  const queried = useQuery(
+    api.categories.listRecentCategoryTransactions,
+    MOCKS ? "skip" : { circleId, categoryId },
+  );
+  if (MOCKS) {
+    return MOCK_TRANSACTIONS.filter((txn) =>
+      txn.categories.some((category) => category.id === categoryId),
+    ).slice(0, 5);
+  }
+  return queried;
 }

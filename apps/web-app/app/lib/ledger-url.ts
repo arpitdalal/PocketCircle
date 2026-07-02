@@ -1,6 +1,11 @@
 import type { PlainMonth, TransactionType } from "@spend-circle/domain";
 import { circlePath } from "./circle-path.js";
-import { canonicalLedgerParams, defaultLedgerFilters } from "./transaction-filter-url.js";
+import {
+  canonicalLedgerParams,
+  canonicalSearchParams,
+  defaultLedgerFilters,
+  defaultSearchFilters,
+} from "./transaction-filter-url.js";
 
 /**
  * Transaction object-route URL helpers. The origin a route returns to on close/back —
@@ -40,6 +45,28 @@ export function transactionDetailHref(circle: ObjectRef, transaction: ObjectRef)
  */
 export function transactionEditHref(circle: ObjectRef, transaction: ObjectRef) {
   return `/circles/${circle.ref}/transactions/${transaction.ref}/edit`;
+}
+
+/**
+ * Canonical read-only Category detail path for a Circle object route (issue #240).
+ */
+export function categoryDetailHref(circle: ObjectRef, category: ObjectRef) {
+  return `/circles/${circle.ref}/categories/${category.ref}`;
+}
+
+/**
+ * All-time Transaction Search drilldown for one Category (issue #240): type-scoped,
+ * lifecycle `all`, no date range — the Category Detail CTA destination.
+ */
+export function categoryTransactionSearchHref(
+  circle: ObjectRef,
+  category: { id: string; type: "expense" | "income" },
+) {
+  const filters = defaultSearchFilters();
+  filters.type = category.type;
+  filters.status = "all";
+  filters.categories = [category.id];
+  return withQuery(circlePath(circle.ref, "search"), canonicalSearchParams(filters).toString());
 }
 
 /**

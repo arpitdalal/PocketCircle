@@ -1,4 +1,5 @@
 import {
+  buildRef,
   type ComparisonRangeMonths,
   comparisonWindowMonths,
   PERSONAL_CIRCLE_COLOR_ID,
@@ -13,6 +14,7 @@ import type { InvitationPreview } from "./data/invitations.js";
 import type {
   Category,
   CategoryAnalytics,
+  CategoryDetail,
   CategoryHistoryEvent,
   Circle,
   CircleHistoryEvent,
@@ -101,6 +103,20 @@ export const MOCK_CATEGORIES: Category[] = [
     canArchive: true,
   },
 ];
+
+/**
+ * Synthesizes a Category DETAIL view for the detail object route under MOCKS (issue #240).
+ */
+export function mockCategoryDetail(id: string): CategoryDetail {
+  const base = MOCK_CATEGORIES.find((category) => category.id === id) ?? MOCK_CATEGORIES[0];
+  if (!base) {
+    throw new Error("mock categories missing");
+  }
+  return {
+    ...base,
+    ref: buildRef(base.name, id),
+  };
+}
 
 /**
  * The `filterCategories` narrowing applied to the fixtures under MOCKS (CAT-4):

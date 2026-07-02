@@ -15,7 +15,7 @@ describe("notification link builders", () => {
       "/circles/trip-c1abc/transactions/weekly-t1abc",
     );
     expect(buildCategoryNotificationLink("trip-c1abc", "groceries-cat1")).toBe(
-      "/circles/trip-c1abc/categories?categoryRef=groceries-cat1",
+      "/circles/trip-c1abc/categories/groceries-cat1",
     );
   });
 });
@@ -37,10 +37,7 @@ describe("parseNotificationLinkPath", () => {
       objectId: "t1abc",
     });
     expect(
-      parseNotificationLinkPath(
-        "/circles/trip-c1abc/categories?categoryRef=groceries-cat1",
-        isValidId,
-      ),
+      parseNotificationLinkPath("/circles/trip-c1abc/categories/groceries-cat1", isValidId),
     ).toEqual({
       kind: "category",
       circleRef: "trip-c1abc",
@@ -55,7 +52,10 @@ describe("parseNotificationLinkPath", () => {
     expect(parseNotificationLinkPath("/circles/trip-c1abc/unknown/x", isValidId)).toBeNull();
     expect(parseNotificationLinkPath("/circles/trip-c1abc/transactions", isValidId)).toBeNull();
     expect(
-      parseNotificationLinkPath("/circles/trip-c1abc/categories/groceries-cat1", isValidId),
+      parseNotificationLinkPath(
+        "/circles/trip-c1abc/categories?categoryRef=groceries-cat1",
+        isValidId,
+      ),
     ).toBeNull();
     expect(parseNotificationLinkPath("/circles/trip-c1abc/categories", isValidId)).toBeNull();
     expect(parseNotificationLinkPath("/circles/!", isValidId)).toBeNull();
