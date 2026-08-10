@@ -11,6 +11,7 @@
 import type * as accountDeletion from "../accountDeletion.js";
 import type * as accountDeletionAuth from "../accountDeletionAuth.js";
 import type * as accountDeletionBlockers from "../accountDeletionBlockers.js";
+import type * as accountDeletionFinalize from "../accountDeletionFinalize.js";
 import type * as asyncBatch from "../asyncBatch.js";
 import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   accountDeletion: typeof accountDeletion;
   accountDeletionAuth: typeof accountDeletionAuth;
   accountDeletionBlockers: typeof accountDeletionBlockers;
+  accountDeletionFinalize: typeof accountDeletionFinalize;
   asyncBatch: typeof asyncBatch;
   auth: typeof auth;
   categories: typeof categories;

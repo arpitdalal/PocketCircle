@@ -6,6 +6,7 @@ import { components, internal } from "./_generated/api.js";
 import type { DataModel, Doc } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { parseBetterAuthMappedUser } from "./accountDeletionAuth.js";
+import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import authConfig from "./auth.config.js";
 import { emailPool } from "./email.js";
 import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
@@ -62,8 +63,8 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         await syncUserEmail(ctx, userId, authUser.email);
       },
       onDelete: async (ctx, authUser) => {
-        // Dynamic import avoids a circular module graph with accountDeletion → auth.
-        const { finalizeOnUserDelete } = await import("./accountDeletion.js");
+        // Static import from a cycle-free module — mutations cannot use runtime
+        // `await import()` (dynamic imports are for actions).
         await finalizeOnUserDelete(ctx, authUser);
       },
     },
