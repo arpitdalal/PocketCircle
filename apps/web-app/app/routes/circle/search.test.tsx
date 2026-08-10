@@ -82,7 +82,7 @@ function setup(
   };
 }
 
-function makeSearchOptions(): TransactionFilterOptions {
+function makeSearchOptions(opts: { extraMembers?: Member[] } = {}): TransactionFilterOptions {
   return {
     categories: [
       makeCategoryView({ id: testId<Category["id"]>("cat-grocery"), name: "Groceries" }),
@@ -99,6 +99,7 @@ function makeSearchOptions(): TransactionFilterOptions {
         displayName: "Alex",
         status: "removed",
       }),
+      ...(opts.extraMembers ?? []),
     ],
   };
 }
@@ -201,22 +202,15 @@ describe("CircleSearch", () => {
     const user = userEvent.setup();
     setup({
       initialEntries: [`/circles/${REF}/search?type=all&status=all`],
-      options: {
-        ...makeSearchOptions(),
-        members: [
-          makeMemberView({ id: testId<Member["id"]>("mem-you"), displayName: "You" }),
-          makeMemberView({
-            id: testId<Member["id"]>("mem-alex"),
-            displayName: "Alex",
-            status: "removed",
-          }),
+      options: makeSearchOptions({
+        extraMembers: [
           makeMemberView({
             id: testId<Member["id"]>("mem-rex"),
             displayName: "Rex",
             status: "deleted",
           }),
         ],
-      },
+      }),
     });
 
     await user.click(screen.getByRole("button", { name: /Filters/ }));

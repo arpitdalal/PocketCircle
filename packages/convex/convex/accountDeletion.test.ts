@@ -100,6 +100,37 @@ describe("accountDeletionBlockerFields", () => {
       ),
     ).toEqual({ accountDeletionBlocked: true, accountDeletionBlockerAction: "transfer" });
   });
+
+  it("still sees a living co-member after nine stale active rows", async () => {
+    const t = createTestConvex();
+    const { circleId } = await t.run(async (ctx) => {
+      const seed = await seedCircle(ctx);
+      await completeSetup(ctx, seed.circleId);
+      // Nine status=active rows whose Users are already gone — previously a
+      // limit+8 overfetch would miss the living co-member that follows.
+      for (let i = 0; i < 9; i += 1) {
+        const stale = await makeUser(ctx, `stale-${i}@example.com`, `Stale ${i}`);
+        await ctx.db.insert("members", {
+          circleId: seed.circleId,
+          userId: stale._id,
+          role: "member",
+          status: "active",
+          displayName: stale.displayName,
+          joinedAt: Date.now(),
+        });
+        await ctx.db.delete(stale._id);
+      }
+      await addMember(ctx, seed.circleId, "alive@example.com", "Alive");
+      await recomputeAccountDeletionBlockers(ctx, seed.circleId);
+      return seed;
+    });
+
+    await t.run(async (ctx) => {
+      const circle = await ctx.db.get(circleId);
+      expect(circle?.accountDeletionBlocked).toBe(true);
+      expect(circle?.accountDeletionBlockerAction).toBe("transfer");
+    });
+  });
 });
 
 describe("listAccountDeletionBlockers", () => {
@@ -163,7 +194,7 @@ describe("listAccountDeletionBlockers", () => {
 describe("enqueueDeletionVerificationEmail", () => {
   it("rejects when blockers exist", async () => {
     const t = createTestConvex();
-    const { owner, circleId } = await t.run(async (ctx) => {
+    const { owner } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
       await completeSetup(ctx, seed.circleId);
       return seed;
@@ -187,12 +218,12 @@ describe("enqueueDeletionVerificationEmail", () => {
           .withIndex("by_user", (q) => q.eq("userId", owner._id))
           .unique(),
       ).toBeNull();
-      void circleId;
     });
   });
 
   it("enqueues email and stashes E2E token when unblocked", async () => {
     vi.stubEnv("E2E_TEST_AUTH", "1");
+    vi.stubEnv("SITE_URL", "https://app.example.com");
     vi.stubEnv("RESEND_API_KEY", "re_test");
     vi.stubEnv("RESEND_FROM_EMAIL", "Spend Circle <onboarding@example.com>");
     const t = createTestConvex();
@@ -302,8 +333,6 @@ describe("finalizeOnUserDelete", () => {
       expect(member?.status).toBe("deleted");
       expect(member?.displayName).toBe("Gone User");
       expect(member?.image).toBeUndefined();
-
-      mockCurrentUser.mockResolvedValue(null);
     });
 
     mockCurrentUser.mockResolvedValue(null);
@@ -459,8 +488,9 @@ describe("cleanup phases", () => {
       expect(removed?.removedAt).toEqual(expect.any(Number));
 
       const events = await listEntityHistory(ctx, circleEntity(host.circleId));
-      expect(events.filter((e) => e.action === "member deleted")).toHaveLength(1);
-      expect(events[0]?.actorMemberId).toBeUndefined();
+      const deletedEvents = events.filter((e) => e.action === "member deleted");
+      expect(deletedEvents).toHaveLength(1);
+      expect(deletedEvents[0]?.actorMemberId).toBeUndefined();
 
       const otherEvents = await listEntityHistory(ctx, circleEntity(otherHost.circleId));
       expect(otherEvents.filter((e) => e.action === "member deleted")).toHaveLength(1);
@@ -665,6 +695,54 @@ describe("cleanup phases", () => {
 
       const events = await listEntityHistory(ctx, circleEntity(host.circleId));
       expect(events.filter((e) => e.action === "invitation revoked")).toHaveLength(2);
+    });
+  });
+
+  it("rejects accepting a pending invitation invalidated by an in-flight deletion job", async () => {
+    const t = createTestConvex();
+    const host = await t.run(async (ctx) => {
+      const seed = await seedCircle(ctx);
+      await completeSetup(ctx, seed.circleId);
+      return seed;
+    });
+    const invitee = await t.run((ctx) =>
+      makeUser(ctx, "pending-invitee@example.com", "Pending Invitee"),
+    );
+    const known = await t.run(async (ctx) => {
+      const { generateInvitationToken, hashInvitationToken } = await import("./invitationToken.js");
+      const token = generateInvitationToken();
+      const invitationId = await ctx.db.insert("invitations", {
+        circleId: host.circleId,
+        emailLower: invitee.email.toLowerCase(),
+        tokenHash: await hashInvitationToken(token),
+        status: "pending",
+        invitedByUserId: host.owner._id,
+        resendCount: 0,
+        resendTimestamps: [],
+        createdAt: Date.now() - 500,
+        expiresAt: Date.now() + 86_400_000,
+      });
+      // Job exists before physical revocation — acceptance must fail immediately.
+      await ctx.db.insert("accountDeletionJobs", {
+        userId: host.owner._id,
+        emailLower: host.owner.email,
+        finalizedAt: Date.now(),
+        phase: "revokeInvitesByInviter",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return { token, invitationId };
+    });
+
+    mockCurrentUser.mockResolvedValue(invitee);
+    await expect(
+      t.mutation(api.invitations.acceptInvitation, { token: known.token }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.inviteInvalid),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(known.invitationId))?.status).toBe("pending");
     });
   });
 

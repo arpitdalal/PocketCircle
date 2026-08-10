@@ -9,6 +9,7 @@ import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
+import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool } from "./email.js";
@@ -241,6 +242,10 @@ async function resolvePendingInvitation(ctx: QueryCtx | MutationCtx, token: stri
     return null;
   }
 
+  if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
+    return null;
+  }
+
   const circle = await ctx.db.get(invitation.circleId);
   if (circle === null || circle.setupCompletedAt === null || circle.status !== "active") {
     return null;
@@ -297,6 +302,10 @@ export const acceptInvitation = mutation({
       invitation.expiresAt <= Date.now() ||
       invitation.status !== "pending"
     ) {
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
+    }
+
+    if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
 

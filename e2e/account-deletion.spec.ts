@@ -9,6 +9,10 @@ test("account deletion verifies, signs out, and blocks protected access", async 
   browser,
   baseURL,
 }) => {
+  // Sign-up + request + verify + redirect exceeds the default 30s; the verify
+  // heading wait alone allows 60s.
+  test.setTimeout(120_000);
+
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const email = `e2e+delete-${Date.now()}@example.com`;
 
@@ -67,6 +71,6 @@ test("account deletion verifies, signs out, and blocks protected access", async 
     });
     expect(sessionGone).toEqual({ ok: true, session: null });
   } finally {
-    await context.close();
+    await context.close().catch(() => {});
   }
 });

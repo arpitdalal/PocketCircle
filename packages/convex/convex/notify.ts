@@ -231,32 +231,9 @@ export async function notifyCircleLifecycleChange(
     action: "archived" | "restored";
   },
 ) {
-  // Existence check only: schedule the coordinator iff some active Member is not
-  // the actor. A bounded `.take(2)` answers this without scanning the whole set
-  // (which ADR 0027 notes is uncapped and can approach Convex read limits) — the
-  // actor holds at most one active Member row (`by_circle_and_user` is unique),
-  // so any 2 distinct rows must include a non-actor recipient. The coordinator
-  // still owns the full per-recipient fan-out; this gate only avoids a no-op job.
-  const sample = await ctx.db
-    .query("members")
-    .withIndex("by_circle_and_status", (q) =>
-      q.eq("circleId", opts.circle._id).eq("status", "active"),
-    )
-    .take(4);
-  let hasNonActor = false;
-  for (const member of sample) {
-    if (!(await isEffectiveActiveMember(ctx, member))) {
-      continue;
-    }
-    if (!isActorSkip(member.userId, opts.actorUserId)) {
-      hasNonActor = true;
-      break;
-    }
-  }
-  if (!hasNonActor) {
-    return;
-  }
-
+  // Always schedule: a fixed raw-member sample can miss living non-actors that
+  // sit after stale active rows (deleted Users not yet converted). Fan-out still
+  // skips the actor and ineffective members.
   await ctx.scheduler.runAfter(0, internal.notify.fanOutCircleLifecycle, {
     circleId: opts.circle._id,
     actorUserId: opts.actorUserId,

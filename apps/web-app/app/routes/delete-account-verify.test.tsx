@@ -10,8 +10,8 @@ import {
 } from "~/test/convex-react.js";
 
 const auth = vi.hoisted(() => ({
-  confirmAccountDeletion: vi.fn(),
-  signInWithGoogle: vi.fn(),
+  deleteUser: vi.fn(),
+  social: vi.fn(),
 }));
 
 vi.mock("@convex-dev/better-auth/client/plugins", () => ({
@@ -21,14 +21,9 @@ vi.mock("@convex-dev/better-auth/client/plugins", () => ({
 
 vi.mock("better-auth/react", () => ({
   createAuthClient: vi.fn(() => ({
-    deleteUser: vi.fn(),
-    signIn: { social: vi.fn() },
+    deleteUser: auth.deleteUser,
+    signIn: { social: auth.social },
   })),
-}));
-
-vi.mock("~/lib/auth-client.js", () => ({
-  confirmAccountDeletion: auth.confirmAccountDeletion,
-  signInWithGoogle: auth.signInWithGoogle,
 }));
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
@@ -39,8 +34,8 @@ import DeleteAccountVerify from "./delete-account-verify.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
-  auth.confirmAccountDeletion.mockReset();
-  auth.signInWithGoogle.mockReset();
+  auth.deleteUser.mockReset();
+  auth.social.mockReset();
 });
 
 afterEach(() => {
@@ -61,7 +56,7 @@ function renderVerify(token: string | null = "del-token") {
 
 describe("Delete account verify", () => {
   it("explains sign-in and returns to the exact verification URL after Google", async () => {
-    auth.signInWithGoogle.mockResolvedValue(undefined);
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
     const user = userEvent.setup();
     renderVerify("return-token");
 
@@ -69,21 +64,24 @@ describe("Delete account verify", () => {
       screen.getByText(/Sign in with the same Google account to confirm account deletion/i),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
-    expect(auth.signInWithGoogle).toHaveBeenCalledWith("/delete-account/verify?token=return-token");
-    expect(auth.confirmAccountDeletion).not.toHaveBeenCalled();
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/delete-account/verify?token=return-token",
+    });
+    expect(auth.deleteUser).not.toHaveBeenCalled();
   });
 
   it("submits the token once when signed in and routes to completion", async () => {
-    auth.confirmAccountDeletion.mockResolvedValue(undefined);
+    auth.deleteUser.mockResolvedValue({ data: {}, error: null });
     configureConvex({ currentUser: makeCurrentUserView() });
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
 
     const view = renderVerify("once-token");
 
     await waitFor(() => {
-      expect(auth.confirmAccountDeletion).toHaveBeenCalledWith("once-token");
+      expect(auth.deleteUser).toHaveBeenCalledWith({ token: "once-token" });
     });
-    expect(auth.confirmAccountDeletion).toHaveBeenCalledOnce();
+    expect(auth.deleteUser).toHaveBeenCalledOnce();
     expect(await screen.findByText(/Account deleted/i)).toBeInTheDocument();
     expect(view.location()).toBe("/delete-account/complete");
   });
@@ -91,11 +89,11 @@ describe("Delete account verify", () => {
   it("shows a generic error for missing tokens without calling delete", () => {
     renderVerify(null);
     expect(screen.getByRole("alert")).toHaveTextContent(/invalid or expired/i);
-    expect(auth.confirmAccountDeletion).not.toHaveBeenCalled();
+    expect(auth.deleteUser).not.toHaveBeenCalled();
   });
 
   it("shows a generic error when confirmation fails and offers Settings retry", async () => {
-    auth.confirmAccountDeletion.mockRejectedValue(new Error("bad token"));
+    auth.deleteUser.mockResolvedValue({ data: null, error: { message: "bad token" } });
     configureConvex({ currentUser: makeCurrentUserView() });
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
 

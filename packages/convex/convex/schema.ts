@@ -295,7 +295,9 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     failure: v.optional(v.string()),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_email_lower", ["emailLower"]),
 
   notifications: defineTable({
     userId: v.id("users"),

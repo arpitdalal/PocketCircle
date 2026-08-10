@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
   signOut: vi.fn(),
+  deleteUser: vi.fn(),
 }));
 
 vi.mock("@convex-dev/better-auth/client/plugins", () => ({
@@ -16,10 +17,16 @@ vi.mock("better-auth/react", () => ({
       social: auth.social,
     },
     signOut: auth.signOut,
+    deleteUser: auth.deleteUser,
   })),
 }));
 
-import { signInWithGoogle, signOut } from "./auth-client.js";
+import {
+  confirmAccountDeletion,
+  requestAccountDeletion,
+  signInWithGoogle,
+  signOut,
+} from "./auth-client.js";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -60,5 +67,37 @@ describe("signOut", () => {
     auth.signOut.mockResolvedValue({ data: null, error });
 
     await expect(signOut()).rejects.toBe(error);
+  });
+});
+
+describe("requestAccountDeletion", () => {
+  it("starts verified deletion through Better Auth deleteUser", async () => {
+    auth.deleteUser.mockResolvedValue({ data: {}, error: null });
+
+    await expect(requestAccountDeletion()).resolves.toBeUndefined();
+    expect(auth.deleteUser).toHaveBeenCalledWith();
+  });
+
+  it("throws if Better Auth resolves with an error object", async () => {
+    const error = { message: "Blocked" };
+    auth.deleteUser.mockResolvedValue({ data: null, error });
+
+    await expect(requestAccountDeletion()).rejects.toBe(error);
+  });
+});
+
+describe("confirmAccountDeletion", () => {
+  it("submits the verification token to Better Auth deleteUser", async () => {
+    auth.deleteUser.mockResolvedValue({ data: {}, error: null });
+
+    await expect(confirmAccountDeletion("tok-1")).resolves.toBeUndefined();
+    expect(auth.deleteUser).toHaveBeenCalledWith({ token: "tok-1" });
+  });
+
+  it("throws if Better Auth resolves with an error object", async () => {
+    const error = { message: "Invalid token" };
+    auth.deleteUser.mockResolvedValue({ data: null, error });
+
+    await expect(confirmAccountDeletion("bad")).rejects.toBe(error);
   });
 });

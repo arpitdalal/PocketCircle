@@ -20,7 +20,7 @@ import {
 } from "~/test/posthog-boundary.js";
 
 const auth = vi.hoisted(() => ({
-  requestAccountDeletion: vi.fn(),
+  deleteUser: vi.fn(),
 }));
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
@@ -28,8 +28,14 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 vi.mock("~/lib/env.js", async (importOriginal) =>
   (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
 );
-vi.mock("~/lib/auth-client.js", () => ({
-  requestAccountDeletion: auth.requestAccountDeletion,
+vi.mock("@convex-dev/better-auth/client/plugins", () => ({
+  convexClient: vi.fn(),
+  crossDomainClient: vi.fn(),
+}));
+vi.mock("better-auth/react", () => ({
+  createAuthClient: vi.fn(() => ({
+    deleteUser: auth.deleteUser,
+  })),
 }));
 
 import Settings from "./settings.js";
@@ -47,7 +53,7 @@ function renderSettings() {
 beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   primeAnalyticsForTests();
-  auth.requestAccountDeletion.mockReset();
+  auth.deleteUser.mockReset();
 });
 
 afterEach(() => {
@@ -387,7 +393,7 @@ describe("Settings danger zone", () => {
   });
 
   it("disables Export, gates delete on exact phrase, and shows check-your-email after request", async () => {
-    auth.requestAccountDeletion.mockResolvedValue(undefined);
+    auth.deleteUser.mockResolvedValue({ data: {}, error: null });
     configureConvex({
       currentUser: makeCurrentUserView(),
       accountDeletionBlockers: [],
@@ -410,16 +416,16 @@ describe("Settings danger zone", () => {
     expect(submit).toBeEnabled();
 
     await user.click(submit);
-    expect(auth.requestAccountDeletion).toHaveBeenCalledOnce();
+    expect(auth.deleteUser).toHaveBeenCalledOnce();
     expect(await screen.findByText(/Check your email/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete my account" })).not.toBeInTheDocument();
   });
 
   it("prevents duplicate in-flight deletion requests", async () => {
-    let resolveRequest: (() => void) | undefined;
-    auth.requestAccountDeletion.mockImplementation(
+    let resolveRequest: ((value: { data: object; error: null }) => void) | undefined;
+    auth.deleteUser.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise((resolve) => {
           resolveRequest = resolve;
         }),
     );
@@ -435,14 +441,14 @@ describe("Settings danger zone", () => {
     await user.click(submit);
     expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Sending…" }));
-    expect(auth.requestAccountDeletion).toHaveBeenCalledOnce();
+    expect(auth.deleteUser).toHaveBeenCalledOnce();
 
-    resolveRequest?.();
+    resolveRequest?.({ data: {}, error: null });
     expect(await screen.findByText(/Check your email/i)).toBeInTheDocument();
   });
 
   it("shows coded blocker error and fallback for unexpected failures", async () => {
-    auth.requestAccountDeletion
+    auth.deleteUser
       .mockRejectedValueOnce(
         new ConvexError(mutationErrorData(MUTATION_ERRORS.accountDeletionBlocked)),
       )

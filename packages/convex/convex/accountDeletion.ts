@@ -9,7 +9,13 @@ import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import { internalAction, internalMutation, type MutationCtx, query } from "./_generated/server.js";
+import {
+  internalAction,
+  internalMutation,
+  type MutationCtx,
+  type QueryCtx,
+  query,
+} from "./_generated/server.js";
 import { betterAuthMappedUserSchema } from "./accountDeletionAuth.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { requireCurrentUser } from "./auth.js";
@@ -164,6 +170,38 @@ export async function finalizeOnUserDelete(ctx: MutationCtx, authUser: unknown) 
   return jobId;
 }
 
+/**
+ * Pending invitations created at or before a deletion job's `finalizedAt` must
+ * not be accept-able during async revocation — otherwise a recreated account
+ * (same email) or an invitee of a deleted inviter can accept a dead invite that
+ * status-filtered cleanup will never revoke.
+ */
+export async function isInvitationBlockedByAccountDeletion(
+  ctx: QueryCtx | MutationCtx,
+  invitation: Pick<Doc<"invitations">, "emailLower" | "invitedByUserId" | "createdAt">,
+) {
+  const byInviter = await ctx.db
+    .query("accountDeletionJobs")
+    .withIndex("by_user", (q) => q.eq("userId", invitation.invitedByUserId))
+    .collect();
+  for (const job of byInviter) {
+    if (invitation.createdAt <= job.finalizedAt) {
+      return true;
+    }
+  }
+
+  const byEmail = await ctx.db
+    .query("accountDeletionJobs")
+    .withIndex("by_email_lower", (q) => q.eq("emailLower", invitation.emailLower))
+    .collect();
+  for (const job of byEmail) {
+    if (invitation.createdAt <= job.finalizedAt) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Internal: recheck blockers then enqueue the verification email via the email pool. */
 export const enqueueDeletionVerificationEmail = internalMutation({
   args: {
@@ -232,7 +270,10 @@ export const sendAccountDeletionEmail = internalAction({
     token: v.string(),
   },
   handler: async (_ctx, args) => {
-    const siteUrl = process.env.SITE_URL ?? "http://127.0.0.1:5173";
+    const siteUrl = process.env.SITE_URL;
+    if (!siteUrl) {
+      throw new Error("SITE_URL is required to send the account deletion email");
+    }
     const verifyLink = `${siteUrl}/delete-account/verify?token=${encodeURIComponent(args.token)}`;
     const { subject, html } = accountDeletionEmail({
       displayName: args.displayName,

@@ -39,10 +39,13 @@ export async function countEffectiveActiveMembersUpTo(
   circleId: Id<"circles">,
   limit: number,
 ) {
+  // Scan the full active index: status=active rows whose Users were already
+  // deleted still appear until cleanup converts them, so a fixed overfetch can
+  // miss a later living co-member and clear the transfer/archive blocker.
   const rows = await ctx.db
     .query("members")
     .withIndex("by_circle_and_status", (q) => q.eq("circleId", circleId).eq("status", "active"))
-    .take(limit + 8);
+    .collect();
 
   let count = 0;
   for (const member of rows) {
