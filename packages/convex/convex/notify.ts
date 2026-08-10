@@ -9,6 +9,7 @@ import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { internalMutation } from "./_generated/server.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
 
 /** Closed set of v1 notification types — a typo can't create an unknown type. */
 export const NOTIFICATION_TYPES = [
@@ -78,7 +79,7 @@ export const deliverOne = internalMutation({
 
     const recipient = await ctx.db.get("users", args.recipientUserId);
     if (!recipient) {
-      throw new Error("Notification recipient not found");
+      return;
     }
 
     await ctx.db.insert("notifications", {
@@ -123,6 +124,9 @@ export const fanOutCircleLifecycle = internalMutation({
       : `${args.actorDisplayName} restored ${circle.name}.`;
 
     for (const member of members) {
+      if (!(await isEffectiveActiveMember(ctx, member))) {
+        continue;
+      }
       await scheduleDeliverOne(ctx, {
         recipientUserId: member.userId,
         actorUserId: args.actorUserId,
@@ -227,22 +231,9 @@ export async function notifyCircleLifecycleChange(
     action: "archived" | "restored";
   },
 ) {
-  // Existence check only: schedule the coordinator iff some active Member is not
-  // the actor. A bounded `.take(2)` answers this without scanning the whole set
-  // (which ADR 0027 notes is uncapped and can approach Convex read limits) — the
-  // actor holds at most one active Member row (`by_circle_and_user` is unique),
-  // so any 2 distinct rows must include a non-actor recipient. The coordinator
-  // still owns the full per-recipient fan-out; this gate only avoids a no-op job.
-  const sample = await ctx.db
-    .query("members")
-    .withIndex("by_circle_and_status", (q) =>
-      q.eq("circleId", opts.circle._id).eq("status", "active"),
-    )
-    .take(2);
-  if (!sample.some((member) => !isActorSkip(member.userId, opts.actorUserId))) {
-    return;
-  }
-
+  // Always schedule: a fixed raw-member sample can miss living non-actors that
+  // sit after stale active rows (deleted Users not yet converted). Fan-out still
+  // skips the actor and ineffective members.
   await ctx.scheduler.runAfter(0, internal.notify.fanOutCircleLifecycle, {
     circleId: opts.circle._id,
     actorUserId: opts.actorUserId,

@@ -1,6 +1,7 @@
 import { type FunctionReference, getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import { vi } from "vitest";
+import { type AccountDeletionState, accountDeletionDouble } from "./account-deletion.js";
 import { type CategoriesState, categoriesDouble } from "./categories.js";
 import { type CirclesState, circlesDouble } from "./circles.js";
 import type { PaginatedPage } from "./contract.js";
@@ -24,7 +25,8 @@ export type ConvexState = CirclesState &
   HistoryState &
   UsersState &
   NotificationsState &
-  FeedbackState;
+  FeedbackState &
+  AccountDeletionState;
 
 const ENTITY_DOUBLES = [
   circlesDouble,
@@ -38,8 +40,8 @@ const ENTITY_DOUBLES = [
   notificationsDouble,
   usersDouble,
   feedbackDouble,
+  accountDeletionDouble,
 ];
-
 function mergeEntityDoubles(state: ConvexState) {
   const queries: Record<string, (args: Record<string, unknown>) => unknown> = {};
   const paginatedQueries: Record<string, (args: Record<string, unknown>) => PaginatedPage> = {};

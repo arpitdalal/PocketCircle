@@ -30,6 +30,7 @@ import {
 import { formatMonthLabel } from "~/lib/datetime.js";
 import { transactionNewHref, withQuery } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { historicalMemberStatusDetail } from "~/lib/member-status-label.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import {
   activeFilterCount,
@@ -351,7 +352,7 @@ function toMemberOptions(
   return members.map((member) => ({
     value: member.id,
     label: member.displayName,
-    detail: member.status === "removed" ? "removed" : undefined,
+    detail: historicalMemberStatusDetail(member.status),
   })) satisfies MultiComboboxOption[];
 }
 

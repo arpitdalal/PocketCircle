@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_DELETION_SUBJECT,
+  accountDeletionEmail,
   EMAIL_PREVIEWS,
   feedbackEmail,
   INVITATION_SUBJECT,
@@ -51,6 +53,30 @@ describe("invitationEmail", () => {
     expect(html).not.toContain("<script>");
     expect(html).toContain("a&amp;b@example.com");
     expect(html).toContain("O&quot;wn");
+  });
+});
+
+describe("accountDeletionEmail", () => {
+  it("returns the deletion subject and verify link with no financial content", () => {
+    const { subject, html } = accountDeletionEmail({
+      displayName: "Ada Lovelace",
+      verifyLink: "https://app.example.com/delete-account/verify?token=abc",
+    });
+    expect(subject).toBe(ACCOUNT_DELETION_SUBJECT);
+    expect(html).toContain("Ada Lovelace");
+    expect(html).toContain("https://app.example.com/delete-account/verify?token=abc");
+    expect(html).toContain("permanently delete");
+    expect(html).not.toMatch(FINANCIAL_PATTERN);
+  });
+
+  it("escapes displayName and verifyLink HTML entities", () => {
+    const { html } = accountDeletionEmail({
+      displayName: '<script>alert("x")</script>',
+      verifyLink: "https://app.example.com/delete-account/verify?token=a&b",
+    });
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&amp;");
   });
 });
 

@@ -8,6 +8,7 @@ import { seedFixture, seedTransaction } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
+import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
 import schema from "./schema.js";
 
 // createCategory/listCategories resolve access through guard.ts, which folds in
@@ -67,16 +68,19 @@ async function seedCircle(
 ): Promise<Seed> {
   const now = Date.now();
   const owner = await makeUser(ctx, "owner@example.com", "Olive Owner");
+  const kind = opts.kind ?? "regular";
+  const status = opts.archived ? "archived" : "active";
   const circleId = await ctx.db.insert("circles", {
     name: "Trip",
-    kind: opts.kind ?? "regular",
+    kind,
     currency: "USD",
     color: "blue",
     mark: "T",
     ownerUserId: owner._id,
-    status: opts.archived ? "archived" : "active",
+    status,
     setupCompletedAt: now,
     currencyLocked: false,
+    ...accountDeletionBlockerFields({ kind, status, setupCompletedAt: now }, 1),
     createdAt: now,
   });
   await ctx.db.insert("members", {
@@ -353,6 +357,7 @@ describe("createCategory — uniqueness (case-insensitive, includes archived)", 
         status: "active",
         setupCompletedAt: Date.now(),
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: Date.now(),
       });
       await ctx.db.insert("members", {
@@ -1180,6 +1185,7 @@ describe("listCategoryHistory", () => {
         status: "active",
         setupCompletedAt: Date.now(),
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: Date.now(),
       });
       await ctx.db.insert("members", {

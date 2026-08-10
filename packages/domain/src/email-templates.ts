@@ -11,6 +11,7 @@ function escapeHtml(text: string) {
 
 export const WELCOME_SUBJECT = "Welcome to Spend Circle";
 export const INVITATION_SUBJECT = "You're invited to join a Spend Circle";
+export const ACCOUNT_DELETION_SUBJECT = "Confirm account deletion";
 
 /** Pure HTML builder — no financial content (PRD 84). */
 export function welcomeEmail(args: { displayName: string }) {
@@ -48,6 +49,25 @@ export function invitationEmail(args: {
   <p>${escapeHtml(ownerDisplayName)} has invited you to join the <strong>${escapeHtml(circleName)}</strong> Circle on Spend Circle.</p>
   <p><a href="${escapeHtml(inviteLink)}">Accept the invitation</a></p>
   <p>This link expires in 7 days and can only be used once.</p>
+  <p>— The Spend Circle team</p>
+</body>
+</html>`,
+  };
+}
+
+/** Pure HTML builder — no financial content (PRD 84). */
+export function accountDeletionEmail(args: { displayName: string; verifyLink: string }) {
+  const { displayName, verifyLink } = args;
+  return {
+    subject: ACCOUNT_DELETION_SUBJECT,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>${ACCOUNT_DELETION_SUBJECT}</title></head>
+<body>
+  <p>Hi ${escapeHtml(displayName)},</p>
+  <p>We received a request to permanently delete your Spend Circle account.</p>
+  <p><a href="${escapeHtml(verifyLink)}">Confirm account deletion</a></p>
+  <p>This link expires in 24 hours. If you did not request this, you can ignore this email.</p>
   <p>— The Spend Circle team</p>
 </body>
 </html>`,
@@ -122,6 +142,23 @@ export const EMAIL_PREVIEWS = [
         circleName: p.circleName ?? "",
         ownerDisplayName: p.ownerDisplayName ?? "",
         recipientEmail: p.recipientEmail ?? "",
+      }),
+  },
+  {
+    id: "accountDeletion",
+    name: "Account deletion",
+    fields: [
+      { key: "displayName", label: "Display name", default: "Ada Lovelace" },
+      {
+        key: "verifyLink",
+        label: "Verify link",
+        default: "https://app.example.com/delete-account/verify?token=sample-token",
+      },
+    ],
+    render: (p: Record<string, string>) =>
+      accountDeletionEmail({
+        displayName: p.displayName ?? "",
+        verifyLink: p.verifyLink ?? "",
       }),
   },
   {

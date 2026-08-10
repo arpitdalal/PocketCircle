@@ -22,6 +22,9 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js";
  * server/terminal locale at write time. The typed `*Entity` constructors below are
  * the only way to name the audited entity, which keeps a stray string from being
  * mistaken for an entity id.
+ *
+ * `circleId` is an internal cascade key for bounded whole-Circle deletion
+ * (USR-3 / ADR 0029) — never returned to clients or put in `changes`.
  */
 
 /**
@@ -61,18 +64,19 @@ export function moneyChange(field: string, to: HistoryMoney, from?: HistoryMoney
  */
 export interface HistoryEntity {
   readonly entityId: string;
+  readonly circleId: Id<"circles">;
 }
 
 export function circleEntity(id: Id<"circles">): HistoryEntity {
-  return { entityId: id };
+  return { entityId: id, circleId: id };
 }
 
-export function transactionEntity(id: Id<"transactions">): HistoryEntity {
-  return { entityId: id };
+export function transactionEntity(id: Id<"transactions">, circleId: Id<"circles">): HistoryEntity {
+  return { entityId: id, circleId };
 }
 
-export function categoryEntity(id: Id<"categories">): HistoryEntity {
-  return { entityId: id };
+export function categoryEntity(id: Id<"categories">, circleId: Id<"circles">): HistoryEntity {
+  return { entityId: id, circleId };
 }
 
 export interface RecordEventArgs {
@@ -89,9 +93,10 @@ export interface RecordEventArgs {
 /**
  * Appends one immutable event row to the audit. The only writer of `histories`.
  */
-export async function recordEvent(ctx: MutationCtx, args: RecordEventArgs): Promise<void> {
+export async function recordEvent(ctx: MutationCtx, args: RecordEventArgs) {
   await ctx.db.insert("histories", {
     entityId: args.entity.entityId,
+    circleId: args.entity.circleId,
     actorMemberId: args.actor?._id,
     action: args.action,
     changes: args.changes,
@@ -100,10 +105,7 @@ export async function recordEvent(ctx: MutationCtx, args: RecordEventArgs): Prom
 }
 
 /** An entity's history, newest first — the canonical read for a detail surface (PRD story 80). */
-export async function listEntityHistory(
-  ctx: QueryCtx | MutationCtx,
-  entity: HistoryEntity,
-): Promise<Doc<"histories">[]> {
+export async function listEntityHistory(ctx: QueryCtx | MutationCtx, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
     .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))
@@ -134,10 +136,7 @@ export async function paginateEntityHistory(
 /** The newest event recorded for an entity, or null when none exist yet. Backs the
  * Audit Metadata "updated-by / updated-at" (the last Member to change the record),
  * a single bounded `by_entity` lookup rather than collecting the whole history. */
-export async function latestEntityEvent(
-  ctx: QueryCtx | MutationCtx,
-  entity: HistoryEntity,
-): Promise<Doc<"histories"> | null> {
+export async function latestEntityEvent(ctx: QueryCtx | MutationCtx, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
     .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))

@@ -728,7 +728,9 @@ export const getLedgerFilterOptions = query({
       categories: await Promise.all(
         categoryDocs.map((category) => toCategoryView(ctx, category, viewer)),
       ),
-      members: memberDocs.map((member) => toMemberView(member, access.membership._id)),
+      members: await Promise.all(
+        memberDocs.map((member) => toMemberView(ctx, member, access.membership._id)),
+      ),
     };
   },
 });
@@ -768,7 +770,9 @@ export const getTransactionSearchOptions = query({
       categories: await Promise.all(
         categories.map((category) => toCategoryView(ctx, category, viewer)),
       ),
-      members: members.map((member) => toMemberView(member, access.membership._id)),
+      members: await Promise.all(
+        members.map((member) => toMemberView(ctx, member, access.membership._id)),
+      ),
     };
   },
 });

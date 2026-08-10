@@ -324,6 +324,14 @@ describe("CircleMembers — transfer ownership", () => {
     expect(screen.getByRole("region", { name: "Transfer ownership" })).toBeInTheDocument();
   });
 
+  it("renders the transfer form on an archived regular Circle with another member", () => {
+    setup({
+      circle: makeCircleView({ status: "archived" }),
+      members: [makeMemberView({ displayName: "Olive Owner", role: "owner", isSelf: true }), maya],
+    });
+    expect(screen.getByRole("region", { name: "Transfer ownership" })).toBeInTheDocument();
+  });
+
   it("hides the transfer form when the owner is solo", () => {
     setup({
       members: [makeMemberView({ displayName: "Olive Owner", role: "owner", isSelf: true })],

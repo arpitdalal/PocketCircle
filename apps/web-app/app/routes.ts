@@ -14,6 +14,8 @@ export default [
     route("privacy", "routes/privacy.tsx"),
     // Opaque, token-only Invitation landing — the ADR 0016 exception.
     route("invite/:token", "routes/invite.tsx"),
+    route("delete-account/verify", "routes/delete-account-verify.tsx"),
+    route("delete-account/complete", "routes/delete-account-complete.tsx"),
     route("dev/email-preview", "routes/dev/email-preview.tsx"),
   ]),
 

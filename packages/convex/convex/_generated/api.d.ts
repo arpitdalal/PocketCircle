@@ -8,6 +8,10 @@
  * @module
  */
 
+import type * as accountDeletion from "../accountDeletion.js";
+import type * as accountDeletionAuth from "../accountDeletionAuth.js";
+import type * as accountDeletionBlockers from "../accountDeletionBlockers.js";
+import type * as accountDeletionFinalize from "../accountDeletionFinalize.js";
 import type * as asyncBatch from "../asyncBatch.js";
 import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
@@ -25,6 +29,7 @@ import type * as http from "../http.js";
 import type * as invitationToken from "../invitationToken.js";
 import type * as invitations from "../invitations.js";
 import type * as ledger from "../ledger.js";
+import type * as memberIdentity from "../memberIdentity.js";
 import type * as members from "../members.js";
 import type * as model from "../model.js";
 import type * as monthActivity from "../monthActivity.js";
@@ -42,6 +47,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountDeletion: typeof accountDeletion;
+  accountDeletionAuth: typeof accountDeletionAuth;
+  accountDeletionBlockers: typeof accountDeletionBlockers;
+  accountDeletionFinalize: typeof accountDeletionFinalize;
   asyncBatch: typeof asyncBatch;
   auth: typeof auth;
   categories: typeof categories;
@@ -59,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   invitationToken: typeof invitationToken;
   invitations: typeof invitations;
   ledger: typeof ledger;
+  memberIdentity: typeof memberIdentity;
   members: typeof members;
   model: typeof model;
   monthActivity: typeof monthActivity;

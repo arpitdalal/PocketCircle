@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../convex/_generated/dataModel.js";
 import type { MutationCtx } from "../convex/_generated/server.js";
+import { accountDeletionBlockerFields } from "../convex/accountDeletionBlockers.js";
 import { generateInvitationToken, hashInvitationToken } from "../convex/invitationToken.js";
 import { createUserWithPersonalCircle, type NewUserProfile } from "../convex/model.js";
 import { syncTransactionSearchDocument } from "../convex/transactionSearchDocuments.js";
@@ -95,21 +96,28 @@ export async function seedCircle(
     color?: string;
     currency?: string;
     currencyLocked?: boolean;
+    setupCompletedAt?: number | null;
   } = {},
 ): Promise<Seed> {
   const now = Date.now();
   const owner = await makeUser(ctx, "owner@example.com", "Olive Owner");
+  const kind = opts.kind ?? "regular";
+  const status = opts.archived ? "archived" : "active";
+  const setupCompletedAt =
+    opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : kind === "personal" ? now : null;
   const circleId = await ctx.db.insert("circles", {
     name: "Trip",
-    kind: opts.kind ?? "regular",
+    kind,
     currency: opts.currency ?? "USD",
     color: opts.color ?? "blue",
     mark: "T",
     ownerUserId: owner._id,
-    status: opts.archived ? "archived" : "active",
-    setupCompletedAt: null,
+    status,
+    setupCompletedAt,
     currencyLocked: opts.currencyLocked ?? false,
+    ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
     createdAt: now,
+    ...(opts.archived ? { archivedAt: now } : {}),
   });
   const ownerMemberId = await ctx.db.insert("members", {
     circleId,
@@ -140,6 +148,8 @@ export async function addMember(
     joinedAt: Date.now(),
     ...(status === "removed" ? { removedAt: Date.now() } : {}),
   });
+  const { recomputeAccountDeletionBlockers } = await import("../convex/accountDeletionBlockers.js");
+  await recomputeAccountDeletionBlockers(ctx, circleId);
   return { user, memberId };
 }
 

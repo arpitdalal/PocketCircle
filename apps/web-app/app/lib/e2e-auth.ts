@@ -117,6 +117,25 @@ export function installE2EAuthHelper(): void {
         }
         throw new Error("E2E: invitation token not available");
       },
+
+      /** Poll for the Account Deletion verification token (USR-3). */
+      async getAccountDeletionToken() {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          const token = await convex.query(api.e2e.getAccountDeletionTokenForE2E, {});
+          if (token) {
+            return token;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        throw new Error("E2E: account deletion token not available");
+      },
+
+      /** Session probe for post-deletion assertions (USR-3). */
+      async getSession() {
+        const result = await authClient.getSession();
+        return result.data?.session ?? null;
+      },
     },
   });
 }

@@ -21,6 +21,7 @@ import {
   transactionEntity,
 } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
+import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
 import { monthDateRange } from "./monthActivity.js";
 import { notifyPaidBySet, notifyTransactionLifecycleChange } from "./notify.js";
 import { syncTransactionSearchDocument } from "./transactionSearchDocuments.js";
@@ -70,10 +71,19 @@ async function memberRef(
     return cached;
   }
   const member = await ctx.db.get(memberId);
+  if (!member) {
+    const ref: MemberRef = {
+      id: memberId,
+      displayName: "Unknown member",
+    };
+    caches.members.set(memberId, ref);
+    return ref;
+  }
+  const identity = await resolveMemberIdentity(ctx, member);
   const ref: MemberRef = {
     id: memberId,
-    displayName: member?.displayName ?? "Unknown member",
-    image: member?.image,
+    displayName: identity.displayName,
+    image: identity.image,
   };
   caches.members.set(memberId, ref);
   return ref;
@@ -203,7 +213,7 @@ export async function toTransactionDetailView(
   viewerIsOwner: boolean,
 ) {
   const base = await toTransactionView(ctx, txn, caches, viewerMemberId, viewerIsOwner);
-  const latest = await latestEntityEvent(ctx, transactionEntity(txn._id));
+  const latest = await latestEntityEvent(ctx, transactionEntity(txn._id, txn.circleId));
   const updatedBy =
     latest?.actorMemberId != null
       ? await memberRef(ctx, latest.actorMemberId, caches)
@@ -434,7 +444,7 @@ export const listTransactionHistory = query({
     }
     const result = await paginateEntityHistory(
       ctx,
-      transactionEntity(transactionId),
+      transactionEntity(transactionId, access.circle._id),
       args.paginationOpts,
     );
     // The event view is the shared, entity-agnostic one (historyView.ts) — the same
@@ -460,7 +470,7 @@ async function requireCurrentMember(
   memberId: Id<"members">,
 ): Promise<Doc<"members">> {
   const member = await ctx.db.get(memberId);
-  if (!member || member.circleId !== circleId || member.status !== "active") {
+  if (!member || member.circleId !== circleId || !(await isEffectiveActiveMember(ctx, member))) {
     throw new Error("Paid By must be a current member of this circle");
   }
   return member;
@@ -670,7 +680,7 @@ export const createTransaction = mutation({
     }
 
     await recordEvent(ctx, {
-      entity: transactionEntity(transactionId),
+      entity: transactionEntity(transactionId, access.circle._id),
       actor: access.membership,
       action: "created",
       changes,
@@ -898,7 +908,7 @@ export const updateTransaction = mutation({
     });
 
     await recordEvent(ctx, {
-      entity: transactionEntity(txn._id),
+      entity: transactionEntity(txn._id, txn.circleId),
       actor: access.membership,
       action: typeChanges ? "type changed" : "edited",
       changes,
@@ -959,7 +969,7 @@ export const archiveTransaction = mutation({
     await syncTransactionSearchDocument(ctx, archivedTransaction);
 
     await recordEvent(ctx, {
-      entity: transactionEntity(txn._id),
+      entity: transactionEntity(txn._id, txn.circleId),
       actor: access.membership, // the moderator who archived it
       action: "archived",
       changes: [],
@@ -1017,7 +1027,7 @@ export const restoreTransaction = mutation({
     await syncTransactionSearchDocument(ctx, restoredTransaction);
 
     await recordEvent(ctx, {
-      entity: transactionEntity(txn._id),
+      entity: transactionEntity(txn._id, txn.circleId),
       actor: access.membership, // the moderator who restored it
       action: "restored",
       changes: [],

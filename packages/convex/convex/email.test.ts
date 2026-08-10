@@ -617,6 +617,7 @@ describe("sendInvitationEmail", () => {
         status: "active",
         setupCompletedAt: now,
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: now,
       });
       await ctx.db.insert("members", {

@@ -129,6 +129,9 @@ graph TD
 
   %% User & Profile
   F0 --> USR1[USR-1 · Onboarding + own the profile]
+  EML1 --> USR3[USR-3 · Account deletion]
+  MEM7 --> USR3
+  MEM8 --> USR3
 
   %% Platform
   TXN1 --> EXP1[EXP-1 · CSV Export]
@@ -149,6 +152,8 @@ graph TD
 - **Tier 4 — wire the cross-cutting net + validate under load:** `NTF-2` (fans out to every
   event emitted by the slices above) and `QA-1` (concurrency e2e; needs `TXN-2` + `TXN-3` for the
   archive-vs-edit race, and `MEM-5` for the Paid-By-removed-mid-edit race). Both run last.
+- **Tier 5 — account lifecycle:** `USR-3` after email, ownership-transfer, archive, History,
+  Invitation, Notification, and bounded-cleanup foundations are shipped.
 
 ---
 
@@ -340,6 +345,7 @@ Each slice file in this directory uses this structure:
 
 ### User & Profile
 - [USR-1 · Onboarding confirmation + Spend Circle owns the profile](USR-1-onboarding-profile-ownership.md)
+- [USR-3 · Account deletion](USR-3-account-deletion.md)
 
 ### Platform
 - [MNT-1 · React Router v8 future flag adoption](MNT-1-react-router-v8-flags.md)

@@ -1,9 +1,12 @@
 import { type AuthFunctions, createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
+import { requireRunMutationCtx } from "@convex-dev/better-auth/utils";
 import { betterAuth } from "better-auth";
 import { components, internal } from "./_generated/api.js";
 import type { DataModel, Doc } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
+import { parseBetterAuthMappedUser } from "./accountDeletionAuth.js";
+import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import authConfig from "./auth.config.js";
 import { emailPool } from "./email.js";
 import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
@@ -59,6 +62,11 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         }
         await syncUserEmail(ctx, userId, authUser.email);
       },
+      onDelete: async (ctx, authUser) => {
+        // Static import from a cycle-free module — mutations cannot use runtime
+        // `await import()` (dynamic imports are for actions).
+        await finalizeOnUserDelete(ctx, authUser);
+      },
     },
   },
 });
@@ -67,6 +75,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
 // the Spend Circle User + Personal Circle (PRD stories 1, 3), then stores the app
 // user id on the auth-user mapping. `onUpdate` syncs Google Account Email only
 // (ADR 0024); Display Name propagation is in-app via `setUserDisplayName`.
+// `onDelete` finalizes Account Deletion (USR-3 / ADR 0029).
 export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
 
 export const { getAuthUser } = authComponent.clientApi();
@@ -98,6 +107,21 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       google: {
         clientId: process.env.GOOGLE_CLIENT_ID ?? "",
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      },
+    },
+    user: {
+      deleteUser: {
+        enabled: true,
+        sendDeleteAccountVerification: async ({ user, token }) => {
+          const mapped = parseBetterAuthMappedUser(user);
+          const runCtx = requireRunMutationCtx(ctx);
+          await runCtx.runMutation(internal.accountDeletion.enqueueDeletionVerificationEmail, {
+            mappedUserId: mapped.userId,
+            email: mapped.email,
+            displayName: mapped.name ?? mapped.email,
+            token,
+          });
+        },
       },
     },
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],

@@ -82,7 +82,7 @@ function setup(
   };
 }
 
-function makeSearchOptions(): TransactionFilterOptions {
+function makeSearchOptions(opts: { extraMembers?: Member[] } = {}): TransactionFilterOptions {
   return {
     categories: [
       makeCategoryView({ id: testId<Category["id"]>("cat-grocery"), name: "Groceries" }),
@@ -99,6 +99,7 @@ function makeSearchOptions(): TransactionFilterOptions {
         displayName: "Alex",
         status: "removed",
       }),
+      ...(opts.extraMembers ?? []),
     ],
   };
 }
@@ -195,6 +196,31 @@ describe("CircleSearch", () => {
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
 
     expect(location()).toMatch(/categories=cat-grocery/);
+  });
+
+  it("labels removed vs deleted account members in Paid by filters", async () => {
+    const user = userEvent.setup();
+    setup({
+      initialEntries: [`/circles/${REF}/search?type=all&status=all`],
+      options: makeSearchOptions({
+        extraMembers: [
+          makeMemberView({
+            id: testId<Member["id"]>("mem-rex"),
+            displayName: "Rex",
+            status: "deleted",
+          }),
+        ],
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    const combobox = within(dialog).getByRole("combobox", { name: "Paid by" });
+    await user.click(combobox);
+
+    expect(await screen.findByText("removed")).toBeInTheDocument();
+    expect(screen.getByText("deleted account")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
   });
 
   it("resets immediately to canonical default search", async () => {

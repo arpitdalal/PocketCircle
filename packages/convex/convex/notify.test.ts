@@ -391,7 +391,7 @@ describe("notification creation on events (NTF-2)", () => {
     });
   });
 
-  it("archiveCircle on a solo Circle schedules no coordinator and emits zero notifications", async () => {
+  it("archiveCircle on a solo Circle still schedules fan-out but emits zero notifications", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
@@ -406,7 +406,8 @@ describe("notification creation on events (NTF-2)", () => {
 
       await t.run(async (ctx) => {
         const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
-        expect(scheduled).toHaveLength(0);
+        // Fan-out always schedules; actor exclusion still yields no deliveries.
+        expect(scheduled.length).toBeGreaterThan(0);
         expect(await listNotificationsForUser(ctx, owner._id)).toHaveLength(0);
       });
 

@@ -30,3 +30,21 @@ export async function signOut() {
     throw result.error;
   }
 }
+
+/** Starts Better Auth's verified deletion flow (sends the verification email). */
+export async function requestAccountDeletion() {
+  const result = await authClient.deleteUser();
+
+  if (result.error) {
+    throw result.error;
+  }
+}
+
+/** Completes Account Deletion with the emailed token (requires matching session). */
+export async function confirmAccountDeletion(token: string) {
+  const result = await authClient.deleteUser({ token });
+
+  if (result.error) {
+    throw result.error;
+  }
+}
