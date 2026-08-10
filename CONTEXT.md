@@ -29,7 +29,7 @@ The always-solo **Circle** automatically created for a Google-authenticated **Us
 _Avoid_: Personal Household, Private Circle, Default Group
 
 **Archived Circle**:
-A **Circle** hidden from active use after the **Owner** no longer needs it. Current Members can view and search historical Transactions from archives, but cannot add, edit, or delete Transactions, Categories, or membership unless the Owner restores the Circle; anyone viewing a Circle when it is archived is moved to its read-only archived view; archiving revokes pending Invitations and invalidates their Invitation Links. V1 only supports deleting a regular Circle, active or archived, with no Transactions ever created and no current Member other than its Owner; Circle Settings, Categories, and Circle History alone do not block deletion, while Removed Members and pending Invitations do not block it either; deletion revokes pending Invitations and invalidates their Invitation Links; a Personal Circle cannot be archived or deleted.
+A **Circle** hidden from active use after the **Owner** no longer needs it. Current Members can view and search historical Transactions from archives, but cannot add, edit, or delete Transactions, Categories, or membership unless the Owner restores the Circle; ownership transfer and a non-Owner leaving are narrow lifecycle exceptions to this read-only rule. Anyone viewing a Circle when it is archived is moved to its read-only archived view; archiving revokes pending Invitations and invalidates their Invitation Links. V1 only supports deleting a regular Circle, active or archived, with no Transactions ever created and no current Member other than its Owner; Circle Settings, Categories, and Circle History alone do not block deletion, while Removed Members and pending Invitations do not block it either; deletion revokes pending Invitations and invalidates their Invitation Links; a Personal Circle cannot be archived or deleted outside **Account Deletion**.
 _Avoid_: Deleted Circle
 
 **Circle Setup**:
@@ -41,7 +41,7 @@ The Owner-controlled configuration for a **Circle**, including Circle name, Curr
 _Avoid_: Group Settings
 
 **Circle History**:
-The immutable change history for a **Circle**, including ownership transfers, Members added or removed, Circle archived or restored, Invitation actions, and Circle Settings changed. Current Members can view Circle History as a Circle-level audit distinct from the **Member List**; it shows old and new values for Circle name, Circle Color, Currency, and Circle Setup answers, transfer from/to Members for ownership changes, and actor plus affected Member for membership changes; only the current Owner can see invitee email in Invitation history events, because unaccepted invitee emails remain Owner-only **Invitation** data, and internal IDs are not shown.
+The immutable change history for a **Circle**, including ownership transfers, Members added, removed, or deleted, Circle archived or restored, Invitation actions, and Circle Settings changed. Current Members can view Circle History as a Circle-level audit distinct from the **Member List**; it shows old and new values for Circle name, Circle Color, Currency, and Circle Setup answers, transfer from/to Members for ownership changes, and actor plus affected Member for membership changes; only the current Owner can see invitee email in Invitation history events, because unaccepted invitee emails remain Owner-only **Invitation** data, and internal IDs are not shown.
 _Avoid_: Group Audit
 
 **Currency**:
@@ -57,7 +57,7 @@ A person with a Google-authenticated login identity in Spend Circle, identified 
 _Avoid_: Account
 
 **Account Deletion**:
-A workflow for permanently removing a **User** from Spend Circle. Account Deletion is out of scope for v1; Spend Circle retains local profile snapshots needed for historical display and histories.
+A workflow for permanently removing a **User** from Spend Circle while preserving Circle-scoped financial attribution through **Deleted Members**. The User confirms with `DELETE MY ACCOUNT` and an email link while authenticated as the same User. Account Deletion immediately and irreversibly removes login access, User-owned profile data, User-owned Notifications, and shared-Circle access; revokes pending Invitations created by or addressed to that User; and starts durable bounded deletion of the Personal Circle, solo setup-incomplete regular Circles, and archived regular Circles with no active co-Members. It does not rewrite existing History or other Users' Notifications and never blocks on Circles where the User is a non-Owner Member. A setup-complete active solo Circle must be archived first; any regular Circle with active co-Members must be transferred first, including while archived.
 _Avoid_: User Erasure
 
 **Google Account Email**:
@@ -94,11 +94,19 @@ _Avoid_: Reusable Invite
 
 **Removed Member**:
 A former **Member** who no longer has access to a **Circle**. Transactions created by a Removed Member remain visible in the Circle with the creator's Display Name and Profile Picture preserved from removal time; if the same **User** rejoins by Invitation, their historical Transactions resolve to their current Display Name and Profile Picture again.
-_Avoid_: Deleted Member, Ex-member
+_Avoid_: Ex-member
+
+**Deleted Member**:
+A former **Member** whose **User** completed **Account Deletion**. A Deleted Member no longer has access, cannot rejoin as the same User, keeps Display Name for Circle attribution, does not keep Profile Picture, and is never reconnected to a future User even if the same person signs up again.
+_Avoid_: Removed Member, Deleted User
 
 **Member List**:
 The current **Members** of a **Circle**. All current Members can view the Member List.
 _Avoid_: Roster
+
+**Historical Member**:
+A **Member** whose status is no longer current but whose Circle-scoped attribution remains relevant to Transactions, filters, or History. Removed Members and Deleted Members are Historical Members; Active Members are current Members.
+_Avoid_: Former User
 
 **Transaction**:
 A dated money movement recorded in exactly one **Circle** by a **Member**. In v1, a Transaction is either an **Expense** or **Income**, and has an amount, Transaction Date, Title, optional Note, and at least one Category.
@@ -224,12 +232,16 @@ _Avoid_: Search, Global Search
 A CSV download of **Transactions** from one **Circle**. Any current **Member** can Export Transactions they can view; Export includes active Transactions by default and can optionally include Archived Transactions, and exported amounts identify the **Currency** explicitly. V1 supports Export but does not support importing Transactions.
 _Avoid_: Import
 
+**Account Export**:
+A future download of a **User's** Spend Circle data across the account. Account Deletion may point Users toward Account Export before deletion, but Account Export is not required before deleting an account.
+_Avoid_: Backup
+
 **Notification Center**:
 The in-app list of user-specific Circle events. Notifications belong to one **User**, have per-User unread/read state, can be marked read individually or in bounded batches, and cannot be deleted in v1. The dropdown shows **unread only**, at most **20 at a time** — there is no “Load more”; **Mark all read** at the bottom of the list clears the visible batch and the next unread batch appears reactively. Read notifications are not listed in the dropdown (inbox to clear, not history). Notifications link to the relevant Circle, Transaction, or Category when the User still has access; otherwise they show text only, and archived objects open in their archived context. V1 notifications include Invitation accepted, revoked, or expired involving the User; being added to or removed from a Circle; ownership transferred to or from the User; Circle archived or restored for a Circle they belong to; a Transaction recorded with Paid By set to them by another Member; their Transaction archived or restored by the Owner; and their Category archived or restored by the Owner.
 _Avoid_: Activity Feed
 
 **Email Notification**:
-An email sent outside the app. V1 Email Notifications are limited to Invitation emails and a Welcome email after first sign-in.
+An email sent outside the app. V1 Email Notifications are limited to Welcome, Invitation, Feedback delivery, and Account Deletion verification emails; normal Circle activity never sends email.
 _Avoid_: Activity Email
 
 **Feedback**:

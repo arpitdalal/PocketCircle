@@ -14,8 +14,8 @@
 
 Stand up the **Resend** transactional-email path (ADR 0008) and ship the first email: a
 **Welcome email after first sign-in** (PRD 84), sent **once per User** (PRD rate-limit). This is
-the shared email-sending seam every later email (Invitation EML-2, Feedback FBK-1) composes
-over. v1 sends **only** Invitation + Welcome emails — **no activity emails** (PRD 86), so the
+the shared email-sending seam every later email (Invitation EML-2, Feedback FBK-1, Account
+Deletion USR-3) composes over. v1 sends **no activity emails** (PRD 86), so the
 sender must not become a general notification channel.
 
 ## Current state (verified — read before starting)
