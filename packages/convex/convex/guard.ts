@@ -25,10 +25,10 @@ import { getCurrentUserOrNull } from "./auth.js";
  * operations keep `requireCurrentUser` (auth.ts): `listMyCircles` (lists across
  * Circles), `createCircle` (no prior access), `users.setAnalyticsOptOut`.
  *
- * Capabilities here are Circle-level only (`isOwner`, `isWritable`). Entity-level
- * permission — a Transaction editable only by its Recorded By Member, a Category
- * by its creator, the Owner able to archive either — composes OVER this rather
- * than being inlined; the intended shape:
+ * Capabilities here are Circle-level only (`isOwner`, `isWritable`,
+ * `assertSetupComplete`). Entity-level permission — a Transaction editable only
+ * by its Recorded By Member, a Category by its creator, the Owner able to archive
+ * either — composes OVER this rather than being inlined; the intended shape:
  *
  *   async function requireTransactionAccess(ctx, txnId) {
  *     const txn = await ctx.db.get(txnId)
@@ -42,9 +42,19 @@ import { getCurrentUserOrNull } from "./auth.js";
  * today — one adapter, a hypothetical seam — and is added only when a non-owner
  * moderation case actually appears.)
  *
+ * Setup completion (ADR 0023) is an OPT-IN write capability, not folded into
+ * resolve/require:
+ *   - Normal mutating handlers call `access.assertSetupComplete()` after access
+ *     and existing permission/lifecycle checks.
+ *   - Reads stay setup-agnostic after normal access control.
+ *   - Transition/escape mutations (`createCircle`, `completeCircleSetup`,
+ *     color-only settings, `deleteCircle`, `transferOwnership`, `leaveCircle`,
+ *     `revokeInvitation`) intentionally skip the assertion.
+ *
  * Canonical mutating-handler shape (the pattern to copy):
  *   const access = await requireCircleAccess(ctx, circleId)
  *   access.assertWritable()                  // skip for read-only queries
+ *   access.assertSetupComplete()             // skip for setup transitions/escapes
  *   // ... perform the mutation ...
  *   await recordEvent(ctx, { entity, actor: access.membership, action, changes })
  */
@@ -69,6 +79,12 @@ export interface AuthorizedCircle {
    * throws stay plain errors by design (ADR 0016).
    */
   assertWritable(): void;
+  /**
+   * Throws coded `ConvexError` data unless Circle Setup is complete
+   * (`setupCompletedAt !== null`). Opt-in at normal write handlers — not called
+   * from resolve/require, entity accessors, or starter-seeding helpers (ADR 0023).
+   */
+  assertSetupComplete(): void;
 }
 
 /** Returns the caller's active membership in a Circle, or null when not an active member. */
@@ -103,6 +119,11 @@ function toAuthorizedCircle(
     assertWritable() {
       if (!isWritable) {
         throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleArchived));
+      }
+    },
+    assertSetupComplete() {
+      if (circle.setupCompletedAt === null) {
+        throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete));
       }
     },
   };

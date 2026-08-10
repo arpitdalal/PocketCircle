@@ -4,7 +4,12 @@ import { convexTest, type TestConvex } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
-import { seedFixture, seedTransaction } from "../test/seed.js";
+import {
+  makeCategory,
+  seedFixture,
+  seedCircle as seedSharedCircle,
+  seedTransaction,
+} from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
@@ -528,6 +533,34 @@ describe("createCategory — lifecycle edges", () => {
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
     });
   });
+
+  it("rejects an incomplete regular Circle with no Category or History side effects", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) => seedSharedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.categories.createCategory, { circleId, ...EXPENSE }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      const categories = await ctx.db
+        .query("categories")
+        .withIndex("by_circle_type_createdAt", (q) =>
+          q.eq("circleId", circleId).eq("type", "expense"),
+        )
+        .collect();
+      expect(categories).toHaveLength(0);
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+      expect((await ctx.db.get(circleId))?.setupCompletedAt).toBeNull();
+    });
+  });
 });
 
 describe("listCategories", () => {
@@ -853,6 +886,37 @@ describe("updateCategory — input edges and lifecycle", () => {
     });
   });
 
+  it("rejects edits on an incomplete regular Circle without mutating the Category", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await t.run(async (ctx) => {
+      const seed = await seedSharedCircle(ctx);
+      const categoryId = await makeCategory(ctx, seed.circleId, {
+        name: "Groceries",
+        color: "green",
+        creatorUserId: seed.owner._id,
+      });
+      return { ...seed, categoryId };
+    });
+    mockCurrentUser.mockResolvedValue(seeded.owner);
+
+    await expect(
+      t.mutation(api.categories.updateCategory, { categoryId: seeded.categoryId, name: "Food" }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      const category = await ctx.db.get(seeded.categoryId);
+      expect(category?.name).toBe("Groceries");
+      expect(category?.color).toBe("green");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", seeded.categoryId))
+        .collect();
+      expect(history).toHaveLength(0);
+    });
+  });
+
   it("rejects edits to an Archived Category (frozen until restored)", async () => {
     const t = convexTest(schema, modules);
     const { creator, categoryId } = await seedCategoryScenario(t);
@@ -1021,6 +1085,46 @@ describe("archiveCategory / restoreCategory — moderation", () => {
     await t.run((ctx) => ctx.db.patch(categoryId, { status: "active" }));
     await expect(t.mutation(api.categories.archiveCategory, { categoryId })).rejects.toMatchObject({
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
+    });
+  });
+
+  it("rejects archive and restore on an incomplete regular Circle without side effects", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await t.run(async (ctx) => {
+      const seed = await seedSharedCircle(ctx);
+      const activeId = await makeCategory(ctx, seed.circleId, {
+        name: "Groceries",
+        creatorUserId: seed.owner._id,
+      });
+      const archivedId = await makeCategory(ctx, seed.circleId, {
+        name: "Dining",
+        status: "archived",
+        creatorUserId: seed.owner._id,
+      });
+      return { ...seed, activeId, archivedId };
+    });
+    mockCurrentUser.mockResolvedValue(seeded.owner);
+
+    await expect(
+      t.mutation(api.categories.archiveCategory, { categoryId: seeded.activeId }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+    await expect(
+      t.mutation(api.categories.restoreCategory, { categoryId: seeded.archivedId }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(seeded.activeId))?.status).toBe("active");
+      expect((await ctx.db.get(seeded.archivedId))?.status).toBe("archived");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_circle", (q) => q.eq("circleId", seeded.circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+      expect(await listNotificationsForUser(ctx, seeded.owner._id)).toHaveLength(0);
     });
   });
 

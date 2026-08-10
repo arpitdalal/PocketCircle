@@ -118,6 +118,7 @@ export const getCircle = query({
 });
 
 /** Creates a regular Circle owned by the current User (PRD story 6). */
+/** Creates a regular Circle. Born incomplete — owner must Finish setup (ADR 0023). */
 export const createCircle = mutation({
   args: {
     name: v.string(),
@@ -192,12 +193,10 @@ export const updateCircleSettings = mutation({
     );
 
     // Setup answers must not be edited until the owner has finished Circle Setup via
-    // completeCircleSetup (one-shot starter seeding). The explicit completion flag
-    // separates workflow milestone from answer data — a completed Circle with empty
-    // answers can still edit answers here. Color edits stay allowed either way.
-    // (Server-side enforcement per ADR 0015 — the UI route gate is courtesy only.)
-    if (input.setupAnswers !== undefined && access.circle.setupCompletedAt === null) {
-      throw new Error("Complete circle setup before editing setup answers");
+    // completeCircleSetup (one-shot starter seeding). Color-only edits stay allowed
+    // before setup (ADR 0023 / CS-5); answer edits opt into the shared setup guard.
+    if (input.setupAnswers !== undefined) {
+      access.assertSetupComplete();
     }
 
     const patch: Partial<Doc<"circles">> = {};
@@ -236,6 +235,7 @@ export const updateCircleSettings = mutation({
 
 /**
  * Turns Personal Circle name auto-sync with the owner's Display Name on or off (USR-2).
+ * Exempt from setup gating: Personal Circles are born complete (ADR 0023).
  * No Circle History event — identity-driven, like `reconcilePersonalCircleFromDisplayName`.
  */
 export const setPersonalCircleNameAutoSync = mutation({
@@ -268,6 +268,7 @@ export const setCurrency = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyForbidden));
     }
     access.assertWritable();
+    access.assertSetupComplete();
 
     const hasTransaction = await ctx.db
       .query("transactions")
@@ -305,6 +306,7 @@ export const renameCircle = mutation({
       throw new Error("Only the owner can rename this circle");
     }
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     const name = args.name.trim();
     if (name === "") {
@@ -330,7 +332,7 @@ export const renameCircle = mutation({
   },
 });
 
-/** Completes Circle Setup once: persisted answers + starter Categories. */
+/** Completes Circle Setup once: persisted answers + starter Categories. Exempt — this is the transition out of incomplete (ADR 0023). */
 export const completeCircleSetup = mutation({
   args: {
     circleId: v.id("circles"),
@@ -397,9 +399,7 @@ export const archiveCircle = mutation({
     if (access.circle.status !== "active") {
       throw new Error("Circle is already archived");
     }
-    if (access.circle.setupCompletedAt === null) {
-      throw new Error("Complete circle setup before archiving this circle");
-    }
+    access.assertSetupComplete();
 
     const now = Date.now();
     await ctx.db.patch(access.circle._id, { status: "archived", archivedAt: now });
@@ -490,7 +490,7 @@ export const circleHasTransactions = query({
   },
 });
 
-/** Deletes an owner-only, zero-transaction regular Circle (MEM-9). */
+/** Deletes an owner-only, zero-transaction regular Circle (MEM-9). Exempt — abandoned empty incomplete Circles must remain deletable (ADR 0023). */
 export const deleteCircle = mutation({
   args: { circleId: v.id("circles") },
   handler: async (ctx, args) => {
@@ -542,6 +542,7 @@ export const restoreCircle = mutation({
     if (access.circle.status !== "archived") {
       throw new Error("Circle is not archived");
     }
+    access.assertSetupComplete();
 
     await ctx.db.patch(access.circle._id, { status: "active", archivedAt: undefined });
     await recomputeAccountDeletionBlockers(ctx, access.circle._id);

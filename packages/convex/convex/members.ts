@@ -85,6 +85,8 @@ export const listMembers = query({
  * Transfers Circle ownership to an active Member (MEM-7). Updates both
  * `members.role` and `circles.ownerUserId` atomically — they must stay in lockstep.
  * Archived Circles may still transfer (USR-3 narrow lifecycle exception).
+ * Exempt from setup gating: ADR 0029 requires transfer for anomalous incomplete
+ * Circles with active co-Members (including archived).
  */
 export const transferOwnership = mutation({
   args: {
@@ -164,6 +166,8 @@ export const removeMember = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.memberNotFound));
     }
 
+    access.assertSetupComplete();
+
     const target = await ctx.db.get(args.memberId);
     if (!target || target.circleId !== args.circleId) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.memberNotFound));
@@ -201,6 +205,9 @@ export const removeMember = mutation({
  * A Member removes themselves from a regular Circle (PRD 18, MEM-6). Status flip,
  * never delete — the same row is reactivated on rejoin (MEM-3). Owners must transfer
  * first (MEM-7); Personal Circles are always solo and cannot be left.
+ * Exempt from setup gating: a Member must never be trapped (access-reducing escape).
+ * Leaving is not gated on `assertWritable()` — an archived Circle's members may
+ * still exit; the status flip preserves frozen identity regardless of Circle lifecycle.
  */
 export const leaveCircle = mutation({
   args: { circleId: v.id("circles") },
@@ -214,9 +221,6 @@ export const leaveCircle = mutation({
     if (access.isOwner) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.ownerMustTransfer));
     }
-
-    // Leaving is not gated on `assertWritable()` — an archived Circle's members may
-    // still exit; the status flip preserves frozen identity regardless of Circle lifecycle.
 
     const now = Date.now();
     await ctx.db.patch(access.membership._id, { status: "removed", removedAt: now });

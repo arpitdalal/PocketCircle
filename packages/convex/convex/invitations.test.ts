@@ -9,6 +9,7 @@ import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
   addMember,
   makeUser,
+  markCircleSetupComplete,
   seedCircle,
   seedFixture,
   seedInvitation,
@@ -18,7 +19,6 @@ import {
 } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
-import type { MutationCtx } from "./_generated/server.js";
 import { circleEntity, listEntityHistory } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import { createUserWithPersonalCircle } from "./model.js";
@@ -96,10 +96,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function completeSetup(ctx: MutationCtx, circleId: Id<"circles">) {
-  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
-}
-
 function createTestConvex() {
   const t = createConvexTest(schema, modules);
   registerEmailWorkpool(t);
@@ -131,7 +127,7 @@ describe("createInvitation — happy path", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.mutation(api.invitations.createInvitation, {
@@ -182,7 +178,7 @@ describe("createInvitation — permissions", () => {
   it("rejects a non-owner Member", async () => {
     const t = createTestConvex();
     const { circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     mockCurrentUser.mockResolvedValue(member.user);
 
@@ -196,7 +192,7 @@ describe("createInvitation — permissions", () => {
   it("rejects a removed Member with Circle not found", async () => {
     const t = createTestConvex();
     const { circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const removed = await t.run((ctx) =>
       addMember(ctx, circleId, "removed@example.com", "Removed", "removed"),
     );
@@ -210,7 +206,7 @@ describe("createInvitation — permissions", () => {
   it("rejects a non-member with Circle not found", async () => {
     const t = createTestConvex();
     const { circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
     mockCurrentUser.mockResolvedValue(stranger);
 
@@ -222,7 +218,7 @@ describe("createInvitation — permissions", () => {
   it("rejects an unauthenticated caller with Circle not found", async () => {
     const t = createTestConvex();
     const { circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(null);
 
     await expect(
@@ -261,14 +257,14 @@ describe("createInvitation — circle constraints", () => {
     await expect(
       t.mutation(api.invitations.createInvitation, { circleId, email: "new@example.com" }),
     ).rejects.toMatchObject({
-      data: mutationErrorData(MUTATION_ERRORS.inviteSetupIncomplete),
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
     });
   });
 
   it("succeeds once setup is complete", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await inviteAndDrain(t, {
@@ -280,7 +276,7 @@ describe("createInvitation — circle constraints", () => {
   it("rejects an archived Circle", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { archived: true }));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await expect(
@@ -295,7 +291,7 @@ describe("createInvitation — duplicates", () => {
   it("rejects an active Member's email", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -309,7 +305,7 @@ describe("createInvitation — duplicates", () => {
   it("rejects an active member when the invite email differs only by case", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const memberUserId = await t.run((ctx) =>
       createUserWithPersonalCircle(ctx, {
         email: "Ada@Example.com",
@@ -339,7 +335,7 @@ describe("createInvitation — duplicates", () => {
   it("rejects a pending unexpired invite for the same email", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await inviteAndDrain(t, { circleId, email: "ada@example.com" });
@@ -361,7 +357,7 @@ describe("createInvitation — duplicates", () => {
   it("allows re-inviting a removed Member's email", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const removed = await t.run((ctx) =>
       addMember(ctx, circleId, "removed@example.com", "Removed", "removed"),
     );
@@ -376,7 +372,7 @@ describe("createInvitation — duplicates", () => {
   it("allows a fresh invite when the prior one is expired", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -413,7 +409,7 @@ describe("createInvitation — duplicates", () => {
   it("allows a fresh invite when the prior one is revoked or accepted", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -444,7 +440,7 @@ describe("createInvitation — email normalization", () => {
   it("normalizes email and rejects a pending duplicate on emailLower", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await inviteAndDrain(t, {
@@ -478,7 +474,7 @@ describe("createInvitation — email enqueue", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.mutation(api.invitations.createInvitation, {
@@ -502,7 +498,7 @@ describe("createInvitation — email enqueue", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await inviteAndDrain(t, { circleId, email: "ada@example.com" });
@@ -522,7 +518,7 @@ describe("createInvitation — coded errors", () => {
   it("throws ConvexError for owner-facing validation failures", async () => {
     const t = createTestConvex();
     const { circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     mockCurrentUser.mockResolvedValue(member.user);
 
@@ -539,7 +535,7 @@ describe("createInvitation — daily cap", () => {
   it("rejects when the owner has sent 100 invitation emails in the last 24 h", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -565,7 +561,7 @@ describe("createInvitation — daily cap", () => {
   it("fires the daily cap even when the sender has many lifetime invitation events outside the window", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -600,7 +596,7 @@ describe("createInvitation — daily cap", () => {
   it("counts email events (creates and resends), not invitation rows", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -644,7 +640,7 @@ describe("createInvitation — per-address create cap", () => {
   it("rejects a third create to the same email within 24 h", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -672,7 +668,7 @@ describe("listPendingInvitations", () => {
   it("returns pending non-expired invitations for the Owner without tokenHash", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -694,7 +690,7 @@ describe("listPendingInvitations", () => {
   it("returns null for a non-owner Member", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     await t.run((ctx) => seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }));
     mockCurrentUser.mockResolvedValue(member.user);
@@ -705,7 +701,7 @@ describe("listPendingInvitations", () => {
   it("returns null for a non-member", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
     await t.run((ctx) => seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }));
     mockCurrentUser.mockResolvedValue(stranger);
@@ -716,7 +712,7 @@ describe("listPendingInvitations", () => {
   it("returns null when unauthenticated", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }));
     mockCurrentUser.mockResolvedValue(null);
 
@@ -726,7 +722,7 @@ describe("listPendingInvitations", () => {
   it("excludes expired, revoked, and accepted invitations", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -754,7 +750,7 @@ describe("listPendingInvitations", () => {
   it("returns all pending invitations when multiple exist", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.run(async (ctx) => {
@@ -771,7 +767,7 @@ describe("resendInvitation", () => {
   it("rotates the token, refreshes expiry, and records history", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const oldToken = "old-plaintext-token";
@@ -808,7 +804,7 @@ describe("resendInvitation", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
     vi.useFakeTimers();
     try {
@@ -851,7 +847,7 @@ describe("resendInvitation", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     resetCapturedRequests();
@@ -894,7 +890,7 @@ describe("resendInvitation", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
     vi.useFakeTimers();
     try {
@@ -935,7 +931,7 @@ describe("resendInvitation", () => {
   it("rejects an archived Circle", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { archived: true }));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -952,7 +948,7 @@ describe("resendInvitation", () => {
   it("rejects a non-owner Member", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     const inviteId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }),
@@ -969,7 +965,7 @@ describe("resendInvitation", () => {
   it("rejects a non-member with a generic error", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
     const inviteId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }),
@@ -985,8 +981,8 @@ describe("resendInvitation", () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
     const { circleId: otherCircleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
-    await t.run((ctx) => completeSetup(ctx, otherCircleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, otherCircleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -1001,7 +997,7 @@ describe("resendInvitation", () => {
   it("rejects revoked and expired invitations with a generic error", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const revokedId = await t.run((ctx) =>
@@ -1038,14 +1034,14 @@ describe("resendInvitation", () => {
     await expect(
       t.mutation(api.invitations.resendInvitation, { invitationId: inviteId }),
     ).rejects.toMatchObject({
-      data: mutationErrorData(MUTATION_ERRORS.inviteSetupIncomplete),
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
     });
   });
 
   it("enforces the per-email resend cap within 24 h", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1076,7 +1072,7 @@ describe("resendInvitation", () => {
   it("resend cap survives revoke and recreate for the same email", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1107,7 +1103,7 @@ describe("resendInvitation", () => {
   it("allows resend when prior timestamps are outside the 24 h window", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1134,7 +1130,7 @@ describe("resendInvitation", () => {
   it("counts only in-window resend events toward the cap", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1173,7 +1169,7 @@ describe("resendInvitation", () => {
   it("increments resendCount across multiple resends", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -1192,7 +1188,7 @@ describe("resendInvitation", () => {
   it("enforces the daily user cap on resend", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1225,7 +1221,7 @@ describe("resendInvitation", () => {
   it("allows resend when 99 emails are in-window and one is outside", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const now = Date.now();
@@ -1263,7 +1259,7 @@ describe("revokeInvitation", () => {
   it("sets status to revoked and records history", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
@@ -1290,10 +1286,27 @@ describe("revokeInvitation", () => {
     });
   });
 
+  it("revokes a pending Invitation on an incomplete regular Circle", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    const inviteId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, { email: "pending@example.com" }),
+    );
+
+    await t.mutation(api.invitations.revokeInvitation, { invitationId: inviteId });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.setupCompletedAt).toBeNull();
+      expect((await ctx.db.get(inviteId))?.status).toBe("revoked");
+    });
+  });
+
   it("rejects an archived Circle", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { archived: true }));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -1310,7 +1323,7 @@ describe("revokeInvitation", () => {
   it("rejects a non-owner Member", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const member = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya"));
     const inviteId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }),
@@ -1327,7 +1340,7 @@ describe("revokeInvitation", () => {
   it("rejects a non-member with a generic error", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
     const inviteId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }),
@@ -1342,7 +1355,7 @@ describe("revokeInvitation", () => {
   it("rejects already-revoked and accepted invitations", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const revokedId = await t.run((ctx) =>
@@ -1371,8 +1384,8 @@ describe("revokeInvitation", () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
     const { circleId: otherCircleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
-    await t.run((ctx) => completeSetup(ctx, otherCircleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, otherCircleId));
     mockCurrentUser.mockResolvedValue(owner);
 
     const inviteId = await t.run((ctx) =>
@@ -1389,7 +1402,7 @@ describe("getInvitationPreview", () => {
   it("returns the four preview fields for a pending, unexpired invitation", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
         circleId,
@@ -1418,7 +1431,7 @@ describe("getInvitationPreview", () => {
   it("returns null for an expired invitation", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
         circleId,
@@ -1436,7 +1449,7 @@ describe("getInvitationPreview", () => {
   ] as const)("returns null when the invitation is %s", async (status) => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
         circleId,
@@ -1464,7 +1477,7 @@ describe("getInvitationPreview", () => {
   it("returns null for an archived Circle", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
         circleId,
@@ -1483,7 +1496,7 @@ describe("acceptInvitation — happy path", () => {
   it("inserts an active member, marks the invitation accepted, and records history", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
@@ -1535,7 +1548,7 @@ describe("acceptInvitation — rejoin", () => {
   it("reactivates the same member row and preserves transaction references", async () => {
     const t = createTestConvex();
     const fixture = await t.run((ctx) => seedFixture(ctx));
-    await t.run((ctx) => completeSetup(ctx, fixture.circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, fixture.circleId));
     const removed = await t.run((ctx) =>
       addMember(ctx, fixture.circleId, "ada@example.com", "Ada Lovelace", "removed"),
     );
@@ -1611,7 +1624,7 @@ describe("acceptInvitation — failures", () => {
         });
         return;
       }
-      await completeSetup(ctx, circleId);
+      await markCircleSetupComplete(ctx, circleId);
       if (caseName === "wrong-email") {
         token = await seedPendingInvitation(ctx, {
           circleId,
@@ -1681,7 +1694,7 @@ describe("acceptInvitation — failures", () => {
   it("rejects accept into an archived Circle with invite.invalid", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada"));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
@@ -1711,7 +1724,7 @@ describe("acceptInvitation — failures", () => {
   it("allows exactly one member row when accept is attempted twice concurrently", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada"));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, {
@@ -1760,7 +1773,7 @@ describe("circle capacity", () => {
   it("allows createInvitation when 255 seats are occupied", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -1772,7 +1785,7 @@ describe("circle capacity", () => {
   it("rejects createInvitation when 256 seats are occupied", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 256));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -1786,7 +1799,7 @@ describe("circle capacity", () => {
   it("rejects createInvitation when 255 active members and 1 pending invitation occupy all seats", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     await t.run((ctx) =>
       seedPendingInvitation(ctx, {
@@ -1807,7 +1820,7 @@ describe("circle capacity", () => {
   it("allows acceptInvitation when 255 active members and a matching pending invite", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
     const token = await t.run((ctx) =>
@@ -1835,7 +1848,7 @@ describe("circle capacity", () => {
   it("rejects acceptInvitation when the Circle already has 256 active members", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 256));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
     const token = await t.run((ctx) =>
@@ -1855,7 +1868,7 @@ describe("circle capacity", () => {
   it("rejects reactivation when the Circle already has 256 active members", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     const removed = await t.run((ctx) =>
       addMember(ctx, circleId, "ada@example.com", "Ada Lovelace", "removed"),
@@ -1883,7 +1896,7 @@ describe("circle capacity", () => {
   it("allows the 256th active member and rejects the 257th invitation", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, CIRCLE_CAPACITY_LIMIT));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -1905,7 +1918,7 @@ describe("circle capacity", () => {
   it("allows only one concurrent accept into a 255-active Circle", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada"));
     const bob = await t.run((ctx) => makeUser(ctx, "bob@example.com", "Bob"));
@@ -1949,7 +1962,7 @@ describe("circle capacity", () => {
   it("allows only one concurrent createInvitation when one seat remains", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -1979,7 +1992,7 @@ describe("circle capacity", () => {
   it("releases a revoked invitation seat for a new invite", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     const invitationId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "revoked@example.com" }),
@@ -2002,7 +2015,7 @@ describe("circle capacity", () => {
   it("releases an expired invitation seat for a new invite", async () => {
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     await t.run((ctx) =>
       seedPendingInvitation(ctx, {
@@ -2026,7 +2039,7 @@ describe("circle capacity", () => {
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     await t.run((ctx) => seedActiveMemberCount(ctx, circleId, 255));
     const invitationId = await t.run((ctx) =>
       seedInvitation(ctx, circleId, owner._id, { email: "pending@example.com" }),

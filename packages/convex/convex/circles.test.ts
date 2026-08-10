@@ -9,6 +9,7 @@ import {
   addMember,
   makeCategory,
   makeUser,
+  markCircleSetupComplete,
   seedCircle,
   seedFixture,
   seedInvitation,
@@ -216,7 +217,7 @@ describe("completeCircleSetup", () => {
   it("still derives non-colliding categories after the currency is locked", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run(async (ctx) => {
-      const seeded = await seedFixture(ctx);
+      const seeded = await seedFixture(ctx, { setupCompletedAt: null });
       await seedTransaction(ctx, seeded);
       await ctx.db.patch(seeded.circleId, { currencyLocked: true });
       return seeded;
@@ -434,7 +435,9 @@ describe("updateCircleSettings", () => {
         circleId,
         setupAnswers: { purpose: "trip" },
       }),
-    ).rejects.toThrow(/Complete circle setup/);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
 
     // A color-only edit is unaffected by the incomplete-setup state.
     await t.mutation(api.circles.updateCircleSettings, { circleId, color: "green" });
@@ -566,7 +569,9 @@ describe("renameCircle", () => {
 
   it("updates the name but leaves mark and personalNameCustomizedAt unchanged on a regular Circle", async () => {
     const t = convexTest(schema, modules);
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { setupCompletedAt: Date.now() }),
+    );
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.mutation(api.circles.renameCircle, {
@@ -581,12 +586,35 @@ describe("renameCircle", () => {
       expect(circle?.personalNameCustomizedAt).toBeUndefined();
     });
   });
+
+  it("rejects an incomplete regular Circle without renaming", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.circles.renameCircle, { circleId, name: "Summer Trip" }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.name).toBe("Trip");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+    });
+  });
 });
 
 describe("setCurrency", () => {
   it("lets the owner change currency before any Transaction", async () => {
     const t = convexTest(schema, modules);
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { currency: "USD" }));
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { currency: "USD", setupCompletedAt: Date.now() }),
+    );
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.mutation(api.circles.setCurrency, { circleId, currency: "EUR" });
@@ -605,7 +633,9 @@ describe("setCurrency", () => {
 
   it("no-ops when the currency is unchanged", async () => {
     const t = convexTest(schema, modules);
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { currency: "USD" }));
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { currency: "USD", setupCompletedAt: Date.now() }),
+    );
     mockCurrentUser.mockResolvedValue(owner);
 
     await t.mutation(api.circles.setCurrency, { circleId, currency: "USD" });
@@ -679,13 +709,36 @@ describe("setCurrency", () => {
 
   it("rejects an unsupported currency code", async () => {
     const t = convexTest(schema, modules);
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { setupCompletedAt: Date.now() }),
+    );
     mockCurrentUser.mockResolvedValue(owner);
 
     await expect(
       t.mutation(api.circles.setCurrency, { circleId, currency: "XYZ" }),
     ).rejects.toMatchObject({
       data: mutationErrorData(MUTATION_ERRORS.currencyUnsupported),
+    });
+  });
+
+  it("rejects an incomplete regular Circle without changing currency", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { currency: "USD" }));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.circles.setCurrency, { circleId, currency: "EUR" }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.currency).toBe("USD");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", circleId))
+        .collect();
+      expect(history).toHaveLength(0);
     });
   });
 });
@@ -813,7 +866,7 @@ describe("archiveCircle", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await markCircleSetupComplete(ctx, seed.circleId);
       await seedInvitation(ctx, seed.circleId, seed.owner._id, {
         email: "pending@example.com",
         status: "pending",
@@ -897,9 +950,18 @@ describe("archiveCircle", () => {
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
     mockCurrentUser.mockResolvedValue(owner);
 
-    await expect(t.mutation(api.circles.archiveCircle, { circleId })).rejects.toThrow(
-      /Complete circle setup before archiving/,
-    );
+    await expect(t.mutation(api.circles.archiveCircle, { circleId })).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.status).toBe("active");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+    });
   });
 });
 
@@ -907,7 +969,7 @@ describe("restoreCircle", () => {
   it("restores an archived circle, clears archivedAt, and leaves revoked invites revoked", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
-      const seed = await seedCircle(ctx, { archived: true });
+      const seed = await seedCircle(ctx, { archived: true, setupCompletedAt: Date.now() });
       await ctx.db.patch(seed.circleId, { archivedAt: Date.now() });
       await seedInvitation(ctx, seed.circleId, seed.owner._id, {
         email: "revoked@example.com",
@@ -961,6 +1023,27 @@ describe("restoreCircle", () => {
       /not archived/,
     );
   });
+
+  it("rejects restoring an incomplete archived regular Circle", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { archived: true, setupCompletedAt: null }),
+    );
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(t.mutation(api.circles.restoreCircle, { circleId })).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.status).toBe("archived");
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+    });
+  });
 });
 
 describe("archiveCircle — read-only cascade", () => {
@@ -968,7 +1051,7 @@ describe("archiveCircle — read-only cascade", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await markCircleSetupComplete(ctx, seed.circleId);
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);
@@ -1270,7 +1353,7 @@ describe("listCircleHistory", () => {
     const bystander = await t.run((ctx) =>
       addMember(ctx, circleId, "bystander@example.com", "Bo Bystander"),
     );
-    await t.run((ctx) => ctx.db.patch(circleId, { setupCompletedAt: Date.now() }));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     return { owner, maya, bystander, circleId };
   }
 
@@ -1420,7 +1503,7 @@ describe("listCircleHistory", () => {
 
     async function seedCircleReadyForInvites(t: ReturnType<typeof convexTest>) {
       const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-      await t.run((ctx) => ctx.db.patch(circleId, { setupCompletedAt: Date.now() }));
+      await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
       const member = await t.run((ctx) =>
         addMember(ctx, circleId, "maya@example.com", "Maya Member"),
       );

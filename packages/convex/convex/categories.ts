@@ -420,6 +420,7 @@ export const createCategory = mutation({
   handler: async (ctx, args) => {
     const access = await requireCircleAccess(ctx, args.circleId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
     const result = await createCategoryForMember(ctx, { access, ...args, duplicate: "throw" });
     if (!result.created) {
       throw duplicateCategoryNameError();
@@ -460,6 +461,7 @@ export const updateCategory = mutation({
   handler: async (ctx, args) => {
     const access = await requireCategoryAccess(ctx, args.categoryId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     // Only the creator edits fields (PRD story 55). The Owner's moderation power is
     // archive/restore, NOT field edits (PRD story 56) — same generic message either way.
@@ -549,6 +551,7 @@ export const archiveCategory = mutation({
   handler: async (ctx, args) => {
     const access = await requireCategoryAccess(ctx, args.categoryId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     // The creator OR the Owner may archive (PRD story 56). NOT `isCreator`: the
     // Owner moderates lifecycle without gaining field-edit rights.
@@ -604,6 +607,7 @@ export const restoreCategory = mutation({
   handler: async (ctx, args) => {
     const access = await requireCategoryAccess(ctx, args.categoryId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     if (!access.canArchive) {
       throw new Error("Only the creator or the owner can restore this category");

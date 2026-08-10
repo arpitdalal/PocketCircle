@@ -664,6 +664,41 @@ describe("createTransaction — lifecycle edges", () => {
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
     });
   });
+
+  it("rejects an incomplete regular Circle with no Transaction/History/currency-lock side effects", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx, { setupCompletedAt: null }));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await expect(
+      t.mutation(api.transactions.createTransaction, {
+        circleId: f.circleId,
+        ...baseExpense([f.groceriesId]),
+      }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      const txns = await ctx.db
+        .query("transactions")
+        .withIndex("by_circle", (q) => q.eq("circleId", f.circleId))
+        .collect();
+      expect(txns).toHaveLength(0);
+      const history = await ctx.db
+        .query("histories")
+        .withIndex("by_circle", (q) => q.eq("circleId", f.circleId))
+        .collect();
+      expect(history).toHaveLength(0);
+      const searchDocs = await ctx.db
+        .query("transactionSearchDocuments")
+        .withIndex("by_circle", (q) => q.eq("circleId", f.circleId))
+        .collect();
+      expect(searchDocs).toHaveLength(0);
+      expect((await ctx.db.get(f.circleId))?.currencyLocked).toBe(false);
+      expect((await ctx.db.get(f.circleId))?.setupCompletedAt).toBeNull();
+    });
+  });
 });
 
 describe("createTransaction — currency lock side effect", () => {
@@ -1433,6 +1468,26 @@ describe("updateTransaction — lifecycle edges", () => {
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
     });
   });
+
+  it("rejects editing on an incomplete regular Circle without mutating the Transaction", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx, { setupCompletedAt: null }));
+    const id = await t.run((ctx) => seedTransaction(ctx, f, { title: "Weekly shop" }));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await expect(
+      t.mutation(api.transactions.updateTransaction, { transactionId: id, title: "Changed" }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(id))?.title).toBe("Weekly shop");
+      expect(await historyOf(ctx, id)).toHaveLength(0);
+      const search = await searchDocumentOf(ctx, id);
+      expect(search?.searchText).toContain("weekly shop");
+    });
+  });
 });
 
 describe("listTransactions — view shape", () => {
@@ -1601,6 +1656,26 @@ describe("archiveTransaction — frozen & state edges (TXN-3)", () => {
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
     });
   });
+
+  it("rejects archiving on an incomplete regular Circle without side effects", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx, { setupCompletedAt: null }));
+    const id = await t.run((ctx) => seedTransaction(ctx, f));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await expect(
+      t.mutation(api.transactions.archiveTransaction, { transactionId: id }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(id))?.status).toBe("active");
+      expect(await historyOf(ctx, id)).toHaveLength(0);
+      expect((await searchDocumentOf(ctx, id))?.status).toBe("active");
+      expect(await listNotificationsForUser(ctx, f.owner._id)).toHaveLength(0);
+    });
+  });
 });
 
 describe("archiveTransaction — reporting contract & history (TXN-3)", () => {
@@ -1711,6 +1786,26 @@ describe("restoreTransaction (TXN-3)", () => {
       t.mutation(api.transactions.restoreTransaction, { transactionId: id }),
     ).rejects.toMatchObject({
       data: mutationErrorData(MUTATION_ERRORS.circleArchived),
+    });
+  });
+
+  it("rejects restoring on an incomplete regular Circle without side effects", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx, { setupCompletedAt: null }));
+    const id = await t.run((ctx) => seedTransaction(ctx, f, { status: "archived" }));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await expect(
+      t.mutation(api.transactions.restoreTransaction, { transactionId: id }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete),
+    });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(id))?.status).toBe("archived");
+      expect(await historyOf(ctx, id)).toHaveLength(0);
+      expect((await searchDocumentOf(ctx, id))?.status).toBe("archived");
+      expect(await listNotificationsForUser(ctx, f.owner._id)).toHaveLength(0);
     });
   });
 

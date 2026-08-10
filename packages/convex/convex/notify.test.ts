@@ -12,6 +12,7 @@ import { listNotificationsForUser } from "../test/notifications.js";
 import {
   addMember,
   makeUser,
+  markCircleSetupComplete,
   seedCircle,
   seedFixture,
   seedInvitation,
@@ -46,10 +47,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.useRealTimers();
 });
-
-async function completeSetup(ctx: MutationCtx, circleId: Id<"circles">) {
-  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
-}
 
 async function seedPendingInvitation(
   ctx: MutationCtx,
@@ -252,7 +249,7 @@ describe("notification creation on events (NTF-2)", () => {
   it("acceptInvitation notifies the inviting Owner with a circle link", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
     const token = await t.run((ctx) =>
       seedPendingInvitation(ctx, { circleId, email: ada.email, invitedByUserId: owner._id }),
@@ -283,7 +280,7 @@ describe("notification creation on events (NTF-2)", () => {
   it("revokeInvitation notifies an existing account and skips unknown emails", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => completeSetup(ctx, circleId));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
     mockCurrentUser.mockResolvedValue(owner);
 
@@ -316,6 +313,7 @@ describe("notification creation on events (NTF-2)", () => {
   it("removeMember notifies the removed Member with a circle link", async () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
     mockCurrentUser.mockResolvedValue(owner);
 

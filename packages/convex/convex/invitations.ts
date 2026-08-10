@@ -139,9 +139,7 @@ export const createInvitation = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.invitePersonalCircle));
     }
 
-    if (access.circle.setupCompletedAt === null) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteSetupIncomplete));
-    }
+    access.assertSetupComplete();
 
     const { email } = inviteEmailSchema.parse({ email: args.email });
 
@@ -443,9 +441,7 @@ export const resendInvitation = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
 
-    if (access.circle.setupCompletedAt === null) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteSetupIncomplete));
-    }
+    access.assertSetupComplete();
 
     await assertUnderResendAddressCap(ctx, invitation.circleId, invitation.emailLower, now);
     await assertUnderDailyInvitationCap(ctx, access.user._id, now);
@@ -501,7 +497,7 @@ export async function revokePendingInvitationsForCircle(ctx: MutationCtx, circle
   }
 }
 
-/** Revokes a pending invitation (MEM-4). */
+/** Revokes a pending invitation (MEM-4). Exempt from setup gating — access-reducing cleanup; anomalous pending invites on incomplete Circles stay revocable. */
 export const revokeInvitation = mutation({
   args: { invitationId: v.id("invitations") },
   handler: async (ctx, args) => {
