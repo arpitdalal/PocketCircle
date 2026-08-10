@@ -97,7 +97,7 @@ describe("listMembers — content", () => {
     const active = await t.query(api.members.listMembers, { circleId });
     expect(active?.map((m) => m.displayName)).toEqual(["Olive Owner"]);
 
-    const all = await t.query(api.members.listMembers, { circleId, includeRemoved: true });
+    const all = await t.query(api.members.listMembers, { circleId, includeHistorical: true });
     expect(all?.map((m) => m.displayName)).toContain("Rex Removed");
   });
 
@@ -306,16 +306,20 @@ describe("transferOwnership — target validation", () => {
 });
 
 describe("transferOwnership — lifecycle", () => {
-  it("rejects an archived Circle with circle.archived", async () => {
+  it("allows transfer on an archived Circle (USR-3)", async () => {
     const t = convexTest(schema, modules);
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx, { archived: true }));
+    const { owner, ownerMemberId, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { archived: true }),
+    );
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
     mockCurrentUser.mockResolvedValue(owner);
 
-    await expect(
-      t.mutation(api.members.transferOwnership, { circleId, toMemberId: maya.memberId }),
-    ).rejects.toMatchObject({
-      data: mutationErrorData(MUTATION_ERRORS.circleArchived),
+    await t.mutation(api.members.transferOwnership, { circleId, toMemberId: maya.memberId });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.ownerUserId).toBe(maya.user._id);
+      expect((await ctx.db.get(maya.memberId))?.role).toBe("owner");
+      expect((await ctx.db.get(ownerMemberId))?.role).toBe("member");
     });
   });
 
@@ -494,6 +498,23 @@ describe("removeMember — permissions", () => {
       data: mutationErrorData(MUTATION_ERRORS.memberNotFound),
     });
   });
+
+  it("rejects removing a Member whose app User is already deleted", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    const maya = await t.run(async (ctx) => {
+      const seeded = await addMember(ctx, circleId, "gone@example.com", "Gone Member");
+      await ctx.db.delete(seeded.user._id);
+      return seeded;
+    });
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.members.removeMember, { circleId, memberId: maya.memberId }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.memberNotFound),
+    });
+  });
 });
 
 describe("removeMember — frozen identity and live list", () => {
@@ -541,7 +562,7 @@ describe("removeMember — frozen identity and live list", () => {
     const active = await t.query(api.members.listMembers, { circleId });
     expect(active?.map((m) => m.displayName)).toEqual(["Olive Owner"]);
 
-    const all = await t.query(api.members.listMembers, { circleId, includeRemoved: true });
+    const all = await t.query(api.members.listMembers, { circleId, includeHistorical: true });
     const removedView = all?.find((m) => m.id === maya.memberId);
     expect(removedView?.status).toBe("removed");
     expect(removedView?.displayName).toBe("Maya Member");

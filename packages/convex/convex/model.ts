@@ -8,6 +8,7 @@ import {
 } from "@spend-circle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
+import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
 
 /**
  * Bootstrap helpers for new User creation. These hold no dependency on the
@@ -63,6 +64,10 @@ export async function createUserWithPersonalCircle(
     status: "active",
     currencyLocked: false,
     setupCompletedAt: now,
+    ...accountDeletionBlockerFields(
+      { kind: "personal", status: "active", setupCompletedAt: now },
+      1,
+    ),
     createdAt: now,
   });
 

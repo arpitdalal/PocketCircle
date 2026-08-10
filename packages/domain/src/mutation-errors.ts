@@ -143,6 +143,10 @@ const mutationErrors = defineMutationErrorCatalog({
     "Only the Circle owner can change the currency",
   ),
   currencyUnsupported: defineMutationError("currency.unsupported", "That currency isn't supported"),
+  accountDeletionBlocked: defineMutationError(
+    "accountDeletion.blocked",
+    "Archive or transfer Circles you own before deleting your account",
+  ),
 });
 
 export const MUTATION_ERRORS = mutationErrors.errors;

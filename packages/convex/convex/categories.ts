@@ -26,6 +26,7 @@ import {
   recordEvent,
 } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
+import { resolveMemberIdentity } from "./memberIdentity.js";
 import { notifyCategoryLifecycleChange } from "./notify.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
@@ -70,6 +71,9 @@ export async function toCategoryView(
       q.eq("circleId", category.circleId).eq("userId", category.creatorUserId),
     )
     .unique();
+  const creatorIdentity = creatorMembership
+    ? await resolveMemberIdentity(ctx, creatorMembership)
+    : null;
   const isCreator = category.creatorUserId === viewer.userId;
   return {
     id: category._id,
@@ -82,8 +86,8 @@ export async function toCategoryView(
     color: category.color,
     status: category.status,
     creator: {
-      displayName: creatorMembership?.displayName ?? "Unknown member",
-      image: creatorMembership?.image,
+      displayName: creatorIdentity?.displayName ?? "Unknown member",
+      image: creatorIdentity?.image,
     },
     canEditFields: isCreator,
     canArchive: isCreator || viewer.isOwner,
@@ -147,7 +151,7 @@ export async function createCategoryForMember(ctx: MutationCtx, args: CreateCate
   // CAT-2 — its view needs this row to exist. Values are pre-formatted human
   // strings: the color label, never the raw id.
   await recordEvent(ctx, {
-    entity: categoryEntity(categoryId),
+    entity: categoryEntity(categoryId, args.access.circle._id),
     actor: args.access.membership,
     action: "created",
     changes: [
@@ -511,7 +515,7 @@ export const updateCategory = mutation({
     await ctx.db.patch(category._id, patch);
 
     await recordEvent(ctx, {
-      entity: categoryEntity(category._id),
+      entity: categoryEntity(category._id, category.circleId),
       actor: access.membership,
       action: "edited",
       changes,
@@ -562,7 +566,7 @@ export const archiveCategory = mutation({
     await ctx.db.patch(category._id, { status: "archived", archivedAt: Date.now() });
 
     await recordEvent(ctx, {
-      entity: categoryEntity(category._id),
+      entity: categoryEntity(category._id, category.circleId),
       actor: access.membership, // the moderator who archived it
       action: "archived",
       changes: [],
@@ -630,7 +634,7 @@ export const restoreCategory = mutation({
     await ctx.db.patch(category._id, { status: "active", archivedAt: undefined });
 
     await recordEvent(ctx, {
-      entity: categoryEntity(category._id),
+      entity: categoryEntity(category._id, category.circleId),
       actor: access.membership, // the moderator who restored it
       action: "restored",
       changes: [],
@@ -689,7 +693,7 @@ export const listCategoryHistory = query({
     }
     const result = await paginateEntityHistory(
       ctx,
-      categoryEntity(categoryId),
+      categoryEntity(categoryId, circleId),
       args.paginationOpts,
     );
     const cache = newActorCache();

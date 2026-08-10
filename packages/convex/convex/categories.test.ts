@@ -77,6 +77,7 @@ async function seedCircle(
     status: opts.archived ? "archived" : "active",
     setupCompletedAt: now,
     currencyLocked: false,
+    accountDeletionBlocked: false,
     createdAt: now,
   });
   await ctx.db.insert("members", {
@@ -353,6 +354,7 @@ describe("createCategory — uniqueness (case-insensitive, includes archived)", 
         status: "active",
         setupCompletedAt: Date.now(),
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: Date.now(),
       });
       await ctx.db.insert("members", {
@@ -1180,6 +1182,7 @@ describe("listCategoryHistory", () => {
         status: "active",
         setupCompletedAt: Date.now(),
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: Date.now(),
       });
       await ctx.db.insert("members", {

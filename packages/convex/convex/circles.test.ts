@@ -17,7 +17,7 @@ import {
   seedTransaction,
 } from "../test/seed.js";
 import { api } from "./_generated/api.js";
-import { circleEntity, recordEvent } from "./history.js";
+import { categoryEntity, circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 
@@ -1042,7 +1042,7 @@ describe("deleteCircle", () => {
         changes: [{ field: "name", to: "Trip" }],
       });
       await recordEvent(ctx, {
-        entity: { entityId: groceriesId },
+        entity: categoryEntity(groceriesId, seed.circleId),
         actor: ownerMembership,
         action: "created",
         changes: [{ field: "name", to: "Groceries" }],

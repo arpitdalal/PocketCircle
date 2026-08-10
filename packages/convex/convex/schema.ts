@@ -60,6 +60,10 @@ export default defineSchema({
     setupCompletedAt: v.union(v.number(), v.null()),
     // Currency is locked once any Transaction exists (PRD story 9).
     currencyLocked: v.boolean(),
+    // Denormalized Account Deletion readiness (USR-3 / ADR 0029): finalization
+    // proves no blockers with one indexed `.first()`.
+    accountDeletionBlocked: v.boolean(),
+    accountDeletionBlockerAction: v.optional(v.union(v.literal("archive"), v.literal("transfer"))),
     createdAt: v.number(),
     archivedAt: v.optional(v.number()),
     // Set when the owner manually renames their Personal Circle; absent ⇒ the name
@@ -68,7 +72,8 @@ export default defineSchema({
   })
     .index("by_owner", ["ownerUserId"])
     .index("by_owner_and_kind", ["ownerUserId", "kind"])
-    .index("by_owner_and_status", ["ownerUserId", "status"]),
+    .index("by_owner_and_status", ["ownerUserId", "status"])
+    .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"]),
 
   // Membership join. Exactly one row per (circleId, userId): leaving flips
   // status to "removed", rejoining reactivates the SAME row — never a duplicate
@@ -81,19 +86,24 @@ export default defineSchema({
   // Paid By / Recorded By and the Member List read this materialized identity
   // (active ⇒ current, removed ⇒ frozen); the immutable history does not — it
   // keeps the name as it read when each event was written (ADR 0018).
+  //
+  // `deleted` is Account Deletion's Historical Member tombstone (USR-3 / ADR 0029):
+  // Display Name kept, image cleared, never reconnected to a future User.
   members: defineTable({
     circleId: v.id("circles"),
     userId: v.id("users"),
     role: v.union(v.literal("owner"), v.literal("member")),
-    status: v.union(v.literal("active"), v.literal("removed")),
+    status: v.union(v.literal("active"), v.literal("removed"), v.literal("deleted")),
     displayName: v.string(),
     image: v.optional(v.string()),
     joinedAt: v.number(),
     removedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
     .index("by_circle_and_status", ["circleId", "status"])
     .index("by_user", ["userId"])
+    .index("by_user_and_status", ["userId", "status"])
     .index("by_circle_and_user", ["circleId", "userId"]),
 
   categories: defineTable({
@@ -185,6 +195,7 @@ export default defineSchema({
     amountMinorUnits: v.number(),
   })
     .index("by_transaction", ["transactionId"])
+    .index("by_circle", ["circleId"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["circleId", "status", "type", "paidByMemberId", "recordedByMemberId"],
@@ -198,6 +209,7 @@ export default defineSchema({
     transactionCreatedAt: v.number(),
   })
     .index("by_transaction", ["transactionId"])
+    .index("by_circle", ["circleId"])
     .index("by_category", ["categoryId"])
     .index("by_category_recent", [
       "categoryId",
@@ -230,7 +242,9 @@ export default defineSchema({
     // range scan reads just unexpired pending rows (≤ the 256 cap) and never
     // touches the unbounded accepted/revoked/expired history (CIR-cap).
     .index("by_circle_status_and_expiresAt", ["circleId", "status", "expiresAt"])
-    .index("by_token_hash", ["tokenHash"]),
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_inviter_status_createdAt", ["invitedByUserId", "status", "createdAt"])
+    .index("by_email_status_createdAt", ["emailLower", "status", "createdAt"]),
 
   // Append-only send log for invitation rate limits (ADR 0026).
   invitationEmailEvents: defineTable({
@@ -241,7 +255,8 @@ export default defineSchema({
     sentAt: v.number(),
   })
     .index("by_user_and_sentAt", ["invitedByUserId", "sentAt"])
-    .index("by_circle_email_and_sentAt", ["circleId", "emailLower", "sentAt"]),
+    .index("by_circle_email_and_sentAt", ["circleId", "emailLower", "sentAt"])
+    .index("by_circle", ["circleId"]),
 
   // Append-only send log for feedback rate limits (FBK-1). Stores only safe metadata.
   feedbackEmailEvents: defineTable({
@@ -261,6 +276,27 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_circle_and_email", ["circleId", "emailLower"]),
 
+  // E2E-only (ADR 0019): last Account Deletion verification token so Playwright
+  // can complete the verified deletion flow. Never written when E2E_TEST_AUTH is unset.
+  e2eAccountDeletionTokens: defineTable({
+    userId: v.id("users"),
+    token: v.string(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  // Durable Account Deletion cleanup state (USR-3 / ADR 0029). Deleted when done.
+  accountDeletionJobs: defineTable({
+    userId: v.id("users"),
+    emailLower: v.string(),
+    finalizedAt: v.number(),
+    phase: v.string(),
+    circleId: v.optional(v.id("circles")),
+    circlePhase: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    failure: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
+
   notifications: defineTable({
     userId: v.id("users"),
     type: v.string(),
@@ -279,13 +315,15 @@ export default defineSchema({
   // row. Convex _ids are globally unique, so `entityId` (a stringified Circle /
   // Transaction / Category id) alone keys an entity's history — read by_entity
   // newest-first — and access is resolved through the entity's Circle, not a
-  // denormalized column. `changes` is an array of { field, from?, to? } of human
-  // strings formatted ONCE at write time (dates plain, Members as Display Name,
-  // Categories as names); `from` is absent on a "created" event, `to` on an
-  // "archived" one. Values are frozen — never re-resolved — so a line always shows
-  // what was true when it was written, and raw internal IDs never appear inside
-  // `changes` (PRD story 80). We rejected a reference-based history that re-resolves
-  // display values at read time; see ADR 0018.
+  // denormalized column. `circleId` is an internal cascade key only (USR-3 /
+  // ADR 0029) — never returned to clients or put in `changes`. `changes` is an
+  // array of { field, from?, to? } of human strings formatted ONCE at write time
+  // (dates plain, Members as Display Name, Categories as names); `from` is
+  // absent on a "created" event, `to` on an "archived" one. Values are frozen —
+  // never re-resolved — so a line always shows what was true when it was written,
+  // and raw internal IDs never appear inside `changes` (PRD story 80). We rejected
+  // a reference-based history that re-resolves display values at read time; see
+  // ADR 0018.
   //
   // Money is the exception to the preformatted-string rule (ADR 0021): an amount
   // change freezes a SEMANTIC money value — integer `minorUnits` plus the Circle
@@ -294,6 +332,8 @@ export default defineSchema({
   // locale at read time instead of locking the event to a server/terminal locale.
   histories: defineTable({
     entityId: v.string(),
+    // Internal cascade key for bounded whole-Circle deletion (USR-3 / ADR 0029).
+    circleId: v.id("circles"),
     actorMemberId: v.optional(v.id("members")), // absent ⇒ system action
     action: v.string(),
     changes: v.array(
@@ -307,5 +347,7 @@ export default defineSchema({
       }),
     ),
     createdAt: v.number(),
-  }).index("by_entity", ["entityId"]),
+  })
+    .index("by_entity", ["entityId"])
+    .index("by_circle", ["circleId"]),
 });

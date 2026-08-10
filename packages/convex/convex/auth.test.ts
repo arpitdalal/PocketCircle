@@ -36,4 +36,20 @@ describe("createAuth", () => {
       await expect(auth.$context).resolves.toBeDefined();
     });
   });
+
+  it("enables verified Account Deletion (USR-3)", async () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-test-secret-test-secret");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "");
+
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const auth = createAuth(ctx);
+      const options = await auth.$context;
+      expect(options.options.user?.deleteUser?.enabled).toBe(true);
+      expect(options.options.user?.deleteUser?.sendDeleteAccountVerification).toEqual(
+        expect.any(Function),
+      );
+    });
+  });
 });

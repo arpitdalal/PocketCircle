@@ -25,7 +25,8 @@
     "@spend-circle/domain": "workspace:*",
     "better-auth": "1.6.16",
     "convex": "^1.40.0",
-    "convex-helpers": "0.1.119"
+    "convex-helpers": "0.1.119",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

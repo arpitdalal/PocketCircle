@@ -9,11 +9,13 @@ import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
+import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool } from "./email.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
 import { circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { notifyInvitationAccepted, notifyInvitationRevoked } from "./notify.js";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -78,7 +80,13 @@ async function countActiveMembers(ctx: MutationCtx, circleId: Id<"circles">) {
     .query("members")
     .withIndex("by_circle_and_status", (q) => q.eq("circleId", circleId).eq("status", "active"))
     .collect();
-  return active.length;
+  let count = 0;
+  for (const member of active) {
+    if (await isEffectiveActiveMember(ctx, member)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 async function countUnexpiredPendingInvitations(
@@ -147,7 +155,7 @@ export const createInvitation = mutation({
           q.eq("circleId", args.circleId).eq("userId", existingUser._id),
         )
         .unique();
-      if (membership?.status === "active") {
+      if (membership && (await isEffectiveActiveMember(ctx, membership))) {
         throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteAlreadyMember));
       }
     }
@@ -306,7 +314,7 @@ export const acceptInvitation = mutation({
       .withIndex("by_circle_and_user", (q) => q.eq("circleId", circle._id).eq("userId", user._id))
       .unique();
 
-    if (existingMembership?.status === "active") {
+    if (existingMembership && (await isEffectiveActiveMember(ctx, existingMembership))) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
 
@@ -328,6 +336,9 @@ export const acceptInvitation = mutation({
         throw new Error("Member row missing after reactivation");
       }
       membership = reactivated;
+    } else if (existingMembership?.status === "deleted") {
+      // Deleted Members never reconnect (USR-3), even if userId somehow collides.
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     } else {
       const memberId = await ctx.db.insert("members", {
         circleId: circle._id,
@@ -354,6 +365,8 @@ export const acceptInvitation = mutation({
       action: "member joined",
       changes: [{ field: "member", to: membership.displayName }],
     });
+
+    await recomputeAccountDeletionBlockers(ctx, circle._id);
 
     await notifyInvitationAccepted(ctx, {
       inviterUserId: invitation.invitedByUserId,

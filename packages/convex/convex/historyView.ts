@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { QueryCtx } from "./_generated/server.js";
+import { resolveMemberIdentity } from "./memberIdentity.js";
 
 /**
  * The client-facing shape of one immutable history event — the read-side
@@ -8,7 +9,7 @@ import type { QueryCtx } from "./_generated/server.js";
  * — CS-4). One definition so the surfaces can't drift and the web's shared
  * `HistoryList` renders all of them.
  *
- * The acting Member resolves to their frozen Display Name + image (memoized
+ * The acting Member resolves to their effective Display Name + image (memoized
  * through `cache` so a page of events touching the same actor reads the row once
  * — no N+1); a system event (no actor) surfaces `actor: null`. The `changes`
  * array passes straight through: it already holds frozen display-safe values
@@ -41,9 +42,15 @@ async function actorRef(
     return cached;
   }
   const member = await ctx.db.get(memberId);
+  if (!member) {
+    const ref: ActorRef = { displayName: "Unknown member" };
+    cache.set(memberId, ref);
+    return ref;
+  }
+  const identity = await resolveMemberIdentity(ctx, member);
   const ref: ActorRef = {
-    displayName: member?.displayName ?? "Unknown member",
-    image: member?.image,
+    displayName: identity.displayName,
+    image: identity.image,
   };
   cache.set(memberId, ref);
   return ref;

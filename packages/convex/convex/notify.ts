@@ -9,6 +9,7 @@ import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { internalMutation } from "./_generated/server.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
 
 /** Closed set of v1 notification types — a typo can't create an unknown type. */
 export const NOTIFICATION_TYPES = [
@@ -78,7 +79,7 @@ export const deliverOne = internalMutation({
 
     const recipient = await ctx.db.get("users", args.recipientUserId);
     if (!recipient) {
-      throw new Error("Notification recipient not found");
+      return;
     }
 
     await ctx.db.insert("notifications", {
@@ -123,6 +124,9 @@ export const fanOutCircleLifecycle = internalMutation({
       : `${args.actorDisplayName} restored ${circle.name}.`;
 
     for (const member of members) {
+      if (!(await isEffectiveActiveMember(ctx, member))) {
+        continue;
+      }
       await scheduleDeliverOne(ctx, {
         recipientUserId: member.userId,
         actorUserId: args.actorUserId,
@@ -238,8 +242,18 @@ export async function notifyCircleLifecycleChange(
     .withIndex("by_circle_and_status", (q) =>
       q.eq("circleId", opts.circle._id).eq("status", "active"),
     )
-    .take(2);
-  if (!sample.some((member) => !isActorSkip(member.userId, opts.actorUserId))) {
+    .take(4);
+  let hasNonActor = false;
+  for (const member of sample) {
+    if (!(await isEffectiveActiveMember(ctx, member))) {
+      continue;
+    }
+    if (!isActorSkip(member.userId, opts.actorUserId)) {
+      hasNonActor = true;
+      break;
+    }
+  }
+  if (!hasNonActor) {
     return;
   }
 

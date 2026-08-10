@@ -1,45 +1,48 @@
 import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
+import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
+import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
 import { circleEntity, recordEvent } from "./history.js";
+import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
 import { notifyOwnershipTransferred, notifyRemovedFromCircle } from "./notify.js";
 
 /**
- * A Member shaped for the client. Reads the per-Circle MATERIALIZED identity
- * (`members.displayName`/`image`) — current for an active Member, frozen for a
- * Removed Member (ADR 0018, PRD story 43) — so callers never join to live User
- * rows and a removed Member renders with their frozen name automatically. The
- * raw `userId` is deliberately NOT surfaced; selectors and lists key on the
- * Member id. `isSelf` flags the caller's own Member so a selector can default to
- * them and label them distinctly without leaking ids.
+ * A Member shaped for the client. Reads effective identity (USR-3): app User
+ * absence is an immediate Deleted Member tombstone (Display Name kept, no image)
+ * even before durable cleanup materializes `status: "deleted"`.
  */
-export function toMemberView(member: Doc<"members">, currentMemberId: Doc<"members">["_id"]) {
+export async function toMemberView(
+  ctx: QueryCtx | MutationCtx,
+  member: Doc<"members">,
+  currentMemberId: Doc<"members">["_id"],
+) {
+  const identity = await resolveMemberIdentity(ctx, member);
   return {
     id: member._id,
-    displayName: member.displayName,
-    image: member.image,
+    displayName: identity.displayName,
+    image: identity.image,
     role: member.role,
-    status: member.status,
+    status: identity.status,
     joinedAt: member.joinedAt,
     isSelf: member._id === currentMemberId,
   };
 }
 
-export type MemberView = ReturnType<typeof toMemberView>;
+export type MemberView = Awaited<ReturnType<typeof toMemberView>>;
 
 /**
- * Lists a Circle's Members, active-only by default, Owner first (PRD story 43).
- * Resolver query (ADR 0016): an inaccessible or missing Circle returns `null`,
- * identical to a non-member — never leaking whether the Circle exists.
- * `includeRemoved` widens to Removed Members for history/search/Paid-By-filter
- * contexts where frozen identities still matter.
+ * Lists a Circle's Members, effective-active-only by default, Owner first
+ * (PRD story 43). Resolver query (ADR 0016): an inaccessible or missing Circle
+ * returns `null`. `includeHistorical` widens to Removed + Deleted Members for
+ * history/search/Paid-By-filter attribution (USR-3).
  */
 export const listMembers = query({
   args: {
     circleId: v.id("circles"),
-    includeRemoved: v.optional(v.boolean()),
+    includeHistorical: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const access = await resolveCircleAccess(ctx, args.circleId);
@@ -52,9 +55,16 @@ export const listMembers = query({
       .withIndex("by_circle", (q) => q.eq("circleId", args.circleId))
       .collect();
 
-    const visible = args.includeRemoved
-      ? members
-      : members.filter((member) => member.status === "active");
+    const visible: Doc<"members">[] = [];
+    for (const member of members) {
+      if (args.includeHistorical) {
+        visible.push(member);
+        continue;
+      }
+      if (await isEffectiveActiveMember(ctx, member)) {
+        visible.push(member);
+      }
+    }
 
     // Owner first, then stable by join time — a fixed anchor for the management
     // surfaces and the Paid By selector that consume this.
@@ -65,13 +75,16 @@ export const listMembers = query({
       return a.joinedAt - b.joinedAt;
     });
 
-    return visible.map((member) => toMemberView(member, access.membership._id));
+    return await Promise.all(
+      visible.map((member) => toMemberView(ctx, member, access.membership._id)),
+    );
   },
 });
 
 /**
  * Transfers Circle ownership to an active Member (MEM-7). Updates both
  * `members.role` and `circles.ownerUserId` atomically — they must stay in lockstep.
+ * Archived Circles may still transfer (USR-3 narrow lifecycle exception).
  */
 export const transferOwnership = mutation({
   args: {
@@ -85,8 +98,6 @@ export const transferOwnership = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transferForbidden));
     }
 
-    access.assertWritable();
-
     if (access.circle.kind === "personal") {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transferPersonalCircle));
     }
@@ -96,7 +107,7 @@ export const transferOwnership = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.memberNotFound));
     }
 
-    if (targetMember.status !== "active") {
+    if (!(await isEffectiveActiveMember(ctx, targetMember))) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transferTargetNotMember));
     }
 
@@ -120,6 +131,8 @@ export const transferOwnership = mutation({
         },
       ],
     });
+
+    await recomputeAccountDeletionBlockers(ctx, args.circleId);
 
     await notifyOwnershipTransferred(ctx, {
       newOwnerUserId: targetMember.userId,
@@ -160,7 +173,7 @@ export const removeMember = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.memberCannotRemoveOwner));
     }
 
-    if (target.status === "removed") {
+    if (!(await isEffectiveActiveMember(ctx, target))) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.memberNotFound));
     }
 
@@ -173,6 +186,8 @@ export const removeMember = mutation({
       action: "member removed",
       changes: [{ field: "member", from: target.displayName }],
     });
+
+    await recomputeAccountDeletionBlockers(ctx, args.circleId);
 
     await notifyRemovedFromCircle(ctx, {
       removedUserId: target.userId,
@@ -212,5 +227,7 @@ export const leaveCircle = mutation({
       action: "member left",
       changes: [{ field: "member", from: access.membership.displayName }],
     });
+
+    await recomputeAccountDeletionBlockers(ctx, args.circleId);
   },
 });

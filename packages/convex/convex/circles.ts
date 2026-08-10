@@ -17,6 +17,10 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
+import {
+  accountDeletionBlockerFields,
+  recomputeAccountDeletionBlockers,
+} from "./accountDeletionBlockers.js";
 import { requireCurrentUser } from "./auth.js";
 import { createCategoryForMember } from "./categories.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
@@ -24,6 +28,7 @@ import type { HistoryChange } from "./history.js";
 import { circleEntity, paginateEntityHistory, recordEvent } from "./history.js";
 import { type HistoryEventView, newActorCache, toHistoryEventView } from "./historyView.js";
 import { revokePendingInvitationsForCircle } from "./invitations.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { getPersonalCircleForOwner, reconcilePersonalCircleFromDisplayName } from "./model.js";
 import { notifyCircleLifecycleChange } from "./notify.js";
 
@@ -135,6 +140,10 @@ export const createCircle = mutation({
       status: "active",
       setupCompletedAt: null,
       currencyLocked: false,
+      ...accountDeletionBlockerFields(
+        { kind: "regular", status: "active", setupCompletedAt: null },
+        1,
+      ),
       createdAt: now,
     });
 
@@ -354,6 +363,8 @@ export const completeCircleSetup = mutation({
       changes: circleChanges,
     });
 
+    await recomputeAccountDeletionBlockers(ctx, args.circleId);
+
     const createdCategoryIds: Id<"categories">[] = [];
     for (const category of starterCategories(answers)) {
       const result = await createCategoryForMember(ctx, {
@@ -393,6 +404,7 @@ export const archiveCircle = mutation({
     const now = Date.now();
     await ctx.db.patch(access.circle._id, { status: "archived", archivedAt: now });
     await revokePendingInvitationsForCircle(ctx, access.circle._id);
+    await recomputeAccountDeletionBlockers(ctx, access.circle._id);
 
     await recordEvent(ctx, {
       entity: circleEntity(access.circle._id),
@@ -490,14 +502,20 @@ export const deleteCircle = mutation({
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleDeletePersonal));
     }
 
-    // Gate counts active members only (owner must be sole active member); cascade deletes all rows.
+    // Gate counts effective active members only (owner must be sole active member).
     const activeMembers = await ctx.db
       .query("members")
       .withIndex("by_circle_and_status", (q) =>
         q.eq("circleId", args.circleId).eq("status", "active"),
       )
       .collect();
-    if (activeMembers.length !== 1) {
+    let effectiveActive = 0;
+    for (const member of activeMembers) {
+      if (await isEffectiveActiveMember(ctx, member)) {
+        effectiveActive += 1;
+      }
+    }
+    if (effectiveActive !== 1) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleDeleteHasMembers));
     }
 
@@ -526,6 +544,7 @@ export const restoreCircle = mutation({
     }
 
     await ctx.db.patch(access.circle._id, { status: "active", archivedAt: undefined });
+    await recomputeAccountDeletionBlockers(ctx, access.circle._id);
 
     await recordEvent(ctx, {
       entity: circleEntity(access.circle._id),

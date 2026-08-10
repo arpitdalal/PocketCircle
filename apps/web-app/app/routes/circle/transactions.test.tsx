@@ -255,6 +255,38 @@ describe("CircleTransactions", () => {
     await user.keyboard("{Escape}");
   });
 
+  it("labels removed vs deleted account members in Paid by filters", async () => {
+    const user = userEvent.setup();
+    setup({
+      filterOptions: {
+        ...makeFilterOptions(),
+        members: [
+          makeMemberView({ id: testId<Member["id"]>("mem-you"), displayName: "You" }),
+          makeMemberView({
+            id: testId<Member["id"]>("mem-alex"),
+            displayName: "Alex",
+            status: "removed",
+          }),
+          makeMemberView({
+            id: testId<Member["id"]>("mem-rex"),
+            displayName: "Rex",
+            status: "deleted",
+          }),
+        ],
+      },
+      initialEntries: [`/circles/${REF}/transactions?month=2026-05`],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    const combobox = within(dialog).getByRole("combobox", { name: "Paid by" });
+    await user.click(combobox);
+
+    expect(await screen.findByText("removed")).toBeInTheDocument();
+    expect(screen.getByText("deleted account")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+  });
+
   it("resets filters when the selected month changes", async () => {
     const user = userEvent.setup();
     const { location } = setup({

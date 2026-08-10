@@ -4,19 +4,33 @@ import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountDeletionBlocker } from "~/lib/data.js";
 import { SnackbarProvider } from "~/lib/snackbar.js";
-import { configureConvex, convexReactMock, makeCurrentUserView } from "~/test/convex-react.js";
+import {
+  configureConvex,
+  convexReactMock,
+  makeAccountDeletionBlocker,
+  makeCurrentUserView,
+  testId,
+} from "~/test/convex-react.js";
 import {
   posthogSdk,
   primeAnalyticsForTests,
   resetPostHogBoundary,
 } from "~/test/posthog-boundary.js";
 
+const auth = vi.hoisted(() => ({
+  requestAccountDeletion: vi.fn(),
+}));
+
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 vi.mock("~/lib/env.js", async (importOriginal) =>
   (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
 );
+vi.mock("~/lib/auth-client.js", () => ({
+  requestAccountDeletion: auth.requestAccountDeletion,
+}));
 
 import Settings from "./settings.js";
 
@@ -33,6 +47,7 @@ function renderSettings() {
 beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   primeAnalyticsForTests();
+  auth.requestAccountDeletion.mockReset();
 });
 
 afterEach(() => {
@@ -321,5 +336,135 @@ describe("Settings feedback form", () => {
     expect(moduleText).not.toMatch(/from\s+["'][^"']*posthog/i);
     expect(moduleText).not.toMatch(/import\s*\(\s*["'][^"']*posthog/i);
     expect(moduleText).toMatch(/from\s+["']~\/lib\/analytics\.js["']/);
+  });
+});
+
+describe("Settings danger zone", () => {
+  it("lists blocker archive and transfer links and hides phrase confirmation", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      accountDeletionBlockers: [
+        makeAccountDeletionBlocker({
+          circleId: testId<AccountDeletionBlocker["circleId"]>("c-archive"),
+          ref: "solo-carc",
+          name: "Solo Trip",
+          action: "archive",
+        }),
+        makeAccountDeletionBlocker({
+          circleId: testId<AccountDeletionBlocker["circleId"]>("c-transfer"),
+          ref: "shared-ctrans",
+          name: "Shared Home",
+          action: "transfer",
+        }),
+      ],
+    });
+    renderSettings();
+
+    expect(await screen.findByRole("heading", { name: "Danger zone" })).toBeInTheDocument();
+    const archive = screen.getByRole("link", { name: "Archive Solo Trip" });
+    expect(archive).toHaveAttribute("href", "/circles/solo-carc/settings");
+    const transfer = screen.getByRole("link", { name: "Transfer ownership of Shared Home" });
+    expect(transfer).toHaveAttribute("href", "/circles/shared-ctrans/members");
+    expect(screen.queryByLabelText(/DELETE MY ACCOUNT/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete my account" })).not.toBeInTheDocument();
+  });
+
+  it("loads more blockers when more pages remain", async () => {
+    const loadMore = vi.fn();
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      accountDeletionBlockers: [
+        makeAccountDeletionBlocker({ name: "First Circle", ref: "first-c1" }),
+      ],
+      accountDeletionBlockersStatus: "CanLoadMore",
+      accountDeletionBlockersLoadMore: loadMore,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(loadMore).toHaveBeenCalled();
+  });
+
+  it("disables Export, gates delete on exact phrase, and shows check-your-email after request", async () => {
+    auth.requestAccountDeletion.mockResolvedValue(undefined);
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      accountDeletionBlockers: [],
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    expect(await screen.findByRole("button", { name: "Export account data" })).toBeDisabled();
+    expect(screen.getByText(/Unavailable in this pre-alpha slice/i)).toBeInTheDocument();
+
+    const submit = screen.getByRole("button", { name: "Delete my account" });
+    expect(submit).toBeDisabled();
+
+    const phrase = screen.getByLabelText(/DELETE MY ACCOUNT/);
+    await user.type(phrase, "delete my account");
+    expect(submit).toBeDisabled();
+
+    await user.clear(phrase);
+    await user.type(phrase, "DELETE MY ACCOUNT");
+    expect(submit).toBeEnabled();
+
+    await user.click(submit);
+    expect(auth.requestAccountDeletion).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/Check your email/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete my account" })).not.toBeInTheDocument();
+  });
+
+  it("prevents duplicate in-flight deletion requests", async () => {
+    let resolveRequest: (() => void) | undefined;
+    auth.requestAccountDeletion.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      accountDeletionBlockers: [],
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.type(await screen.findByLabelText(/DELETE MY ACCOUNT/), "DELETE MY ACCOUNT");
+    const submit = screen.getByRole("button", { name: "Delete my account" });
+    await user.click(submit);
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Sending…" }));
+    expect(auth.requestAccountDeletion).toHaveBeenCalledOnce();
+
+    resolveRequest?.();
+    expect(await screen.findByText(/Check your email/i)).toBeInTheDocument();
+  });
+
+  it("shows coded blocker error and fallback for unexpected failures", async () => {
+    auth.requestAccountDeletion
+      .mockRejectedValueOnce(
+        new ConvexError(mutationErrorData(MUTATION_ERRORS.accountDeletionBlocked)),
+      )
+      .mockRejectedValueOnce(new Error("network"));
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      accountDeletionBlockers: [],
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const phrase = await screen.findByLabelText(/DELETE MY ACCOUNT/);
+    await user.type(phrase, "DELETE MY ACCOUNT");
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      MUTATION_ERRORS.accountDeletionBlocked.message,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't start account deletion. Please try again.",
+    );
   });
 });

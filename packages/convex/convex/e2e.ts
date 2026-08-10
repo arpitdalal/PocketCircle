@@ -188,3 +188,20 @@ export const getInvitationTokenForE2E = query({
     return await e2eStashedInvitationToken(ctx, row ?? null);
   },
 });
+
+/** E2E-only: read the stashed Account Deletion verification token (USR-3). */
+export const getAccountDeletionTokenForE2E = query({
+  args: {},
+  handler: async (ctx) => {
+    if (process.env.E2E_TEST_AUTH !== "1") {
+      throw new Error("Not found");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    const row = await ctx.db
+      .query("e2eAccountDeletionTokens")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .unique();
+    return row?.token ?? null;
+  },
+});

@@ -19,6 +19,7 @@ import {
   useTransactionSearch,
   useTransactionSearchOptions,
 } from "~/lib/data.js";
+import { historicalMemberStatusDetail } from "~/lib/member-status-label.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 import {
@@ -400,6 +401,6 @@ function toMemberOptions(
   return members.map((member) => ({
     value: member.id,
     label: member.displayName,
-    detail: member.status === "removed" ? "removed" : undefined,
+    detail: historicalMemberStatusDetail(member.status),
   })) satisfies MultiComboboxOption[];
 }

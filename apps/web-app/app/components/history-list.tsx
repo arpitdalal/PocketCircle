@@ -66,6 +66,7 @@ const ACTION_LABEL: Record<string, string> = {
   "member invited": "invited",
   "member joined": "joined",
   "member removed": "removed",
+  "member deleted": "deleted account",
   "member left": "left",
   "invitation resent": "resent invitation to",
   "invitation revoked": "revoked invitation for",

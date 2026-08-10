@@ -7,6 +7,7 @@ import {
   parseProfileUpdate,
 } from "@spend-circle/domain";
 import { type FormEvent, useState } from "react";
+import { href, Link } from "react-router";
 import { Button } from "~/components/ui/button.js";
 import {
   Field,
@@ -19,10 +20,20 @@ import { Input } from "~/components/ui/input.js";
 import { Switch } from "~/components/ui/switch.js";
 import { Textarea } from "~/components/ui/textarea.js";
 import { track } from "~/lib/analytics.js";
-import { useSetAnalyticsOptOut, useSubmitFeedback, useUpdateProfile } from "~/lib/data.js";
+import { requestAccountDeletion } from "~/lib/auth-client.js";
+import {
+  type AccountDeletionBlocker,
+  useAccountDeletionBlockers,
+  useSetAnalyticsOptOut,
+  useSubmitFeedback,
+  useUpdateProfile,
+} from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import { type SessionUser, useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
+
+/** Exact confirmation phrase for Account Deletion (USR-3); case-sensitive UI friction. */
+const DELETE_ACCOUNT_PHRASE = "DELETE MY ACCOUNT";
 
 const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
   bug: "Bug",
@@ -65,7 +76,166 @@ export default function Settings() {
         <h2 className="text-sm font-medium text-muted-foreground">About</h2>
         <p className="text-sm text-muted-foreground">App version {__APP_VERSION__}</p>
       </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-muted-foreground">Danger zone</h2>
+        <DangerZoneCard />
+      </section>
     </div>
+  );
+}
+
+function blockerLink(blocker: AccountDeletionBlocker) {
+  if (blocker.action === "transfer") {
+    return {
+      to: href("/circles/:circleRef/members", { circleRef: blocker.ref }),
+      label: `Transfer ownership of ${blocker.name}`,
+    };
+  }
+  return {
+    to: href("/circles/:circleRef/settings", { circleRef: blocker.ref }),
+    label: `Archive ${blocker.name}`,
+  };
+}
+
+function DangerZoneCard() {
+  const { blockers, status, loadMore } = useAccountDeletionBlockers();
+  const [phrase, setPhrase] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+
+  if (status === "LoadingFirstPage") {
+    return (
+      <div className="space-y-4 rounded-xl border border-destructive/30 bg-card p-5 shadow-sm">
+        <p className="text-sm text-muted-foreground">
+          Checking whether your account can be deleted…
+        </p>
+      </div>
+    );
+  }
+
+  if (blockers.length > 0) {
+    return (
+      <div className="space-y-4 rounded-xl border border-destructive/30 bg-card p-5 shadow-sm">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Delete account</h3>
+          <p className="text-sm text-muted-foreground">
+            Resolve these Circles before you can delete your account.
+          </p>
+        </div>
+        <ul className="space-y-2">
+          {blockers.map((blocker) => {
+            const link = blockerLink(blocker);
+            return (
+              <li key={blocker.circleId}>
+                <Link
+                  to={link.to}
+                  className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {status === "CanLoadMore" || status === "LoadingMore" ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={loadMore}
+            disabled={status === "LoadingMore"}
+          >
+            {status === "LoadingMore" ? "Loading…" : "Load more"}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (emailSent) {
+    return (
+      <div className="space-y-4 rounded-xl border border-destructive/30 bg-card p-5 shadow-sm">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Delete account</h3>
+          <p className="text-sm text-muted-foreground">
+            Check your email for a link to confirm account deletion. Your account stays usable until
+            you open that link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const phraseMatches = phrase === DELETE_ACCOUNT_PHRASE;
+  const canSubmit = phraseMatches && !submitting;
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await requestAccountDeletion();
+      setEmailSent(true);
+    } catch (caught) {
+      setError(
+        mutationErrorMessageForUser(caught, "Couldn't start account deletion. Please try again."),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="space-y-4 rounded-xl border border-destructive/30 bg-card p-5 shadow-sm"
+    >
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Delete account</h3>
+        <p className="text-sm text-muted-foreground">
+          Permanently deletes your login and profile. Circle history for other Members is kept. This
+          cannot be undone.
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-3">
+        <p className="text-sm font-medium">Account export</p>
+        <p className="text-xs text-muted-foreground">
+          Unavailable in this pre-alpha slice. Export is not required before deletion.
+        </p>
+        <Button type="button" variant="outline" disabled>
+          Export account data
+        </Button>
+      </div>
+
+      <Field>
+        <FieldLabel htmlFor="settings-delete-phrase">
+          Type {DELETE_ACCOUNT_PHRASE} to confirm
+        </FieldLabel>
+        <Input
+          id="settings-delete-phrase"
+          value={phrase}
+          onChange={(event) => setPhrase(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <FieldDescription>Must match exactly, including capitalization.</FieldDescription>
+      </Field>
+
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+
+      <Button type="submit" variant="destructive" disabled={!canSubmit}>
+        {submitting ? "Sending…" : "Delete my account"}
+      </Button>
+    </form>
   );
 }
 

@@ -1,6 +1,7 @@
 /**
  * Entity-scoped data-access modules; import from `~/lib/data.js` or a specific module.
  */
+export * from "./data/account-deletion.js";
 export * from "./data/categories.js";
 export * from "./data/circles.js";
 export * from "./data/dashboard.js";

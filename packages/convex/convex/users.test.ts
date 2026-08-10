@@ -150,6 +150,7 @@ describe("setUserDisplayName", () => {
         status: "active",
         setupCompletedAt: now,
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: now,
       });
       await ctx.db.insert("members", {
@@ -171,6 +172,7 @@ describe("setUserDisplayName", () => {
         status: "active",
         setupCompletedAt: now,
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: now,
       });
       return await ctx.db.insert("members", {
@@ -291,6 +293,7 @@ describe("completeOnboarding", () => {
         status: "active",
         setupCompletedAt: now,
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: now,
       });
     });
@@ -359,6 +362,7 @@ describe("updateProfile", () => {
         status: "active",
         setupCompletedAt: now,
         currencyLocked: false,
+        accountDeletionBlocked: false,
         createdAt: now,
       });
       return await ctx.db.insert("members", {

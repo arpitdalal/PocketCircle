@@ -134,6 +134,27 @@ describe("HistoryList — content", () => {
 
     expect(screen.getByText(/completed setup/)).toBeInTheDocument();
   });
+
+  it("labels member deleted distinctly from member removed", () => {
+    renderList([
+      {
+        id: "h1",
+        action: "member deleted",
+        createdAt: Date.UTC(2026, 4, 16, 14, 5),
+        actor: null,
+        changes: [{ field: "member", from: "Rex" }],
+      },
+      {
+        id: "h2",
+        action: "member removed",
+        createdAt: Date.UTC(2026, 4, 15, 14, 5),
+        actor: { displayName: "Olive" },
+        changes: [{ field: "member", from: "Yuki" }],
+      },
+    ]);
+    expect(screen.getByText("deleted account")).toBeInTheDocument();
+    expect(screen.getByText("removed")).toBeInTheDocument();
+  });
 });
 
 describe("HistoryList — read states", () => {

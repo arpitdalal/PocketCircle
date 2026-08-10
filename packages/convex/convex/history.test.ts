@@ -1,6 +1,5 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
@@ -11,9 +10,7 @@ import schema from "./schema.js";
 const modules = import.meta.glob("./**/*.ts");
 
 /** Seeds a Circle and an owner Member, returning both ids. */
-async function seedCircleWithOwner(
-  ctx: MutationCtx,
-): Promise<{ circleId: Id<"circles">; member: Doc<"members"> }> {
+async function seedCircleWithOwner(ctx: MutationCtx) {
   const now = Date.now();
   const userId = await ctx.db.insert("users", {
     email: "ada@example.com",
@@ -35,6 +32,7 @@ async function seedCircleWithOwner(
     status: "active",
     setupCompletedAt: now,
     currencyLocked: false,
+    accountDeletionBlocked: false,
     createdAt: now,
   });
   const memberId = await ctx.db.insert("members", {
@@ -49,7 +47,7 @@ async function seedCircleWithOwner(
   if (!member) {
     throw new Error("seed failed");
   }
-  return { circleId, member };
+  return { circleId, member, ownerUserId: userId };
 }
 
 describe("recordEvent", () => {
@@ -102,8 +100,23 @@ describe("recordEvent", () => {
 describe("listEntityHistory", () => {
   it("returns an entity's events newest-first and excludes other entities", async () => {
     const t = convexTest(schema, modules);
-    const { circleId, member } = await t.run((ctx) => seedCircleWithOwner(ctx));
-    const otherEntity = "k0000000000000000000000000000000" as Id<"circles">;
+    const { circleId, member, otherCircleId } = await t.run(async (ctx) => {
+      const seeded = await seedCircleWithOwner(ctx);
+      const other = await ctx.db.insert("circles", {
+        name: "Other",
+        kind: "regular",
+        currency: "USD",
+        color: "blue",
+        mark: "O",
+        ownerUserId: seeded.ownerUserId,
+        status: "active",
+        setupCompletedAt: null,
+        currencyLocked: false,
+        accountDeletionBlocked: false,
+        createdAt: Date.now(),
+      });
+      return { ...seeded, otherCircleId: other };
+    });
 
     await t.run(async (ctx) => {
       await recordEvent(ctx, {
@@ -120,7 +133,7 @@ describe("listEntityHistory", () => {
       });
       // An event on a different entity must not appear in this entity's history.
       await recordEvent(ctx, {
-        entity: circleEntity(otherEntity),
+        entity: circleEntity(otherCircleId),
         actor: member,
         action: "created",
         changes: [{ field: "name", to: "Other" }],

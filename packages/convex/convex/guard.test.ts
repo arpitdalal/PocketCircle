@@ -55,6 +55,7 @@ async function seed(
     status: opts.archived ? "archived" : "active",
     setupCompletedAt: now,
     currencyLocked: false,
+    accountDeletionBlocked: false,
     createdAt: now,
   });
   const ownerMemberId = await ctx.db.insert("members", {

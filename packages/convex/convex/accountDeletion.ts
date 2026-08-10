@@ -1,0 +1,619 @@
+import { vOnCompleteValidator } from "@convex-dev/workpool";
+import {
+  accountDeletionEmail,
+  buildRef,
+  MUTATION_ERRORS,
+  mutationErrorData,
+} from "@spend-circle/domain";
+import { paginationOptsValidator } from "convex/server";
+import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
+import { internalAction, internalMutation, type MutationCtx, query } from "./_generated/server.js";
+import { betterAuthMappedUserSchema } from "./accountDeletionAuth.js";
+import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
+import { requireCurrentUser } from "./auth.js";
+import { emailPool, sendEmail } from "./email.js";
+import { circleEntity, recordEvent } from "./history.js";
+
+/** Bounded cleanup batch size (USR-3 / ADR 0029). */
+export const ACCOUNT_DELETION_BATCH_SIZE = 32;
+
+const USER_PHASES = [
+  "convertActiveMemberships",
+  "convertRemovedMemberships",
+  "revokeInvitesByInviter",
+  "revokeInvitesByEmail",
+  "deleteNotifications",
+  "deleteFeedbackEmailEvents",
+  "deleteInvitationEmailEventsByUser",
+  "deleteE2eAccountDeletionTokens",
+  "deleteOwnedCircles",
+] as const;
+
+type UserPhase = (typeof USER_PHASES)[number];
+
+const CIRCLE_PHASES = [
+  "histories",
+  "transactionCategories",
+  "transactionSearchDocuments",
+  "transactions",
+  "categories",
+  "invitations",
+  "invitationEmailEvents",
+  "e2eInvitationTokens",
+  "members",
+  "circle",
+] as const;
+
+type CirclePhase = (typeof CIRCLE_PHASES)[number];
+
+function isUserPhase(value: string): value is UserPhase {
+  for (const phase of USER_PHASES) {
+    if (phase === value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isCirclePhase(value: string): value is CirclePhase {
+  for (const phase of CIRCLE_PHASES) {
+    if (phase === value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function nextUserPhase(phase: UserPhase) {
+  const index = USER_PHASES.indexOf(phase);
+  return USER_PHASES[index + 1];
+}
+
+function nextCirclePhase(phase: CirclePhase) {
+  const index = CIRCLE_PHASES.indexOf(phase);
+  return CIRCLE_PHASES[index + 1];
+}
+
+/** Paginated owned Circles that currently block Account Deletion. */
+export const listAccountDeletionBlockers = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const result = await ctx.db
+      .query("circles")
+      .withIndex("by_owner_and_account_deletion_blocked", (q) =>
+        q.eq("ownerUserId", user._id).eq("accountDeletionBlocked", true),
+      )
+      .paginate(args.paginationOpts);
+
+    return {
+      ...result,
+      page: result.page.map((circle) => ({
+        circleId: circle._id,
+        ref: buildRef(circle.name, circle._id),
+        name: circle.name,
+        action: circle.accountDeletionBlockerAction ?? "archive",
+      })),
+    };
+  },
+});
+
+export async function assertNoAccountDeletionBlockers(ctx: MutationCtx, ownerUserId: Id<"users">) {
+  const blocker = await ctx.db
+    .query("circles")
+    .withIndex("by_owner_and_account_deletion_blocked", (q) =>
+      q.eq("ownerUserId", ownerUserId).eq("accountDeletionBlocked", true),
+    )
+    .first();
+  if (blocker) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.accountDeletionBlocked));
+  }
+}
+
+export async function createAccountDeletionCleanupJob(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; emailLower: string; finalizedAt: number },
+) {
+  const existing = await ctx.db
+    .query("accountDeletionJobs")
+    .withIndex("by_user", (q) => q.eq("userId", args.userId))
+    .first();
+  if (existing) {
+    return existing._id;
+  }
+  const now = Date.now();
+  return await ctx.db.insert("accountDeletionJobs", {
+    userId: args.userId,
+    emailLower: args.emailLower,
+    finalizedAt: args.finalizedAt,
+    phase: USER_PHASES[0],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/**
+ * Better Auth `user.onDelete` handoff: recheck blockers, create the cleanup job,
+ * delete the app `users` row, schedule the first batch. Throw aborts auth deletion.
+ */
+export async function finalizeOnUserDelete(ctx: MutationCtx, authUser: unknown) {
+  const parsed = betterAuthMappedUserSchema.parse(authUser);
+  const userId = ctx.db.normalizeId("users", parsed.userId);
+  if (!userId) {
+    throw new Error("Account deletion user mapping missing");
+  }
+
+  await assertNoAccountDeletionBlockers(ctx, userId);
+
+  const user = await ctx.db.get(userId);
+  if (!user) {
+    throw new Error("Account deletion user missing");
+  }
+
+  const finalizedAt = Date.now();
+  const jobId = await createAccountDeletionCleanupJob(ctx, {
+    userId,
+    emailLower: user.email,
+    finalizedAt,
+  });
+
+  await ctx.db.delete(userId);
+  await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, { jobId });
+  return jobId;
+}
+
+/** Internal: recheck blockers then enqueue the verification email via the email pool. */
+export const enqueueDeletionVerificationEmail = internalMutation({
+  args: {
+    mappedUserId: v.string(),
+    email: v.string(),
+    displayName: v.string(),
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = ctx.db.normalizeId("users", args.mappedUserId);
+    if (!userId) {
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.accountDeletionBlocked));
+    }
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.accountDeletionBlocked));
+    }
+
+    await assertNoAccountDeletionBlockers(ctx, userId);
+
+    if (process.env.E2E_TEST_AUTH === "1") {
+      await upsertE2eAccountDeletionToken(ctx, { userId, token: args.token });
+    }
+
+    await emailPool.enqueueAction(
+      ctx,
+      internal.accountDeletion.sendAccountDeletionEmail,
+      {
+        userId,
+        email: args.email,
+        displayName: args.displayName || user.displayName,
+        token: args.token,
+      },
+      {
+        onComplete: internal.accountDeletion.onAccountDeletionEmailComplete,
+        context: { userId },
+      },
+    );
+  },
+});
+
+async function upsertE2eAccountDeletionToken(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; token: string },
+) {
+  const existing = await ctx.db
+    .query("e2eAccountDeletionTokens")
+    .withIndex("by_user", (q) => q.eq("userId", args.userId))
+    .unique();
+  const row = { token: args.token, updatedAt: Date.now() };
+  if (existing) {
+    await ctx.db.patch(existing._id, row);
+    return;
+  }
+  await ctx.db.insert("e2eAccountDeletionTokens", {
+    userId: args.userId,
+    ...row,
+  });
+}
+
+export const sendAccountDeletionEmail = internalAction({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    displayName: v.string(),
+    token: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const siteUrl = process.env.SITE_URL ?? "http://127.0.0.1:5173";
+    const verifyLink = `${siteUrl}/delete-account/verify?token=${encodeURIComponent(args.token)}`;
+    const { subject, html } = accountDeletionEmail({
+      displayName: args.displayName,
+      verifyLink,
+    });
+    await sendEmail({
+      to: args.email,
+      subject,
+      html,
+      idempotencyKey: `account-deletion:${args.userId}:${args.token}`,
+    });
+  },
+});
+
+export const onAccountDeletionEmailComplete = internalMutation({
+  args: vOnCompleteValidator(v.object({ userId: v.id("users") })),
+  handler: async (_ctx, { context, result }) => {
+    if (result.kind === "failed") {
+      console.error("Account deletion email exhausted all retries", context.userId, result.error);
+    }
+  },
+});
+
+/** Operational resume: safe to call repeatedly with a job id. */
+export const resumeCleanup = internalMutation({
+  args: { jobId: v.id("accountDeletionJobs") },
+  handler: async (ctx, args) => {
+    await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+      jobId: args.jobId,
+    });
+  },
+});
+
+/** One bounded cleanup batch; schedules the next when work remains. */
+export const runCleanupBatch = internalMutation({
+  args: { jobId: v.id("accountDeletionJobs") },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) {
+      return;
+    }
+
+    const phase = job.phase;
+    if (!isUserPhase(phase)) {
+      await ctx.db.patch(args.jobId, {
+        failure: `unknown phase: ${phase}`,
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    const moreInPhase = await runUserPhaseBatch(ctx, job, phase);
+    const latest = await ctx.db.get(args.jobId);
+    if (!latest) {
+      return;
+    }
+
+    if (moreInPhase) {
+      await ctx.db.patch(args.jobId, { updatedAt: Date.now() });
+      await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+        jobId: args.jobId,
+      });
+      return;
+    }
+
+    if (phase === "deleteOwnedCircles") {
+      await ctx.db.delete(args.jobId);
+      return;
+    }
+
+    const next = nextUserPhase(phase);
+    if (!next) {
+      await ctx.db.delete(args.jobId);
+      return;
+    }
+
+    await ctx.db.patch(args.jobId, {
+      phase: next,
+      circleId: undefined,
+      circlePhase: undefined,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+      jobId: args.jobId,
+    });
+  },
+});
+
+async function runUserPhaseBatch(
+  ctx: MutationCtx,
+  job: Doc<"accountDeletionJobs">,
+  phase: UserPhase,
+) {
+  switch (phase) {
+    case "convertActiveMemberships":
+      return await convertMembershipBatch(ctx, job.userId, "active");
+    case "convertRemovedMemberships":
+      return await convertMembershipBatch(ctx, job.userId, "removed");
+    case "revokeInvitesByInviter":
+      return await revokeInvitesByInviterBatch(ctx, job);
+    case "revokeInvitesByEmail":
+      return await revokeInvitesByEmailBatch(ctx, job);
+    case "deleteNotifications":
+      return await deleteNotificationsBatch(ctx, job.userId);
+    case "deleteFeedbackEmailEvents":
+      return await deleteFeedbackEventsBatch(ctx, job.userId);
+    case "deleteInvitationEmailEventsByUser":
+      return await deleteInvitationEmailEventsByUserBatch(ctx, job.userId);
+    case "deleteE2eAccountDeletionTokens":
+      return await deleteE2eAccountDeletionTokensBatch(ctx, job.userId);
+    case "deleteOwnedCircles":
+      return await deleteOwnedCirclesBatch(ctx, job);
+  }
+}
+
+async function convertMembershipBatch(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  status: "active" | "removed",
+) {
+  const rows = await ctx.db
+    .query("members")
+    .withIndex("by_user_and_status", (q) => q.eq("userId", userId).eq("status", status))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+
+  if (rows.length === 0) {
+    return false;
+  }
+
+  const now = Date.now();
+  for (const member of rows) {
+    await ctx.db.patch(member._id, {
+      status: "deleted",
+      image: undefined,
+      deletedAt: now,
+    });
+    await recordEvent(ctx, {
+      entity: circleEntity(member.circleId),
+      actor: null,
+      action: "member deleted",
+      changes: [{ field: "member", from: member.displayName }],
+    });
+    await recomputeAccountDeletionBlockers(ctx, member.circleId);
+  }
+  return rows.length === ACCOUNT_DELETION_BATCH_SIZE;
+}
+
+async function revokeInvitesByInviterBatch(ctx: MutationCtx, job: Doc<"accountDeletionJobs">) {
+  const invites = await ctx.db
+    .query("invitations")
+    .withIndex("by_inviter_status_createdAt", (q) =>
+      q.eq("invitedByUserId", job.userId).eq("status", "pending").lte("createdAt", job.finalizedAt),
+    )
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+
+  return await revokeInvitationBatch(ctx, invites);
+}
+
+async function revokeInvitesByEmailBatch(ctx: MutationCtx, job: Doc<"accountDeletionJobs">) {
+  const invites = await ctx.db
+    .query("invitations")
+    .withIndex("by_email_status_createdAt", (q) =>
+      q.eq("emailLower", job.emailLower).eq("status", "pending").lte("createdAt", job.finalizedAt),
+    )
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+
+  return await revokeInvitationBatch(ctx, invites);
+}
+
+async function revokeInvitationBatch(ctx: MutationCtx, invites: Doc<"invitations">[]) {
+  if (invites.length === 0) {
+    return false;
+  }
+  for (const invite of invites) {
+    if (invite.status !== "pending") {
+      continue;
+    }
+    await ctx.db.patch(invite._id, { status: "revoked" });
+    await recordEvent(ctx, {
+      entity: circleEntity(invite.circleId),
+      actor: null,
+      action: "invitation revoked",
+      changes: [{ field: "email", from: invite.emailLower }],
+    });
+  }
+  return invites.length === ACCOUNT_DELETION_BATCH_SIZE;
+}
+
+async function deleteNotificationsBatch(ctx: MutationCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("notifications")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+  return await deleteDocs(ctx, rows);
+}
+
+async function deleteFeedbackEventsBatch(ctx: MutationCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("feedbackEmailEvents")
+    .withIndex("by_user_and_sentAt", (q) => q.eq("userId", userId))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+  return await deleteDocs(ctx, rows);
+}
+
+async function deleteInvitationEmailEventsByUserBatch(ctx: MutationCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("invitationEmailEvents")
+    .withIndex("by_user_and_sentAt", (q) => q.eq("invitedByUserId", userId))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+  return await deleteDocs(ctx, rows);
+}
+
+async function deleteE2eAccountDeletionTokensBatch(ctx: MutationCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("e2eAccountDeletionTokens")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+  return await deleteDocs(ctx, rows);
+}
+
+async function deleteOwnedCirclesBatch(ctx: MutationCtx, job: Doc<"accountDeletionJobs">) {
+  let circleId = job.circleId;
+  let circlePhase: CirclePhase =
+    job.circlePhase && isCirclePhase(job.circlePhase) ? job.circlePhase : CIRCLE_PHASES[0];
+
+  if (!circleId) {
+    const owned = await ctx.db
+      .query("circles")
+      .withIndex("by_owner", (q) => q.eq("ownerUserId", job.userId))
+      .first();
+    if (!owned) {
+      return false;
+    }
+    circleId = owned._id;
+    circlePhase = CIRCLE_PHASES[0];
+    await ctx.db.patch(job._id, {
+      circleId,
+      circlePhase,
+      updatedAt: Date.now(),
+    });
+  }
+
+  const moreInCirclePhase = await deleteCirclePhaseBatch(ctx, circleId, circlePhase);
+  if (moreInCirclePhase) {
+    await ctx.db.patch(job._id, {
+      circleId,
+      circlePhase,
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+
+  if (circlePhase === "circle") {
+    await ctx.db.patch(job._id, {
+      circleId: undefined,
+      circlePhase: undefined,
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+
+  const next = nextCirclePhase(circlePhase);
+  await ctx.db.patch(job._id, {
+    circleId,
+    circlePhase: next,
+    updatedAt: Date.now(),
+  });
+  return true;
+}
+
+async function deleteCirclePhaseBatch(
+  ctx: MutationCtx,
+  circleId: Id<"circles">,
+  phase: CirclePhase,
+) {
+  switch (phase) {
+    case "histories":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("histories")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "transactionCategories":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("transactionCategories")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "transactionSearchDocuments":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("transactionSearchDocuments")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "transactions":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("transactions")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "categories":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("categories")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "invitations":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("invitations")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "invitationEmailEvents":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("invitationEmailEvents")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "e2eInvitationTokens":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("e2eInvitationTokens")
+          .withIndex("by_circle_and_email", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "members":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("members")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "circle": {
+      const circle = await ctx.db.get(circleId);
+      if (circle) {
+        await ctx.db.delete(circleId);
+      }
+      return false;
+    }
+  }
+}
+
+async function deleteDocs(
+  ctx: MutationCtx,
+  rows: Array<{
+    _id:
+      | Id<"histories">
+      | Id<"transactionCategories">
+      | Id<"transactionSearchDocuments">
+      | Id<"transactions">
+      | Id<"categories">
+      | Id<"invitations">
+      | Id<"invitationEmailEvents">
+      | Id<"e2eInvitationTokens">
+      | Id<"members">
+      | Id<"notifications">
+      | Id<"feedbackEmailEvents">
+      | Id<"e2eAccountDeletionTokens">;
+  }>,
+) {
+  if (rows.length === 0) {
+    return false;
+  }
+  for (const row of rows) {
+    await ctx.db.delete(row._id);
+  }
+  return rows.length === ACCOUNT_DELETION_BATCH_SIZE;
+}
