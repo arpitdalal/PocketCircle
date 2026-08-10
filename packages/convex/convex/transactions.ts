@@ -585,6 +585,7 @@ export const createTransaction = mutation({
   handler: async (ctx, args) => {
     const access = await requireCircleAccess(ctx, args.circleId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     const input = transactionCreateSchema.parse({
       type: args.type,
@@ -739,6 +740,7 @@ export const updateTransaction = mutation({
   handler: async (ctx, args) => {
     const access = await requireTransactionAccess(ctx, args.transactionId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     // Only the Recorded By Member edits fields (PRD story 38). The Owner's
     // moderation power is archive/restore (TXN-3), NOT field edits — so this gates
@@ -947,6 +949,7 @@ export const archiveTransaction = mutation({
   handler: async (ctx, args) => {
     const access = await requireTransactionAccess(ctx, args.transactionId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     // The Recorded By Member OR the Owner may archive (PRD story 39). This is NOT
     // `isRecorder`: the Owner moderates lifecycle without gaining field-edit rights.
@@ -1008,6 +1011,7 @@ export const restoreTransaction = mutation({
   handler: async (ctx, args) => {
     const access = await requireTransactionAccess(ctx, args.transactionId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertSetupComplete();
 
     if (!access.canArchive) {
       throw new Error("Only the recorder or the owner can restore this transaction");

@@ -27,4 +27,12 @@ describe("mutation-errors", () => {
     }
     expect(mutationErrorMessageForCode("category.notFound")).toBe(null);
   });
+
+  it("defines the generic Circle setup incomplete error", () => {
+    expect(MUTATION_ERRORS.circleSetupIncomplete).toEqual({
+      code: "circle.setupIncomplete",
+      message: "Finish setting up this Circle before continuing",
+    });
+    expect(MUTATION_ERRORS).not.toHaveProperty("inviteSetupIncomplete");
+  });
 });

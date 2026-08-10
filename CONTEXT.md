@@ -33,7 +33,7 @@ A **Circle** hidden from active use after the **Owner** no longer needs it. Curr
 _Avoid_: Deleted Circle
 
 **Circle Setup**:
-The skippable onboarding step that gathers context for a newly created **Circle** so Spend Circle can derive useful starter **Categories** and confirm Currency. Setup questions are optional where the Circle does not match the question's context; a **Personal Circle** can be used before completing setup.
+The mandatory Finish-only step for every newly created regular **Circle**. The Owner must Finish — Skip does not exist — which records completion and seeds starter **Categories** (defaults when answers are empty; purpose/residence answers add extras). Setup questions remain optional *data* where the Circle does not match the question's context, but the setup *step* is not skippable. A **Personal Circle** has no setup workflow and is born complete.
 _Avoid_: Household Setup, Wizard
 
 **Circle Settings**:

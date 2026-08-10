@@ -29,10 +29,16 @@ interface Seed {
   ownerMemberId: Id<"members">;
 }
 
-/** Seeds a User who owns an active Circle. `role`/`status`/circle `status` are tunable. */
+/** Seeds a User who owns a Circle. `role`/`status`/circle status/setup are tunable. */
 async function seed(
   ctx: MutationCtx,
-  opts: { role?: "owner" | "member"; status?: "active" | "removed"; archived?: boolean } = {},
+  opts: {
+    role?: "owner" | "member";
+    status?: "active" | "removed";
+    archived?: boolean;
+    kind?: "personal" | "regular";
+    setupCompletedAt?: number | null;
+  } = {},
 ): Promise<Seed> {
   const now = Date.now();
   const userId = await ctx.db.insert("users", {
@@ -45,15 +51,18 @@ async function seed(
     onboardingCompletedAt: now,
     createdAt: now,
   });
+  const kind = opts.kind ?? "personal";
+  const setupCompletedAt =
+    opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : kind === "personal" ? now : null;
   const circleId = await ctx.db.insert("circles", {
-    name: "Personal",
-    kind: "personal",
+    name: kind === "personal" ? "Personal" : "Trip",
+    kind,
     currency: "USD",
     color: "blue",
-    mark: "P",
+    mark: kind === "personal" ? "P" : "T",
     ownerUserId: userId,
     status: opts.archived ? "archived" : "active",
-    setupCompletedAt: now,
+    setupCompletedAt,
     currencyLocked: false,
     accountDeletionBlocked: false,
     createdAt: now,
@@ -186,6 +195,64 @@ describe("resolveCircleAccess", () => {
     });
     expect(result.isWritable).toBe(false);
     expect(result.data).toEqual(mutationErrorData(MUTATION_ERRORS.circleArchived));
+  });
+
+  it("assertSetupComplete rejects an incomplete regular Circle", async () => {
+    const t = convexTest(schema, modules);
+    const { user, circleId } = await t.run((ctx) =>
+      seed(ctx, { kind: "regular", setupCompletedAt: null }),
+    );
+    mockCurrentUser.mockResolvedValue(user);
+
+    const data = await t.run(async (ctx) => {
+      const access = await resolveCircleAccess(ctx, circleId);
+      try {
+        access?.assertSetupComplete();
+        return null;
+      } catch (error) {
+        if (error instanceof ConvexError) {
+          return error.data;
+        }
+        throw error;
+      }
+    });
+    expect(data).toEqual(mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete));
+  });
+
+  it("assertSetupComplete allows a completed regular Circle", async () => {
+    const t = convexTest(schema, modules);
+    const { user, circleId } = await t.run((ctx) =>
+      seed(ctx, { kind: "regular", setupCompletedAt: Date.now() }),
+    );
+    mockCurrentUser.mockResolvedValue(user);
+
+    const threw = await t.run(async (ctx) => {
+      const access = await resolveCircleAccess(ctx, circleId);
+      try {
+        access?.assertSetupComplete();
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(threw).toBe(false);
+  });
+
+  it("assertSetupComplete allows a Personal Circle", async () => {
+    const t = convexTest(schema, modules);
+    const { user, circleId } = await t.run((ctx) => seed(ctx, { kind: "personal" }));
+    mockCurrentUser.mockResolvedValue(user);
+
+    const threw = await t.run(async (ctx) => {
+      const access = await resolveCircleAccess(ctx, circleId);
+      try {
+        access?.assertSetupComplete();
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(threw).toBe(false);
   });
 });
 

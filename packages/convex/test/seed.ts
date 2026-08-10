@@ -178,18 +178,35 @@ export async function makeCategory(
   });
 }
 
+/** Marks a seeded Circle as setup-complete (test-only; outside deploy graph). */
+export async function markCircleSetupComplete(ctx: MutationCtx, circleId: Id<"circles">) {
+  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
+}
+
 export interface Fixture extends Seed {
   groceriesId: Id<"categories">;
   diningId: Id<"categories">;
   salaryId: Id<"categories">;
 }
 
-/** A Circle with the owner, a few categories of both types (active Member added per test). */
+/**
+ * A Circle with the owner and a few categories of both types. Defaults to a
+ * completed regular Circle because it immediately inserts Categories — incomplete
+ * Circles must opt in via `setupCompletedAt: null` for defensive impossible-state tests.
+ */
 export async function seedFixture(
   ctx: MutationCtx,
-  opts: { currency?: string; archived?: boolean } = {},
+  opts: {
+    currency?: string;
+    archived?: boolean;
+    setupCompletedAt?: number | null;
+  } = {},
 ): Promise<Fixture> {
-  const seed = await seedCircle(ctx, opts);
+  const seed = await seedCircle(ctx, {
+    currency: opts.currency,
+    archived: opts.archived,
+    setupCompletedAt: opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : Date.now(),
+  });
   const groceriesId = await makeCategory(ctx, seed.circleId, {
     name: "Groceries",
     type: "expense",

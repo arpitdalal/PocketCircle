@@ -36,6 +36,10 @@ function defineMutationErrorCatalog<
 
 const mutationErrors = defineMutationErrorCatalog({
   circleArchived: defineMutationError("circle.archived", "Circle is archived"),
+  circleSetupIncomplete: defineMutationError(
+    "circle.setupIncomplete",
+    "Finish setting up this Circle before continuing",
+  ),
   circleCapacityReached: defineMutationError(
     "circle.capacityReached",
     "This Circle is full. The invitation can't be accepted right now.",
@@ -51,10 +55,6 @@ const mutationErrors = defineMutationErrorCatalog({
   inviteForbidden: defineMutationError(
     "invite.forbidden",
     "Only the Circle owner can invite members",
-  ),
-  inviteSetupIncomplete: defineMutationError(
-    "invite.setupIncomplete",
-    "Finish setting up this Circle before inviting members",
   ),
   invitePersonalCircle: defineMutationError(
     "invite.personalCircle",
