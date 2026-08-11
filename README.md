@@ -100,6 +100,75 @@ pnpm typecheck
 pnpm build
 ```
 
+## Production Deployment
+
+Production uses the default provider URLs documented in ADR 0007:
+
+- Web: `https://spend-circle.arpitdalalm.workers.dev`
+- API: the production deployment's `*.convex.cloud` URL
+- Auth/HTTP actions: the same production deployment's `*.convex.site` URL
+
+`.github/workflows/deploy.yml` validates and builds the app, deploys the Convex
+backend, then publishes `apps/web-app/build/client` as Cloudflare Worker static
+assets. Cloudflare's `single-page-application` fallback in `wrangler.jsonc`
+serves `index.html` for direct navigation to client routes.
+
+Configure these GitHub Actions secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+CONVEX_DEPLOY_KEY
+```
+
+The Cloudflare token needs only `Account → Workers Scripts → Edit`, scoped to
+the deployment account. The Convex key needs only `deployment:deploy`, scoped
+to the production deployment.
+
+Configure these GitHub Actions variables with the URLs shown by the Convex
+production deployment:
+
+```text
+VITE_CONVEX_URL=https://<production-deployment>.convex.cloud
+VITE_CONVEX_SITE_URL=https://<production-deployment>.convex.site
+```
+
+These observability variables are optional for the first infrastructure deploy;
+set them and redeploy before beta monitoring begins:
+
+```text
+VITE_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
+VITE_POSTHOG_KEY=phc_<project-key>
+VITE_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+Set the backend variables on the **production** Convex deployment:
+
+```text
+SITE_URL=https://spend-circle.arpitdalalm.workers.dev
+BETTER_AUTH_SECRET=<new-production-secret>
+GOOGLE_CLIENT_ID=<google-oauth-client-id>
+GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
+RESEND_API_KEY=<resend-api-key>
+RESEND_FROM_EMAIL=<verified-from-address>
+SUPPORT_EMAIL=arpitdalalm@gmail.com
+```
+
+Leave `E2E_TEST_AUTH` and `EMAIL_DEV_LOG` unset in production. Google OAuth must
+allow the exact callback URL:
+
+```text
+https://<production-deployment>.convex.site/api/auth/callback/google
+```
+
+Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
+account owner. Invitations and Account Deletion verification for other beta
+users require a verified sender domain.
+
+Deploy automatically by pushing to `main`, or run **Deploy Production** from
+GitHub Actions manually. The workflow fails before deployment when a required
+secret or Convex URL variable is missing.
+
 ### End-to-end (Playwright)
 
 E2E runs against a real, ephemeral self-hosted Convex backend, not mocks (ADR
