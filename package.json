@@ -29,6 +29,7 @@
     "kysely": "0.28.17",
     "lefthook": "^2.1.9",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "wrangler": "4.120.1"
   }
 }

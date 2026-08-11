@@ -16,6 +16,7 @@ allowBuilds:
   esbuild: true
   lefthook: true
   msw: true
+  workerd: true
 
 # cnfast@0.0.8 was published 2026-06-22; remove this block on 2026-06-23 once it clears the 24h release-age policy. See #211.
 minimumReleaseAgeExclude:
