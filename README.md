@@ -113,6 +113,15 @@ backend, then publishes `apps/web-app/build/client` as Cloudflare Worker static
 assets. Cloudflare's `single-page-application` fallback in `wrangler.jsonc`
 serves `index.html` for direct navigation to client routes.
 
+Configure the GitHub `production` environment before the first deployment:
+
+- Under **Deployment branches and tags**, allow only the selected branch `main`.
+- Add at least one required reviewer who is not the person initiating deployments.
+- Enable **Prevent self-review**.
+
+The workflow also guards the deploy job to `refs/heads/main`; manual runs from
+other refs are skipped.
+
 Configure these GitHub Actions secrets:
 
 ```text
