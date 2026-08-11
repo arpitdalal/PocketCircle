@@ -4,6 +4,7 @@ export * from "./currency.js";
 export * from "./date.js";
 export * from "./email-templates.js";
 export * from "./initials.js";
+export * from "./legal.js";
 export * from "./money.js";
 export * from "./mutation-errors.js";
 export * from "./notification-links.js";

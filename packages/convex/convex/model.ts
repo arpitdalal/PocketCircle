@@ -1,4 +1,6 @@
 import {
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_TERMS_VERSION,
   canonicalEmail,
   DEFAULT_CURRENCY,
   initials,
@@ -15,10 +17,6 @@ import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
  * Better Auth wiring (that lives in auth.ts), so they are easy to unit-test
  * with convex-test. Permission and lifecycle checks live in guard.ts (ADR 0015).
  */
-
-// Versions of the legal documents accepted via the sign-in wrap (ADR 0014).
-const CURRENT_TERMS_VERSION = "2026-05-01";
-const CURRENT_PRIVACY_VERSION = "2026-05-01";
 
 export interface NewUserProfile {
   email: string;

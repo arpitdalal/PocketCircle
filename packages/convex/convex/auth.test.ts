@@ -4,7 +4,7 @@ import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import { seedPersonalCircleOwner } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
-import { createAuth } from "./auth.js";
+import { authComponentConfig, authRuntimeConfig, createAuth } from "./auth.js";
 import schema from "./schema.js";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -66,6 +66,7 @@ describe("createAuth", () => {
       expect(context.options.user?.deleteUser?.sendDeleteAccountVerification).toEqual(
         expect.any(Function),
       );
+      expect(context.options.trustedOrigins).toEqual(["https://app.example.com"]);
     });
 
     // Callback closes over Better Auth's HTTP runMutation ctx, which convex-test
@@ -86,5 +87,29 @@ describe("createAuth", () => {
         .unique();
       expect(stash?.token).toBe("auth-wire-token");
     });
+  });
+});
+
+describe("authRuntimeConfig", () => {
+  it("enables verbose auth logs only for the configured local origin", () => {
+    expect(authRuntimeConfig(undefined)).toEqual({
+      siteUrl: "http://127.0.0.1:5173",
+      verbose: true,
+    });
+    expect(authRuntimeConfig("http://localhost:5173/")).toEqual({
+      siteUrl: "http://localhost:5173",
+      verbose: true,
+    });
+    expect(authRuntimeConfig("https://app.example.com/")).toEqual({
+      siteUrl: "https://app.example.com",
+      verbose: false,
+    });
+  });
+});
+
+describe("authComponentConfig", () => {
+  it("wires verbose component logging only for local app origins", () => {
+    expect(authComponentConfig("http://localhost:5173").verbose).toBe(true);
+    expect(authComponentConfig("https://app.example.com").verbose).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@spend-circle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedPersonalCircleOwner } from "../test/seed.js";
@@ -61,6 +62,8 @@ describe("createUserWithPersonalCircle", () => {
       const user = await ctx.db.get(userId);
       expect(user?.email).toBe("ada@example.com");
       expect(user?.onboardingCompletedAt).toBeNull();
+      expect(user?.acceptedTermsVersion).toBe(CURRENT_TERMS_VERSION);
+      expect(user?.acceptedPrivacyVersion).toBe(CURRENT_PRIVACY_VERSION);
 
       const circles = await ctx.db.query("circles").collect();
       expect(circles).toHaveLength(1);
