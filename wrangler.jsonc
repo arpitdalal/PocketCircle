@@ -1,0 +1,9 @@
+{
+  "name": "spend-circle",
+  "compatibility_date": "2026-08-11",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./apps/web-app/build/client",
+    "not_found_handling": "single-page-application"
+  }
+}
