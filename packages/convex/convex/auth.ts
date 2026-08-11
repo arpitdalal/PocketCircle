@@ -30,46 +30,64 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  */
 const authFunctions: AuthFunctions = internal.auth;
 
-export const authComponent = createClient<DataModel>(components.betterAuth, {
-  authFunctions,
-  verbose: true,
-  triggers: {
-    user: {
-      onCreate: async (ctx, authUser) => {
-        const userId = await createUserWithPersonalCircle(ctx, {
-          email: authUser.email,
-          displayName: authUser.name,
-          image: authUser.image ?? undefined,
-        });
-        await authComponent.setUserId(ctx, authUser._id, userId);
-        await emailPool.enqueueAction(
-          ctx,
-          internal.email.sendWelcomeEmail,
-          { userId },
-          {
-            onComplete: internal.email.onWelcomeRunComplete,
-            context: { userId },
-          },
-        );
-      },
-      onUpdate: async (ctx, authUser) => {
-        if (!authUser.userId) {
-          return;
-        }
-        const userId = ctx.db.normalizeId("users", authUser.userId);
-        if (!userId) {
-          return;
-        }
-        await syncUserEmail(ctx, userId, authUser.email);
-      },
-      onDelete: async (ctx, authUser) => {
-        // Static import from a cycle-free module — mutations cannot use runtime
-        // `await import()` (dynamic imports are for actions).
-        await finalizeOnUserDelete(ctx, authUser);
+const DEFAULT_LOCAL_SITE_URL = "http://127.0.0.1:5173";
+
+export function authRuntimeConfig(siteUrlValue: string | undefined) {
+  const url = new URL(siteUrlValue ?? DEFAULT_LOCAL_SITE_URL);
+  const siteUrl = url.origin;
+  const verbose = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  return { siteUrl, verbose };
+}
+
+export function authComponentConfig(siteUrlValue: string | undefined) {
+  return {
+    authFunctions,
+    // The component's verbose mode logs auth request/response headers. Keep that
+    // useful signal for local development only; production origins must never emit it.
+    verbose: authRuntimeConfig(siteUrlValue).verbose,
+    triggers: {
+      user: {
+        onCreate: async (ctx, authUser) => {
+          const userId = await createUserWithPersonalCircle(ctx, {
+            email: authUser.email,
+            displayName: authUser.name,
+            image: authUser.image ?? undefined,
+          });
+          await authComponent.setUserId(ctx, authUser._id, userId);
+          await emailPool.enqueueAction(
+            ctx,
+            internal.email.sendWelcomeEmail,
+            { userId },
+            {
+              onComplete: internal.email.onWelcomeRunComplete,
+              context: { userId },
+            },
+          );
+        },
+        onUpdate: async (ctx, authUser) => {
+          if (!authUser.userId) {
+            return;
+          }
+          const userId = ctx.db.normalizeId("users", authUser.userId);
+          if (!userId) {
+            return;
+          }
+          await syncUserEmail(ctx, userId, authUser.email);
+        },
+        onDelete: async (ctx, authUser) => {
+          // Static import from a cycle-free module — mutations cannot use runtime
+          // `await import()` (dynamic imports are for actions).
+          await finalizeOnUserDelete(ctx, authUser);
+        },
       },
     },
-  },
-});
+  } satisfies NonNullable<Parameters<typeof createClient<DataModel>>[1]>;
+}
+
+export const authComponent = createClient<DataModel>(
+  components.betterAuth,
+  authComponentConfig(process.env.SITE_URL),
+);
 
 // Component trigger functions. `onCreate` runs in the OAuth callback and creates
 // the Spend Circle User + Personal Circle (PRD stories 1, 3), then stores the app
@@ -80,23 +98,14 @@ export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
 
 export const { getAuthUser } = authComponent.clientApi();
 
-const siteUrl = process.env.SITE_URL ?? "http://127.0.0.1:5173";
-
 // E2E-only auth bypass (ADR 0019). Enabled solely on ephemeral test deployments via
 // E2E_TEST_AUTH; never set in production, so production stays Google-only (ADR 0002).
 const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
-// Local dev is reachable as both 127.0.0.1 and localhost; trust both so the
-// CORS allow-origin and post-auth redirect work regardless of which the browser
-// uses. In production this collapses to the single SITE_URL.
-const trustedOrigins = Array.from(
-  new Set([siteUrl, "http://127.0.0.1:5173", "http://localhost:5173"]),
-);
-
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth({
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  const authRuntime = authRuntimeConfig(process.env.SITE_URL);
+  return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
-    trustedOrigins,
     database: authComponent.adapter(ctx),
     account: { accountLinking: { enabled: true } },
     // E2E-only (ADR 0019): a flag-gated credentials path so Playwright can mint a
@@ -124,8 +133,11 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         },
       },
     },
-    plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
+    // crossDomain adds this exact siteUrl to Better Auth's trusted origins. Passing
+    // a second trustedOrigins copy here would duplicate it after plugin initialization.
+    plugins: [convex({ authConfig }), crossDomain({ siteUrl: authRuntime.siteUrl })],
   });
+};
 
 /** The Spend Circle User for the current auth identity, or null. */
 export async function getCurrentUserOrNull(

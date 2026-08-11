@@ -9,14 +9,18 @@ import { index, layout, prefix, type RouteConfig, route } from "@react-router/de
 export default [
   // Public surfaces. The protected layout never wraps these.
   layout("routes/layouts/public-layout.tsx", [
-    route("signin", "routes/signin.tsx"),
-    route("terms", "routes/terms.tsx"),
-    route("privacy", "routes/privacy.tsx"),
-    // Opaque, token-only Invitation landing — the ADR 0016 exception.
-    route("invite/:token", "routes/invite.tsx"),
-    route("delete-account/verify", "routes/delete-account-verify.tsx"),
-    route("delete-account/complete", "routes/delete-account-complete.tsx"),
-    route("dev/email-preview", "routes/dev/email-preview.tsx"),
+    layout("routes/layouts/public-narrow-layout.tsx", [
+      route("signin", "routes/signin.tsx"),
+      // Opaque, token-only Invitation landing — the ADR 0016 exception.
+      route("invite/:token", "routes/invite.tsx"),
+      route("delete-account/verify", "routes/delete-account-verify.tsx"),
+      route("delete-account/complete", "routes/delete-account-complete.tsx"),
+      route("dev/email-preview", "routes/dev/email-preview.tsx"),
+    ]),
+    layout("routes/layouts/public-reading-layout.tsx", [
+      route("terms", "routes/terms.tsx"),
+      route("privacy", "routes/privacy.tsx"),
+    ]),
   ]),
 
   // Authenticated app. The protected layout shows a splash while auth resolves,

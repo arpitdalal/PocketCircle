@@ -1,3 +1,4 @@
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@spend-circle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, type QueryCtx, query } from "./_generated/server.js";
@@ -62,10 +63,10 @@ export const seedActiveMember = mutation({
       const userId = await ctx.db.insert("users", {
         email,
         displayName: args.displayName,
-        acceptedTermsVersion: "2026-05-01",
-        acceptedPrivacyVersion: "2026-05-01",
+        acceptedTermsVersion: CURRENT_TERMS_VERSION,
+        acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
         acceptedAt: now,
-        analyticsOptOut: false,
+        analyticsEnabled: false,
         onboardingCompletedAt: now,
         createdAt: now,
       });

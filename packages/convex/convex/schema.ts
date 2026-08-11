@@ -38,8 +38,8 @@ export default defineSchema({
     acceptedTermsVersion: v.string(),
     acceptedPrivacyVersion: v.string(),
     acceptedAt: v.number(),
-    // Product analytics opt-out (ADR 0013); operational monitoring is unaffected.
-    analyticsOptOut: v.boolean(),
+    // Explicit product-analytics consent (ADR 0013); operational monitoring is unaffected.
+    analyticsEnabled: v.boolean(),
     // null until Onboarding completes; a number means the User confirmed their profile (USR-1).
     onboardingCompletedAt: v.union(v.number(), v.null()),
     // Set when the Welcome email is claimed/sent (EML-1); absent ⇒ not yet sent.

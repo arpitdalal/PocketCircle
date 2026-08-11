@@ -8,7 +8,7 @@ vi.mock("~/lib/env.js", async (importOriginal) =>
 );
 
 import { posthogEnv, posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
-import { buildPostHogInitOptions, initAnalytics, setAnalyticsOptOut, track } from "./analytics.js";
+import { buildPostHogInitOptions, initAnalytics, setAnalyticsEnabled, track } from "./analytics.js";
 import { FORBIDDEN_ANALYTICS_PROP_KEYS, sanitizeAnalyticsProps } from "./analytics-events.js";
 
 const readyUser = {
@@ -16,7 +16,7 @@ const readyUser = {
   email: "ada@example.com",
   displayName: "Ada",
   onboardingComplete: true,
-  analyticsOptOut: false,
+  analyticsEnabled: true,
 };
 
 afterEach(() => {
@@ -32,6 +32,8 @@ describe("buildPostHogInitOptions", () => {
       capture_pageview: false,
       capture_pageleave: false,
       persistence: "localStorage",
+      opt_out_capturing_by_default: true,
+      opt_out_persistence_by_default: true,
     });
   });
 });
@@ -43,8 +45,8 @@ describe("initAnalytics", () => {
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("does not initialize when analyticsOptOut is true", () => {
-    initAnalytics({ ...readyUser, analyticsOptOut: true });
+  it("does not initialize before explicit consent", () => {
+    initAnalytics({ ...readyUser, analyticsEnabled: false });
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
@@ -54,15 +56,16 @@ describe("initAnalytics", () => {
 
     expect(posthogSdk.init).toHaveBeenCalledOnce();
     expect(posthogSdk.init).toHaveBeenCalledWith("phc_test", buildPostHogInitOptions());
+    expect(posthogSdk.opt_in_capturing).toHaveBeenCalledWith({ captureEventName: false });
     expect(posthogSdk.stopSessionRecording).toHaveBeenCalled();
   });
 });
 
-describe("setAnalyticsOptOut", () => {
-  it("opts out, resets identity, and stops capture after init", () => {
+describe("setAnalyticsEnabled", () => {
+  it("withdraws consent, resets identity, and stops capture after init", () => {
     initAnalytics(readyUser);
 
-    setAnalyticsOptOut(true);
+    setAnalyticsEnabled(false);
     track("feedback_submitted", { type: "bug" });
 
     expect(posthogSdk.opt_out_capturing).toHaveBeenCalled();
@@ -73,9 +76,9 @@ describe("setAnalyticsOptOut", () => {
 
   it("opts back in without requiring a reload", () => {
     initAnalytics(readyUser);
-    setAnalyticsOptOut(true);
+    setAnalyticsEnabled(false);
 
-    setAnalyticsOptOut(false);
+    setAnalyticsEnabled(true);
     track("feedback_submitted", { type: "feature" });
 
     expect(posthogSdk.opt_in_capturing).toHaveBeenCalled();
@@ -176,12 +179,12 @@ describe("track", () => {
 });
 
 describe("analytics independence", () => {
-  it("never reads analyticsOptOut in sentry wiring", () => {
+  it("never reads analyticsEnabled in sentry wiring", () => {
     const sentrySource = readFileSync(join(import.meta.dirname, "sentry.ts"), "utf8");
     const reportErrorSource = readFileSync(join(import.meta.dirname, "report-error.ts"), "utf8");
 
-    expect(sentrySource).not.toMatch(/analyticsOptOut/);
-    expect(reportErrorSource).not.toMatch(/analyticsOptOut/);
+    expect(sentrySource).not.toMatch(/analyticsEnabled/);
+    expect(reportErrorSource).not.toMatch(/analyticsEnabled/);
     expect(sentrySource).not.toMatch(/posthog/i);
     expect(reportErrorSource).not.toMatch(/posthog/i);
   });

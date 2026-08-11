@@ -33,7 +33,7 @@ describe("AccountMenu", () => {
     displayName: "Alex Tester",
     image: undefined,
     onboardingComplete: true,
-    analyticsOptOut: false,
+    analyticsEnabled: false,
   };
 
   it("opens the menu and navigates to Settings", async () => {

@@ -7,7 +7,7 @@ const defaultAnalyticsUser: SessionUser = {
   email: "analytics@test.local",
   displayName: "Analytics Test",
   onboardingComplete: true,
-  analyticsOptOut: false,
+  analyticsEnabled: true,
 };
 
 /** Prime the real analytics seam for route/component tests that call track without the shell layout. */

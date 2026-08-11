@@ -263,7 +263,7 @@ describe("ProtectedLayout onboarding gate", () => {
 
   it("lets onboarded Users render child routes normally", async () => {
     configureConvex({
-      currentUser: makeCurrentUserView({ onboardingComplete: true }),
+      currentUser: makeCurrentUserView({ analyticsEnabled: true, onboardingComplete: true }),
       circles: [],
     });
     renderRouteStub(
@@ -287,9 +287,9 @@ describe("ProtectedLayout onboarding gate", () => {
     );
   });
 
-  it("syncs analytics opt-out from the ready session", async () => {
+  it("syncs analytics consent from the ready session", async () => {
     configureConvex({
-      currentUser: makeCurrentUserView({ analyticsOptOut: true, onboardingComplete: true }),
+      currentUser: makeCurrentUserView({ analyticsEnabled: false, onboardingComplete: true }),
       circles: [],
     });
     renderRouteStub(

@@ -1,3 +1,4 @@
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@spend-circle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedPersonalCircleOwner } from "../test/seed.js";
@@ -61,6 +62,8 @@ describe("createUserWithPersonalCircle", () => {
       const user = await ctx.db.get(userId);
       expect(user?.email).toBe("ada@example.com");
       expect(user?.onboardingCompletedAt).toBeNull();
+      expect(user?.acceptedTermsVersion).toBe(CURRENT_TERMS_VERSION);
+      expect(user?.acceptedPrivacyVersion).toBe(CURRENT_PRIVACY_VERSION);
 
       const circles = await ctx.db.query("circles").collect();
       expect(circles).toHaveLength(1);
@@ -478,8 +481,8 @@ describe("updateProfile", () => {
   });
 });
 
-describe("setAnalyticsOptOut", () => {
-  it("defaults analyticsOptOut to false for a freshly bootstrapped User", async () => {
+describe("setAnalyticsEnabled", () => {
+  it("defaults analyticsEnabled to false for a freshly bootstrapped User", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) =>
       createUserWithPersonalCircle(ctx, {
@@ -490,11 +493,11 @@ describe("setAnalyticsOptOut", () => {
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
-      expect(user?.analyticsOptOut).toBe(false);
+      expect(user?.analyticsEnabled).toBe(false);
     });
   });
 
-  it("persists opt-out true and false", async () => {
+  it("persists explicit opt-in and withdrawal", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t, {
       email: "ada@example.com",
@@ -502,23 +505,23 @@ describe("setAnalyticsOptOut", () => {
       onboarded: true,
     });
 
-    await t.mutation(api.users.setAnalyticsOptOut, { optOut: true });
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
-      expect(user?.analyticsOptOut).toBe(true);
+      expect(user?.analyticsEnabled).toBe(true);
     });
 
     await signInOwner(t, userId);
-    await t.mutation(api.users.setAnalyticsOptOut, { optOut: false });
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: false });
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
-      expect(user?.analyticsOptOut).toBe(false);
+      expect(user?.analyticsEnabled).toBe(false);
     });
   });
 
-  it("exposes analyticsOptOut via getCurrentUser", async () => {
+  it("exposes analyticsEnabled via getCurrentUser", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t, {
       email: "ada@example.com",
@@ -526,14 +529,14 @@ describe("setAnalyticsOptOut", () => {
       onboarded: true,
     });
 
-    await t.mutation(api.users.setAnalyticsOptOut, { optOut: true });
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
     await signInOwner(t, userId);
 
     const view = await t.query(api.users.getCurrentUser, {});
-    expect(view?.analyticsOptOut).toBe(true);
+    expect(view?.analyticsEnabled).toBe(true);
   });
 
-  it("only patches analyticsOptOut", async () => {
+  it("only patches analyticsEnabled", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t, {
       email: "ada@example.com",
@@ -543,11 +546,11 @@ describe("setAnalyticsOptOut", () => {
 
     const before = await t.run(async (ctx) => ctx.db.get(userId));
 
-    await t.mutation(api.users.setAnalyticsOptOut, { optOut: true });
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
 
     await t.run(async (ctx) => {
       const after = await ctx.db.get(userId);
-      expect(after?.analyticsOptOut).toBe(true);
+      expect(after?.analyticsEnabled).toBe(true);
       expect(after?.email).toBe(before?.email);
       expect(after?.displayName).toBe(before?.displayName);
       expect(after?.onboardingCompletedAt).toBe(before?.onboardingCompletedAt);
@@ -558,7 +561,7 @@ describe("setAnalyticsOptOut", () => {
     const t = convexTest(schema, modules);
     mockCurrentUser.mockResolvedValue(null);
 
-    await expect(t.mutation(api.users.setAnalyticsOptOut, { optOut: true })).rejects.toThrow(
+    await expect(t.mutation(api.users.setAnalyticsEnabled, { enabled: true })).rejects.toThrow(
       /Not authenticated/i,
     );
   });
