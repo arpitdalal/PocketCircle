@@ -66,7 +66,7 @@ export const seedActiveMember = mutation({
         acceptedTermsVersion: CURRENT_TERMS_VERSION,
         acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
         acceptedAt: now,
-        analyticsOptOut: false,
+        analyticsEnabled: false,
         onboardingCompletedAt: now,
         createdAt: now,
       });

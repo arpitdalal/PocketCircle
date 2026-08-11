@@ -1,32 +1,29 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { LEGAL_DOCUMENTS, SPEND_CIRCLE_SUPPORT_EMAIL } from "@spend-circle/domain";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { renderWithRouter } from "~/test/convex-react.js";
 import Privacy from "./privacy.js";
 import Terms from "./terms.js";
 
-function renderPage(page: React.ReactNode) {
-  render(<MemoryRouter>{page}</MemoryRouter>);
-}
-
 describe("legal pages", () => {
   it("publishes substantive beta Terms with the support contact", () => {
-    renderPage(<Terms />);
+    renderWithRouter(<Terms />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Terms & Conditions" })).toBeVisible();
-    expect(screen.getByText("Effective August 11, 2026")).toBeVisible();
+    expect(screen.getByText(`Effective ${LEGAL_DOCUMENTS.terms.effectiveDate}`)).toBeVisible();
     expect(screen.getByRole("heading", { name: /Shared Circles and your content$/ })).toBeVisible();
     expect(screen.getByRole("heading", { name: /Beta service and availability$/ })).toBeVisible();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
-    const contact = screen.getByRole("link", { name: "arpitdalalm@gmail.com" });
-    expect(contact).toHaveAttribute("href", "mailto:arpitdalalm@gmail.com");
+    const contact = screen.getByRole("link", { name: SPEND_CIRCLE_SUPPORT_EMAIL });
+    expect(contact).toHaveAttribute("href", `mailto:${SPEND_CIRCLE_SUPPORT_EMAIL}`);
   });
 
   it("explains collected data, service providers, analytics, and deletion", () => {
-    renderPage(<Privacy />);
+    renderWithRouter(<Privacy />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Privacy Policy" })).toBeVisible();
-    expect(screen.getByText("Effective August 11, 2026")).toBeVisible();
+    expect(screen.getByText(`Effective ${LEGAL_DOCUMENTS.privacy.effectiveDate}`)).toBeVisible();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
     const providers = screen

@@ -79,12 +79,12 @@ describe("initSentry", () => {
 });
 
 describe("analytics independence", () => {
-  it("never reads analyticsOptOut in sentry wiring", () => {
+  it("never reads analyticsEnabled in sentry wiring", () => {
     const sentrySource = readFileSync(join(import.meta.dirname, "sentry.ts"), "utf8");
     const reportErrorSource = readFileSync(join(import.meta.dirname, "report-error.ts"), "utf8");
 
-    expect(sentrySource).not.toMatch(/analyticsOptOut/);
-    expect(reportErrorSource).not.toMatch(/analyticsOptOut/);
+    expect(sentrySource).not.toMatch(/analyticsEnabled/);
+    expect(reportErrorSource).not.toMatch(/analyticsEnabled/);
   });
 
   it("initializes even when analytics would be opted out (init is not gated)", () => {

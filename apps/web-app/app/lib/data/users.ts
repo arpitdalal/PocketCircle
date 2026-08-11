@@ -16,6 +16,6 @@ export function useUpdateProfile() {
   return useMutation(api.users.updateProfile);
 }
 
-export function useSetAnalyticsOptOut() {
-  return useMutation(api.users.setAnalyticsOptOut);
+export function useSetAnalyticsEnabled() {
+  return useMutation(api.users.setAnalyticsEnabled);
 }

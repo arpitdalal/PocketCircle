@@ -18,7 +18,7 @@ async function seedCircleWithOwner(ctx: MutationCtx) {
     acceptedTermsVersion: "2026-05-01",
     acceptedPrivacyVersion: "2026-05-01",
     acceptedAt: now,
-    analyticsOptOut: false,
+    analyticsEnabled: false,
     onboardingCompletedAt: now,
     createdAt: now,
   });

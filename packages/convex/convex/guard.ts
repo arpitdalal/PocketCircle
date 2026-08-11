@@ -23,7 +23,7 @@ import { getCurrentUserOrNull } from "./auth.js";
  *
  * Boundary: this module is for operations on an EXISTING Circle. Circle-less
  * operations keep `requireCurrentUser` (auth.ts): `listMyCircles` (lists across
- * Circles), `createCircle` (no prior access), `users.setAnalyticsOptOut`.
+ * Circles), `createCircle` (no prior access), `users.setAnalyticsEnabled`.
  *
  * Capabilities here are Circle-level only (`isOwner`, `isWritable`,
  * `assertSetupComplete`). Entity-level permission — a Transaction editable only

@@ -22,11 +22,13 @@ export function buildPostHogInitOptions() {
     capture_pageview: false,
     capture_pageleave: false,
     persistence: "localStorage" as const,
+    opt_out_capturing_by_default: true,
+    opt_out_persistence_by_default: true,
   };
 }
 
 export function initAnalytics(user: SessionUser) {
-  if (!POSTHOG_KEY || !isBrowser || user.analyticsOptOut) {
+  if (!POSTHOG_KEY || !isBrowser || !user.analyticsEnabled) {
     return;
   }
   if (clientInitialized) {
@@ -34,22 +36,23 @@ export function initAnalytics(user: SessionUser) {
   }
 
   posthog.init(POSTHOG_KEY, buildPostHogInitOptions());
+  posthog.opt_in_capturing({ captureEventName: false });
   posthog.stopSessionRecording();
   clientInitialized = true;
   captureEnabled = true;
 }
 
-export function setAnalyticsOptOut(optOut: boolean) {
+export function setAnalyticsEnabled(enabled: boolean) {
   if (!POSTHOG_KEY || !isBrowser) {
     return;
   }
 
-  if (optOut) {
+  if (!enabled) {
     captureEnabled = false;
     if (clientInitialized) {
-      posthog.opt_out_capturing();
       posthog.stopSessionRecording();
       posthog.reset();
+      posthog.opt_out_capturing();
     }
     return;
   }

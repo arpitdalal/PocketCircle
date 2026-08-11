@@ -17,7 +17,7 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-foreground">Profile and settings:</strong> Display Name, default
-            Currency, onboarding state, legal-document acceptance, analytics preference, and Account
+            Currency, onboarding state, legal-document acceptance, analytics consent, and Account
             Deletion state.
           </li>
           <li>
@@ -92,8 +92,8 @@ export default function Privacy() {
             masked, error-triggered Session Replay; and
           </li>
           <li>
-            <strong className="text-foreground">PostHog</strong> for limited product analytics when
-            you have not opted out.
+            <strong className="text-foreground">PostHog</strong> for limited product analytics only
+            after you opt in.
           </li>
         </LegalList>
         <p>
@@ -105,10 +105,12 @@ export default function Privacy() {
 
       <LegalSection title="5. Analytics and operational monitoring">
         <p>
-          Product analytics are enabled by default after signup. PostHog receives allowlisted,
-          coarse events such as feature names and workflow outcomes—not financial content or free
-          text. You can disable or re-enable product analytics at any time in Settings → Privacy.
-          PostHog Session Replay is disabled.
+          Product analytics are off by default for every user, regardless of location. PostHog is
+          not initialized until you explicitly enable product analytics in Settings → Privacy. Once
+          enabled, PostHog receives allowlisted, coarse events such as feature names and workflow
+          outcomes—not financial content or free text. You can withdraw consent at any time by
+          turning product analytics off; capture stops and PostHog&apos;s local analytics state is
+          cleared. You can opt in again later. PostHog Session Replay is disabled.
         </p>
         <p>
           Sentry operational monitoring remains enabled regardless of that preference. Normal
@@ -122,9 +124,10 @@ export default function Privacy() {
       <LegalSection title="6. Cookies and local storage">
         <p>
           Spend Circle and its authentication provider use cookies or equivalent browser storage to
-          keep you signed in and protect account access. PostHog may use local storage for the
-          analytics preference and analytics state. Browser storage is also used for limited user
-          interface state. Blocking required storage may prevent the service from working.
+          keep you signed in and protect account access. After you opt in, PostHog may use local
+          storage for your analytics preference and analytics state. Browser storage is also used
+          for limited user interface state. Blocking required storage may prevent the service from
+          working.
         </p>
       </LegalSection>
 

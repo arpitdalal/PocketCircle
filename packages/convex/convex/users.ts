@@ -16,7 +16,7 @@ export function toCurrentUserView(user: Doc<"users">) {
     displayName: user.displayName,
     image: user.image,
     onboardingComplete: user.onboardingCompletedAt !== null,
-    analyticsOptOut: user.analyticsOptOut,
+    analyticsEnabled: user.analyticsEnabled,
   };
 }
 
@@ -78,11 +78,11 @@ export const updateProfile = mutation({
   },
 });
 
-/** Toggles the product-analytics opt-out preference (ADR 0013). */
-export const setAnalyticsOptOut = mutation({
-  args: { optOut: v.boolean() },
+/** Persists explicit product-analytics consent (ADR 0013). */
+export const setAnalyticsEnabled = mutation({
+  args: { enabled: v.boolean() },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    await ctx.db.patch(user._id, { analyticsOptOut: args.optOut });
+    await ctx.db.patch(user._id, { analyticsEnabled: args.enabled });
   },
 });

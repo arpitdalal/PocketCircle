@@ -24,7 +24,7 @@ import { requestAccountDeletion } from "~/lib/auth-client.js";
 import {
   type AccountDeletionBlocker,
   useAccountDeletionBlockers,
-  useSetAnalyticsOptOut,
+  useSetAnalyticsEnabled,
   useSubmitFeedback,
   useUpdateProfile,
 } from "~/lib/data.js";
@@ -42,7 +42,7 @@ const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
 };
 
 /** Settings shell. App Version aids support diagnosis (PRD story 90); Privacy hosts
- * the product-analytics opt-out (ADR 0013). */
+ * product-analytics consent (ADR 0013). */
 export default function Settings() {
   const session = useAppSession();
 
@@ -62,7 +62,7 @@ export default function Settings() {
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-muted-foreground">Privacy</h2>
         <PrivacySettingsForm
-          key={`privacy-${session.user.id}-${String(session.user.analyticsOptOut)}`}
+          key={`privacy-${session.user.id}-${String(session.user.analyticsEnabled)}`}
           user={session.user}
         />
       </section>
@@ -303,49 +303,49 @@ function ProfileSettingsForm({ user }: { user: SessionUser }) {
 }
 
 function PrivacySettingsForm({ user }: { user: SessionUser }) {
-  const setAnalyticsOptOut = useSetAnalyticsOptOut();
+  const setAnalyticsEnabled = useSetAnalyticsEnabled();
   const { show } = useSnackbar();
-  const [optOut, setOptOut] = useState(user.analyticsOptOut);
+  const [enabled, setEnabled] = useState(user.analyticsEnabled);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function onToggle(nextOptOut: boolean) {
+  async function onToggle(nextEnabled: boolean) {
     if (submitting) {
       return;
     }
 
     setError(null);
-    setOptOut(nextOptOut);
+    setEnabled(nextEnabled);
     setSubmitting(true);
     try {
-      await setAnalyticsOptOut({ optOut: nextOptOut });
+      await setAnalyticsEnabled({ enabled: nextEnabled });
       show("Privacy preference updated.");
     } catch (caught) {
-      console.error("setAnalyticsOptOut failed", caught);
-      setOptOut(user.analyticsOptOut);
+      console.error("setAnalyticsEnabled failed", caught);
+      setEnabled(user.analyticsEnabled);
       setError("Couldn't update your privacy preference. Please try again.");
-    } finally {
-      setSubmitting(false);
     }
+    setSubmitting(false);
   }
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
       <Field orientation="horizontal">
         <Switch
-          id="settings-analytics-opt-out"
-          checked={optOut}
+          id="settings-analytics-enabled"
+          checked={enabled}
           disabled={submitting}
-          aria-labelledby="settings-analytics-opt-out-label"
-          onClick={() => void onToggle(!optOut)}
+          aria-labelledby="settings-analytics-enabled-label"
+          onClick={() => void onToggle(!enabled)}
         />
         <FieldContent>
-          <FieldLabel id="settings-analytics-opt-out-label" htmlFor="settings-analytics-opt-out">
-            Opt out of product analytics
+          <FieldLabel id="settings-analytics-enabled-label" htmlFor="settings-analytics-enabled">
+            Share product analytics
           </FieldLabel>
           <FieldDescription>
-            When enabled, Spend Circle stops collecting product analytics (PostHog). Operational
-            error monitoring (Sentry) stays on regardless.
+            Off by default. When enabled, Spend Circle shares limited feature-usage events with
+            PostHog. Turn it off anytime to withdraw consent. Operational error monitoring (Sentry)
+            stays on regardless.
           </FieldDescription>
         </FieldContent>
       </Field>

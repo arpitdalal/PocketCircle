@@ -6,7 +6,7 @@ import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PageSkeleton } from "~/components/skeleton.js";
 import { Splash } from "~/components/splash.js";
-import { initAnalytics, setAnalyticsOptOut } from "~/lib/analytics.js";
+import { initAnalytics, setAnalyticsEnabled } from "~/lib/analytics.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
 import { MOCKS } from "~/lib/env.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
@@ -44,10 +44,10 @@ export default function ProtectedLayout() {
     if (!analyticsUser) {
       return;
     }
-    if (!analyticsUser.analyticsOptOut) {
+    if (analyticsUser.analyticsEnabled) {
       initAnalytics(analyticsUser);
     }
-    setAnalyticsOptOut(analyticsUser.analyticsOptOut);
+    setAnalyticsEnabled(analyticsUser.analyticsEnabled);
   }, [analyticsUser]);
 
   if (session.state === "loading") {

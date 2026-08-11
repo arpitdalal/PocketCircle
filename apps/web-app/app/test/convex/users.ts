@@ -20,11 +20,11 @@ export interface UsersState {
     | ((args: Record<string, unknown>) => CurrentUserView | null | undefined);
   completeOnboarding?: Mock;
   updateProfile?: Mock;
-  setAnalyticsOptOut?: Mock;
+  setAnalyticsEnabled?: Mock;
 }
 
 export function usersDouble(state: UsersState): EntityDouble {
-  const { currentUser, completeOnboarding, updateProfile, setAnalyticsOptOut } = state;
+  const { currentUser, completeOnboarding, updateProfile, setAnalyticsEnabled } = state;
   return {
     queries: {
       [getFunctionName(api.users.getCurrentUser)]: (args) => resolveWith(currentUser, args),
@@ -34,8 +34,8 @@ export function usersDouble(state: UsersState): EntityDouble {
         ? { [getFunctionName(api.users.completeOnboarding)]: completeOnboarding }
         : {}),
       ...(updateProfile ? { [getFunctionName(api.users.updateProfile)]: updateProfile } : {}),
-      ...(setAnalyticsOptOut
-        ? { [getFunctionName(api.users.setAnalyticsOptOut)]: setAnalyticsOptOut }
+      ...(setAnalyticsEnabled
+        ? { [getFunctionName(api.users.setAnalyticsEnabled)]: setAnalyticsEnabled }
         : {}),
     },
   };
@@ -49,7 +49,7 @@ export function makeCurrentUserView(over: Partial<CurrentUserView> = {}): Curren
     displayName: "You",
     image: undefined,
     onboardingComplete: true,
-    analyticsOptOut: false,
+    analyticsEnabled: false,
     ...over,
   };
 }
