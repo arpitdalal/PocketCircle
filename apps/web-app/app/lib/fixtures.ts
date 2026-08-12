@@ -8,7 +8,7 @@ import {
   textIncludes,
   transactionSearchText,
   transactionTextMatches,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { testId } from "../test/convex/ids.js";
 import type { InvitationPreview } from "./data/invitations.js";
 import type {

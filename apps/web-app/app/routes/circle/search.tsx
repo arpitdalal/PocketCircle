@@ -1,4 +1,4 @@
-import { searchResultTotalPages, toPlainDate } from "@spend-circle/domain";
+import { searchResultTotalPages, toPlainDate } from "@pocketcircle/domain";
 import { Download, SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -149,7 +149,7 @@ export default function CircleSearch() {
         }
         return;
       }
-      const filename = `spend-circle-${circle.ref}-${toPlainDate(new Date())}.csv`;
+      const filename = `pocketcircle-${circle.ref}-${toPlainDate(new Date())}.csv`;
       downloadCsv(filename, buildTransactionExportCsv(result.rows));
       track("export_performed", exportAnalyticsProps(filters, "downloaded"));
     } catch (error) {

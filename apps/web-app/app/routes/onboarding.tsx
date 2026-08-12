@@ -1,4 +1,4 @@
-import { LIMITS, parseProfileUpdate } from "@spend-circle/domain";
+import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
@@ -10,7 +10,7 @@ import { useAppSession } from "~/lib/session.js";
 
 /**
  * `/onboarding` serves two gated states (ADR 0017, USR-1):
- *  - bootstrap: Google session exists but the Spend Circle User row has not
+ *  - bootstrap: Google session exists but the PocketCircle User row has not
  *    propagated yet → brief splash while the auth trigger runs.
  *  - product onboarding: the User exists but has not confirmed their profile →
  *    the confirm/edit Display Name form.

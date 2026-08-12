@@ -6,7 +6,7 @@ import {
   toCurrencyCode,
   transactionCreateSchema,
   transactionUpdateSchema,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";

@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";

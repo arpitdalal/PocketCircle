@@ -55,7 +55,7 @@ function SignInForm() {
       <div className="space-y-4">
         <CircleGlyph />
         <div className="space-y-2">
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Spend Circle</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">PocketCircle</h1>
           <p className="text-sm text-muted-foreground">Track money together in shared circles.</p>
         </div>
       </div>

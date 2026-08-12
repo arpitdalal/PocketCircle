@@ -1,18 +1,18 @@
-import { LEGAL_DOCUMENTS } from "@spend-circle/domain";
+import { LEGAL_DOCUMENTS } from "@pocketcircle/domain";
 import { LegalDocument, LegalList, LegalSection } from "~/components/legal-document.js";
 
 export default function Terms() {
   return (
     <LegalDocument
       title="Terms & Conditions"
-      summary="These Terms govern your use of the Spend Circle beta. By continuing with Google or otherwise using Spend Circle, you agree to them."
+      summary="These Terms govern your use of the PocketCircle beta. By continuing with Google or otherwise using PocketCircle, you agree to them."
       effectiveDate={LEGAL_DOCUMENTS.terms.effectiveDate}
     >
       <LegalSection title="1. The service">
         <p>
-          Spend Circle is a collaborative record-keeping tool for tracking Expenses and Income in
+          PocketCircle is a collaborative record-keeping tool for tracking Expenses and Income in
           personal and shared Circles. It is not a bank, payment processor, accounting service,
-          investment adviser, or financial adviser. Spend Circle does not move money, settle debts,
+          investment adviser, or financial adviser. PocketCircle does not move money, settle debts,
           verify that a Transaction occurred, or determine what anyone owes.
         </p>
         <p>
@@ -25,7 +25,7 @@ export default function Terms() {
         <LegalList>
           <li>You must be legally able to agree to these Terms.</li>
           <li>
-            If you are under the age of majority where you live, use Spend Circle only with a parent
+            If you are under the age of majority where you live, use PocketCircle only with a parent
             or legal guardian&apos;s permission.
           </li>
           <li>
@@ -46,13 +46,13 @@ export default function Terms() {
           may add records that identify you as the person who paid or recorded a Transaction.
         </p>
         <p>
-          You keep any rights you have in content you submit. You give Spend Circle a limited
+          You keep any rights you have in content you submit. You give PocketCircle a limited
           permission to host, process, copy, and display that content only as needed to operate,
           secure, support, and improve the service. Only submit information you are authorized to
           share, and avoid unnecessary sensitive information in free-text fields.
         </p>
         <p>
-          Spend Circle preserves audit history so Members can understand changes. Editing,
+          PocketCircle preserves audit history so Members can understand changes. Editing,
           archiving, leaving a Circle, or deleting your account may not remove records or frozen
           attribution that form part of another Member&apos;s shared Circle history.
         </p>
@@ -61,7 +61,7 @@ export default function Terms() {
       <LegalSection title="4. Acceptable use">
         <p>You must not:</p>
         <LegalList>
-          <li>use Spend Circle for unlawful, fraudulent, abusive, or deceptive activity;</li>
+          <li>use PocketCircle for unlawful, fraudulent, abusive, or deceptive activity;</li>
           <li>
             probe, bypass, or interfere with authentication, permissions, rate limits, or security;
           </li>
@@ -78,7 +78,7 @@ export default function Terms() {
 
       <LegalSection title="5. Beta service and availability">
         <p>
-          Spend Circle is an early beta. Features may be incomplete, change, break, or be removed.
+          PocketCircle is an early beta. Features may be incomplete, change, break, or be removed.
           Service limits may change as usage grows. We may pause or restrict access to maintain the
           service, address security or legal issues, prevent abuse, or protect users and data.
         </p>
@@ -104,7 +104,7 @@ export default function Terms() {
 
       <LegalSection title="7. Third-party services">
         <p>
-          Spend Circle relies on third-party services for authentication, hosting, database, email,
+          PocketCircle relies on third-party services for authentication, hosting, database, email,
           operational monitoring, and optional product analytics. Their availability and processing
           are governed by their own terms and policies. See the Privacy Policy for the providers
           currently used and the information processed by them.
@@ -113,7 +113,7 @@ export default function Terms() {
 
       <LegalSection title="8. Disclaimers">
         <p>
-          To the maximum extent permitted by law, Spend Circle is provided “as is” and “as
+          To the maximum extent permitted by law, PocketCircle is provided “as is” and “as
           available,” without warranties of uninterrupted operation, accuracy, fitness for a
           particular purpose, merchantability, or non-infringement. We do not guarantee that user
           content is correct, complete, recoverable, or suitable for legal, tax, or accounting use.
@@ -123,7 +123,7 @@ export default function Terms() {
 
       <LegalSection title="9. Limitation of liability">
         <p>
-          To the maximum extent permitted by law, Spend Circle and its operator will not be liable
+          To the maximum extent permitted by law, PocketCircle and its operator will not be liable
           for indirect, incidental, special, consequential, exemplary, or punitive damages, or for
           lost profits, revenues, data, goodwill, or opportunities arising from use of the service.
           Where liability cannot be excluded, it will be limited to the minimum amount permitted by
@@ -133,12 +133,12 @@ export default function Terms() {
 
       <LegalSection title="10. Changes and termination">
         <p>
-          We may update these Terms as Spend Circle changes. Material changes will be presented in a
+          We may update these Terms as PocketCircle changes. Material changes will be presented in a
           reasonably prominent way before they apply when required. Continued use after an update
           takes effect means you accept the revised Terms.
         </p>
         <p>
-          You may stop using Spend Circle at any time. We may suspend or terminate access when
+          You may stop using PocketCircle at any time. We may suspend or terminate access when
           reasonably necessary for security, abuse prevention, legal compliance, or a serious breach
           of these Terms.
         </p>

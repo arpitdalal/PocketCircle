@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { testId } from "~/test/convex/ids.js";
 import { authClient } from "./auth-client.js";
 import { convex } from "./convex.js";

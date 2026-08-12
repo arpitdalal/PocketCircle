@@ -1,4 +1,4 @@
-import { paletteColorForSeed } from "@spend-circle/domain";
+import { paletteColorForSeed } from "@pocketcircle/domain";
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Avatar } from "./avatar.js";

@@ -7,7 +7,7 @@ import {
   mutationErrorData,
   normalizeSearchText,
   textIncludes,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { mergedStream, stream } from "convex-helpers/server/stream";

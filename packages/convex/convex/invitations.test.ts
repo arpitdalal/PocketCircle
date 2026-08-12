@@ -1,5 +1,5 @@
-import { CIRCLE_CAPACITY_LIMIT, MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
-import { capturedRequests, resetCapturedRequests } from "@spend-circle/mocks";
+import { CIRCLE_CAPACITY_LIMIT, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";
 import { ConvexError } from "convex/values";
 import { convexTest as createConvexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,7 +123,7 @@ describe("createInvitation — happy path", () => {
   it("creates a pending invitation with hashed token and records history", async () => {
     vi.useFakeTimers();
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
@@ -470,7 +470,7 @@ describe("createInvitation — email enqueue", () => {
   it("sends exactly one invitation email on success", async () => {
     vi.useFakeTimers();
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
@@ -494,7 +494,7 @@ describe("createInvitation — email enqueue", () => {
 
   it("sends zero emails when createInvitation throws", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
@@ -799,7 +799,7 @@ describe("resendInvitation", () => {
 
   it("enqueues and sends exactly one resend email with a rotated token", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
     vi.stubEnv("SITE_URL", "https://app.example.com");
 
     const t = createTestConvex();
@@ -843,7 +843,7 @@ describe("resendInvitation", () => {
 
   it("uses distinct idempotency keys for create and resend sends", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
@@ -885,7 +885,7 @@ describe("resendInvitation", () => {
 
   it("no-ops superseded resend jobs queued before the workpool drains", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
     vi.stubEnv("SITE_URL", "https://app.example.com");
 
     const t = createTestConvex();
@@ -2035,7 +2035,7 @@ describe("circle capacity", () => {
   it("keeps exactly one reserved seat when resending a pending invitation", async () => {
     vi.useFakeTimers();
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = createTestConvex();
     const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));

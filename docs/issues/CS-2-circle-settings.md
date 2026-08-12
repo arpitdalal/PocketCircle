@@ -31,7 +31,7 @@ Mark either.)
 - **Domain** (`packages/domain/src/validation.ts`): add a `circleSettingsUpdateSchema`
   parallel to the existing `categoryUpdateSchema` (CAT-2) — optional fields, each validated by
   the same rule as on create so the entry points can't drift:
-  `{ color?: <the existing `colorId` refine>, setupAnswers?: circleSetupAnswersSchema (from `@spend-circle/domain`) }`.
+  `{ color?: <the existing `colorId` refine>, setupAnswers?: circleSetupAnswersSchema (from `@pocketcircle/domain`) }`.
   Absent field ≡ "leave unchanged".
 - **Convex** (`circles.ts`):
   - `updateCircleSettings` mutation: args `{ circleId: v.id("circles"), color: v.optional(v.string()), setupAnswers: v.optional(circleSetupAnswers) }`

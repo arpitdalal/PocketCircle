@@ -9,8 +9,8 @@ function escapeHtml(text: string) {
     .replaceAll("'", "&#39;");
 }
 
-export const WELCOME_SUBJECT = "Welcome to Spend Circle";
-export const INVITATION_SUBJECT = "You're invited to join a Spend Circle";
+export const WELCOME_SUBJECT = "Welcome to PocketCircle";
+export const INVITATION_SUBJECT = "You're invited to join a Circle on PocketCircle";
 export const ACCOUNT_DELETION_SUBJECT = "Confirm account deletion";
 
 /** Pure HTML builder — no financial content (PRD 84). */
@@ -23,9 +23,9 @@ export function welcomeEmail(args: { displayName: string }) {
 <head><meta charset="utf-8"><title>${WELCOME_SUBJECT}</title></head>
 <body>
   <p>Hi ${escapeHtml(displayName)},</p>
-  <p>Welcome to Spend Circle — a simple way to track shared spending with the people you trust.</p>
+  <p>Welcome to PocketCircle — a simple way to track shared spending with the people you trust.</p>
   <p>Your Personal Circle is ready. Open the app to finish setting up your profile and start organizing expenses together.</p>
-  <p>— The Spend Circle team</p>
+  <p>— The PocketCircle team</p>
 </body>
 </html>`,
   };
@@ -46,10 +46,10 @@ export function invitationEmail(args: {
 <head><meta charset="utf-8"><title>${INVITATION_SUBJECT}</title></head>
 <body>
   <p>Hi ${escapeHtml(recipientEmail)},</p>
-  <p>${escapeHtml(ownerDisplayName)} has invited you to join the <strong>${escapeHtml(circleName)}</strong> Circle on Spend Circle.</p>
+  <p>${escapeHtml(ownerDisplayName)} has invited you to join the <strong>${escapeHtml(circleName)}</strong> Circle on PocketCircle.</p>
   <p><a href="${escapeHtml(inviteLink)}">Accept the invitation</a></p>
   <p>This link expires in 7 days and can only be used once.</p>
-  <p>— The Spend Circle team</p>
+  <p>— The PocketCircle team</p>
 </body>
 </html>`,
   };
@@ -65,10 +65,10 @@ export function accountDeletionEmail(args: { displayName: string; verifyLink: st
 <head><meta charset="utf-8"><title>${ACCOUNT_DELETION_SUBJECT}</title></head>
 <body>
   <p>Hi ${escapeHtml(displayName)},</p>
-  <p>We received a request to permanently delete your Spend Circle account.</p>
+  <p>We received a request to permanently delete your PocketCircle account.</p>
   <p><a href="${escapeHtml(verifyLink)}">Confirm account deletion</a></p>
   <p>This link expires in 24 hours. If you did not request this, you can ignore this email.</p>
-  <p>— The Spend Circle team</p>
+  <p>— The PocketCircle team</p>
 </body>
 </html>`,
   };
@@ -92,7 +92,7 @@ export function feedbackEmail(args: {
   submittedAtIso: string;
 }) {
   const typeLabel = FEEDBACK_TYPE_LABEL[args.type];
-  const subject = `Spend Circle feedback: ${typeLabel}`;
+  const subject = `PocketCircle feedback: ${typeLabel}`;
   const circleBlock =
     args.circleName && args.circleRef
       ? `<p><strong>Circle:</strong> ${escapeHtml(args.circleName)} (${escapeHtml(args.circleRef)})</p>`

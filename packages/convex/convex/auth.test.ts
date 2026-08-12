@@ -47,7 +47,7 @@ describe("createAuth", () => {
     vi.stubEnv("E2E_TEST_AUTH", "1");
     vi.stubEnv("SITE_URL", "https://app.example.com");
     vi.stubEnv("RESEND_API_KEY", "re_test");
-    vi.stubEnv("RESEND_FROM_EMAIL", "Spend Circle <onboarding@example.com>");
+    vi.stubEnv("RESEND_FROM_EMAIL", "PocketCircle <onboarding@example.com>");
 
     const t = convexTest(schema, modules);
     registerEmailWorkpool(t);

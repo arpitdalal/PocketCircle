@@ -1,6 +1,6 @@
 # Notion-style canonical app URLs
 
-Spend Circle uses canonical app URLs built from a human-readable slug plus the authoritative object ID, such as `/circles/my-home-c1` and `/circles/my-home-c1/transactions/rent-t1`.
+PocketCircle uses canonical app URLs built from a human-readable slug plus the authoritative object ID, such as `/circles/my-home-c1` and `/circles/my-home-c1/transactions/rent-t1`.
 
 The ID is the only lookup key. The slug exists only to make browser history, shared links, and address-bar autocomplete understandable. Raw IDs and stale slugs are accepted, resolved by ID, and then replaced with the current canonical `slug-id` URL when the target is accessible. Canonicalization uses router navigation with replace semantics so the browser Back stack does not gain dead intermediate entries. Canonicalization rewrites only the stale ref segment in place, preserving the rest of the path (child routes, nested object refs), query string, and hash; it never reconstructs the URL from the ref alone.
 

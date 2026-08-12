@@ -1,5 +1,5 @@
-import { api } from "@spend-circle/convex";
-import { addMonths, currentMonth, MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import { addMonths, currentMonth, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";

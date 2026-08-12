@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { InvitationPreview } from "~/lib/data/invitations.js";

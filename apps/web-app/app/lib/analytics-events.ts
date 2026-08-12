@@ -1,4 +1,4 @@
-import { type CurrencyCode, type FeedbackType, isSupportedCurrency } from "@spend-circle/domain";
+import { type CurrencyCode, type FeedbackType, isSupportedCurrency } from "@pocketcircle/domain";
 
 import type { LifecycleFilter, TypeFilter } from "./transaction-filter-url.js";
 

@@ -1,11 +1,11 @@
-import { LEGAL_DOCUMENTS } from "@spend-circle/domain";
+import { LEGAL_DOCUMENTS } from "@pocketcircle/domain";
 import { LegalDocument, LegalList, LegalSection } from "~/components/legal-document.js";
 
 export default function Privacy() {
   return (
     <LegalDocument
       title="Privacy Policy"
-      summary="This Policy explains what Spend Circle collects, why it is used, when it is shared, and the choices available to you."
+      summary="This Policy explains what PocketCircle collects, why it is used, when it is shared, and the choices available to you."
       effectiveDate={LEGAL_DOCUMENTS.privacy.effectiveDate}
     >
       <LegalSection title="1. Information we collect">
@@ -13,7 +13,7 @@ export default function Privacy() {
           <li>
             <strong className="text-foreground">Google Account information:</strong> Google&apos;s
             stable account identifier, email address, Display Name, and Profile Picture used to
-            create and secure your Spend Circle account.
+            create and secure your PocketCircle account.
           </li>
           <li>
             <strong className="text-foreground">Profile and settings:</strong> Display Name, default
@@ -28,7 +28,7 @@ export default function Privacy() {
           <li>
             <strong className="text-foreground">Communications:</strong> feedback you submit and
             operational email-delivery records. Feedback message text is sent by email and is not
-            stored in the Spend Circle database.
+            stored in the PocketCircle database.
           </li>
           <li>
             <strong className="text-foreground">Technical information:</strong> session data,
@@ -50,7 +50,7 @@ export default function Privacy() {
           <li>understand feature usage through privacy-limited analytics when enabled.</li>
         </LegalList>
         <p>
-          Spend Circle does not sell personal information, use it for targeted advertising, or use
+          PocketCircle does not sell personal information, use it for targeted advertising, or use
           Transaction titles, notes, exact amounts, or feedback text for product analytics.
         </p>
       </LegalSection>
@@ -70,7 +70,7 @@ export default function Privacy() {
       </LegalSection>
 
       <LegalSection title="4. Service providers">
-        <p>Spend Circle currently uses:</p>
+        <p>PocketCircle currently uses:</p>
         <LegalList>
           <li>
             <strong className="text-foreground">Google</strong> for sign-in and account identity;
@@ -97,7 +97,7 @@ export default function Privacy() {
           </li>
         </LegalList>
         <p>
-          These providers process information on Spend Circle&apos;s behalf under their own privacy
+          These providers process information on PocketCircle&apos;s behalf under their own privacy
           terms. Information may be processed outside your province, state, or country and may be
           subject to the laws of those locations.
         </p>
@@ -116,14 +116,14 @@ export default function Privacy() {
           Sentry operational monitoring remains enabled regardless of that preference. Normal
           sessions are not sampled for replay. A replay may be captured when an error occurs, with
           on-screen text masked and media blocked. Error reports can include technical context
-          needed to diagnose the failure, but Spend Circle does not intentionally attach financial
+          needed to diagnose the failure, but PocketCircle does not intentionally attach financial
           content to them.
         </p>
       </LegalSection>
 
       <LegalSection title="6. Cookies and local storage">
         <p>
-          Spend Circle and its authentication provider use cookies or equivalent browser storage to
+          PocketCircle and its authentication provider use cookies or equivalent browser storage to
           keep you signed in and protect account access. After you opt in, PostHog may use local
           storage for your analytics preference and analytics state. Browser storage is also used
           for limited user interface state. Blocking required storage may prevent the service from
@@ -135,7 +135,7 @@ export default function Privacy() {
         <p>Information may be disclosed:</p>
         <LegalList>
           <li>to other Circle Members as described above;</li>
-          <li>to service providers that operate Spend Circle;</li>
+          <li>to service providers that operate PocketCircle;</li>
           <li>when you direct or consent to the disclosure;</li>
           <li>to investigate abuse, protect users, or secure the service; or</li>
           <li>when reasonably required by law, legal process, or a valid government request.</li>
@@ -144,13 +144,13 @@ export default function Privacy() {
 
       <LegalSection title="8. Retention and Account Deletion">
         <p>
-          Spend Circle keeps information while your account is active and as needed to provide and
+          PocketCircle keeps information while your account is active and as needed to provide and
           secure the service. Operational records may be kept for a limited period for reliability,
           abuse prevention, dispute handling, or legal obligations. Retention periods may differ
           across service providers.
         </p>
         <p>
-          You can request Account Deletion in Settings. After email verification, Spend Circle
+          You can request Account Deletion in Settings. After email verification, PocketCircle
           removes your login and profile, deletes eligible Circles you solely control, revokes
           relevant pending Invitations, and removes user-scoped operational records through a
           bounded cleanup process. Shared-Circle Transaction and audit records remain for other
@@ -173,7 +173,7 @@ export default function Privacy() {
 
       <LegalSection title="10. Security">
         <p>
-          Spend Circle uses access controls, server-side authorization, encrypted network
+          PocketCircle uses access controls, server-side authorization, encrypted network
           connections, scoped provider credentials, and data-minimization measures appropriate to an
           early-stage service. No system is perfectly secure, so you should use a protected Google
           Account and avoid entering unnecessary sensitive information.
@@ -182,7 +182,7 @@ export default function Privacy() {
 
       <LegalSection title="11. Children">
         <p>
-          Spend Circle is not directed to children under 13. If you believe a child provided
+          PocketCircle is not directed to children under 13. If you believe a child provided
           personal information without appropriate consent, contact us so the situation can be
           reviewed.
         </p>
@@ -190,7 +190,7 @@ export default function Privacy() {
 
       <LegalSection title="12. Changes to this Policy">
         <p>
-          This Policy may change as Spend Circle and its providers change. Material changes will be
+          This Policy may change as PocketCircle and its providers change. Material changes will be
           presented in a reasonably prominent way and renewed consent will be requested when
           required. The effective date at the top identifies the current version.
         </p>

@@ -211,25 +211,25 @@ function SubmitRow({
   );
 }
 
-const spendCircleFieldComponents = {
+const pocketCircleFieldComponents = {
   TextField,
   AmountField,
   DateField,
   TextareaField,
   SelectField,
 };
-const spendCircleFormComponents = {
+const pocketCircleFormComponents = {
   SubmitRow,
 };
 
 const { useAppForm, useTypedAppFormContext } = createFormHook({
   fieldContext,
   formContext,
-  fieldComponents: spendCircleFieldComponents,
-  formComponents: spendCircleFormComponents,
+  fieldComponents: pocketCircleFieldComponents,
+  formComponents: pocketCircleFormComponents,
 });
 
 export { useAppForm, useTypedAppFormContext };
 
-export type SpendCircleFieldComponents = typeof spendCircleFieldComponents;
-export type SpendCircleFormComponents = typeof spendCircleFormComponents;
+export type PocketCircleFieldComponents = typeof pocketCircleFieldComponents;
+export type PocketCircleFormComponents = typeof pocketCircleFormComponents;

@@ -68,7 +68,7 @@ describe("ProtectedLayout shell skeleton", () => {
     const main = screen.getByRole("main");
     expect(await within(main).findByTestId("route-skeleton")).toBeInTheDocument();
     // The header (brand) survives the navigation — no full-page swap, no layout shift.
-    expect(screen.getByText("Spend Circle")).toBeInTheDocument();
+    expect(screen.getByText("PocketCircle")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Go to settings" })).not.toBeInTheDocument();
     // A non-Circle destination gets no Circle bottom-bar placeholder.
     expect(screen.queryByTestId("circle-bottom-nav-skeleton")).not.toBeInTheDocument();

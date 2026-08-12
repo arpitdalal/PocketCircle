@@ -1,4 +1,4 @@
-import { buildRef } from "@spend-circle/domain";
+import { buildRef } from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
 import { parseCategoryRef } from "./refs.js";
 

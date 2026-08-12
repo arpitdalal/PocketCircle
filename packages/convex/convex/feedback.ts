@@ -3,7 +3,7 @@ import {
   MUTATION_ERRORS,
   mutationErrorData,
   parseFeedbackSubmission,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";

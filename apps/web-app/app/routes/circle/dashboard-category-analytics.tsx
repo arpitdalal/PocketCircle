@@ -5,7 +5,7 @@ import {
   type PlainMonth,
   type TransactionType,
   toCurrencyCode,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { Link } from "react-router";
 import type { CategoryAnalytics, CategoryAnalyticsRow } from "~/lib/data.js";
 import { ledgerDrilldownHref } from "~/lib/ledger-url.js";

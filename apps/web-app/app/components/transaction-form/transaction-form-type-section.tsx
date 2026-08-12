@@ -1,4 +1,4 @@
-import { TRANSACTION_TYPES, type TransactionType } from "@spend-circle/domain";
+import { TRANSACTION_TYPES, type TransactionType } from "@pocketcircle/domain";
 import type { RefObject } from "react";
 import { Button } from "~/components/ui/button.js";
 import { FieldLegend, FieldSet } from "~/components/ui/field.js";

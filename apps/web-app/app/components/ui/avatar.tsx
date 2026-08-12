@@ -1,11 +1,11 @@
-import { initials, paletteColorForSeed } from "@spend-circle/domain";
+import { initials, paletteColorForSeed } from "@pocketcircle/domain";
 import { useState } from "react";
 import { cn } from "~/lib/utils.js";
 
 /**
  * The visual identity for a Member/User: their Profile Picture when present and
  * loadable, otherwise a generated initials avatar (CONTEXT: "if Google does not
- * provide one, Spend Circle uses a generated initials avatar"). The fallback also
+ * provide one, PocketCircle uses a generated initials avatar"). The fallback also
  * fires when a present URL fails to LOAD (`onError`) — Google's profile-image
  * URLs can expire/403 over time, so an image prop being set is not a guarantee it
  * renders; without this a dead URL would show a broken image instead of initials.

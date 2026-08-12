@@ -1,4 +1,4 @@
-import { COLOR_PALETTE } from "@spend-circle/domain";
+import { COLOR_PALETTE } from "@pocketcircle/domain";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CategoryLifecycleButton, EditCategoryForm } from "~/components/category-actions.js";

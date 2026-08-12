@@ -1,4 +1,4 @@
-import { parseNotificationLinkPath } from "@spend-circle/domain";
+import { parseNotificationLinkPath } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { mutation, type QueryCtx, query } from "./_generated/server.js";

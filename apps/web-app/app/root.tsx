@@ -10,7 +10,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Spend Circle</title>
+        <title>PocketCircle</title>
         <link rel="stylesheet" href={stylesheet} />
         <Meta />
         <Links />
@@ -33,7 +33,7 @@ export default function App() {
 }
 
 export function HydrateFallback() {
-  return <Splash label="Starting Spend Circle…" />;
+  return <Splash label="Starting PocketCircle…" />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

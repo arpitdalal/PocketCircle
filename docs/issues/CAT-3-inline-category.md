@@ -51,8 +51,8 @@ touching anything — do not assume the old "inline form on the Monthly Ledger" 
   `NewCategoryForm`) is the precedent for inputs/validation/error mapping — read it, mirror its
   choices, but DON'T reuse its full page chrome here. Reuse the exported `ColorPicker` from the
   same file if you surface a color control. Color constants: `DEFAULT_COLOR_ID` (`"blue"`),
-  `COLOR_PALETTE`, `colorLabel` from `@spend-circle/domain`.
-- **Client-side input mirror:** `categoryInputSchema` from `@spend-circle/domain`
+  `COLOR_PALETTE`, `colorLabel` from `@pocketcircle/domain`.
+- **Client-side input mirror:** `categoryInputSchema` from `@pocketcircle/domain`
   (`{ name, type, color }`, name trimmed 1–`LIMITS.categoryNameMax`=40). The server
   re-validates and owns every invariant (ADR 0015) — this is courtesy only.
 - **Server contract** (`packages/convex/convex/categories.ts`, `createCategory`): any Member

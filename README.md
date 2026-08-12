@@ -1,6 +1,6 @@
-# Spend Circle
+# PocketCircle
 
-Local-first monorepo for the Spend Circle web app, Convex backend, and domain package.
+Local-first monorepo for the PocketCircle web app, Convex backend, and domain package.
 
 ## Prerequisites
 
@@ -51,23 +51,23 @@ file (Vite loads it via `envDir`); the Convex CLI does not read it. When switchi
 between cloud dev and self-hosted E2E, see [e2e/README.md — The `.env.local` gotcha](e2e/README.md#the-envlocal-gotcha).
 
 ```sh
-pnpm --filter @spend-circle/convex dev
+pnpm --filter @pocketcircle/convex dev
 ```
 
 Set the backend auth env vars on the Convex dev deployment (the app origin and
 Google credentials Better Auth needs):
 
 ```sh
-pnpm --filter @spend-circle/convex exec convex env set SITE_URL http://127.0.0.1:5173
-pnpm --filter @spend-circle/convex exec convex env set GOOGLE_CLIENT_ID <id>
-pnpm --filter @spend-circle/convex exec convex env set GOOGLE_CLIENT_SECRET <secret>
-pnpm --filter @spend-circle/convex exec convex env set BETTER_AUTH_SECRET <secret>
-pnpm --filter @spend-circle/convex exec convex env set RESEND_API_KEY <resend-api-key>
-pnpm --filter @spend-circle/convex exec convex env set RESEND_FROM_EMAIL <verified-from-address>
+pnpm --filter @pocketcircle/convex exec convex env set SITE_URL http://127.0.0.1:5173
+pnpm --filter @pocketcircle/convex exec convex env set GOOGLE_CLIENT_ID <id>
+pnpm --filter @pocketcircle/convex exec convex env set GOOGLE_CLIENT_SECRET <secret>
+pnpm --filter @pocketcircle/convex exec convex env set BETTER_AUTH_SECRET <secret>
+pnpm --filter @pocketcircle/convex exec convex env set RESEND_API_KEY <resend-api-key>
+pnpm --filter @pocketcircle/convex exec convex env set RESEND_FROM_EMAIL <verified-from-address>
 # Feedback delivery recipient (set to the public support address unless intentionally routed elsewhere)
-pnpm --filter @spend-circle/convex exec convex env set SUPPORT_EMAIL arpitdalalm@gmail.com
+pnpm --filter @pocketcircle/convex exec convex env set SUPPORT_EMAIL arpitdalalm@gmail.com
 # Optional: log email subject + HTML to the Convex console on every send (also logs when Resend creds are unset)
-pnpm --filter @spend-circle/convex exec convex env set EMAIL_DEV_LOG 1
+pnpm --filter @pocketcircle/convex exec convex env set EMAIL_DEV_LOG 1
 ```
 
 Open `/dev/email-preview` while running the web app in dev (or E2E) to render sample transactional emails in the browser.
@@ -75,7 +75,7 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 ## Run App
 
 ```sh
-pnpm --filter @spend-circle/web-app dev --host 127.0.0.1
+pnpm --filter @pocketcircle/web-app dev --host 127.0.0.1
 ```
 
 Open:
@@ -89,7 +89,7 @@ In normal local dev, `Continue with Google` starts the real Google OAuth flow ag
 To bypass auth and mock third-party vendors (Resend, PostHog, Sentry) via MSW, run mock mode with the `VITE_MOCKS` flag:
 
 ```sh
-pnpm --filter @spend-circle/web-app dev:mocks --host 127.0.0.1
+pnpm --filter @pocketcircle/web-app dev:mocks --host 127.0.0.1
 ```
 
 ## Checks
@@ -104,7 +104,7 @@ pnpm build
 
 Production uses the default provider URLs documented in ADR 0007:
 
-- Web: `https://spend-circle.arpitdalalm.workers.dev`
+- Web: `https://pocketcircle.arpitdalalm.workers.dev`
 - API: the production deployment's `*.convex.cloud` URL
 - Auth/HTTP actions: the same production deployment's `*.convex.site` URL
 
@@ -154,7 +154,7 @@ VITE_POSTHOG_HOST=https://us.i.posthog.com
 Set the backend variables on the **production** Convex deployment:
 
 ```text
-SITE_URL=https://spend-circle.arpitdalalm.workers.dev
+SITE_URL=https://pocketcircle.arpitdalalm.workers.dev
 BETTER_AUTH_SECRET=<new-production-secret>
 GOOGLE_CLIENT_ID=<google-oauth-client-id>
 GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>

@@ -1,4 +1,4 @@
-import { colorLabel } from "@spend-circle/domain";
+import { colorLabel } from "@pocketcircle/domain";
 import { href, Link } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";
 import { Splash } from "~/components/splash.js";

@@ -56,7 +56,7 @@ Work in this order so the lower layer is testable before the upper layer touches
 Pure HTML builder — mirror `welcomeHtml`. Escape ALL interpolated values with the existing `escapeHtml`. No financial content (PRD 84).
 
 ```ts
-export const INVITATION_SUBJECT = "You're invited to join a Spend Circle";
+export const INVITATION_SUBJECT = "You're invited to join a Circle on PocketCircle";
 
 export function invitationHtml(args: {
   inviteLink: string;
@@ -71,10 +71,10 @@ export function invitationHtml(args: {
 <head><meta charset="utf-8"><title>${INVITATION_SUBJECT}</title></head>
 <body>
   <p>Hi ${escapeHtml(recipientEmail)},</p>
-  <p>${escapeHtml(ownerDisplayName)} has invited you to join the <strong>${escapeHtml(circleName)}</strong> Circle on Spend Circle.</p>
+  <p>${escapeHtml(ownerDisplayName)} has invited you to join the <strong>${escapeHtml(circleName)}</strong> Circle on PocketCircle.</p>
   <p><a href="${escapeHtml(inviteLink)}">Accept the invitation</a></p>
   <p>This link expires in 7 days and can only be used once.</p>
-  <p>— The Spend Circle team</p>
+  <p>— The PocketCircle team</p>
 </body>
 </html>`;
 }
@@ -280,7 +280,7 @@ Backend tests add to **`packages/convex/convex/email.test.ts`** (for the new bui
 and **`packages/convex/convex/invitations.test.ts`** (for the enqueue-on-create integration).
 Use `seedCircle` + `addMember` + `completeSetup` helpers already in those files.
 Reuse `capturedRequests` / `resetCapturedRequests` / `server.use(http.post(...))` from
-`@spend-circle/mocks` exactly as `email.test.ts` does.
+`@pocketcircle/mocks` exactly as `email.test.ts` does.
 
 ### `invitationHtml` (email.test.ts)
 

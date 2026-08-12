@@ -9,7 +9,7 @@ import {
   type TransactionType,
   toMutationArgs,
   transactionFieldSchemas,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { useMemo, useRef, useState } from "react";
 import { FieldError, FieldGroup } from "~/components/ui/field.js";
 import { track } from "~/lib/analytics.js";

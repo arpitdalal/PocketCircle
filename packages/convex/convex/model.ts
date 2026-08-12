@@ -7,7 +7,7 @@ import {
   isSupportedCurrency,
   PERSONAL_CIRCLE_COLOR_ID,
   personalCircleName,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
@@ -26,7 +26,7 @@ export interface NewUserProfile {
 }
 
 /**
- * Creates the Spend Circle User and their always-solo Personal Circle (PRD
+ * Creates the PocketCircle User and their always-solo Personal Circle (PRD
  * stories 1, 3, 4). Invoked by the Better Auth `onCreateUser` trigger on first
  * sign-in, and reusable as the bootstrap invariant in tests.
  */
@@ -129,7 +129,7 @@ export async function reconcilePersonalCircleFromDisplayName(
 }
 
 /**
- * Mirrors a User's owned Display Name onto their Spend Circle User row and every
+ * Mirrors a User's owned Display Name onto their PocketCircle User row and every
  * ACTIVE membership's materialized identity (ADR 0018, USR-1). Removed memberships
  * are left untouched so they stay frozen at the name they showed when the Member
  * left. Profile Picture is not synced here — Google seeds it once (ADR 0024).
@@ -158,7 +158,7 @@ export async function setUserDisplayName(
 }
 
 /**
- * Keeps the Spend Circle User's Google Account Email current (ADR 0024). Email is
+ * Keeps the PocketCircle User's Google Account Email current (ADR 0024). Email is
  * not part of materialized member identity, so this is a single-row patch.
  */
 export async function syncUserEmail(

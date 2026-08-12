@@ -1,4 +1,4 @@
-import { buildRef } from "@spend-circle/domain";
+import { buildRef } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";

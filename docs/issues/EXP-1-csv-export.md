@@ -93,7 +93,7 @@ Note the `convex deploy` rule in CLAUDE.md: `export.ts` is a normal functions mo
   - `title` — `txn.title`.
   - `note` — `txn.note ?? ""`.
   - `amount` — positive plain decimal via `formatMoneyAmount(money(txn.amountMinorUnits, currency))`
-    from `@spend-circle/domain` (currency-decimal aware, no symbol/grouping/locale — the ADR 0021
+    from `@pocketcircle/domain` (currency-decimal aware, no symbol/grouping/locale — the ADR 0021
     export policy). Expense vs Income carries direction, not the sign.
   - `currency` — `access.circle.currency` (ISO 4217 code; Circle currency is single + locked in v1).
   - `categories` — joined category **names** (read `transactionCategories` via the existing
@@ -122,7 +122,7 @@ Note the `convex deploy` rule in CLAUDE.md: `export.ts` is a normal functions mo
   small one (e.g. `apps/web-app/app/lib/csv.ts`): RFC-4180 escaping (wrap a field in `"` and double
   embedded `"` when it contains `,`, `"`, `\n`, or `\r`), `\r\n` line endings, header row first.
   Trigger download via a `Blob` (`type: "text/csv;charset=utf-8"`) + object URL + temporary `<a download>`;
-  revoke the URL after. Filename e.g. `spend-circle-<circleRef>-<YYYY-MM-DD>.csv`.
+  revoke the URL after. Filename e.g. `pocketcircle-<circleRef>-<YYYY-MM-DD>.csv`.
 - On the refusal state, surface guidance to narrow the Search (toast/inline) — **do not** download a
   partial file.
 - No Export button on the Monthly Ledger for v1.

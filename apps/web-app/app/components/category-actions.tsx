@@ -1,4 +1,4 @@
-import { COLOR_PALETTE, categoryUpdateSchema, LIMITS } from "@spend-circle/domain";
+import { COLOR_PALETTE, categoryUpdateSchema, LIMITS } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { ColorPicker } from "~/components/category-form.js";
 import { Button } from "~/components/ui/button.js";

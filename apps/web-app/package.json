@@ -1,5 +1,5 @@
 {
-  "name": "@spend-circle/web-app",
+  "name": "@pocketcircle/web-app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "react-router typegen && tsc --noEmit",
     "test": "vitest run",
     "lint:react-compiler": "eslint app",
-    "react-compiler:healthcheck": "pnpm --filter @spend-circle/dev-tools react-compiler:healthcheck"
+    "react-compiler:healthcheck": "pnpm --filter @pocketcircle/dev-tools react-compiler:healthcheck"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -20,8 +20,8 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@react-router/node": "^7.16.0",
     "@sentry/react": "^10.59.0",
-    "@spend-circle/convex": "workspace:*",
-    "@spend-circle/domain": "workspace:*",
+    "@pocketcircle/convex": "workspace:*",
+    "@pocketcircle/domain": "workspace:*",
     "@tanstack/react-form": "^1.33.0",
     "better-auth": "1.6.16",
     "class-variance-authority": "^0.7.1",
@@ -39,7 +39,7 @@
   "devDependencies": {
     "@react-router/dev": "^7.16.0",
     "@rolldown/plugin-babel": "^0.2.3",
-    "@spend-circle/mocks": "workspace:*",
+    "@pocketcircle/mocks": "workspace:*",
     "@tailwindcss/vite": "^4.3.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

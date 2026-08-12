@@ -1,5 +1,5 @@
-import { api } from "@spend-circle/convex";
-import type { TransactionType } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import type { TransactionType } from "@pocketcircle/domain";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 // The stream-pagination variant of usePaginatedQuery. Queries that paginate a

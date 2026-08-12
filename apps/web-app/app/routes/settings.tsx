@@ -5,7 +5,7 @@ import {
   LIMITS,
   parseFeedbackInput,
   parseProfileUpdate,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { href, Link } from "react-router";
 import { Button } from "~/components/ui/button.js";
@@ -343,7 +343,7 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
             Share product analytics
           </FieldLabel>
           <FieldDescription>
-            Off by default. When enabled, Spend Circle shares limited feature-usage events with
+            Off by default. When enabled, PocketCircle shares limited feature-usage events with
             PostHog. Turn it off anytime to withdraw consent. Operational error monitoring (Sentry)
             stays on regardless.
           </FieldDescription>

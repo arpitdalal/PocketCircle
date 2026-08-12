@@ -18,7 +18,7 @@ describe("welcomeEmail", () => {
     const { subject, html } = welcomeEmail({ displayName: "Ada Lovelace" });
     expect(subject).toBe(WELCOME_SUBJECT);
     expect(html).toContain("Ada Lovelace");
-    expect(html).toContain("Welcome to Spend Circle");
+    expect(html).toContain("Welcome to PocketCircle");
     expect(html).toContain("Personal Circle");
     expect(html).not.toMatch(FINANCIAL_PATTERN);
   });
@@ -92,7 +92,7 @@ describe("feedbackEmail", () => {
       circleRef: "trip-c1",
       submittedAtIso: "2026-06-29T12:00:00Z",
     });
-    expect(subject).toBe("Spend Circle feedback: bug");
+    expect(subject).toBe("PocketCircle feedback: bug");
     expect(html).toContain("Crash on save");
     expect(html).toContain("ada@example.com");
     expect(html).toContain("Ada Lovelace");

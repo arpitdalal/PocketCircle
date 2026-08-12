@@ -65,7 +65,7 @@ In `packages/domain/src/email-templates.ts` add `feedbackEmail(args)`:
 
 - Inputs: `type`, `message`, `userEmail`, `displayName`, `appVersion`, optional `circleName`,
   optional `circleRef`, `submittedAtIso`.
-- Subject: include coarse type only, e.g. `Spend Circle feedback: bug`.
+- Subject: include coarse type only, e.g. `PocketCircle feedback: bug`.
 - HTML-escape every value using the existing `escapeHtml`.
 - Keep it pure and unit-test it.
 

@@ -1,4 +1,4 @@
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@spend-circle/domain";
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedPersonalCircleOwner } from "../test/seed.js";

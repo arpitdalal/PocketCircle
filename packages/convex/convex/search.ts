@@ -11,7 +11,7 @@ import {
   searchOffsetTotalCount,
   transactionSearchText,
   transactionTextMatches,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { type IndexRange, paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { stream } from "convex-helpers/server/stream";

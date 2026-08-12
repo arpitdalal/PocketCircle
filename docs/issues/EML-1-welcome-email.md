@@ -31,8 +31,8 @@ Already in place; do NOT recreate:
   said "add an MSW handler" — that's done; you **reuse** this one and assert against
   `capturedRequests` (filter `vendor === "resend"`). Do not add a second handler.
 - **MSW is wired into the WEB test suite only.** `apps/web-app/vitest.setup.ts` calls
-  `server.listen()` / `resetHandlers()` / `close()` from `@spend-circle/mocks/server`. The web app
-  already depends on `@spend-circle/mocks`.
+  `server.listen()` / `resetHandlers()` / `close()` from `@pocketcircle/mocks/server`. The web app
+  already depends on `@pocketcircle/mocks`.
 
 Does NOT exist yet — you build it in this slice:
 
@@ -42,7 +42,7 @@ Does NOT exist yet — you build it in this slice:
 - **The `users` table has no `welcomeSentAt` field** — you add it (schema change).
 - **The convex test suite does NOT wire MSW.** `packages/convex/vitest.config.ts` runs under
   `edge-runtime` with no `setupFiles`, and `packages/convex/package.json` does not depend on
-  `@spend-circle/mocks`. This matters a lot for how you test the actual network send — see
+  `@pocketcircle/mocks`. This matters a lot for how you test the actual network send — see
   **Testing strategy & the main risk** below.
 - **No `RESEND_API_KEY` / from-address env var** is referenced anywhere.
 
@@ -98,7 +98,7 @@ export const sendWelcomeEmail = internalAction({
     // can't double-send (action ctx can't touch the DB directly).
     const claimed = await ctx.runMutation(internal.email.claimWelcome, { userId });
     if (!claimed) return;                         // already sent
-    await sendEmail({ to: claimed.email, subject: "Welcome to Spend Circle", html: welcomeHtml(claimed.displayName) });
+    await sendEmail({ to: claimed.email, subject: "Welcome to PocketCircle", html: welcomeHtml(claimed.displayName) });
   },
 });
 ```
@@ -150,8 +150,8 @@ send a harmless no-op there, and a failing send must never break sign-up.
 
 ### 4. Mocks — reuse, don't add
 
-The handler exists (see Current state). For assertions, import from `@spend-circle/mocks`:
-`import { capturedRequests, resetCapturedRequests } from "@spend-circle/mocks";` and filter
+The handler exists (see Current state). For assertions, import from `@pocketcircle/mocks`:
+`import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";` and filter
 `vendor === "resend"`.
 
 ### 5. Env — document the required vars
@@ -192,7 +192,7 @@ with `seedPersonalCircleOwner`):
    contains the name, the expected subject/copy, and **no financial content** (assert no
    amount/currency strings) — a pure-function assertion, zero mocks.
 3. **The Resend payload shape over the wire (the only network test).** First try wiring MSW into the
-   convex suite: add `@spend-circle/mocks` as a devDependency of `packages/convex`, add a
+   convex suite: add `@pocketcircle/mocks` as a devDependency of `packages/convex`, add a
    `vitest.setup.ts` doing `server.listen()/resetHandlers()/close()` (copy the lifecycle from
    `apps/web-app/vitest.setup.ts`), and set `setupFiles` in `packages/convex/vitest.config.ts`. In the
    test, `vi.stubEnv("RESEND_API_KEY", "test")` + `vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@…")` so

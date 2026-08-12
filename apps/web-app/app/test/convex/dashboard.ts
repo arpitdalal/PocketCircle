@@ -1,9 +1,9 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import {
   comparisonWindowMonths,
   DEFAULT_COMPARISON_RANGE_MONTHS,
   isComparisonRangeMonths,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { getFunctionName } from "convex/server";
 import type { CategoryAnalytics, Dashboard, MonthlyComparison } from "~/lib/data.js";
 import type { EntityDouble } from "./contract.js";

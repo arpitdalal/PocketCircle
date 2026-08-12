@@ -1,4 +1,4 @@
-import { colorHex } from "@spend-circle/domain";
+import { colorHex } from "@pocketcircle/domain";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CircleMark } from "./circle-mark.js";

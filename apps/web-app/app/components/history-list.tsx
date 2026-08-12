@@ -1,4 +1,4 @@
-import { formatMoney, money, toCurrencyCode } from "@spend-circle/domain";
+import { formatMoney, money, toCurrencyCode } from "@pocketcircle/domain";
 import { Button } from "~/components/ui/button.js";
 import type { PaginationStatus } from "~/lib/data.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";

@@ -1,5 +1,5 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
-import { capturedRequests, resetCapturedRequests } from "@spend-circle/mocks";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";
 import { ConvexError } from "convex/values";
 import { convexTest as createConvexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -85,8 +85,8 @@ async function countCircleScopedRows(
 beforeEach(() => {
   resetCapturedRequests();
   vi.stubEnv("RESEND_API_KEY", "test-key");
-  vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
-  vi.stubEnv("SUPPORT_EMAIL", "support@spendcircle.test");
+  vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
+  vi.stubEnv("SUPPORT_EMAIL", "support@pocketcircle.test");
 });
 
 afterEach(() => {
@@ -166,7 +166,7 @@ describe("submitFeedback", () => {
 
     const resend = capturedRequests.filter((r) => r.vendor === "resend");
     expect(resend).toHaveLength(1);
-    expect(resend[0]?.body).toMatchObject({ to: "support@spendcircle.test" });
+    expect(resend[0]?.body).toMatchObject({ to: "support@pocketcircle.test" });
     const html = resendBodyHtml(resend[0]?.body);
     expect(html).toContain("The save button fails");
     expect(html).toContain("ada@example.com");

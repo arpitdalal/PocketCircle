@@ -12,7 +12,7 @@
 
 ## Intent
 
-Fix already-shipped money formatting paths so Spend Circle never relies on the runtime's ambient locale. Local tests currently fail on non-US-English terminals because `Intl.NumberFormat` falls back to the process locale; the deeper issue is that UI display, immutable history, and export need separate money presentation policies.
+Fix already-shipped money formatting paths so PocketCircle never relies on the runtime's ambient locale. Local tests currently fail on non-US-English terminals because `Intl.NumberFormat` falls back to the process locale; the deeper issue is that UI display, immutable history, and export need separate money presentation policies.
 
 ## Implement
 

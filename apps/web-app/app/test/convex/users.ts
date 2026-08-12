@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { CurrentUser } from "~/lib/data/users.js";
@@ -12,7 +12,7 @@ export type CurrentUserView = CurrentUser;
 
 export interface UsersState {
   /** `getCurrentUser` — `undefined` ≡ auth/user still loading, `null` ≡ authenticated
-   * but no Spend Circle User yet (bootstrap), an object ≡ a bootstrapped User (ready).
+   * but no PocketCircle User yet (bootstrap), an object ≡ a bootstrapped User (ready).
    * A resolver re-reads on each subscription tick (models Convex reactivity after mutations). */
   currentUser?:
     | CurrentUserView

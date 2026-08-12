@@ -1,4 +1,4 @@
-import { comparisonWindowMonths, currentMonth, isValidPlainMonth } from "@spend-circle/domain";
+import { comparisonWindowMonths, currentMonth, isValidPlainMonth } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel.js";
 import { query } from "./_generated/server.js";

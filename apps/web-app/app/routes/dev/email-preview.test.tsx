@@ -1,4 +1,4 @@
-import { INVITATION_SUBJECT } from "@spend-circle/domain";
+import { INVITATION_SUBJECT } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -32,7 +32,7 @@ describe("Email preview route", () => {
     renderEmailPreview();
     expect(screen.getByRole("heading", { name: "Email preview" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Welcome" })).toBeInTheDocument();
-    expect(screen.getByText("Welcome to Spend Circle")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to PocketCircle")).toBeInTheDocument();
     expect(screen.getByTitle("Email preview")).toBeInTheDocument();
   });
 

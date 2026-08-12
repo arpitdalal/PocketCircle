@@ -1,5 +1,5 @@
-import { resetCapturedRequests } from "@spend-circle/mocks";
-import { server } from "@spend-circle/mocks/server";
+import { resetCapturedRequests } from "@pocketcircle/mocks";
+import { server } from "@pocketcircle/mocks/server";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 // MSW intercepts outbound vendor fetch calls during convex-test actions (ADR 0006).

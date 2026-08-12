@@ -76,7 +76,7 @@ export default function ProtectedLayout() {
             className="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
           >
             <BrandMark />
-            Spend Circle
+            PocketCircle
           </Link>
           <CircleSwitcher />
         </div>

@@ -40,7 +40,7 @@ Test-only helpers (shared seed builders, `@convex-dev/workpool/test` registratio
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `arpitdalal/SpendCircle`. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `arpitdalal/PocketCircle`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

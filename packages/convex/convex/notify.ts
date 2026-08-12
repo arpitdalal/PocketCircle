@@ -3,7 +3,7 @@ import {
   buildCircleNotificationLink,
   buildRef,
   buildTransactionNotificationLink,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";

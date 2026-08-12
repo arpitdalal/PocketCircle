@@ -4,7 +4,7 @@ import {
   buildRef,
   MUTATION_ERRORS,
   mutationErrorData,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api.js";

@@ -1,5 +1,5 @@
 import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
-import { feedbackEmail, invitationEmail, welcomeEmail } from "@spend-circle/domain";
+import { feedbackEmail, invitationEmail, welcomeEmail } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server.js";

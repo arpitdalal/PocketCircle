@@ -10,6 +10,6 @@ export async function startMocks(): Promise<void> {
   if (!MOCKS) {
     return;
   }
-  const { worker } = await import("@spend-circle/mocks/worker");
+  const { worker } = await import("@pocketcircle/mocks/worker");
   await worker.start({ onUnhandledRequest: "bypass" });
 }

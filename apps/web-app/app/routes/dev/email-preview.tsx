@@ -1,4 +1,4 @@
-import { EMAIL_PREVIEWS } from "@spend-circle/domain";
+import { EMAIL_PREVIEWS } from "@pocketcircle/domain";
 import { useState } from "react";
 import { E2E } from "~/lib/env.js";
 

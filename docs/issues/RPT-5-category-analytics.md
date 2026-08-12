@@ -33,7 +33,7 @@ mirroring what's already there.
 1. `resolveCircleAccess(ctx, args.circleId)` → `null` if inaccessible/missing (ADR 0016 —
    indistinguishable, anti-enumeration; same guard the other dashboard queries use).
 2. Default month: `args.month ?? currentMonth(new Date())`; throw `"Invalid month"` if
-   `!isValidPlainMonth(month)` — **mirror `getDashboard` exactly** (both from `@spend-circle/domain`).
+   `!isValidPlainMonth(month)` — **mirror `getDashboard` exactly** (both from `@pocketcircle/domain`).
 3. Read the **same bounded active month set** the Dashboard/Ledger use — call
    `collectMonthActiveTransactions(ctx, args.circleId, month)` from
    [`monthActivity.ts`](../../packages/convex/convex/monthActivity.ts). Do **not** re-query

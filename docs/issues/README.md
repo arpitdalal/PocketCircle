@@ -1,6 +1,6 @@
-# Spend Circle v1 — Implementation Issue Graph
+# PocketCircle v1 — Implementation Issue Graph
 
-This is the **single map an agent follows** to build Spend Circle v1 on top of the
+This is the **single map an agent follows** to build PocketCircle v1 on top of the
 deep-module foundation (PR landing `arpitdalal/start-over`). Every remaining v1
 capability is captured here as an independently-grabbable **vertical slice**. Read
 this whole file once, then open the one slice file you are implementing.
@@ -344,7 +344,7 @@ Each slice file in this directory uses this structure:
 - [EML-2 · Invitation email](EML-2-invitation-email.md)
 
 ### User & Profile
-- [USR-1 · Onboarding confirmation + Spend Circle owns the profile](USR-1-onboarding-profile-ownership.md)
+- [USR-1 · Onboarding confirmation + PocketCircle owns the profile](USR-1-onboarding-profile-ownership.md)
 - [USR-3 · Account deletion](USR-3-account-deletion.md)
 
 ### Platform

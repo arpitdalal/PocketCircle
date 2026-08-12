@@ -5,7 +5,7 @@ import {
   LIMITS,
   parseFeedbackInput,
   parseFeedbackSubmission,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
 
 describe("feedbackInputSchema", () => {

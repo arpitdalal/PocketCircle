@@ -1,4 +1,4 @@
-import { buildCategoryNotificationLink, buildRef } from "@spend-circle/domain";
+import { buildCategoryNotificationLink, buildRef } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addMember, seedFixture, seedTransaction } from "../test/seed.js";

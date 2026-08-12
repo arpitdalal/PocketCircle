@@ -104,7 +104,7 @@ After this mutation resolves:
 - `listMyCircles` no longer includes this Circle (it filters to `status === "active"`).
 - Both effects are reactive — Convex re-runs subscribed queries immediately.
 
-Imports needed (add as needed): `ConvexError`, `v` from `"convex/values"`; `mutation` from `"./_generated/server.js"`; `requireCircleAccess` from `"./guard.js"`; `circleEntity`, `recordEvent` from `"./history.js"`; `MUTATION_ERRORS`, `mutationErrorData` from `"@spend-circle/domain"`.
+Imports needed (add as needed): `ConvexError`, `v` from `"convex/values"`; `mutation` from `"./_generated/server.js"`; `requireCircleAccess` from `"./guard.js"`; `circleEntity`, `recordEvent` from `"./history.js"`; `MUTATION_ERRORS`, `mutationErrorData` from `"@pocketcircle/domain"`.
 
 ### 3. Web — `useLeaveCircle` hook (`apps/web-app/app/lib/data/members.ts`)
 
