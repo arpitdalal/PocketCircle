@@ -104,7 +104,7 @@ pnpm build
 
 Production uses the default provider URLs documented in ADR 0007:
 
-- Web: `https://pocketcircle.arpitdalalm.workers.dev`
+- Web: `https://pocketcircle.app`
 - API: the production deployment's `*.convex.cloud` URL
 - Auth/HTTP actions: the same production deployment's `*.convex.site` URL
 
@@ -154,7 +154,7 @@ VITE_POSTHOG_HOST=https://us.i.posthog.com
 Set the backend variables on the **production** Convex deployment:
 
 ```text
-SITE_URL=https://pocketcircle.arpitdalalm.workers.dev
+SITE_URL=https://pocketcircle.app
 BETTER_AUTH_SECRET=<new-production-secret>
 GOOGLE_CLIENT_ID=<google-oauth-client-id>
 GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>

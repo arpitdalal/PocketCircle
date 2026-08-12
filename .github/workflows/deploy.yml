@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://pocketcircle.arpitdalalm.workers.dev
+      url: https://pocketcircle.app
     env:
       VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
       VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
