@@ -21,7 +21,7 @@ jobs:
     env:
       # Pinned to the exact image the viability spike validated (deterministic).
       # Re-pin when bumping the `convex` npm version; a mismatch fails at `convex deploy`.
-      CONVEX_IMAGE: ghcr.io/get-convex/convex-backend@sha256:122da352b12b216a017a1fb45c6a467f41a5b746158b47aecd1fe12f9f74edb0
+      CONVEX_IMAGE: ghcr.io/get-convex/convex-backend@sha256:1f2044e3eac463ac78973b136c0baf72d4ada602611d853d6f99f280e29e0a98
       CONVEX_SELF_HOSTED_URL: http://127.0.0.1:3210
       VITE_CONVEX_URL: http://127.0.0.1:3210
       VITE_CONVEX_SITE_URL: http://127.0.0.1:3211
@@ -33,8 +33,8 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          # pnpm 11 (pinned in package.json) needs Node >= 22.13 (it imports
-          # the node:sqlite builtin). 24 also satisfies the repo's `engines`.
+          # pnpm 11, jsdom 30, and React Router 8 need Node >= 22.22. 24 satisfies
+          # the repo's `engines` and jsdom's `^24.15 || >=26` floor.
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile

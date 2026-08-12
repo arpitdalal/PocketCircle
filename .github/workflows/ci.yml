@@ -24,8 +24,8 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          # pnpm 11 (pinned in package.json) needs Node >= 22.13 (it imports
-          # the node:sqlite builtin). 24 also satisfies the repo's `engines`.
+          # pnpm 11, jsdom 30, and React Router 8 need Node >= 22.22. 24 satisfies
+          # the repo's `engines` and jsdom's `^24.15 || >=26` floor.
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile

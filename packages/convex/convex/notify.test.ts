@@ -7,7 +7,7 @@ import {
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mutateAndDrain } from "../test/mutateAndDrain.js";
+import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import {
   addMember,
@@ -156,7 +156,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
         expect(await listNotificationsForUser(ctx, maya.user._id)).toHaveLength(0);
       });
 
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      await drainScheduledFunctions(t);
 
       await t.run(async (ctx) => {
         expect(await listNotificationsForUser(ctx, maya.user._id)).toHaveLength(1);
@@ -234,7 +234,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     vi.useFakeTimers();
     try {
       await t.mutation(api.circles.archiveCircle, { circleId });
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -409,7 +409,7 @@ describe("notification creation on events (NTF-2)", () => {
         expect(await listNotificationsForUser(ctx, owner._id)).toHaveLength(0);
       });
 
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      await drainScheduledFunctions(t);
 
       await t.run(async (ctx) => {
         expect(await listNotificationsForUser(ctx, owner._id)).toHaveLength(0);
