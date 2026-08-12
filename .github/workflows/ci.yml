@@ -24,8 +24,8 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          # jsdom 30 (tightest): ^22.22.2 || ^24.15 || >=26. 24 is current LTS.
-          node-version: 24
+          # jsdom 30 (tightest): ^22.22.2 || ^24.15 || >=26.
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
