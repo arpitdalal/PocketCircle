@@ -130,9 +130,10 @@ CLOUDFLARE_API_TOKEN
 CONVEX_DEPLOY_KEY
 ```
 
-The Cloudflare token needs only `Account → Workers Scripts → Edit`, scoped to
-the deployment account. The Convex key needs only `deployment:deploy`, scoped
-to the production deployment.
+The Cloudflare token needs `Account → Workers Scripts → Edit`, scoped to the
+deployment account, and `Zone → Workers Routes → Edit`, scoped to
+`pocketcircle.app`. The Convex key needs only `deployment:deploy`, scoped to the
+production deployment.
 
 Configure these GitHub Actions variables with the URLs shown by the Convex
 production deployment:
