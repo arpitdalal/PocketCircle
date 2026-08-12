@@ -6,7 +6,9 @@ overrides:
   # better-auth@1.6.x bundles @better-fetch/fetch@1.2.2; better-call@1.3.x still uses 1.1.21.
   # @convex-dev/better-auth crossDomainClient() types against whichever copy resolves → TS2322
   # vs createAuthClient() unless the workspace resolves a single fetch version (1.1.21 matches better-call).
+  # 1.6.27 ships fetch 1.3.1 + better-call 1.4; still TS2322 against @convex-dev/better-auth@0.12.5 — deferred.
   "@better-fetch/fetch": 1.1.21
+  # Keep kysely on 0.28 until a dedicated 0.29 bump (0.x minor; better-auth still accepts 0.28).
   kysely: 0.28.17
 
 allowBuilds:
@@ -18,6 +20,3 @@ allowBuilds:
   msw: true
   workerd: true
 
-# cnfast@0.0.8 was published 2026-06-22; remove this block on 2026-06-23 once it clears the 24h release-age policy. See #211.
-minimumReleaseAgeExclude:
-  - cnfast@0.0.8

@@ -489,17 +489,18 @@ describe("CircleTransactions", () => {
     expect(location()).toBe(url);
   });
 
-  it.each(
-    FILTER_PANEL_CLOSE_MEDIUMS,
-  )("discards unapplied panel edits when the panel is closed via %s", async (medium) => {
-    const user = userEvent.setup();
-    const { location } = setup({
-      initialEntries: [`/circles/${REF}/transactions?month=2026-05&type=all&status=all`],
-      filteredTransactions: [makeTransactionView({ title: "Weekly shop" })],
-    });
+  it.each(FILTER_PANEL_CLOSE_MEDIUMS)(
+    "discards unapplied panel edits when the panel is closed via %s",
+    async (medium) => {
+      const user = userEvent.setup();
+      const { location } = setup({
+        initialEntries: [`/circles/${REF}/transactions?month=2026-05&type=all&status=all`],
+        filteredTransactions: [makeTransactionView({ title: "Weekly shop" })],
+      });
 
-    await assertFilterPanelDiscardsDraftOnClose({ user, medium, location });
-  });
+      await assertFilterPanelDiscardsDraftOnClose({ user, medium, location });
+    },
+  );
 
   it("hides write actions in archived circles", () => {
     setup({ circle: { status: "archived" }, filteredTransactions: [makeTransactionView()] });

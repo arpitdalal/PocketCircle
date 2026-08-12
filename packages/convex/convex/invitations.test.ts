@@ -1443,23 +1443,23 @@ describe("getInvitationPreview", () => {
     expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
   });
 
-  it.each([
-    "accepted",
-    "revoked",
-  ] as const)("returns null when the invitation is %s", async (status) => {
-    const t = createTestConvex();
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
-    const token = await t.run((ctx) =>
-      seedPendingInvitation(ctx, {
-        circleId,
-        email: "ada@example.com",
-        invitedByUserId: owner._id,
-        status,
-      }),
-    );
-    expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
-  });
+  it.each(["accepted", "revoked"] as const)(
+    "returns null when the invitation is %s",
+    async (status) => {
+      const t = createTestConvex();
+      const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+      await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+      const token = await t.run((ctx) =>
+        seedPendingInvitation(ctx, {
+          circleId,
+          email: "ada@example.com",
+          invitedByUserId: owner._id,
+          status,
+        }),
+      );
+      expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
+    },
+  );
 
   it("returns null for an incomplete Circle", async () => {
     const t = createTestConvex();
