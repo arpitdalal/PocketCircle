@@ -1,5 +1,5 @@
-import { api } from "@spend-circle/convex";
-import { buildRef, textIncludes } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import { buildRef, textIncludes } from "@pocketcircle/domain";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { Category, CategoryDetail, PaginationStatus, Transaction } from "~/lib/data.js";

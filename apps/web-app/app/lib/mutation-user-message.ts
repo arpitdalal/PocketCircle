@@ -1,4 +1,4 @@
-import { mutationErrorDataSchema, mutationErrorMessageForCode } from "@spend-circle/domain";
+import { mutationErrorDataSchema, mutationErrorMessageForCode } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 
 /**

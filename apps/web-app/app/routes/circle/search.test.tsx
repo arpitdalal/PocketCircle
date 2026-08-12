@@ -454,7 +454,7 @@ describe("CircleSearch", () => {
       expect.objectContaining({ result: "downloaded" }),
     );
     const [filename, content] = downloadSpy.mock.calls[0] ?? [];
-    expect(filename).toMatch(/^spend-circle-trip-c1-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(filename).toMatch(/^pocketcircle-trip-c1-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(content).toContain("Rent");
     expect(content).toContain("1200.00");
     expect(content).not.toContain("mock-");

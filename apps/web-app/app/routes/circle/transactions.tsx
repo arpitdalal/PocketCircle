@@ -6,7 +6,7 @@ import {
   type PlainMonth,
   type TransactionType,
   toCurrencyCode,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";

@@ -3,7 +3,7 @@ import {
   money,
   TRANSACTION_SEARCH_INDEXED_RESULT_CEILING,
   toCurrencyCode,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import type { QueryCtx } from "./_generated/server.js";

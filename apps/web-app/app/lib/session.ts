@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { useConvexAuth, useQuery } from "convex/react";
 import { MOCKS } from "./env.js";
 
@@ -6,7 +6,7 @@ import { MOCKS } from "./env.js";
  * The four-state auth model the protected layout gates on (ADR 0017):
  *  - loading: auth is still resolving → show splash
  *  - unauthenticated: no Google session → redirect to /signin
- *  - bootstrap: Google session exists but no Spend Circle User yet → bootstrap splash
+ *  - bootstrap: Google session exists but no PocketCircle User yet → bootstrap splash
  *  - ready: bootstrapped User → render the app shell (may still need product Onboarding)
  */
 export type AppSession =
@@ -64,7 +64,7 @@ function useMockSession(): AppSession {
     state: "ready",
     user: {
       id: "mock-user",
-      email: "mock@spend-circle.test",
+      email: "mock@pocketcircle.test",
       displayName: "Mock Member",
       onboardingComplete: true,
       analyticsEnabled: false,

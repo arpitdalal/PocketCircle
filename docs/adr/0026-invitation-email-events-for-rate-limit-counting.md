@@ -1,6 +1,6 @@
 # Invitation email-send events as a dedicated table for rate-limit counting
 
-Spend Circle's invitation rate limits (PRD: 100 invitation emails / User / day, plus a per-address resend cap) were counted by scanning the `invitations` table — `createdAt` on the row plus a `resendTimestamps` array — which cannot faithfully count *email events* over a (user, time) or (circle, email, time) window. We model each email send as its own append-only row in a dedicated `invitationEmailEvents` table indexed for range queries, and enforce every invitation rate limit as a real range-count over it inside the same mutation that writes the invitation. We rejected counting on the `invitations` table (the original bug), the `@convex-dev/rate-limiter` component, and Redis.
+PocketCircle's invitation rate limits (PRD: 100 invitation emails / User / day, plus a per-address resend cap) were counted by scanning the `invitations` table — `createdAt` on the row plus a `resendTimestamps` array — which cannot faithfully count *email events* over a (user, time) or (circle, email, time) window. We model each email send as its own append-only row in a dedicated `invitationEmailEvents` table indexed for range queries, and enforce every invitation rate limit as a real range-count over it inside the same mutation that writes the invitation. We rejected counting on the `invitations` table (the original bug), the `@convex-dev/rate-limiter` component, and Redis.
 
 ## Context
 

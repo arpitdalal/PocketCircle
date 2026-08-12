@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";

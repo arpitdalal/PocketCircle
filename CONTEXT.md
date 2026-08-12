@@ -1,6 +1,6 @@
-# Spend Circle
+# PocketCircle
 
-Spend Circle is a shared personal finance domain for tracking money activity inside collaborative financial spaces.
+PocketCircle is a shared personal finance domain for tracking money activity inside collaborative financial spaces.
 
 ## Language
 
@@ -13,7 +13,7 @@ The rule that a **User** can see only Circles where they are a current **Member*
 _Avoid_: Public Circle
 
 **Circle Color**:
-The required visual color assigned to a **Circle**. Spend Circle chooses an initial Circle Color when a Circle is created; the **Owner** can change it, and UI must not identify a Circle by color alone.
+The required visual color assigned to a **Circle**. PocketCircle chooses an initial Circle Color when a Circle is created; the **Owner** can change it, and UI must not identify a Circle by color alone.
 _Avoid_: Group Color
 
 **Circle Mark**:
@@ -45,7 +45,7 @@ The immutable change history for a **Circle**, including ownership transfers, Me
 _Avoid_: Group Audit
 
 **Currency**:
-The single ISO 4217 money unit chosen for a **Circle** from Spend Circle's supported currency list. Every Transaction in a Circle uses that Circle's Currency; v1 does not support mixed currencies inside one Circle, Currency defaults from the creating User's locale with USD fallback, Currency is validated server-side, and Currency is locked once the Circle has any Transactions.
+The single ISO 4217 money unit chosen for a **Circle** from PocketCircle's supported currency list. Every Transaction in a Circle uses that Circle's Currency; v1 does not support mixed currencies inside one Circle, Currency defaults from the creating User's locale with USD fallback, Currency is validated server-side, and Currency is locked once the Circle has any Transactions.
 _Avoid_: Transaction Currency
 
 **Residence Type**:
@@ -53,11 +53,11 @@ An optional **Circle Setup** answer used when a **Circle** represents a residenc
 _Avoid_: Home Type
 
 **User**:
-A person with a Google-authenticated login identity in Spend Circle, identified by Google's provider subject rather than email address. A User can become a **Member** of zero or more **Circles**.
+A person with a Google-authenticated login identity in PocketCircle, identified by Google's provider subject rather than email address. A User can become a **Member** of zero or more **Circles**.
 _Avoid_: Account
 
 **Account Deletion**:
-A workflow for permanently removing a **User** from Spend Circle while preserving Circle-scoped financial attribution through **Deleted Members**. The User confirms with `DELETE MY ACCOUNT` and an email link while authenticated as the same User. Account Deletion immediately and irreversibly removes login access, User-owned profile data, User-owned Notifications, and shared-Circle access; revokes pending Invitations created by or addressed to that User; and starts durable bounded deletion of the Personal Circle, solo setup-incomplete regular Circles, and archived regular Circles with no active co-Members. It does not rewrite existing History or other Users' Notifications and never blocks on Circles where the User is a non-Owner Member. A setup-complete active solo Circle must be archived first; any regular Circle with active co-Members must be transferred first, including while archived.
+A workflow for permanently removing a **User** from PocketCircle while preserving Circle-scoped financial attribution through **Deleted Members**. The User confirms with `DELETE MY ACCOUNT` and an email link while authenticated as the same User. Account Deletion immediately and irreversibly removes login access, User-owned profile data, User-owned Notifications, and shared-Circle access; revokes pending Invitations created by or addressed to that User; and starts durable bounded deletion of the Personal Circle, solo setup-incomplete regular Circles, and archived regular Circles with no active co-Members. It does not rewrite existing History or other Users' Notifications and never blocks on Circles where the User is a non-Owner Member. A setup-complete active solo Circle must be archived first; any regular Circle with active co-Members must be transferred first, including while archived.
 _Avoid_: User Erasure
 
 **Google Account Email**:
@@ -69,11 +69,11 @@ The editable name shown for a **User** in Circles, Transactions, Audit Metadata,
 _Avoid_: Full Name
 
 **Profile Picture**:
-The image shown for a **User** in Circles, Transactions, Audit Metadata, and Member Lists. Profile Picture is seeded from Google sign-in when the account is created and is not synced afterward; it is not editable in v1 (uploads are a later feature). If Google does not provide one, Spend Circle uses a generated initials avatar.
+The image shown for a **User** in Circles, Transactions, Audit Metadata, and Member Lists. Profile Picture is seeded from Google sign-in when the account is created and is not synced afterward; it is not editable in v1 (uploads are a later feature). If Google does not provide one, PocketCircle uses a generated initials avatar.
 _Avoid_: Avatar Upload
 
 **Onboarding**:
-The one-time, gated step shown after a **User's** first sign-in where they confirm and optionally edit their **Display Name** — with their **Google Account Email** shown read-only for confirmation — before using the app. Completion is tracked by a per-User flag, and Spend Circle funnels the User back to it on return until it is done. Distinct from **Circle Setup**, which is per-**Circle**: Onboarding completes the User's profile, Circle Setup configures a Circle. Confirming or later editing the Display Name (Onboarding or App Settings) renames the User's **Personal Circle** to match only while the owner has not manually renamed it; afterward identity changes no longer touch the Circle name. Those identity-driven updates do not record **Circle History** because they are not deliberate Circle renames. Future versions may add optional questions, such as referral source, that never block completion.
+The one-time, gated step shown after a **User's** first sign-in where they confirm and optionally edit their **Display Name** — with their **Google Account Email** shown read-only for confirmation — before using the app. Completion is tracked by a per-User flag, and PocketCircle funnels the User back to it on return until it is done. Distinct from **Circle Setup**, which is per-**Circle**: Onboarding completes the User's profile, Circle Setup configures a Circle. Confirming or later editing the Display Name (Onboarding or App Settings) renames the User's **Personal Circle** to match only while the owner has not manually renamed it; afterward identity changes no longer touch the Circle name. Those identity-driven updates do not record **Circle History** because they are not deliberate Circle renames. Future versions may add optional questions, such as referral source, that never block completion.
 _Avoid_: Circle Setup, Wizard, Profile Setup
 
 **Member**:
@@ -125,11 +125,11 @@ The **Member** the **Transaction's** money movement belongs to. Paid By defaults
 _Avoid_: Payer
 
 **Settlement**:
-A debt-balancing workflow that calculates who owes whom inside a **Circle**. Settlement is out of scope for v1; Spend Circle tracks Transactions but does not calculate Member balances.
+A debt-balancing workflow that calculates who owes whom inside a **Circle**. Settlement is out of scope for v1; PocketCircle tracks Transactions but does not calculate Member balances.
 _Avoid_: Split, Owes
 
 **Budget**:
-A planned spending limit or envelope for a **Circle**, Category, Member, or time period. Budgets are out of scope for v1; Spend Circle tracks actual Transactions only.
+A planned spending limit or envelope for a **Circle**, Category, Member, or time period. Budgets are out of scope for v1; PocketCircle tracks actual Transactions only.
 _Avoid_: Limit, Envelope
 
 **Recurring Transaction**:
@@ -137,7 +137,7 @@ A scheduled rule that creates repeated **Transactions**. Recurring Transactions 
 _Avoid_: Subscription Rule
 
 **Offline Use**:
-Using Spend Circle without a live connection to save changes. Offline writes are out of scope for v1; the app can show stale or read-only data while disconnected but cannot save changes until reconnected.
+Using PocketCircle without a live connection to save changes. Offline writes are out of scope for v1; the app can show stale or read-only data while disconnected but cannot save changes until reconnected.
 _Avoid_: Offline Mode
 
 **Amount**:
@@ -185,7 +185,7 @@ A type-specific label created inside exactly one **Circle** to classify **Transa
 _Avoid_: Tag, Bucket
 
 **Category Color**:
-The required visual color assigned to a **Category**. Spend Circle chooses an initial Category Color when a Category is created; Members can change colors they are allowed to edit, colors can be shared by multiple Categories, and UI must not identify a Category by color alone.
+The required visual color assigned to a **Category**. PocketCircle chooses an initial Category Color when a Category is created; Members can change colors they are allowed to edit, colors can be shared by multiple Categories, and UI must not identify a Category by color alone.
 _Avoid_: Category Icon, Emoji
 
 **Archived Category**:
@@ -233,7 +233,7 @@ A CSV download of **Transactions** from one **Circle**. Any current **Member** c
 _Avoid_: Import
 
 **Account Export**:
-A future download of a **User's** Spend Circle data across the account. Account Deletion may point Users toward Account Export before deletion, but Account Export is not required before deleting an account.
+A future download of a **User's** PocketCircle data across the account. Account Deletion may point Users toward Account Export before deletion, but Account Export is not required before deleting an account.
 _Avoid_: Backup
 
 **Notification Center**:
@@ -288,7 +288,7 @@ _Avoid_: Release Notes
 
 **Product**: "Use User for the login, and Member for the User's role inside one Circle."
 
-**Engineer**: "Can someone use Spend Circle without Google sign-in?"
+**Engineer**: "Can someone use PocketCircle without Google sign-in?"
 
 **Product**: "No. V1 uses Google sign-in only."
 

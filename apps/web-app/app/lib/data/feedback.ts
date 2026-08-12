@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { useMutation } from "convex/react";
 
 export function useSubmitFeedback() {

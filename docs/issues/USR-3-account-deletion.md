@@ -10,7 +10,7 @@
 
 ## Intent
 
-A User can permanently delete their Spend Circle account. Account Deletion removes the User's login identity and app-owned profile data while preserving Circle-level financial attribution needed by other Members.
+A User can permanently delete their PocketCircle account. Account Deletion removes the User's login identity and app-owned profile data while preserving Circle-level financial attribution needed by other Members.
 
 This is not strict User Erasure. Existing Circle, Transaction, and Category History stays immutable. Circle-scoped Member attribution remains through Deleted Members.
 
@@ -142,7 +142,7 @@ Physical deletion of Personal Circle and eligible regular Circle data runs as du
 - Rewriting existing History to anonymize old Display Names.
 - Grace period or undo.
 - Working Account Export backend.
-- Vendor/support inbox deletion outside Spend Circle's database.
+- Vendor/support inbox deletion outside PocketCircle's database.
 
 ## Technical decisions and implementation analysis (2026-08-10)
 
@@ -217,7 +217,7 @@ Implement a focused `packages/convex/convex/accountDeletion.ts`; do not spread t
  - Enable `user.deleteUser` in `createAuth`.
  - `sendDeleteAccountVerification` must parse the Better Auth User with Zod to obtain the Convex plugin's mapped `userId`; do not add a TypeScript cast.
  - From that callback, run an internal mutation that rechecks `by_owner_and_account_deletion_blocked`, then enqueues the verification email through the existing `emailPool`/`sendEmail` seam. A blocker throws before email is sent. The Better Auth verification row may already exist, but its undisclosed token is harmless.
- - Add the deletion email template to `@spend-circle/domain` and the existing dev email-preview surface. Use a token-specific Resend idempotency key. Do not send via raw fetch from the auth callback.
+ - Add the deletion email template to `@pocketcircle/domain` and the existing dev email-preview surface. Use a token-specific Resend idempotency key. Do not send via raw fetch from the auth callback.
  - Do not email Better Auth's backend callback URL directly. Use the callback's supplied `token` to build `${SITE_URL}/delete-account/verify?token=...`. The public SPA route can explain missing/mismatched sessions and then call Better Auth's own token endpoint; Better Auth remains the token issuer/validator.
 
 3. Verify/finalize

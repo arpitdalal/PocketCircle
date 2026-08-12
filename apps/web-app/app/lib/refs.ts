@@ -1,4 +1,4 @@
-import { type ParsedRef, parseRef, redactRefSlug } from "@spend-circle/domain";
+import { type ParsedRef, parseRef, redactRefSlug } from "@pocketcircle/domain";
 
 /**
  * Client-side ID validator injected into the domain ref parser. It only rejects

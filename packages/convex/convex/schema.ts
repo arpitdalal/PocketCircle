@@ -2,9 +2,9 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * Spend Circle data model. Better Auth owns its own user/session tables inside
+ * PocketCircle data model. Better Auth owns its own user/session tables inside
  * the `betterAuth` component (see convex.config.ts); the app `users` table here
- * stores the Spend Circle profile keyed by the auth subject. All permission and
+ * stores the PocketCircle profile keyed by the auth subject. All permission and
  * lifecycle enforcement lives in Convex functions (ADR 0015), and money is
  * stored as positive integer minor units (ADR 0009).
  */
@@ -27,7 +27,7 @@ const circleSetupAnswers = v.object({
 });
 
 export default defineSchema({
-  // Spend Circle User profile. The Better Auth component owns the auth user and
+  // PocketCircle User profile. The Better Auth component owns the auth user and
   // the auth-user → app-user mapping (ADR 0002); this row is created by the
   // `onCreateUser` trigger in auth.ts and resolved via `authComponent.getAuthUser`.
   users: defineTable({

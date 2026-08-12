@@ -1,4 +1,4 @@
-import { currentMonth } from "@spend-circle/domain";
+import { currentMonth } from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
 
 import {

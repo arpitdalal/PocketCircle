@@ -73,7 +73,7 @@ easy to tell apart. Users can narrow to active-only or archived-only via the sta
   desc, but once `q` is non-empty Convex's search index owns pagination order; do not promise
   date-desc ordering for text results.
 - The Transaction search projection is an operational index: public create/edit/archive/restore
-  mutations sync it transactionally. Spend Circle is pre-production, so no one-time backfill is
+  mutations sync it transactionally. PocketCircle is pre-production, so no one-time backfill is
   required for rows created before the projection existed.
 
 ## Carry Forward from PR #79

@@ -1,4 +1,4 @@
-import { formatMoney, money, toCurrencyCode } from "@spend-circle/domain";
+import { formatMoney, money, toCurrencyCode } from "@pocketcircle/domain";
 import { Link, useSearchParams } from "react-router";
 import { HistoryList } from "~/components/history-list.js";
 import { Splash } from "~/components/splash.js";

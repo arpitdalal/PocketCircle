@@ -1,4 +1,4 @@
-import { type TransactionFormValues, transactionFormSchema } from "@spend-circle/domain";
+import { type TransactionFormValues, transactionFormSchema } from "@pocketcircle/domain";
 import { formOptions } from "@tanstack/react-form";
 
 /** Create-mode base values; the form overrides `type` and `date` per mode. */

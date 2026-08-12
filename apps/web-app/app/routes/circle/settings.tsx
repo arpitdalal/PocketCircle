@@ -8,7 +8,7 @@ import {
   LIMITS,
   RESIDENCE_TYPES,
   SUPPORTED_CURRENCIES,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { type FormEvent, useId, useState } from "react";
 import { href, Navigate, useNavigate } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";

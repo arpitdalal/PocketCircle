@@ -4,7 +4,7 @@ import {
   mutationErrorData,
   paletteColorForSeed,
   toPlainDate,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";

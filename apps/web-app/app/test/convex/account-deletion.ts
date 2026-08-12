@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { getFunctionName } from "convex/server";
 import type { AccountDeletionBlocker, PaginationStatus } from "~/lib/data.js";
 import type { EntityDouble, PaginatedPage } from "./contract.js";

@@ -7,7 +7,7 @@ import {
   money,
   type PlainMonth,
   toCurrencyCode,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
 import { LoadingStatus, RowsSkeleton, Skeleton } from "~/components/skeleton.js";

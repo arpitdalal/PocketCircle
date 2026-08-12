@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS } from "@spend-circle/domain";
+import { MUTATION_ERRORS } from "@pocketcircle/domain";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { href, Link, useNavigate, useParams } from "react-router";

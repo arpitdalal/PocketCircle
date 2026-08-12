@@ -1,4 +1,4 @@
-import { parseProfileUpdate } from "@spend-circle/domain";
+import { parseProfileUpdate } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
@@ -21,7 +21,7 @@ export function toCurrentUserView(user: Doc<"users">) {
 }
 
 /**
- * The current Spend Circle User, or null when the Google session exists but the
+ * The current PocketCircle User, or null when the Google session exists but the
  * User record has not propagated yet. The protected layout uses this to choose
  * between the bootstrap splash and the app shell (ADR 0017). The User and
  * Personal Circle are created by the `onCreateUser` trigger in auth.ts.

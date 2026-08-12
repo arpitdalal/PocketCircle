@@ -1,4 +1,4 @@
-import { searchOffsetTakeLimit } from "@spend-circle/domain";
+import { searchOffsetTakeLimit } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {

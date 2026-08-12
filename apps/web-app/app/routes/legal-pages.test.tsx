@@ -1,4 +1,4 @@
-import { LEGAL_DOCUMENTS, SPEND_CIRCLE_SUPPORT_EMAIL } from "@spend-circle/domain";
+import { LEGAL_DOCUMENTS, POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderWithRouter } from "~/test/convex-react.js";
@@ -15,8 +15,8 @@ describe("legal pages", () => {
     expect(screen.getByRole("heading", { name: /Beta service and availability$/ })).toBeVisible();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
-    const contact = screen.getByRole("link", { name: SPEND_CIRCLE_SUPPORT_EMAIL });
-    expect(contact).toHaveAttribute("href", `mailto:${SPEND_CIRCLE_SUPPORT_EMAIL}`);
+    const contact = screen.getByRole("link", { name: POCKETCIRCLE_SUPPORT_EMAIL });
+    expect(contact).toHaveAttribute("href", `mailto:${POCKETCIRCLE_SUPPORT_EMAIL}`);
   });
 
   it("explains collected data, service providers, analytics, and deletion", () => {

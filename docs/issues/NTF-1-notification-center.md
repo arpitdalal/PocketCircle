@@ -42,7 +42,7 @@ fixtures in the web UI. End-to-end coverage of real notifications waits for NTF-
   `Id | null` (see `getCircle`/`getCurrentUserOrNull` for the pattern).
 - **Ref parsing** ([`packages/domain/src/ref.ts`](../../packages/domain/src/ref.ts)): `parseRef`
   extracts the trailing `…-<id>` segment from a canonical ref; the backend already imports
-  `buildRef` from `@spend-circle/domain`, so the package is available server-side.
+  `buildRef` from `@pocketcircle/domain`, so the package is available server-side.
 - **Web shell**: the header in
   [`protected-layout.tsx`](../../apps/web-app/app/routes/layouts/protected-layout.tsx) renders
   `<AccountMenu>` — the Notification Center bell sits next to it (app-wide, **not** Circle-scoped).

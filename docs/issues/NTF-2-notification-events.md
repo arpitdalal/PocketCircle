@@ -61,7 +61,7 @@ center free of self-spam (PRD 86) and is centralized in the single writer (see b
   shapes NTF-1's parser (`parseNotificationLinkPath`) understands — this is the writer/reader
   contract; do **not** hand-format link strings.
 - **Refs** — a `<slug>-<id>` ref segment is built with `buildRef(name, id)` from
-  `@spend-circle/domain` (already imported server-side, e.g.
+  `@pocketcircle/domain` (already imported server-side, e.g.
   [`circles.ts:44`](../../packages/convex/convex/circles.ts:44),
   [`transactions.ts:141`](../../packages/convex/convex/transactions.ts:141)). Build a circle ref from
   `buildRef(circle.name, circle._id)`, a transaction ref from `buildRef(txn.title, txn._id)`, a

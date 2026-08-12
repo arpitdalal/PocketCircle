@@ -90,7 +90,7 @@ export const authComponent = createClient<DataModel>(
 );
 
 // Component trigger functions. `onCreate` runs in the OAuth callback and creates
-// the Spend Circle User + Personal Circle (PRD stories 1, 3), then stores the app
+// the PocketCircle User + Personal Circle (PRD stories 1, 3), then stores the app
 // user id on the auth-user mapping. `onUpdate` syncs Google Account Email only
 // (ADR 0024); Display Name propagation is in-app via `setUserDisplayName`.
 // `onDelete` finalizes Account Deletion (USR-3 / ADR 0029).
@@ -139,7 +139,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
   });
 };
 
-/** The Spend Circle User for the current auth identity, or null. */
+/** The PocketCircle User for the current auth identity, or null. */
 export async function getCurrentUserOrNull(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users"> | null> {
@@ -165,7 +165,7 @@ export async function getCurrentUserOrNull(
   return userId ? await ctx.db.get(userId) : null;
 }
 
-/** Throws unless the request is from a bootstrapped Spend Circle User. */
+/** Throws unless the request is from a bootstrapped PocketCircle User. */
 export async function requireCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
   const user = await getCurrentUserOrNull(ctx);
   if (!user) {

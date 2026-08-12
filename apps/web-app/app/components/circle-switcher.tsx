@@ -1,4 +1,4 @@
-import { colorLabel } from "@spend-circle/domain";
+import { colorLabel } from "@pocketcircle/domain";
 import { useEffect, useId, useRef, useState } from "react";
 import { href, Link } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";

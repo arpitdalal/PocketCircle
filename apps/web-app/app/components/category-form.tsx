@@ -5,7 +5,7 @@ import {
   LIMITS,
   randomColorId,
   type TransactionType,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { Button } from "~/components/ui/button.js";
 import { Segmented } from "~/components/ui/segmented.js";

@@ -1,4 +1,4 @@
-import { currentMonth, type PlainMonth, plainMonthParts } from "@spend-circle/domain";
+import { currentMonth, type PlainMonth, plainMonthParts } from "@pocketcircle/domain";
 
 import type { AnalyticsEventMap } from "./analytics-events.js";
 import type {

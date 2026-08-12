@@ -4,7 +4,7 @@ import {
   isComparisonRangeMonths,
   isTransactionType,
   type TransactionType,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 
 /** Default category analytics ranking — expense tagged spend (RPT-5). */
 export const DEFAULT_CATEGORY_ANALYTICS_TYPE: TransactionType = "expense";

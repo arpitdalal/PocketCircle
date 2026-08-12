@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { useConvexAuth, useQuery } from "convex/react";
 import { useParams } from "react-router";
 import { useCircle } from "~/routes/layouts/circle-layout.js";

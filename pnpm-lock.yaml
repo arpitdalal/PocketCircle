@@ -60,10 +60,10 @@ importers:
       '@sentry/react':
         specifier: ^10.59.0
         version: 10.59.0(react@19.2.7)
-      '@spend-circle/convex':
+      '@pocketcircle/convex':
         specifier: workspace:*
         version: link:../../packages/convex
-      '@spend-circle/domain':
+      '@pocketcircle/domain':
         specifier: workspace:*
         version: link:../../packages/domain
       '@tanstack/react-form':
@@ -112,7 +112,7 @@ importers:
       '@rolldown/plugin-babel':
         specifier: ^0.2.3
         version: 0.2.3(@babel/core@7.29.7)(@babel/runtime@7.29.7)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.1)(jiti@2.7.0))
-      '@spend-circle/mocks':
+      '@pocketcircle/mocks':
         specifier: workspace:*
         version: link:../../packages/mocks
       '@tailwindcss/vite':
@@ -175,7 +175,7 @@ importers:
       '@convex-dev/workpool':
         specifier: ^0.4.7
         version: 0.4.7(convex-helpers@0.1.119(@standard-schema/spec@1.1.0)(convex@1.41.0(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(convex@1.41.0(react@19.2.7))
-      '@spend-circle/domain':
+      '@pocketcircle/domain':
         specifier: workspace:*
         version: link:../domain
       better-auth:
@@ -194,7 +194,7 @@ importers:
       '@edge-runtime/vm':
         specifier: ^5.0.0
         version: 5.0.0
-      '@spend-circle/mocks':
+      '@pocketcircle/mocks':
         specifier: workspace:*
         version: link:../mocks
       convex-test:

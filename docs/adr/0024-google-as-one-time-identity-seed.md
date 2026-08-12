@@ -1,8 +1,8 @@
-# Google is a one-time identity seed; Spend Circle owns the profile
+# Google is a one-time identity seed; PocketCircle owns the profile
 
-At first sign-in (the Better Auth `onCreate` trigger) Spend Circle seeds a User's
+At first sign-in (the Better Auth `onCreate` trigger) PocketCircle seeds a User's
 `displayName`, `image`, and `email` from Google. Afterward Google no longer
-overwrites `displayName` or `image` — the User owns them in Spend Circle (Display
+overwrites `displayName` or `image` — the User owns them in PocketCircle (Display
 Name is editable in-app; Profile Picture becomes editable when uploads land) —
 while `email` stays synced with Google because it is identity- and
 delivery-critical. We chose this over mirroring the full Google profile on every

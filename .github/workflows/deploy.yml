@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://spend-circle.arpitdalalm.workers.dev
+      url: https://pocketcircle.arpitdalalm.workers.dev
     env:
       VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
       VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
@@ -59,7 +59,7 @@ jobs:
       - name: Deploy Convex production backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: pnpm --filter @spend-circle/convex exec convex deploy -y
+        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4

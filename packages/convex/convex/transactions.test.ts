@@ -3,7 +3,7 @@ import {
   MUTATION_ERRORS,
   mutationErrorData,
   transactionSearchText,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";

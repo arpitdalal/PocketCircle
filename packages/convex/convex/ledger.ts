@@ -1,4 +1,4 @@
-import { isValidPlainMonth } from "@spend-circle/domain";
+import { isValidPlainMonth } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
 import { resolveCircleAccess } from "./guard.js";

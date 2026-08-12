@@ -1,4 +1,4 @@
-import type { PlainMonth, TransactionType } from "@spend-circle/domain";
+import type { PlainMonth, TransactionType } from "@pocketcircle/domain";
 import { circlePath } from "./circle-path.js";
 import {
   canonicalLedgerParams,

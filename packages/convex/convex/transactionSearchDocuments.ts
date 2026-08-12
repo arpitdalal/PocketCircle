@@ -1,4 +1,4 @@
-import { transactionSearchText } from "@spend-circle/domain";
+import { transactionSearchText } from "@pocketcircle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 

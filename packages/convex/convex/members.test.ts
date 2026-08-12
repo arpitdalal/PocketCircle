@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";

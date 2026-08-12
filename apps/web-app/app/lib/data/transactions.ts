@@ -1,5 +1,5 @@
-import { api } from "@spend-circle/convex";
-import { type PlainMonth, TRANSACTION_LIST_PAGE_SIZE } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import { type PlainMonth, TRANSACTION_LIST_PAGE_SIZE } from "@pocketcircle/domain";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";

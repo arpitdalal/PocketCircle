@@ -1,4 +1,4 @@
-import { formatMoney, getCurrency, money, toCurrencyCode } from "@spend-circle/domain";
+import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
 import { useMemo } from "react";
 import {
   Bar,

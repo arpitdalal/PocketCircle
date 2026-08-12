@@ -6,7 +6,7 @@ import {
   parseAmountToMinorUnits,
   TRANSACTION_SEARCH_MAX_PAGE,
   type TransactionType,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 
 import {
   cleanText,

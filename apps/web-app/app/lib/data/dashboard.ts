@@ -1,5 +1,5 @@
-import { api } from "@spend-circle/convex";
-import type { ComparisonRangeMonths, PlainMonth, TransactionType } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import type { ComparisonRangeMonths, PlainMonth, TransactionType } from "@pocketcircle/domain";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";

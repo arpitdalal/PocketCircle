@@ -3,7 +3,7 @@ import {
   CIRCLE_CAPACITY_LIMIT,
   inviteEmailSchema,
   remainingCircleSeats,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { href, useNavigate } from "react-router";
 import { RowsSkeleton, SkeletonRegion } from "~/components/skeleton.js";

@@ -1,4 +1,4 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import { usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";

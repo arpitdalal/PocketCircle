@@ -39,7 +39,7 @@ export default defineConfig({
     { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
   ],
   webServer: {
-    command: "pnpm --filter @spend-circle/web-app dev --host 127.0.0.1",
+    command: "pnpm --filter @pocketcircle/web-app dev --host 127.0.0.1",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

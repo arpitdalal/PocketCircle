@@ -1,4 +1,4 @@
-import { SPEND_CIRCLE_SUPPORT_EMAIL } from "@spend-circle/domain";
+import { POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
 import type { ReactNode } from "react";
 import { href, Link } from "react-router";
 
@@ -31,10 +31,10 @@ export function LegalDocument({
         <p>
           Questions? Email{" "}
           <a
-            href={`mailto:${SPEND_CIRCLE_SUPPORT_EMAIL}`}
+            href={`mailto:${POCKETCIRCLE_SUPPORT_EMAIL}`}
             className="font-medium text-primary underline underline-offset-4"
           >
-            {SPEND_CIRCLE_SUPPORT_EMAIL}
+            {POCKETCIRCLE_SUPPORT_EMAIL}
           </a>
           .
         </p>

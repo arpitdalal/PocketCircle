@@ -1,5 +1,5 @@
 {
-  "name": "@spend-circle/convex",
+  "name": "@pocketcircle/convex",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -22,7 +22,7 @@
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.2",
     "@convex-dev/workpool": "^0.4.7",
-    "@spend-circle/domain": "workspace:*",
+    "@pocketcircle/domain": "workspace:*",
     "better-auth": "1.6.16",
     "convex": "^1.40.0",
     "convex-helpers": "0.1.119",
@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
-    "@spend-circle/mocks": "workspace:*",
+    "@pocketcircle/mocks": "workspace:*",
     "convex-test": "^0.0.53",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"

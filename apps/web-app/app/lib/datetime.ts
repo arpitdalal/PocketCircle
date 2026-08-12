@@ -1,4 +1,4 @@
-import { type PlainMonth, plainMonthParts } from "@spend-circle/domain";
+import { type PlainMonth, plainMonthParts } from "@pocketcircle/domain";
 import { viewerLocale } from "./locale.js";
 
 /**

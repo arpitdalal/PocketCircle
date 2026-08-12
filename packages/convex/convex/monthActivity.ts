@@ -1,4 +1,4 @@
-import { addMonths } from "@spend-circle/domain";
+import { addMonths } from "@pocketcircle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { QueryCtx } from "./_generated/server.js";
 

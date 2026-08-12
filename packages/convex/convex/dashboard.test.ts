@@ -1,4 +1,4 @@
-import { currentMonth } from "@spend-circle/domain";
+import { currentMonth } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addMember, makeCategory, makeUser, seedFixture, seedTransaction } from "../test/seed.js";

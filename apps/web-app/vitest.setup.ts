@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { server } from "@spend-circle/mocks/server";
+import { server } from "@pocketcircle/mocks/server";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 

@@ -1,6 +1,6 @@
-import { INVITATION_SUBJECT, WELCOME_SUBJECT, welcomeEmail } from "@spend-circle/domain";
-import { capturedRequests, HttpResponse, http, resetCapturedRequests } from "@spend-circle/mocks";
-import { server } from "@spend-circle/mocks/server";
+import { INVITATION_SUBJECT, WELCOME_SUBJECT, welcomeEmail } from "@pocketcircle/domain";
+import { capturedRequests, HttpResponse, http, resetCapturedRequests } from "@pocketcircle/mocks";
+import { server } from "@pocketcircle/mocks/server";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeUser, seedCircle, seedPersonalCircleOwner } from "../test/seed.js";
@@ -158,7 +158,7 @@ describe("markWelcomed", () => {
 describe("sendWelcomeEmail", () => {
   it("skips Resend and leaves welcomeSentAt unset when already sent", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t);
@@ -186,7 +186,7 @@ describe("sendWelcomeEmail", () => {
 
   it("posts the expected payload to Resend and marks on 2xx", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t);
@@ -196,7 +196,7 @@ describe("sendWelcomeEmail", () => {
     const resend = capturedRequests.filter((r) => r.vendor === "resend");
     expect(resend).toHaveLength(1);
     expect(resend[0]?.body).toMatchObject({
-      from: "no-reply@spendcircle.test",
+      from: "no-reply@pocketcircle.test",
       to: "ada@example.com",
       subject: WELCOME_SUBJECT,
     });
@@ -209,7 +209,7 @@ describe("sendWelcomeEmail", () => {
 
   it("rejects on non-2xx and does not mark", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     server.use(
       http.post("https://api.resend.com/emails", () =>
@@ -228,7 +228,7 @@ describe("sendWelcomeEmail", () => {
 
   it("rejects on fetch failure and does not mark", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     server.use(http.post("https://api.resend.com/emails", () => HttpResponse.error()));
 
@@ -261,7 +261,7 @@ describe("sendEmail env safety and vendor errors", () => {
   it("logs subject and body when EMAIL_DEV_LOG=1 even with Resend configured", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
     vi.stubEnv("EMAIL_DEV_LOG", "1");
 
     const { subject, html } = welcomeEmail({ displayName: "Ada" });
@@ -278,14 +278,14 @@ describe("sendEmail env safety and vendor errors", () => {
     vi.stubEnv("RESEND_FROM_EMAIL", "");
 
     await sendEmail({
-      to: "support@spendcircle.test",
-      subject: "Spend Circle feedback: bug",
+      to: "support@pocketcircle.test",
+      subject: "PocketCircle feedback: bug",
       html: "<p>secret feedback</p>",
       logBodyInDev: false,
     });
 
     expect(logSpy).toHaveBeenCalledWith(
-      '[email] to=support@spendcircle.test subject="Spend Circle feedback: bug"',
+      '[email] to=support@pocketcircle.test subject="PocketCircle feedback: bug"',
     );
     expect(logSpy).toHaveBeenCalledWith("[email] body: (redacted)");
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining("secret feedback"));
@@ -294,7 +294,7 @@ describe("sendEmail env safety and vendor errors", () => {
 
   it("rejects on non-2xx", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     server.use(
       http.post("https://api.resend.com/emails", () =>
@@ -313,7 +313,7 @@ describe("sendEmail env safety and vendor errors", () => {
 
   it("forwards Idempotency-Key when idempotencyKey is set", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     await sendEmail({
       to: "a@b.com",
@@ -363,7 +363,7 @@ describe("onWelcomeRunComplete", () => {
 describe("no activity emails", () => {
   it("does not send email when creating a Category", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { owner, personalCircleId } = await seedOwner(t);
@@ -505,7 +505,7 @@ describe("invitationPayload", () => {
 describe("sendInvitationEmail", () => {
   it("posts the expected payload to Resend with per-send idempotency key", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
     vi.stubEnv("SITE_URL", "https://app.example.com");
 
     const t = convexTest(schema, modules);
@@ -519,7 +519,7 @@ describe("sendInvitationEmail", () => {
     const resend = capturedRequests.filter((r) => r.vendor === "resend");
     expect(resend).toHaveLength(1);
     expect(resend[0]?.body).toMatchObject({
-      from: "no-reply@spendcircle.test",
+      from: "no-reply@pocketcircle.test",
       to: "ada@example.com",
       subject: INVITATION_SUBJECT,
     });
@@ -533,7 +533,7 @@ describe("sendInvitationEmail", () => {
 
   it("does not send when invitationPayload returns null", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { invitationId, token } = await seedPendingInvitation(t);
@@ -569,7 +569,7 @@ describe("sendInvitationEmail", () => {
 
   it("rejects on Resend 5xx without changing invitation status", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     server.use(
       http.post("https://api.resend.com/emails", () =>
@@ -596,7 +596,7 @@ describe("sendInvitationEmail", () => {
 
   it("uses distinct idempotency keys for two invitations to the same email", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const seed1 = await seedPendingInvitation(t, {
@@ -661,7 +661,7 @@ describe("sendInvitationEmail", () => {
 
   it("uses resendCount in idempotency key for resend sends", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { invitationId, token } = await seedPendingInvitation(t, {
@@ -684,7 +684,7 @@ describe("sendInvitationEmail", () => {
 
   it("does not send when the queued token or resendCount was superseded", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@spendcircle.test");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
     const t = convexTest(schema, modules);
     const { invitationId, token } = await seedPendingInvitation(t, { token: "current-token" });

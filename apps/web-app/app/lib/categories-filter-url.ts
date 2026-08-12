@@ -1,4 +1,4 @@
-import type { TransactionType } from "@spend-circle/domain";
+import type { TransactionType } from "@pocketcircle/domain";
 
 import { withQuery } from "./ledger-url.js";
 import { cleanText, readLifecycleStatus } from "./url-codec.js";

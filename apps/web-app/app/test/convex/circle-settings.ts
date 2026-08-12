@@ -2,7 +2,7 @@ import {
   type CircleSetupAnswers,
   circleSettingsUpdateSchema,
   parseCircleSettingsUpdate,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import type { Mock } from "vitest";
 import { vi } from "vitest";
 import type { Circle } from "~/lib/data.js";

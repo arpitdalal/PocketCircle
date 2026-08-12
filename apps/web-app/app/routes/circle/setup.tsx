@@ -1,4 +1,4 @@
-import { CIRCLE_PURPOSES, type CircleSetupAnswers, RESIDENCE_TYPES } from "@spend-circle/domain";
+import { CIRCLE_PURPOSES, type CircleSetupAnswers, RESIDENCE_TYPES } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { href, Navigate, useNavigate } from "react-router";
 import { Button } from "~/components/ui/button.js";

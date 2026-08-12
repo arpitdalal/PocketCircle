@@ -1,4 +1,4 @@
-import { formatMoney, money, type PlainMonth, toCurrencyCode } from "@spend-circle/domain";
+import { formatMoney, money, type PlainMonth, toCurrencyCode } from "@pocketcircle/domain";
 import { useState } from "react";
 import { Link } from "react-router";
 import { InfiniteScrollFooter } from "~/components/infinite-scroll-footer.js";

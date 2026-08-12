@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -225,7 +225,7 @@ describe("enqueueDeletionVerificationEmail", () => {
     vi.stubEnv("E2E_TEST_AUTH", "1");
     vi.stubEnv("SITE_URL", "https://app.example.com");
     vi.stubEnv("RESEND_API_KEY", "re_test");
-    vi.stubEnv("RESEND_FROM_EMAIL", "Spend Circle <onboarding@example.com>");
+    vi.stubEnv("RESEND_FROM_EMAIL", "PocketCircle <onboarding@example.com>");
     const t = createTestConvex();
     const { owner } = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, {

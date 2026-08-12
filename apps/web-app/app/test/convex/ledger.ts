@@ -1,10 +1,10 @@
-import { api } from "@spend-circle/convex";
+import { api } from "@pocketcircle/convex";
 import {
   clampSearchPage,
   clampSearchPageSize,
   formatMoneyAmount,
   money,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { getFunctionName } from "convex/server";
 import type {
   MonthlySummary,

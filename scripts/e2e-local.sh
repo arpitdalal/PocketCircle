@@ -21,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 
-CONTAINER="spend-circle-e2e-convex"   # distinct name; never clobbers a stray `convex` container
+CONTAINER="pocketcircle-e2e-convex"   # distinct name; never clobbers a stray `convex` container
 CONVEX_DIR="$REPO_ROOT/packages/convex"
 ENV_LOCAL="$CONVEX_DIR/.env.local"
 ENV_LOCAL_BAK="$CONVEX_DIR/.env.local.e2e-local-bak"

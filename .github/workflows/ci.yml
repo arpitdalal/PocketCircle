@@ -33,7 +33,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm --filter @spend-circle/web-app react-compiler:healthcheck
+      - run: pnpm --filter @pocketcircle/web-app react-compiler:healthcheck
 
       # The SPA prerender evaluates the module graph, which constructs the
       # ConvexReactClient at import time (app/lib/convex.ts); its constructor

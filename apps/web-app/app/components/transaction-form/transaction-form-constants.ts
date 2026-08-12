@@ -1,4 +1,4 @@
-import type { TransactionType } from "@spend-circle/domain";
+import type { TransactionType } from "@pocketcircle/domain";
 
 export const TYPE_LABEL: Record<TransactionType, string> = {
   expense: "Expense",

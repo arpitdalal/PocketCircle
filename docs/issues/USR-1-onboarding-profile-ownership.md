@@ -1,4 +1,4 @@
-# USR-1 · Onboarding confirmation + Spend Circle owns the profile
+# USR-1 · Onboarding confirmation + PocketCircle owns the profile
 
 | | |
 |---|---|
@@ -16,7 +16,7 @@ Google is a **one-time identity seed**, not a permanent source of truth (ADR 002
 `propagateUserProfile` re-mirrors the Google profile onto `users` and every active membership on
 **every** `user.onUpdate` ([auth.ts](../../packages/convex/convex/auth.ts)), so the app can store a
 name but Google wins every sync — a user edit would be clobbered on the next profile refresh. This
-slice flips ownership: **seed once from Google, then the User owns their profile in Spend Circle.**
+slice flips ownership: **seed once from Google, then the User owns their profile in PocketCircle.**
 
 - **Onboarding** (glossary): a one-time, gated step after first sign-in. The User confirms and
   optionally edits their **Display Name**; their **Google Account Email** is shown **read-only**

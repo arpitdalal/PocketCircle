@@ -1,4 +1,4 @@
-import { currentMonth, isValidPlainMonth } from "@spend-circle/domain";
+import { currentMonth, isValidPlainMonth } from "@pocketcircle/domain";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";

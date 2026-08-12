@@ -1,6 +1,6 @@
-import { api } from "@spend-circle/convex";
-import type { PlainMonth, TransactionType } from "@spend-circle/domain";
-import { formatMoneyAmount, money, toCurrencyCode } from "@spend-circle/domain";
+import { api } from "@pocketcircle/convex";
+import type { PlainMonth, TransactionType } from "@pocketcircle/domain";
+import { formatMoneyAmount, money, toCurrencyCode } from "@pocketcircle/domain";
 import { useConvex, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 // The stream-pagination variant of usePaginatedQuery. Queries that paginate a

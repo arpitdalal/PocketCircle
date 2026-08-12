@@ -1,4 +1,4 @@
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@spend-circle/domain";
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, type QueryCtx, query } from "./_generated/server.js";

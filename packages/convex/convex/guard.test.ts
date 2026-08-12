@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@spend-circle/domain";
+import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";

@@ -5,7 +5,7 @@ import {
   paletteColorForSeed,
   type TransactionType,
   transactionFieldSchemas,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { useMemo, useState } from "react";
 import {
   Combobox,

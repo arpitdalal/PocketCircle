@@ -4,19 +4,19 @@
     {
       "name": "web-app (dev)",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@spend-circle/web-app", "dev"],
+      "runtimeArgs": ["--filter", "@pocketcircle/web-app", "dev"],
       "port": 5173
     },
     {
       "name": "web-app (dev:mocks)",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@spend-circle/web-app", "dev:mocks"],
+      "runtimeArgs": ["--filter", "@pocketcircle/web-app", "dev:mocks"],
       "port": 5173
     },
     {
       "name": "convex (dev)",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@spend-circle/convex", "dev"],
+      "runtimeArgs": ["--filter", "@pocketcircle/convex", "dev"],
       "port": 3210
     }
   ]

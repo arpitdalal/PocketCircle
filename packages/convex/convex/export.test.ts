@@ -2,7 +2,7 @@ import {
   formatMoneyAmount,
   money,
   TRANSACTION_SEARCH_INDEXED_RESULT_CEILING,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {

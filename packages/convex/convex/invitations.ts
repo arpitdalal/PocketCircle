@@ -3,7 +3,7 @@ import {
   inviteEmailSchema,
   MUTATION_ERRORS,
   mutationErrorData,
-} from "@spend-circle/domain";
+} from "@pocketcircle/domain";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";

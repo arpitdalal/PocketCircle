@@ -1,4 +1,4 @@
-import { colorHex } from "@spend-circle/domain";
+import { colorHex } from "@pocketcircle/domain";
 import { cn } from "~/lib/utils.js";
 
 /**
