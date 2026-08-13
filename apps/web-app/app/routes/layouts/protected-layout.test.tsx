@@ -238,7 +238,10 @@ describe("ProtectedLayout onboarding gate", () => {
 
   it("redirects not-onboarded Users to onboarding, but not when already there", async () => {
     configureConvex({
-      currentUser: makeCurrentUserView({ onboardingComplete: false }),
+      currentUser: makeCurrentUserView({
+        onboardingComplete: false,
+        analyticsEnabled: true,
+      }),
       circles: [],
     });
     renderRouteStub(
@@ -259,6 +262,7 @@ describe("ProtectedLayout onboarding gate", () => {
       expect(screen.getByRole("heading", { name: "Welcome" })).toBeInTheDocument();
     });
     expect(screen.queryByText("Home stub")).not.toBeInTheDocument();
+    expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
   it("lets onboarded Users render child routes normally", async () => {
@@ -287,7 +291,7 @@ describe("ProtectedLayout onboarding gate", () => {
     );
   });
 
-  it("syncs analytics consent from the ready session", async () => {
+  it("syncs the stored analytics preference from the ready session", async () => {
     configureConvex({
       currentUser: makeCurrentUserView({ analyticsEnabled: false, onboardingComplete: true }),
       circles: [],
@@ -311,11 +315,13 @@ describe("ProtectedLayout onboarding gate", () => {
   it("completes onboarding and lets the User reach the app shell", async () => {
     let currentUser = makeCurrentUserView({
       onboardingComplete: false,
+      analyticsEnabled: true,
       displayName: "Ada Lovelace",
     });
     const completeOnboarding = vi.fn(async () => {
       currentUser = makeCurrentUserView({
         onboardingComplete: true,
+        analyticsEnabled: true,
         displayName: "Ada King",
       });
     });
@@ -351,6 +357,7 @@ describe("ProtectedLayout onboarding gate", () => {
     await waitFor(() => {
       expect(completeOnboarding).toHaveBeenCalledWith({ displayName: "Ada King" });
     });
+    expect(posthogSdk.init).not.toHaveBeenCalled();
 
     view.rerender(
       <SnackbarProvider>
@@ -360,5 +367,6 @@ describe("ProtectedLayout onboarding gate", () => {
 
     expect(await screen.findByText("Home stub")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Welcome" })).not.toBeInTheDocument();
+    expect(posthogSdk.init).toHaveBeenCalled();
   });
 });

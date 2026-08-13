@@ -21,7 +21,8 @@ export function buildPostHogInitOptions() {
     autocapture: false,
     capture_pageview: false,
     capture_pageleave: false,
-    persistence: "localStorage" as const,
+    persistence: "memory" as const,
+    person_profiles: "never" as const,
     opt_out_capturing_by_default: true,
     opt_out_persistence_by_default: true,
   };

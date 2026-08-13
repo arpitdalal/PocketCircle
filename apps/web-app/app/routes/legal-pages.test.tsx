@@ -23,7 +23,9 @@ describe("legal pages", () => {
     renderWithRouter(<Privacy />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Privacy Policy" })).toBeVisible();
-    expect(screen.getByText(`Effective ${LEGAL_DOCUMENTS.privacy.effectiveDate}`)).toBeVisible();
+    expect(screen.getByText("Effective August 13, 2026")).toBeVisible();
+    expect(LEGAL_DOCUMENTS.privacy.effectiveDate).toBe("August 13, 2026");
+    expect(LEGAL_DOCUMENTS.terms.effectiveDate).toBe("August 12, 2026");
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
     const providers = screen
@@ -36,7 +38,26 @@ describe("legal pages", () => {
     }
 
     expect(screen.getByText(/error-triggered Session Replay/i)).toBeVisible();
-    expect(screen.getByText(/Settings → Privacy/i)).toBeVisible();
+    expect(screen.getAllByText(/Settings → Privacy/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/default on for Users created after this Policy/i)).toBeVisible();
+    expect(
+      screen.getByText(/Existing stored analytics preferences are not changed by this update/i),
+    ).toBeVisible();
+    expect(screen.getByText(/Collection starts only after the onboarding notice/i)).toBeVisible();
+    expect(screen.getByText(/allowlisted, coarse feature-usage events/i)).toBeVisible();
+    expect(
+      screen.getByText(/application identifiers, or an identified person profile/i),
+    ).toBeVisible();
+    expect(screen.getByText(/Browser analytics state is memory-only/i)).toBeVisible();
+    expect(screen.getByText(/clears in-memory PostHog state/i)).toBeVisible();
+    expect(
+      screen.getByText(/autocapture, automatic pageviews, and page-leave capture are disabled/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Sentry operational monitoring remains enabled regardless/i),
+    ).toBeVisible();
+    expect(screen.queryByText(/off by default for every user/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/After you opt in, PostHog may use local/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Retention and Account Deletion$/ })).toBeVisible();
   });
 });

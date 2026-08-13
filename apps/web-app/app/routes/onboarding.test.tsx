@@ -46,4 +46,30 @@ describe("Onboarding profile form", () => {
       expect(completeOnboarding).toHaveBeenCalledWith({ displayName: "Bob Builder" });
     });
   });
+
+  it("shows the analytics notice and Privacy Policy link before onboarding completes", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView({
+        onboardingComplete: false,
+        analyticsEnabled: true,
+        displayName: "Ada Lovelace",
+      }),
+    });
+    renderOnboarding();
+
+    expect(
+      await screen.findByText(/collects limited feature-usage analytics to improve the product/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /Transaction amounts, titles, notes, names, and other free text are never included/i,
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(/opt out anytime in Settings → Privacy/i)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "/privacy",
+    );
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
 });

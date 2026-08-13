@@ -78,7 +78,7 @@ export const updateProfile = mutation({
   },
 });
 
-/** Persists explicit product-analytics consent (ADR 0013). */
+/** Persists the product-analytics preference (ADR 0013). */
 export const setAnalyticsEnabled = mutation({
   args: { enabled: v.boolean() },
   handler: async (ctx, args) => {

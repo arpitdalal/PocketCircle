@@ -141,7 +141,7 @@ describe("Settings profile form", () => {
   });
 });
 
-describe("Settings product-analytics consent", () => {
+describe("Settings product-analytics preference", () => {
   it("reflects analyticsEnabled false as switch off", async () => {
     configureConvex({
       currentUser: makeCurrentUserView({ analyticsEnabled: false }),
@@ -166,9 +166,11 @@ describe("Settings product-analytics consent", () => {
       "aria-checked",
       "true",
     );
+    expect(screen.getByText(/on by default for new accounts/i)).toBeVisible();
+    expect(screen.queryByText(/off by default/i)).not.toBeInTheDocument();
   });
 
-  it("records explicit consent and shows confirmation when enabled", async () => {
+  it("persists opt-in from a disabled preference", async () => {
     const setAnalyticsEnabled = vi.fn().mockResolvedValue(undefined);
     configureConvex({
       currentUser: makeCurrentUserView({ analyticsEnabled: false }),
@@ -181,6 +183,23 @@ describe("Settings product-analytics consent", () => {
 
     await waitFor(() => {
       expect(setAnalyticsEnabled).toHaveBeenCalledWith({ enabled: true });
+    });
+    expect(screen.getByText("Privacy preference updated.")).toBeInTheDocument();
+  });
+
+  it("persists opt-out from an enabled preference", async () => {
+    const setAnalyticsEnabled = vi.fn().mockResolvedValue(undefined);
+    configureConvex({
+      currentUser: makeCurrentUserView({ analyticsEnabled: true }),
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+
+    await waitFor(() => {
+      expect(setAnalyticsEnabled).toHaveBeenCalledWith({ enabled: false });
     });
     expect(screen.getByText("Privacy preference updated.")).toBeInTheDocument();
   });

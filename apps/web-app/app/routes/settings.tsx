@@ -42,7 +42,7 @@ const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
 };
 
 /** Settings shell. App Version aids support diagnosis (PRD story 90); Privacy hosts
- * product-analytics consent (ADR 0013). */
+ * the product-analytics opt-out (ADR 0013). */
 export default function Settings() {
   const session = useAppSession();
 
@@ -334,9 +334,9 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
             Share product analytics
           </FieldLabel>
           <FieldDescription>
-            Off by default. When enabled, PocketCircle shares limited feature-usage events with
-            PostHog. Turn it off anytime to withdraw consent. Operational error monitoring (Sentry)
-            stays on regardless.
+            On by default for new accounts. PocketCircle shares only coarse feature-usage events
+            with PostHog—not transaction amounts, titles, notes, names, or other free text. Turn
+            this off anytime. Operational error monitoring (Sentry) stays on regardless.
           </FieldDescription>
         </FieldContent>
       </Field>

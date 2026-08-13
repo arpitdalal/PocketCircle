@@ -24,14 +24,15 @@ afterEach(() => {
 });
 
 describe("buildPostHogInitOptions", () => {
-  it("disables session recording and page autocapture", () => {
+  it("uses memory persistence and disables session recording and page autocapture", () => {
     expect(buildPostHogInitOptions()).toEqual({
       api_host: "https://us.i.posthog.com",
       disable_session_recording: true,
       autocapture: false,
       capture_pageview: false,
       capture_pageleave: false,
-      persistence: "localStorage",
+      persistence: "memory",
+      person_profiles: "never",
       opt_out_capturing_by_default: true,
       opt_out_persistence_by_default: true,
     });
@@ -45,7 +46,7 @@ describe("initAnalytics", () => {
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("does not initialize before explicit consent", () => {
+  it("does not initialize when analytics are disabled", () => {
     initAnalytics({ ...readyUser, analyticsEnabled: false });
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
@@ -62,7 +63,7 @@ describe("initAnalytics", () => {
 });
 
 describe("setAnalyticsEnabled", () => {
-  it("withdraws consent, resets identity, and stops capture after init", () => {
+  it("stops capture, resets in-memory state, and ignores later track calls", () => {
     initAnalytics(readyUser);
 
     setAnalyticsEnabled(false);
