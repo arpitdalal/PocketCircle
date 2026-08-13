@@ -1,6 +1,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import type { MutationCtx } from "./_generated/server.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
 
@@ -30,7 +31,7 @@ async function seedCircleWithOwner(ctx: MutationCtx) {
     mark: "P",
     ownerUserId: userId,
     status: "active",
-    setupCompletedAt: now,
+    ...circleSetupFields(now),
     currencyLocked: false,
     accountDeletionBlocked: false,
     createdAt: now,
@@ -110,7 +111,7 @@ describe("listEntityHistory", () => {
         mark: "O",
         ownerUserId: seeded.ownerUserId,
         status: "active",
-        setupCompletedAt: null,
+        ...circleSetupFields(null),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: Date.now(),

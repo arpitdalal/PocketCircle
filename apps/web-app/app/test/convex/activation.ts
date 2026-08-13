@@ -51,6 +51,7 @@ export function makeActivationChecklistView(
     personalCategoryComplete: false,
     regularCircleComplete: false,
     sharedMemberState: "not_started",
+    pendingInvitationExpiresAt: null,
     firstIncomplete: "personalTransaction",
     memberCta: { kind: "create" },
     completionEventPending: false,

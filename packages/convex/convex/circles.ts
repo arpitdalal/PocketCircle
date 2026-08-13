@@ -24,6 +24,7 @@ import {
 import { markActivationMilestone } from "./activation.js";
 import { requireCurrentUser } from "./auth.js";
 import { createCategoryForMember } from "./categories.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
 import type { HistoryChange } from "./history.js";
 import { circleEntity, paginateEntityHistory, recordEvent } from "./history.js";
@@ -140,7 +141,7 @@ export const createCircle = mutation({
       mark: input.mark,
       ownerUserId: user._id,
       status: "active",
-      setupCompletedAt: null,
+      ...circleSetupFields(null),
       currencyLocked: false,
       ...accountDeletionBlockerFields(
         { kind: "regular", status: "active", setupCompletedAt: null },
@@ -354,7 +355,10 @@ export const completeCircleSetup = mutation({
     const answers = circleSetupAnswersSchema.parse(args.answers);
     const now = Date.now();
     const circleChanges: HistoryChange[] = setupAnswerChanges(access.circle.setupAnswers, answers);
-    const patch: Partial<Doc<"circles">> = { setupAnswers: answers, setupCompletedAt: now };
+    const patch: Partial<Doc<"circles">> = {
+      setupAnswers: answers,
+      ...circleSetupFields(now),
+    };
 
     await ctx.db.patch(args.circleId, patch);
 

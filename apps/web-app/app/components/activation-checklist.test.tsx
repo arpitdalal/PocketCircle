@@ -142,6 +142,7 @@ describe("ActivationChecklist items", () => {
         completedCount: 1,
         firstIncomplete: "personalTransaction",
         sharedMemberState: "pending",
+        pendingInvitationExpiresAt: Date.now() + 60_000,
         memberCta: { kind: "members", circleRef: "cabin-c2" },
       }),
     });
@@ -149,6 +150,25 @@ describe("ActivationChecklist items", () => {
 
     expect(screen.getByText("Invitation pending")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Invite a member" })).not.toBeInTheDocument();
+  });
+
+  it("treats an already-expired pending invitation as not started", () => {
+    configureConvex({
+      activation: makeActivationChecklistView({
+        regularCircleComplete: true,
+        completedCount: 3,
+        firstIncomplete: "sharedMember",
+        personalTransactionComplete: true,
+        personalCategoryComplete: true,
+        sharedMemberState: "pending",
+        pendingInvitationExpiresAt: Date.now() - 1,
+        memberCta: { kind: "members", circleRef: "cabin-c2" },
+      }),
+    });
+    renderChecklist();
+
+    expect(screen.queryByText("Invitation pending")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Invite a member" })).toBeInTheDocument();
   });
 
   it("routes the Member CTA to Members, Setup, or create", () => {
@@ -188,7 +208,7 @@ describe("ActivationChecklist skip", () => {
     let dismissed = false;
     const skip = vi.fn().mockImplementation(async () => {
       dismissed = true;
-      return { completedCount: 1 };
+      return { completedCount: 1, claimed: true };
     });
     configureConvex({
       activation: () =>
@@ -220,6 +240,25 @@ describe("ActivationChecklist skip", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_skipped", {
       completedCount: 1,
     });
+  });
+
+  it("does not recapture Skip when the dismissal was already claimed", async () => {
+    const skip = vi.fn().mockResolvedValue({ completedCount: 1, claimed: false });
+    configureConvex({
+      activation: makeActivationChecklistView({
+        completedCount: 1,
+        personalTransactionComplete: true,
+        firstIncomplete: "personalCategory",
+      }),
+      skipActivationChecklist: skip,
+    });
+    const user = userEvent.setup();
+    renderChecklist();
+
+    await user.click(screen.getByRole("button", { name: "Skip onboarding" }));
+
+    await waitFor(() => expect(skip).toHaveBeenCalledWith({}));
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
   it("keeps the card visible and shows an alert when Skip fails", async () => {

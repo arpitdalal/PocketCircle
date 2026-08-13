@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeUser, seedCircle, seedPersonalCircleOwner } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { sendEmail } from "./email.js";
 import { hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
@@ -614,7 +615,7 @@ describe("sendInvitationEmail", () => {
         mark: "B",
         ownerUserId: owner._id,
         status: "active",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: now,

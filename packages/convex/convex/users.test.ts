@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedPersonalCircleOwner } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { createUserWithPersonalCircle, setUserDisplayName, syncUserEmail } from "./model.js";
 import schema from "./schema.js";
 
@@ -85,6 +86,7 @@ describe("createUserWithPersonalCircle", () => {
         .withIndex("by_user", (q) => q.eq("userId", userId))
         .unique();
       expect(activation?.initializedAt).toBeTypeOf("number");
+      expect(activation?.evidenceBackfilledAt).toBeTypeOf("number");
       expect(activation?.personalTransactionCreatedAt).toBeUndefined();
       expect(activation?.personalCategoryCreatedAt).toBeUndefined();
       expect(activation?.regularCircleCreatedAt).toBeUndefined();
@@ -162,7 +164,7 @@ describe("setUserDisplayName", () => {
         mark: "T",
         ownerUserId: userId,
         status: "active",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: now,
@@ -184,7 +186,7 @@ describe("setUserDisplayName", () => {
         mark: "O",
         ownerUserId: userId,
         status: "active",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: now,
@@ -306,7 +308,7 @@ describe("completeOnboarding", () => {
         mark: "T",
         ownerUserId: userId,
         status: "active",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: now,
@@ -375,7 +377,7 @@ describe("updateProfile", () => {
         mark: "O",
         ownerUserId: userId,
         status: "active",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: now,

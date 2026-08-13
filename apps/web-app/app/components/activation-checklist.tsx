@@ -1,6 +1,6 @@
 import { currentMonth } from "@pocketcircle/domain";
 import { CheckIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
@@ -37,18 +37,63 @@ const ITEMS = [
   },
 ] as const;
 
-function isComplete(checklist: ReadyActivationChecklist, id: (typeof ITEMS)[number]["id"]) {
+/**
+ * Invitation rows stay `pending` after expiresAt; Convex will not re-run the
+ * checklist query on the wall clock alone. Local timer flips pending → invite CTA.
+ */
+function usePendingInvitationActive(expiresAt: number | null) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (expiresAt === null) {
+      return;
+    }
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => setNow(Date.now()), remaining);
+    return () => window.clearTimeout(timer);
+  }, [expiresAt]);
+
+  return expiresAt !== null && expiresAt > now;
+}
+
+function sharedMemberStateForUi(checklist: ReadyActivationChecklist, pendingActive: boolean) {
+  if (checklist.sharedMemberState === "complete") {
+    return "complete" as const;
+  }
+  if (checklist.sharedMemberState === "pending" && pendingActive) {
+    return "pending" as const;
+  }
+  return "not_started" as const;
+}
+
+function isComplete(
+  checklist: ReadyActivationChecklist,
+  id: (typeof ITEMS)[number]["id"],
+  pendingActive: boolean,
+) {
   if (id === "personalTransaction") return checklist.personalTransactionComplete;
   if (id === "personalCategory") return checklist.personalCategoryComplete;
   if (id === "regularCircle") return checklist.regularCircleComplete;
-  return checklist.sharedMemberState === "complete";
+  return sharedMemberStateForUi(checklist, pendingActive) === "complete";
 }
 
-function MemberCta({ checklist, origin }: { checklist: ReadyActivationChecklist; origin: string }) {
-  if (checklist.sharedMemberState === "complete") {
+function MemberCta({
+  checklist,
+  origin,
+  pendingActive,
+}: {
+  checklist: ReadyActivationChecklist;
+  origin: string;
+  pendingActive: boolean;
+}) {
+  const sharedMemberState = sharedMemberStateForUi(checklist, pendingActive);
+  if (sharedMemberState === "complete") {
     return null;
   }
-  if (checklist.sharedMemberState === "pending") {
+  if (sharedMemberState === "pending") {
     return <p className="text-sm text-muted-foreground">Invitation pending</p>;
   }
   const { memberCta } = checklist;
@@ -91,14 +136,16 @@ function ItemActions({
   circle,
   month,
   origin,
+  pendingActive,
 }: {
   id: (typeof ITEMS)[number]["id"];
   checklist: ReadyActivationChecklist;
   circle: Circle;
   month: string;
   origin: string;
+  pendingActive: boolean;
 }) {
-  if (isComplete(checklist, id)) {
+  if (isComplete(checklist, id, pendingActive)) {
     return null;
   }
   if (id === "personalTransaction") {
@@ -139,7 +186,7 @@ function ItemActions({
       </Link>
     );
   }
-  return <MemberCta checklist={checklist} origin={origin} />;
+  return <MemberCta checklist={checklist} origin={origin} pendingActive={pendingActive} />;
 }
 
 /**
@@ -154,6 +201,9 @@ export function ActivationChecklist({ circle }: { circle: Circle }) {
   const skipChecklist = useSkipActivationChecklist();
   const [skipError, setSkipError] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const pendingActive = usePendingInvitationActive(
+    checklist?.status === "ready" ? checklist.pendingInvitationExpiresAt : null,
+  );
 
   if (checklist === undefined || checklist.status !== "ready" || !checklist.visible) {
     return null;
@@ -164,7 +214,7 @@ export function ActivationChecklist({ circle }: { circle: Circle }) {
     setSkipping(true);
     try {
       const result = await skipChecklist({});
-      if (result.completedCount <= 3) {
+      if (result.claimed && result.completedCount <= 3) {
         track("activation_checklist_skipped", { completedCount: result.completedCount });
       }
     } catch {
@@ -210,7 +260,7 @@ export function ActivationChecklist({ circle }: { circle: Circle }) {
 
       <ol className="mt-4 space-y-2">
         {ITEMS.map((item) => {
-          const complete = isComplete(checklist, item.id);
+          const complete = isComplete(checklist, item.id, pendingActive);
           const current = checklist.firstIncomplete === item.id;
           return (
             <li
@@ -246,6 +296,7 @@ export function ActivationChecklist({ circle }: { circle: Circle }) {
                     circle={circle}
                     month={month}
                     origin={origin}
+                    pendingActive={pendingActive}
                   />
                 </div>
               </div>

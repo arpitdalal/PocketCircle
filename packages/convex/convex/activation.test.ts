@@ -124,6 +124,7 @@ describe("getActivationChecklist", () => {
       throw new Error("expected ready checklist");
     }
     expect(view.sharedMemberState).toBe("pending");
+    expect(view.pendingInvitationExpiresAt).toEqual(expect.any(Number));
     expect(view.memberCta).toEqual({
       kind: "members",
       circleRef: expect.stringMatching(/^cabin-/),
@@ -163,6 +164,7 @@ describe("initializeActivationChecklist", () => {
       personalCategoryComplete: false,
       regularCircleComplete: false,
       sharedMemberState: "not_started",
+      pendingInvitationExpiresAt: null,
       firstIncomplete: "personalTransaction",
       memberCta: { kind: "create" },
       completionEventPending: false,
@@ -368,11 +370,55 @@ describe("initializeActivationChecklist", () => {
       expect(rows[0]?.personalCategoryCreatedAt).toBe(400);
       expect(rows[0]?.dismissedAt).toBe(800);
       expect(rows[0]?.completionEventDeliveredAt).toBe(900);
+      expect(rows[0]?.evidenceBackfilledAt).toEqual(expect.any(Number));
     });
   });
 });
 
 describe("activation writers", () => {
+  it("marks milestones without running evidence backfill on the write path", async () => {
+    const t = createTestConvex();
+    const owner = await t.run((ctx) => makeUser(ctx, "hotpath@example.com", "Hot Path"));
+    const personal = await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner, { kind: "personal", name: "Hot Path's Circle" }),
+    );
+    const categoryId = await t.run((ctx) =>
+      makeCategory(ctx, personal.circleId, {
+        name: "Coffee",
+        creatorUserId: owner._id,
+      }),
+    );
+    // Pre-existing category evidence that must NOT be scanned during createTransaction.
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await t.mutation(api.transactions.createTransaction, {
+      circleId: personal.circleId,
+      type: "expense",
+      title: "Latte",
+      amountMinorUnits: 500,
+      date: "2026-05-15",
+      categoryIds: [categoryId],
+    });
+
+    await t.run(async (ctx) => {
+      const [row] = await activationRows(ctx, owner._id);
+      expect(row?.personalTransactionCreatedAt).toEqual(expect.any(Number));
+      expect(row?.personalCategoryCreatedAt).toBeUndefined();
+      expect(row?.evidenceBackfilledAt).toBeUndefined();
+    });
+    expect(await t.query(api.activation.getActivationChecklist, {})).toEqual({
+      status: "uninitialized",
+    });
+
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      status: "ready",
+      personalTransactionComplete: true,
+      personalCategoryComplete: true,
+      completedCount: 2,
+    });
+  });
+
   it("marks a Personal Transaction and ignores a regular-Circle Transaction", async () => {
     const t = createTestConvex();
     const { owner, personalCircleId } = await t.run((ctx) => seedOnboardedOwner(ctx));
@@ -597,7 +643,7 @@ describe("skip and acknowledge", () => {
     mockCurrentUser.mockResolvedValue(owner);
 
     const first = await t.mutation(api.activation.skipActivationChecklist, {});
-    expect(first).toEqual({ completedCount: 0 });
+    expect(first).toEqual({ completedCount: 0, claimed: true });
     const afterSkip = await t.query(api.activation.getActivationChecklist, {});
     expect(afterSkip).toMatchObject({
       status: "ready",
@@ -612,7 +658,7 @@ describe("skip and acknowledge", () => {
       return row?.dismissedAt;
     });
     const second = await t.mutation(api.activation.skipActivationChecklist, {});
-    expect(second).toEqual({ completedCount: 0 });
+    expect(second).toEqual({ completedCount: 0, claimed: false });
     await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
       expect(row?.dismissedAt).toBe(dismissedAt);

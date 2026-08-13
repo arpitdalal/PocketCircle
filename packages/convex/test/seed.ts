@@ -2,6 +2,7 @@ import { PERSONAL_CIRCLE_COLOR_ID } from "@pocketcircle/domain";
 import type { Doc, Id } from "../convex/_generated/dataModel.js";
 import type { MutationCtx } from "../convex/_generated/server.js";
 import { accountDeletionBlockerFields } from "../convex/accountDeletionBlockers.js";
+import { circleSetupFields } from "../convex/circleSetup.js";
 import { generateInvitationToken, hashInvitationToken } from "../convex/invitationToken.js";
 import { createUserWithPersonalCircle, type NewUserProfile } from "../convex/model.js";
 import { syncTransactionSearchDocument } from "../convex/transactionSearchDocuments.js";
@@ -114,7 +115,7 @@ export async function seedCircle(
     mark: "T",
     ownerUserId: owner._id,
     status,
-    setupCompletedAt,
+    ...circleSetupFields(setupCompletedAt),
     currencyLocked: opts.currencyLocked ?? false,
     ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
     createdAt: now,
@@ -158,7 +159,7 @@ export async function seedOwnedCircle(
     mark: kind === "personal" ? "AC" : "T",
     ownerUserId: owner._id,
     status,
-    setupCompletedAt,
+    ...circleSetupFields(setupCompletedAt),
     currencyLocked: opts.currencyLocked ?? false,
     ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
     createdAt: now,
@@ -226,7 +227,7 @@ export async function makeCategory(
 
 /** Marks a seeded Circle as setup-complete (test-only; outside deploy graph). */
 export async function markCircleSetupComplete(ctx: MutationCtx, circleId: Id<"circles">) {
-  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
+  await ctx.db.patch(circleId, circleSetupFields(Date.now()));
 }
 
 export interface Fixture extends Seed {

@@ -21,6 +21,7 @@ import {
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 
@@ -140,7 +141,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -170,7 +171,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -191,7 +192,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -226,7 +227,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);
@@ -359,7 +360,7 @@ describe("notification creation on events (NTF-2)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -393,7 +394,7 @@ describe("notification creation on events (NTF-2)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);

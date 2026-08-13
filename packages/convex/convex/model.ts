@@ -11,6 +11,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
+import { circleSetupFields } from "./circleSetup.js";
 
 /**
  * Bootstrap helpers for new User creation. These hold no dependency on the
@@ -61,7 +62,7 @@ export async function createUserWithPersonalCircle(
     ownerUserId: userId,
     status: "active",
     currencyLocked: false,
-    setupCompletedAt: now,
+    ...circleSetupFields(now),
     ...accountDeletionBlockerFields(
       { kind: "personal", status: "active", setupCompletedAt: now },
       1,
@@ -79,9 +80,13 @@ export async function createUserWithPersonalCircle(
     joinedAt: now,
   });
 
-  // Empty Activation Checklist row so New Users skip the existing-User evidence path
-  // (ADR 0030). Writers only fill timestamps; they never fabricate completion.
-  await ctx.db.insert("userActivation", { userId, initializedAt: now });
+  // Empty Activation Checklist row with evidence already marked scanned — New Users
+  // have nothing to backfill (ADR 0030). Writers only fill milestone timestamps.
+  await ctx.db.insert("userActivation", {
+    userId,
+    initializedAt: now,
+    evidenceBackfilledAt: now,
+  });
 
   return userId;
 }

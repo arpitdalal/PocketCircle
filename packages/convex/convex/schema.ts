@@ -58,6 +58,10 @@ export default defineSchema({
     setupAnswers: v.optional(circleSetupAnswers),
     // Workflow milestone: timestamp when complete; null means incomplete regular Circle.
     setupCompletedAt: v.union(v.number(), v.null()),
+    // Indexed twin of `setupCompletedAt !== null` for bounded Activation member-CTA
+    // reads (earliest active regular Circle per setup lane). Always written with
+    // `circleSetupFields`.
+    setupComplete: v.boolean(),
     // Currency is locked once any Transaction exists (PRD story 9).
     currencyLocked: v.boolean(),
     // Denormalized Account Deletion readiness (USR-3 / ADR 0029): finalization
@@ -74,8 +78,14 @@ export default defineSchema({
     .index("by_owner_and_kind", ["ownerUserId", "kind"])
     .index("by_owner_and_status", ["ownerUserId", "status"])
     .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"])
-    // Activation Checklist member-CTA: earliest active regular Circle the User owns.
-    .index("by_owner_kind_status_createdAt", ["ownerUserId", "kind", "status", "createdAt"]),
+    // Activation Checklist member-CTA: earliest active regular Circle in a setup lane.
+    .index("by_owner_kind_status_setupComplete_createdAt", [
+      "ownerUserId",
+      "kind",
+      "status",
+      "setupComplete",
+      "createdAt",
+    ]),
 
   // Membership join. Exactly one row per (circleId, userId): leaving flips
   // status to "removed", rejoining reactivates the SAME row — never a duplicate
@@ -310,6 +320,10 @@ export default defineSchema({
   userActivation: defineTable({
     userId: v.id("users"),
     initializedAt: v.number(),
+    // Set after the one-shot evidence scan (bootstrap or initialize). Writers may
+    // create a row without this; the dashboard treats that as uninitialized so
+    // backfill stays off the Transaction/Category/Circle/Invitation hot path.
+    evidenceBackfilledAt: v.optional(v.number()),
     personalTransactionCreatedAt: v.optional(v.number()),
     personalCategoryCreatedAt: v.optional(v.number()),
     regularCircleCreatedAt: v.optional(v.number()),

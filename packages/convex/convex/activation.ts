@@ -56,6 +56,7 @@ function mergedActivationFields(rows: ActivationRow[]) {
   let sharedMemberJoinedAt: number | undefined;
   let dismissedAt: number | undefined;
   let completionEventDeliveredAt: number | undefined;
+  let evidenceBackfilledAt: number | undefined;
   let initializedAt = Number.POSITIVE_INFINITY;
 
   for (const row of rows) {
@@ -75,6 +76,7 @@ function mergedActivationFields(rows: ActivationRow[]) {
       completionEventDeliveredAt,
       row.completionEventDeliveredAt,
     );
+    evidenceBackfilledAt = earliestTimestamp(evidenceBackfilledAt, row.evidenceBackfilledAt);
   }
 
   return {
@@ -85,6 +87,7 @@ function mergedActivationFields(rows: ActivationRow[]) {
     ...(sharedMemberJoinedAt === undefined ? {} : { sharedMemberJoinedAt }),
     ...(dismissedAt === undefined ? {} : { dismissedAt }),
     ...(completionEventDeliveredAt === undefined ? {} : { completionEventDeliveredAt }),
+    ...(evidenceBackfilledAt === undefined ? {} : { evidenceBackfilledAt }),
   };
 }
 
@@ -161,6 +164,9 @@ async function applyEvidenceToRow(ctx: MutationCtx, row: ActivationRow, userId: 
       patch[field] = next;
     }
   }
+  if (row.evidenceBackfilledAt === undefined) {
+    patch.evidenceBackfilledAt = Date.now();
+  }
   if (Object.keys(patch).length === 0) {
     return row;
   }
@@ -170,9 +176,9 @@ async function applyEvidenceToRow(ctx: MutationCtx, row: ActivationRow, userId: 
 }
 
 /**
- * Creates the row if missing (backfilling evidence when this is the first write
- * for an existing User), then returns the unique row. New Users already have a
- * bootstrap row, so this is a read + collapse.
+ * Creates an empty Activation row when missing. Does NOT scan evidence — writers
+ * must stay bounded (ADR 0030 / non-blocking). Evidence backfill runs only via
+ * initializeActivationChecklist (or Skip, which initializes first).
  */
 async function ensureActivationRow(ctx: MutationCtx, userId: Id<"users">, now = Date.now()) {
   const existing = await getUniqueActivationRow(ctx, userId);
@@ -183,7 +189,7 @@ async function ensureActivationRow(ctx: MutationCtx, userId: Id<"users">, now = 
   if (!created) {
     throw new Error("Activation row missing after insert");
   }
-  return await applyEvidenceToRow(ctx, created, userId);
+  return created;
 }
 
 /** Idempotent: sets a milestone timestamp only when absent. */
@@ -318,33 +324,49 @@ async function collectActivationEvidence(
   return evidence;
 }
 
-async function hasUnexpiredPendingInvitation(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
+async function earliestUnexpiredPendingInvitationExpiresAt(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+) {
   const pending = await ctx.db
     .query("invitations")
     .withIndex("by_inviter_status_expiresAt", (q) =>
       q.eq("invitedByUserId", userId).eq("status", "pending").gt("expiresAt", Date.now()),
     )
     .first();
-  return pending !== null;
+  return pending?.expiresAt;
 }
 
 function circleRefOf(circle: Doc<"circles">) {
   return buildRef(circle.name, circle._id);
 }
 
+/** Bounded CTA: one `.first()` per setup lane via the setupComplete index. */
 async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const activeRegular = await ctx.db
+  const setupComplete = await ctx.db
     .query("circles")
-    .withIndex("by_owner_kind_status_createdAt", (q) =>
-      q.eq("ownerUserId", userId).eq("kind", "regular").eq("status", "active"),
+    .withIndex("by_owner_kind_status_setupComplete_createdAt", (q) =>
+      q
+        .eq("ownerUserId", userId)
+        .eq("kind", "regular")
+        .eq("status", "active")
+        .eq("setupComplete", true),
     )
-    .collect();
-
-  const setupComplete = activeRegular.find((circle) => circle.setupCompletedAt !== null);
+    .first();
   if (setupComplete) {
     return { kind: "members" as const, circleRef: circleRefOf(setupComplete) };
   }
-  const incomplete = activeRegular[0];
+
+  const incomplete = await ctx.db
+    .query("circles")
+    .withIndex("by_owner_kind_status_setupComplete_createdAt", (q) =>
+      q
+        .eq("ownerUserId", userId)
+        .eq("kind", "regular")
+        .eq("status", "active")
+        .eq("setupComplete", false),
+    )
+    .first();
   if (incomplete) {
     return { kind: "setup" as const, circleRef: circleRefOf(incomplete) };
   }
@@ -379,7 +401,7 @@ function firstIncompleteOf(row: ActivationRow) {
 
 function toActivationChecklistView(
   row: ActivationRow,
-  pendingInvitation: boolean,
+  pendingInvitationExpiresAt: number | undefined,
   memberCta: MemberCta,
 ) {
   const completedCount = completedCountOf(row);
@@ -388,7 +410,7 @@ function toActivationChecklistView(
   const sharedMemberState: SharedMemberState =
     row.sharedMemberJoinedAt !== undefined
       ? "complete"
-      : pendingInvitation
+      : pendingInvitationExpiresAt !== undefined
         ? "pending"
         : "not_started";
 
@@ -403,6 +425,9 @@ function toActivationChecklistView(
     personalCategoryComplete: row.personalCategoryCreatedAt !== undefined,
     regularCircleComplete: row.regularCircleCreatedAt !== undefined,
     sharedMemberState,
+    // Wall-clock expiry does not mutate Invitation status; clients reevaluate CTA
+    // when this timestamp elapses (Convex reactivity alone cannot).
+    pendingInvitationExpiresAt: pendingInvitationExpiresAt ?? null,
     firstIncomplete: firstIncompleteOf(row),
     memberCta,
     completionEventPending: allComplete && row.completionEventDeliveredAt === undefined,
@@ -428,19 +453,23 @@ async function initializeActivationFromEvidence(ctx: MutationCtx, userId: Id<"us
   return await applyEvidenceToRow(ctx, created, userId);
 }
 
-/** UI-ready Activation Checklist for the signed-in User. `uninitialized` when no row. */
+/** UI-ready Activation Checklist for the signed-in User. `uninitialized` when no row
+ * or evidence backfill has not run yet (writer-created rows stay off the hot path). */
 export const getActivationChecklist = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
     const rows = await listActivationRows(ctx, user._id);
     const row = readActivationRow(rows);
-    if (!row) {
+    if (!row || row.evidenceBackfilledAt === undefined) {
       return { status: "uninitialized" as const };
     }
-    const pendingInvitation = await hasUnexpiredPendingInvitation(ctx, user._id);
+    const pendingInvitationExpiresAt = await earliestUnexpiredPendingInvitationExpiresAt(
+      ctx,
+      user._id,
+    );
     const memberCta = await resolveMemberCta(ctx, user._id);
-    return toActivationChecklistView(row, pendingInvitation, memberCta);
+    return toActivationChecklistView(row, pendingInvitationExpiresAt, memberCta);
   },
 });
 
@@ -455,19 +484,22 @@ export const initializeActivationChecklist = mutation({
 
 /**
  * Persists Skip onboarding. Does not mark milestones. Repeated calls keep the
- * original dismissedAt. Returns the completed-item count at skip time (0–3 while
- * the card is shown; 4 if already complete).
+ * original dismissedAt. Returns `claimed: true` only for the caller that sets
+ * dismissal (so analytics fire once across tabs).
  */
 export const skipActivationChecklist = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
-    const row = await ensureActivationRow(ctx, user._id);
+    // Skip may be the first touch for a legacy User — backfill evidence here so
+    // completedCount is accurate, without putting scans on create writers.
+    const row = await initializeActivationFromEvidence(ctx, user._id);
     const completedCount = completedCountOf(row);
-    if (row.dismissedAt === undefined) {
-      await ctx.db.patch(row._id, { dismissedAt: Date.now() });
+    if (row.dismissedAt !== undefined) {
+      return { completedCount, claimed: false };
     }
-    return { completedCount };
+    await ctx.db.patch(row._id, { dismissedAt: Date.now() });
+    return { completedCount, claimed: true };
   },
 });
 

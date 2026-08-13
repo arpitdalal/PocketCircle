@@ -1,8 +1,9 @@
 import { CIRCLE_PURPOSES, type CircleSetupAnswers, RESIDENCE_TYPES } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
-import { href, Navigate, useNavigate } from "react-router";
+import { href, Navigate, useNavigate, useSearchParams } from "react-router";
 import { Button } from "~/components/ui/button.js";
 import { type Member, useCompleteCircleSetup, useMembers } from "~/lib/data.js";
+import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
@@ -28,6 +29,7 @@ export default function CircleSetup() {
   const circle = useCircle();
   const members = useMembers(circle.id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const completeSetup = useCompleteCircleSetup();
   const { show } = useSnackbar();
   const [purpose, setPurpose] = useState<PurposeChoice>(circle.setupAnswers?.purpose ?? "");
@@ -38,9 +40,10 @@ export default function CircleSetup() {
   const [submitting, setSubmitting] = useState(false);
 
   const dashboardPath = href("/circles/:circleRef", { circleRef: circle.ref });
+  const returnTo = parseReturnTo(searchParams.get(RETURN_TO_PARAM), { fallback: dashboardPath });
 
   if (circle.setupComplete) {
-    return <Navigate to={dashboardPath} replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   if (members === undefined) {
@@ -66,7 +69,7 @@ export default function CircleSetup() {
         answers: setupAnswers(purpose, residenceType),
       });
       show("Circle setup complete.");
-      await navigate(dashboardPath);
+      await navigate(returnTo);
     } catch (caught) {
       console.error("completeCircleSetup failed", caught);
       setError("Couldn't complete setup. Please try again.");

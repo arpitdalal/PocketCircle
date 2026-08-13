@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedCircle, seedInvitation } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 
@@ -26,7 +27,7 @@ function createTestConvex() {
 
 async function completeSetup(t: ReturnType<typeof createTestConvex>, circleId: Id<"circles">) {
   await t.run(async (ctx) => {
-    await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
+    await ctx.db.patch(circleId, circleSetupFields(Date.now()));
   });
 }
 

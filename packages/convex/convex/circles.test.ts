@@ -18,6 +18,7 @@ import {
   seedTransaction,
 } from "../test/seed.js";
 import { api } from "./_generated/api.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { categoryEntity, circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
@@ -285,7 +286,7 @@ describe("updateCircleSettings", () => {
       const now = Date.now();
       await ctx.db.patch(seed.circleId, {
         setupAnswers: { purpose: "trip" },
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
       });
       return seed;
     });
@@ -476,7 +477,7 @@ describe("updateCircleSettings", () => {
       const now = Date.now();
       await ctx.db.patch(seed.circleId, {
         setupAnswers: { purpose: "trip" },
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
       });
       return seed;
     });
@@ -504,7 +505,7 @@ describe("updateCircleSettings", () => {
       const now = Date.now();
       await ctx.db.patch(seed.circleId, {
         setupAnswers: { purpose: "residence", residenceType: "leased" },
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
       });
       await makeCategory(ctx, seed.circleId, {
         name: "Rent",

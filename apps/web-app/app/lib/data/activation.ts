@@ -24,6 +24,7 @@ export const MOCK_ACTIVATION: ActivationChecklist = {
   personalCategoryComplete: false,
   regularCircleComplete: false,
   sharedMemberState: "not_started",
+  pendingInvitationExpiresAt: null,
   firstIncomplete: "personalTransaction",
   memberCta: { kind: "create" },
   completionEventPending: false,

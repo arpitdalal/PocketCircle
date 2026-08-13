@@ -123,6 +123,34 @@ describe("Create Circle", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 
+  it("propagates returnTo into setup and Cancel", async () => {
+    const user = userEvent.setup();
+    const newId = "c-ret";
+    const origin = "/circles/personal-p1";
+    const createCircle = vi.fn().mockResolvedValue(newId);
+    configureConvex({ createCircle });
+    const view = renderRoutes(
+      <>
+        <Route path="/" element={<div>home</div>} />
+        <Route path="/circles/new" element={<CreateCircle />} />
+        <Route path="/circles/:circleRef" element={<div>circle page</div>} />
+        <Route path="/circles/:circleRef/setup" element={<div>setup page</div>} />
+      </>,
+      { initialEntries: [`/circles/new?returnTo=${encodeURIComponent(origin)}`] },
+    );
+
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", origin);
+
+    await user.type(screen.getByLabelText("Name"), "Cabin");
+    await user.click(screen.getByRole("button", { name: "Create circle" }));
+
+    await waitFor(() => {
+      expect(view.location()).toBe(
+        `/circles/${buildRef("Cabin", newId)}/setup?returnTo=${encodeURIComponent(origin)}`,
+      );
+    });
+  });
+
   it("never blocks on a duplicate name (identity is mark + color + ref, not the name)", async () => {
     const user = userEvent.setup();
     const createCircle = vi.fn().mockResolvedValue("c-dup");
