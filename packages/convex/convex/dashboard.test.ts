@@ -457,21 +457,22 @@ describe("getMonthlyComparison — series math (RPT-4)", () => {
     expect(comparison?.series.map((entry) => entry.expenseMinor)).toEqual([0, 0, 1_000]);
   });
 
-  it.each([
-    1, 3, 6, 12,
-  ] as const)("a %i-month range produces exactly that many months ending at endMonth", async (rangeMonths) => {
-    const t = convexTest(schema, modules);
-    const f = await t.run((ctx) => seedFixture(ctx));
-    mockCurrentUser.mockResolvedValue(f.owner);
+  it.each([1, 3, 6, 12] as const)(
+    "a %i-month range produces exactly that many months ending at endMonth",
+    async (rangeMonths) => {
+      const t = convexTest(schema, modules);
+      const f = await t.run((ctx) => seedFixture(ctx));
+      mockCurrentUser.mockResolvedValue(f.owner);
 
-    const comparison = await t.query(api.dashboard.getMonthlyComparison, {
-      circleId: f.circleId,
-      endMonth: "2026-06",
-      rangeMonths,
-    });
-    expect(comparison?.series).toHaveLength(rangeMonths);
-    expect(comparison?.series.at(-1)?.month).toBe("2026-06");
-  });
+      const comparison = await t.query(api.dashboard.getMonthlyComparison, {
+        circleId: f.circleId,
+        endMonth: "2026-06",
+        rangeMonths,
+      });
+      expect(comparison?.series).toHaveLength(rangeMonths);
+      expect(comparison?.series.at(-1)?.month).toBe("2026-06");
+    },
+  );
 
   it("spans a year boundary correctly", async () => {
     const t = convexTest(schema, modules);

@@ -400,26 +400,25 @@ describe("invitationPayload", () => {
     expect(payload?.circleId).toBeTruthy();
   });
 
-  it.each([
-    "accepted",
-    "revoked",
-    "expired",
-  ] as const)("returns null when status is %s", async (status) => {
-    const t = convexTest(schema, modules);
-    const { invitationId, token } = await seedPendingInvitation(t);
-    const tokenHash = await hashInvitationToken(token);
+  it.each(["accepted", "revoked", "expired"] as const)(
+    "returns null when status is %s",
+    async (status) => {
+      const t = convexTest(schema, modules);
+      const { invitationId, token } = await seedPendingInvitation(t);
+      const tokenHash = await hashInvitationToken(token);
 
-    await t.run(async (ctx) => {
-      await ctx.db.patch(invitationId, { status });
-    });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(invitationId, { status });
+      });
 
-    const payload = await t.query(internal.email.invitationPayload, {
-      invitationId,
-      resendCount: 0,
-      tokenHash,
-    });
-    expect(payload).toBeNull();
-  });
+      const payload = await t.query(internal.email.invitationPayload, {
+        invitationId,
+        resendCount: 0,
+        tokenHash,
+      });
+      expect(payload).toBeNull();
+    },
+  );
 
   it("returns null when the invitation row does not exist", async () => {
     const t = convexTest(schema, modules);

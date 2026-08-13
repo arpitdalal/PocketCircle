@@ -356,16 +356,17 @@ describe("CircleSearch", () => {
     );
   });
 
-  it.each(
-    FILTER_PANEL_CLOSE_MEDIUMS,
-  )("discards unapplied panel edits when the panel is closed via %s", async (medium) => {
-    const user = userEvent.setup();
-    const { location } = setup({
-      initialEntries: [`/circles/${REF}/search?type=all&status=all`],
-    });
+  it.each(FILTER_PANEL_CLOSE_MEDIUMS)(
+    "discards unapplied panel edits when the panel is closed via %s",
+    async (medium) => {
+      const user = userEvent.setup();
+      const { location } = setup({
+        initialEntries: [`/circles/${REF}/search?type=all&status=all`],
+      });
 
-    await assertFilterPanelDiscardsDraftOnClose({ user, medium, location });
-  });
+      await assertFilterPanelDiscardsDraftOnClose({ user, medium, location });
+    },
+  );
 
   it("keeps in-flight top-bar query when a concurrent applied change does not touch q", async () => {
     const user = userEvent.setup();

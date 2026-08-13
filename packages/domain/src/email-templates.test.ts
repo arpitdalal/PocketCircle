@@ -104,15 +104,16 @@ describe("feedbackEmail", () => {
 });
 
 describe("EMAIL_PREVIEWS", () => {
-  it.each(
-    EMAIL_PREVIEWS,
-  )("$name render(defaults) returns non-empty subject and html", (preview) => {
-    const defaults = Object.fromEntries(preview.fields.map((f) => [f.key, f.default]));
-    const { subject, html } = preview.render(defaults);
-    expect(subject.length).toBeGreaterThan(0);
-    expect(html.length).toBeGreaterThan(0);
-    for (const field of preview.fields) {
-      expect(html).toContain(field.default);
-    }
-  });
+  it.each(EMAIL_PREVIEWS)(
+    "$name render(defaults) returns non-empty subject and html",
+    (preview) => {
+      const defaults = Object.fromEntries(preview.fields.map((f) => [f.key, f.default]));
+      const { subject, html } = preview.render(defaults);
+      expect(subject.length).toBeGreaterThan(0);
+      expect(html.length).toBeGreaterThan(0);
+      for (const field of preview.fields) {
+        expect(html).toContain(field.default);
+      }
+    },
+  );
 });

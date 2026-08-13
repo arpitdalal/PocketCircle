@@ -3,7 +3,7 @@ import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";
 import { ConvexError } from "convex/values";
 import { convexTest as createConvexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mutateAndDrain } from "../test/mutateAndDrain.js";
+import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
@@ -102,21 +102,11 @@ function createTestConvex() {
   return t;
 }
 
-async function drainWorkpool(t: ReturnType<typeof createTestConvex>) {
-  await t.finishAllScheduledFunctions(vi.runAllTimers);
-}
-
 async function inviteAndDrain(
   t: ReturnType<typeof createTestConvex>,
   args: { circleId: Id<"circles">; email: string },
 ) {
-  vi.useFakeTimers();
-  try {
-    await t.mutation(api.invitations.createInvitation, args);
-    await drainWorkpool(t);
-  } finally {
-    vi.useRealTimers();
-  }
+  await mutateAndDrain(t, () => t.mutation(api.invitations.createInvitation, args));
 }
 
 describe("createInvitation — happy path", () => {
@@ -134,7 +124,7 @@ describe("createInvitation — happy path", () => {
       circleId,
       email: "ada@example.com",
     });
-    await drainWorkpool(t);
+    await drainScheduledFunctions(t);
 
     await t.run(async (ctx) => {
       const invites = await ctx.db
@@ -481,7 +471,7 @@ describe("createInvitation — email enqueue", () => {
       circleId,
       email: "ada@example.com",
     });
-    await drainWorkpool(t);
+    await drainScheduledFunctions(t);
 
     const resend = capturedRequests.filter((r) => r.vendor === "resend");
     expect(resend).toHaveLength(1);
@@ -808,7 +798,7 @@ describe("resendInvitation", () => {
     mockCurrentUser.mockResolvedValue(owner);
     vi.useFakeTimers();
     try {
-      await drainWorkpool(t);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -826,7 +816,7 @@ describe("resendInvitation", () => {
     vi.useFakeTimers();
     try {
       await t.mutation(api.invitations.resendInvitation, { invitationId: inviteId });
-      await drainWorkpool(t);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -869,7 +859,7 @@ describe("resendInvitation", () => {
     vi.useFakeTimers();
     try {
       await t.mutation(api.invitations.resendInvitation, { invitationId: inviteId });
-      await drainWorkpool(t);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -894,7 +884,7 @@ describe("resendInvitation", () => {
     mockCurrentUser.mockResolvedValue(owner);
     vi.useFakeTimers();
     try {
-      await drainWorkpool(t);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -908,7 +898,7 @@ describe("resendInvitation", () => {
     try {
       await t.mutation(api.invitations.resendInvitation, { invitationId: inviteId });
       await t.mutation(api.invitations.resendInvitation, { invitationId: inviteId });
-      await drainWorkpool(t);
+      await drainScheduledFunctions(t);
     } finally {
       vi.useRealTimers();
     }
@@ -1443,23 +1433,23 @@ describe("getInvitationPreview", () => {
     expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
   });
 
-  it.each([
-    "accepted",
-    "revoked",
-  ] as const)("returns null when the invitation is %s", async (status) => {
-    const t = createTestConvex();
-    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
-    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
-    const token = await t.run((ctx) =>
-      seedPendingInvitation(ctx, {
-        circleId,
-        email: "ada@example.com",
-        invitedByUserId: owner._id,
-        status,
-      }),
-    );
-    expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
-  });
+  it.each(["accepted", "revoked"] as const)(
+    "returns null when the invitation is %s",
+    async (status) => {
+      const t = createTestConvex();
+      const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+      await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+      const token = await t.run((ctx) =>
+        seedPendingInvitation(ctx, {
+          circleId,
+          email: "ada@example.com",
+          invitedByUserId: owner._id,
+          status,
+        }),
+      );
+      expect(await t.query(api.invitations.getInvitationPreview, { token })).toBeNull();
+    },
+  );
 
   it("returns null for an incomplete Circle", async () => {
     const t = createTestConvex();
@@ -2063,7 +2053,7 @@ describe("circle capacity", () => {
     });
 
     await t.mutation(api.invitations.resendInvitation, { invitationId });
-    await drainWorkpool(t);
+    await drainScheduledFunctions(t);
 
     const occupiedAfter = await t.run(async (ctx) => {
       const active = await ctx.db
