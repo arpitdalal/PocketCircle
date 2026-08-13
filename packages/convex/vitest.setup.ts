@@ -11,6 +11,7 @@ vi.mock("@sentry/node", async () => {
     getDefaultIntegrationsWithoutPerformance:
       sentryNodeSdk.getDefaultIntegrationsWithoutPerformance,
     captureMessage: sentryNodeSdk.captureMessage,
+    captureEvent: sentryNodeSdk.captureEvent,
     flush: sentryNodeSdk.flush,
   };
 });

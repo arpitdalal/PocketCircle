@@ -61,6 +61,7 @@ export async function reportTerminalFailure(
       kind: args.kind,
       entityId: args.entityId,
       error,
+      // Snapshot now: the Node action may run after a later deploy changed APP_RELEASE.
       release: process.env.APP_RELEASE ?? "local-dev",
     });
   } catch (caught) {

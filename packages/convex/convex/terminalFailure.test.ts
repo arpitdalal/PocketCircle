@@ -18,12 +18,12 @@ function createTestConvex() {
   return convexTest(schema, modules);
 }
 
-function capturedReport() {
-  expect(sentryNodeSdk.captureMessage).toHaveBeenCalledOnce();
-  const [message, context] = sentryNodeSdk.captureMessage.mock.calls[0] ?? [];
-  expect(message).toBeTypeOf("string");
-  expect(context).toBeTypeOf("object");
-  return { message, context };
+function capturedEvent() {
+  expect(sentryNodeSdk.captureEvent).toHaveBeenCalledOnce();
+  const [event] = sentryNodeSdk.captureEvent.mock.calls[0] ?? [];
+  expect(event).toBeTypeOf("object");
+  expect(event).not.toBeNull();
+  return event;
 }
 
 describe("sanitizeOperationalError", () => {
@@ -52,17 +52,18 @@ describe("terminal failure reporting", () => {
       }),
     );
 
-    const { message, context } = capturedReport();
-    expect(message).toBe("welcome_email_exhausted");
-    expect(context).toEqual({
+    const event = capturedEvent();
+    expect(event).toEqual({
+      message: "welcome_email_exhausted",
       level: "error",
+      release: "abc1234",
       tags: { failureKind: "welcome_email_exhausted" },
       extra: {
         entityId: userId,
         error: "Resend send failed: 503",
-        release: "abc1234",
       },
     });
+    expect(sentryNodeSdk.captureMessage).not.toHaveBeenCalled();
     expect(sentryNodeSdk.flush).toHaveBeenCalledOnce();
     expect(sentryNodeSdk.init).not.toHaveBeenCalled();
     expect(sentryNodeSdk.initWithoutDefaultIntegrations).toHaveBeenCalledWith({
@@ -95,9 +96,11 @@ describe("terminal failure reporting", () => {
       }),
     );
 
-    const { message, context } = capturedReport();
-    expect(message).toBe("invitation_email_exhausted");
-    expect(context).toMatchObject({ extra: { entityId: invitationId } });
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "invitation_email_exhausted",
+      extra: { entityId: invitationId },
+    });
   });
 
   it("reports feedback email exhaustion", async () => {
@@ -118,9 +121,11 @@ describe("terminal failure reporting", () => {
       }),
     );
 
-    const { message, context } = capturedReport();
-    expect(message).toBe("feedback_email_exhausted");
-    expect(context).toMatchObject({ extra: { entityId: eventId } });
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "feedback_email_exhausted",
+      extra: { entityId: eventId },
+    });
   });
 
   it("reports account-deletion email exhaustion", async () => {
@@ -138,9 +143,11 @@ describe("terminal failure reporting", () => {
       }),
     );
 
-    const { message, context } = capturedReport();
-    expect(message).toBe("account_deletion_email_exhausted");
-    expect(context).toMatchObject({ extra: { entityId: userId } });
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "account_deletion_email_exhausted",
+      extra: { entityId: userId },
+    });
   });
 
   it("reports persisted Account Deletion cleanup failure", async () => {
@@ -164,9 +171,9 @@ describe("terminal failure reporting", () => {
 
     const job = await t.run(async (ctx) => ctx.db.get(jobId));
     expect(job?.failure).toBe("unknown phase: not-a-real-phase");
-    const { message, context } = capturedReport();
-    expect(message).toBe("account_deletion_cleanup_failed");
-    expect(context).toMatchObject({
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "account_deletion_cleanup_failed",
       extra: { entityId: jobId, error: "unknown phase: not-a-real-phase" },
     });
   });
@@ -191,6 +198,7 @@ describe("terminal failure reporting", () => {
       });
     });
 
+    expect(sentryNodeSdk.captureEvent).not.toHaveBeenCalled();
     expect(sentryNodeSdk.captureMessage).not.toHaveBeenCalled();
   });
 
@@ -214,23 +222,48 @@ describe("terminal failure reporting", () => {
         }),
       );
 
-      const { context } = capturedReport();
-      const extra =
-        context && typeof context === "object" && "extra" in context ? context.extra : null;
-      expect(extra).toMatchObject({ error: sanitized });
+      const event = capturedEvent();
+      expect(event).toMatchObject({ extra: { error: sanitized }, release: "abc1234" });
       expect(errSpy.mock.calls.flat().join(" ")).toContain(sanitized);
       expect(errSpy.mock.calls.flat().join(" ")).not.toContain("ada@example.com");
-      expect(JSON.stringify(context)).not.toContain("ada@example.com");
-      expect(JSON.stringify(context)).not.toContain("secret-token");
-      expect(JSON.stringify(context)).not.toContain("Please add dark mode");
+      expect(JSON.stringify(event)).not.toContain("ada@example.com");
+      expect(JSON.stringify(event)).not.toContain("secret-token");
+      expect(JSON.stringify(event)).not.toContain("Please add dark mode");
     } finally {
       errSpy.mockRestore();
     }
   });
 
+  it("attributes the Sentry event to the release snapshotted at failure time", async () => {
+    enableSentryReporting();
+    const t = createTestConvex();
+    const { userId } = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+
+    await mutateAndDrain(t, async () => {
+      await t.mutation(internal.email.onWelcomeRunComplete, {
+        workId: "work-stale-env",
+        context: { userId },
+        result: { kind: "failed", error: "Resend send failed: 503" },
+      });
+      vi.stubEnv("APP_RELEASE", "later789");
+    });
+
+    const event = capturedEvent();
+    expect(event).toMatchObject({ release: "abc1234" });
+    expect(sentryNodeSdk.initWithoutDefaultIntegrations).toHaveBeenCalledWith(
+      expect.objectContaining({ release: "abc1234" }),
+    );
+    expect(JSON.stringify(event)).not.toContain("later789");
+    expect(JSON.stringify(sentryNodeSdk.initWithoutDefaultIntegrations.mock.calls)).not.toContain(
+      "later789",
+    );
+  });
+
   it("does not throw when Sentry capture itself fails", async () => {
     enableSentryReporting();
-    sentryNodeSdk.captureMessage.mockImplementation(() => {
+    sentryNodeSdk.captureEvent.mockImplementation(() => {
       throw new Error("sentry down");
     });
     const t = createTestConvex();
@@ -265,6 +298,7 @@ describe("terminal failure reporting", () => {
 
     expect(sentryNodeSdk.init).not.toHaveBeenCalled();
     expect(sentryNodeSdk.initWithoutDefaultIntegrations).not.toHaveBeenCalled();
+    expect(sentryNodeSdk.captureEvent).not.toHaveBeenCalled();
     expect(sentryNodeSdk.captureMessage).not.toHaveBeenCalled();
   });
 });

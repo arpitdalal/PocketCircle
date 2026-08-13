@@ -8,6 +8,7 @@ export const sentryNodeSdk = {
   initWithoutDefaultIntegrations: vi.fn(),
   getDefaultIntegrationsWithoutPerformance: vi.fn(() => errorOnlyIntegrations),
   captureMessage: vi.fn(),
+  captureEvent: vi.fn(),
   flush: vi.fn(async () => true),
 };
 
@@ -17,6 +18,7 @@ export function resetSentryBoundary() {
   sentryNodeSdk.getDefaultIntegrationsWithoutPerformance.mockReset();
   sentryNodeSdk.getDefaultIntegrationsWithoutPerformance.mockReturnValue(errorOnlyIntegrations);
   sentryNodeSdk.captureMessage.mockReset();
+  sentryNodeSdk.captureEvent.mockReset();
   sentryNodeSdk.flush.mockReset();
   sentryNodeSdk.flush.mockResolvedValue(true);
 }
