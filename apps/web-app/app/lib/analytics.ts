@@ -12,8 +12,6 @@ import type { SessionUser } from "./session.js";
 
 const isBrowser = typeof window !== "undefined";
 
-const POSTHOG_CONSENT_STORAGE_PREFIX = "__ph_opt_in_out_";
-
 const POSTHOG_URL_PROPERTY_KEYS = [
   "$current_url",
   "$pathname",
@@ -36,15 +34,60 @@ const POSTHOG_URL_PROPERTY_KEYS = [
 let clientInitialized = false;
 let captureEnabled = false;
 let initializedForUserId: string | null = null;
+let pendingEnabled: boolean | null = null;
 
-function clearLeftoverPostHogConsent() {
+/** Keys the previous localStorage persistence and consent APIs left behind. */
+export function retiredPostHogStorageKeys(keys: readonly string[], token: string) {
+  return keys.filter(
+    (key) =>
+      key === "ph_debug" || key === `__ph_opt_in_out_${token}` || key.startsWith(`ph_${token}_`),
+  );
+}
+
+function storageKeys(storage: Storage) {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+function cookieNames() {
+  if (!isBrowser || !document.cookie) {
+    return [];
+  }
+  return document.cookie.split(";").flatMap((part) => {
+    const name = part.split("=")[0]?.trim();
+    return name ? [name] : [];
+  });
+}
+
+function clearRetiredPostHogBrowserStorage() {
   if (!POSTHOG_KEY || !isBrowser) {
     return;
   }
   try {
-    window.localStorage?.removeItem(`${POSTHOG_CONSENT_STORAGE_PREFIX}${POSTHOG_KEY}`);
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      if (!storage) {
+        continue;
+      }
+      for (const key of retiredPostHogStorageKeys(storageKeys(storage), POSTHOG_KEY)) {
+        storage.removeItem(key);
+      }
+    }
   } catch {
     // Storage may be blocked or unavailable.
+  }
+  try {
+    for (const name of retiredPostHogStorageKeys(cookieNames(), POSTHOG_KEY)) {
+      // biome-ignore lint/suspicious/noDocumentCookie: expire leftover PostHog cookies the old persistence wrote
+      document.cookie = `${name}=; Max-Age=0; path=/`;
+    }
+  } catch {
+    // document.cookie may be unavailable.
   }
 }
 
@@ -80,6 +123,17 @@ function stopCaptureAndResetIdentity() {
   }
 }
 
+function applyCaptureEnabled(enabled: boolean) {
+  if (!enabled) {
+    stopCaptureAndResetIdentity();
+    return;
+  }
+  if (clientInitialized) {
+    posthog.stopSessionRecording();
+    captureEnabled = true;
+  }
+}
+
 export function buildPostHogInitOptions() {
   return {
     api_host: POSTHOG_HOST,
@@ -105,16 +159,22 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
   if (initializedForUserId !== null && initializedForUserId !== user.id) {
     stopCaptureAndResetIdentity();
     initializedForUserId = null;
+    pendingEnabled = null;
   }
 
-  if (!user.analyticsEnabled) {
+  if (pendingEnabled !== null && pendingEnabled === user.analyticsEnabled) {
+    pendingEnabled = null;
+  }
+  const enabled = pendingEnabled ?? user.analyticsEnabled;
+
+  if (!enabled) {
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
     return;
   }
 
   if (!clientInitialized) {
-    clearLeftoverPostHogConsent();
+    clearRetiredPostHogBrowserStorage();
     posthog.init(POSTHOG_KEY, buildPostHogInitOptions());
     posthog.stopSessionRecording();
     clientInitialized = true;
@@ -128,16 +188,8 @@ export function setAnalyticsEnabled(enabled: boolean) {
   if (!POSTHOG_KEY || !isBrowser) {
     return;
   }
-
-  if (!enabled) {
-    stopCaptureAndResetIdentity();
-    return;
-  }
-
-  if (clientInitialized) {
-    posthog.stopSessionRecording();
-    captureEnabled = true;
-  }
+  pendingEnabled = enabled;
+  applyCaptureEnabled(enabled);
 }
 
 export function teardownAnalytics() {
@@ -147,7 +199,8 @@ export function teardownAnalytics() {
   stopCaptureAndResetIdentity();
   clientInitialized = false;
   initializedForUserId = null;
-  clearLeftoverPostHogConsent();
+  pendingEnabled = null;
+  clearRetiredPostHogBrowserStorage();
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {
@@ -175,4 +228,5 @@ export function resetAnalyticsStateForTests() {
   clientInitialized = false;
   captureEnabled = false;
   initializedForUserId = null;
+  pendingEnabled = null;
 }

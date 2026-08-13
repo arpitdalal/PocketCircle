@@ -19,7 +19,7 @@ import {
 import { Input } from "~/components/ui/input.js";
 import { Switch } from "~/components/ui/switch.js";
 import { Textarea } from "~/components/ui/textarea.js";
-import { track } from "~/lib/analytics.js";
+import { setAnalyticsEnabled as setClientAnalyticsEnabled, track } from "~/lib/analytics.js";
 import { requestAccountDeletion } from "~/lib/auth-client.js";
 import {
   type AccountDeletionBlocker,
@@ -307,6 +307,7 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
 
     setError(null);
     setEnabled(nextEnabled);
+    setClientAnalyticsEnabled(nextEnabled);
     setSubmitting(true);
     try {
       await setAnalyticsEnabled({ enabled: nextEnabled });
@@ -314,6 +315,7 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
     } catch (caught) {
       console.error("setAnalyticsEnabled failed", caught);
       setEnabled(user.analyticsEnabled);
+      setClientAnalyticsEnabled(user.analyticsEnabled);
       setError("Couldn't update your privacy preference. Please try again.");
     }
     setSubmitting(false);

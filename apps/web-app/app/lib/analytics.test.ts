@@ -7,10 +7,12 @@ vi.mock("~/lib/env.js", async (importOriginal) =>
   (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
 );
 
+import type { CaptureResult } from "posthog-js";
 import { posthogEnv, posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
   initAnalytics,
+  retiredPostHogStorageKeys,
   setAnalyticsEnabled,
   teardownAnalytics,
   track,
@@ -25,14 +27,7 @@ const readyUser = {
   analyticsEnabled: true,
 };
 
-function beforeSend(event: {
-  uuid: string;
-  event: string;
-  properties: Record<string, unknown>;
-  $set?: Record<string, unknown>;
-  $set_once?: Record<string, unknown>;
-  $unset?: string[];
-}) {
+function beforeSend(event: CaptureResult) {
   const { before_send } = buildPostHogInitOptions();
   if (typeof before_send !== "function") {
     throw new Error("expected before_send");
@@ -112,6 +107,29 @@ describe("initAnalytics", () => {
   });
 });
 
+describe("retiredPostHogStorageKeys", () => {
+  it("selects the retired localStorage persistence record and consent flag for this project", () => {
+    expect(
+      retiredPostHogStorageKeys(
+        [
+          "ph_phc_test_posthog",
+          "__ph_opt_in_out_phc_test",
+          "ph_phc_test_window_id",
+          "ph_debug",
+          "unrelated",
+          "ph_other_token_posthog",
+        ],
+        "phc_test",
+      ),
+    ).toEqual([
+      "ph_phc_test_posthog",
+      "__ph_opt_in_out_phc_test",
+      "ph_phc_test_window_id",
+      "ph_debug",
+    ]);
+  });
+});
+
 describe("teardownAnalytics", () => {
   it("clears in-memory identity so a later user does not reuse the previous session", () => {
     initAnalytics(readyUser);
@@ -147,6 +165,15 @@ describe("setAnalyticsEnabled", () => {
 
     expect(posthogSdk.opt_in_capturing).not.toHaveBeenCalled();
     expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "feature" });
+  });
+
+  it("keeps a local opt-out when the session still reports analytics enabled", () => {
+    initAnalytics(readyUser);
+    setAnalyticsEnabled(false);
+    initAnalytics(readyUser);
+    track("feedback_submitted", { type: "bug" });
+
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 });
 

@@ -15,6 +15,9 @@ test("a new user's analytics switch is on after onboarding and can be turned off
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
+    // True-E2E (ADR 0019) does not run MSW. This Playwright route is the vendor
+    // firewall so a local/CI PostHog key cannot escape. Capture allowlist and
+    // immediate opt-out are asserted in Vitest against the real analytics module.
     await page.route(/posthog\.com/i, (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: '{"status":1}' }),
     );
