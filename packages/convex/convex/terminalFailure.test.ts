@@ -4,6 +4,7 @@ import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { seedFeedbackEmailEvent, seedInvitation, seedPersonalCircleOwner } from "../test/seed.js";
 import { enableSentryReporting, sentryNodeSdk } from "../test/sentry-boundary.js";
 import { internal } from "./_generated/api.js";
+import { hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 import { sanitizeOperationalError } from "./terminalFailure.js";
 
@@ -300,5 +301,103 @@ describe("terminal failure reporting", () => {
     expect(sentryNodeSdk.initWithoutDefaultIntegrations).not.toHaveBeenCalled();
     expect(sentryNodeSdk.captureEvent).not.toHaveBeenCalled();
     expect(sentryNodeSdk.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("reports welcome send when Resend env is missing without failing the job", async () => {
+    enableSentryReporting();
+    const t = createTestConvex();
+    const { userId } = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+
+    await mutateAndDrain(t, () => t.action(internal.email.sendWelcomeEmail, { userId }));
+
+    expect(capturedEvent()).toMatchObject({
+      message: "welcome_email_exhausted",
+      extra: { entityId: userId, error: "Resend env not configured" },
+    });
+  });
+
+  it("reports invitation send when Resend env is missing without failing the job", async () => {
+    enableSentryReporting();
+    const t = createTestConvex();
+    const token = "plaintext-invite-token";
+    const invitationId = await t.run(async (ctx) => {
+      const seed = await seedPersonalCircleOwner(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+      });
+      return seedInvitation(ctx, seed.personalCircleId, seed.userId, {
+        email: "grace@example.com",
+        tokenHash: await hashInvitationToken(token),
+      });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.action(internal.email.sendInvitationEmail, { invitationId, token, resendCount: 0 }),
+    );
+
+    expect(capturedEvent()).toMatchObject({
+      message: "invitation_email_exhausted",
+      extra: { entityId: invitationId, error: "Resend env not configured" },
+    });
+  });
+
+  it("reports feedback send when SUPPORT_EMAIL is missing without failing the job", async () => {
+    enableSentryReporting();
+    const t = createTestConvex();
+    const eventId = await t.run(async (ctx) => {
+      const seed = await seedPersonalCircleOwner(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+      });
+      return seedFeedbackEmailEvent(ctx, { userId: seed.userId, type: "bug", sentAt: Date.now() });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.action(internal.email.sendFeedbackEmail, {
+        eventId,
+        type: "bug",
+        message: "Please add dark mode",
+        userEmail: "ada@example.com",
+        displayName: "Ada",
+        appVersion: "local-dev",
+        submittedAtIso: "2026-08-13T00:00:00.000Z",
+      }),
+    );
+
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "feedback_email_exhausted",
+      extra: { entityId: eventId, error: "SUPPORT_EMAIL not configured" },
+    });
+    expect(JSON.stringify(event)).not.toContain("Please add dark mode");
+    expect(JSON.stringify(event)).not.toContain("ada@example.com");
+  });
+
+  it("reports account-deletion send when Resend env is missing without failing the job", async () => {
+    enableSentryReporting();
+    vi.stubEnv("SITE_URL", "https://app.example.com");
+    const t = createTestConvex();
+    const { userId } = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+
+    await mutateAndDrain(t, () =>
+      t.action(internal.accountDeletion.sendAccountDeletionEmail, {
+        userId,
+        email: "ada@example.com",
+        displayName: "Ada",
+        token: "delete-token",
+      }),
+    );
+
+    const event = capturedEvent();
+    expect(event).toMatchObject({
+      message: "account_deletion_email_exhausted",
+      extra: { entityId: userId, error: "Resend env not configured" },
+    });
+    expect(JSON.stringify(event)).not.toContain("ada@example.com");
+    expect(JSON.stringify(event)).not.toContain("delete-token");
   });
 });

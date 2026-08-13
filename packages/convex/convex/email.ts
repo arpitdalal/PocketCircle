@@ -2,9 +2,14 @@ import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
 import { feedbackEmail, invitationEmail, welcomeEmail } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server.js";
+import {
+  type ActionCtx,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server.js";
 import { hashInvitationToken } from "./invitationToken.js";
-import { reportTerminalFailure } from "./terminalFailure.js";
+import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFailure.js";
 
 /**
  * Transactional email via Resend (ADR 0008). v1 sends only Welcome + Invitation
@@ -32,8 +37,9 @@ export const emailPool = new Workpool(components.emailWorkpool, {
 });
 
 /** Resend vendor wiring — single seam for EML-2 / FBK-1. Uses fetch (not SDK).
- *  Returns true on a confirmed 2xx; false when env is unset (no-op). THROWS on
- *  fetch rejection or non-2xx so the Workpool retries the handoff.
+ *  Returns true on a confirmed 2xx; false when env is unset (no-op, EML-1: a
+ *  missing key must not throw into bootstrap or trigger Workpool retries).
+ *  THROWS on fetch rejection or non-2xx so the Workpool retries the handoff.
  *  Pass `idempotencyKey` so a retried send dedupes at Resend instead of re-delivering. */
 export async function sendEmail(args: {
   to: string;
@@ -77,6 +83,26 @@ export async function sendEmail(args: {
   return true;
 }
 
+/** Skip-and-return when Resend is unset; report once so production misconfig alerts. */
+export async function sendEmailOrReport(
+  ctx: ActionCtx,
+  report: {
+    kind: (typeof TERMINAL_FAILURE_KINDS)[number];
+    entityId: string;
+  },
+  args: Parameters<typeof sendEmail>[0],
+) {
+  const sent = await sendEmail(args);
+  if (!sent) {
+    await reportTerminalFailure(ctx, {
+      kind: report.kind,
+      entityId: report.entityId,
+      error: "Resend env not configured",
+    });
+  }
+  return sent;
+}
+
 export const welcomePayload = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
@@ -110,12 +136,16 @@ export const sendWelcomeEmail = internalAction({
       return;
     }
     const { subject, html } = welcomeEmail({ displayName: p.displayName });
-    const sent = await sendEmail({
-      to: p.email,
-      subject,
-      html,
-      idempotencyKey: `welcome:${userId}`,
-    });
+    const sent = await sendEmailOrReport(
+      ctx,
+      { kind: "welcome_email_exhausted", entityId: userId },
+      {
+        to: p.email,
+        subject,
+        html,
+        idempotencyKey: `welcome:${userId}`,
+      },
+    );
     if (sent) {
       await ctx.runMutation(internal.email.markWelcomed, { userId });
     }
@@ -234,12 +264,16 @@ export const sendInvitationEmail = internalAction({
       ownerDisplayName: p.ownerDisplayName,
       recipientEmail: p.recipientEmail,
     });
-    await sendEmail({
-      to: p.recipientEmail,
-      subject,
-      html,
-      idempotencyKey: `invite:${invitationId}:${resendCount}`,
-    });
+    await sendEmailOrReport(
+      ctx,
+      { kind: "invitation_email_exhausted", entityId: invitationId },
+      {
+        to: p.recipientEmail,
+        subject,
+        html,
+        idempotencyKey: `invite:${invitationId}:${resendCount}`,
+      },
+    );
   },
 });
 
@@ -274,10 +308,14 @@ export const sendFeedbackEmail = internalAction({
     circleRef: v.optional(v.string()),
     submittedAtIso: v.string(),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const supportEmail = process.env.SUPPORT_EMAIL;
     if (!supportEmail) {
-      console.error("SUPPORT_EMAIL not configured; skipping feedback email send");
+      await reportTerminalFailure(ctx, {
+        kind: "feedback_email_exhausted",
+        entityId: args.eventId,
+        error: "SUPPORT_EMAIL not configured",
+      });
       return;
     }
     const { subject, html } = feedbackEmail({
@@ -290,13 +328,17 @@ export const sendFeedbackEmail = internalAction({
       circleRef: args.circleRef,
       submittedAtIso: args.submittedAtIso,
     });
-    await sendEmail({
-      to: supportEmail,
-      subject,
-      html,
-      idempotencyKey: `feedback:${args.eventId}`,
-      logBodyInDev: false,
-    });
+    await sendEmailOrReport(
+      ctx,
+      { kind: "feedback_email_exhausted", entityId: args.eventId },
+      {
+        to: supportEmail,
+        subject,
+        html,
+        idempotencyKey: `feedback:${args.eventId}`,
+        logBodyInDev: false,
+      },
+    );
   },
 });
 

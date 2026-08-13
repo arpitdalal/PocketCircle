@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api.js";
-import type { MutationCtx } from "./_generated/server.js";
+import type { ActionCtx, MutationCtx } from "./_generated/server.js";
 
 export const TERMINAL_FAILURE_KINDS = [
   "welcome_email_exhausted",
@@ -47,7 +47,7 @@ export function sanitizeOperationalError(error: string) {
 
 /** Log locally and best-effort schedule Sentry capture. Never throws. */
 export async function reportTerminalFailure(
-  ctx: MutationCtx,
+  ctx: MutationCtx | ActionCtx,
   args: {
     kind: (typeof TERMINAL_FAILURE_KINDS)[number];
     entityId: string;

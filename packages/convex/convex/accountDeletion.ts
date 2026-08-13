@@ -19,7 +19,7 @@ import {
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { assertNoAccountDeletionBlockers } from "./accountDeletionFinalize.js";
 import { requireCurrentUser } from "./auth.js";
-import { emailPool, sendEmail } from "./email.js";
+import { emailPool, sendEmailOrReport } from "./email.js";
 import { circleEntity, recordEvent } from "./history.js";
 import { reportTerminalFailure } from "./terminalFailure.js";
 
@@ -212,7 +212,7 @@ export const sendAccountDeletionEmail = internalAction({
     displayName: v.string(),
     token: v.string(),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const siteUrl = process.env.SITE_URL;
     if (!siteUrl) {
       throw new Error("SITE_URL is required to send the account deletion email");
@@ -222,12 +222,16 @@ export const sendAccountDeletionEmail = internalAction({
       displayName: args.displayName,
       verifyLink,
     });
-    await sendEmail({
-      to: args.email,
-      subject,
-      html,
-      idempotencyKey: `account-deletion:${args.userId}:${args.token}`,
-    });
+    await sendEmailOrReport(
+      ctx,
+      { kind: "account_deletion_email_exhausted", entityId: args.userId },
+      {
+        to: args.email,
+        subject,
+        html,
+        idempotencyKey: `account-deletion:${args.userId}:${args.token}`,
+      },
+    );
   },
 });
 
