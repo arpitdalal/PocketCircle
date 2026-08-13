@@ -121,7 +121,13 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     user: {
       deleteUser: {
         enabled: true,
-        sendDeleteAccountVerification: async ({ user, token }) => {
+        sendDeleteAccountVerification: async ({
+          user,
+          token,
+        }: {
+          user: unknown;
+          token: string;
+        }) => {
           const mapped = parseBetterAuthMappedUser(user);
           const runCtx = requireRunMutationCtx(ctx);
           await runCtx.runMutation(internal.accountDeletion.enqueueDeletionVerificationEmail, {

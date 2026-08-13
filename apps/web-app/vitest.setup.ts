@@ -23,6 +23,7 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
   globalThis.IntersectionObserver = class {
     readonly root = null;
     readonly rootMargin = "";
+    readonly scrollMargin = "";
     readonly thresholds: ReadonlyArray<number> = [];
     observe() {}
     unobserve() {}

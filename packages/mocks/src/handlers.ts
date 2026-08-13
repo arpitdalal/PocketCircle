@@ -40,6 +40,11 @@ function headersToRecord(headers: Headers) {
   return out;
 }
 
+/** TS 6 infers json() body as `T | undefined` (optional param); pin T. */
+function json<T extends Record<string, string | number>>(body: T) {
+  return HttpResponse.json<T>(body, { status: 200 });
+}
+
 export const handlers = [
   // Resend — transactional email (ADR 0008): Welcome + Invitation + Feedback.
   http.post("https://api.resend.com/emails", async ({ request }) => {
@@ -49,7 +54,7 @@ export const handlers = [
       body: await safeJson(request),
       headers: headersToRecord(request.headers),
     });
-    return HttpResponse.json({ id: "mock-email-id" }, { status: 200 });
+    return json({ id: "mock-email-id" });
   }),
 
   // PostHog — product analytics (ADR 0013). Catches both capture and batch.
@@ -59,7 +64,7 @@ export const handlers = [
       url: request.url,
       body: await safeJson(request),
     });
-    return HttpResponse.json({ status: 1 }, { status: 200 });
+    return json({ status: 1 });
   }),
 
   // Sentry — error monitoring envelopes (ADR 0012).
@@ -69,6 +74,6 @@ export const handlers = [
       url: request.url,
       body: await request.clone().text(),
     });
-    return HttpResponse.json({ id: "mock-event-id" }, { status: 200 });
+    return json({ id: "mock-event-id" });
   }),
 ];
