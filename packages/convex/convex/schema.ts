@@ -59,9 +59,9 @@ export default defineSchema({
     // Workflow milestone: timestamp when complete; null means incomplete regular Circle.
     setupCompletedAt: v.union(v.number(), v.null()),
     // Indexed twin of `setupCompletedAt !== null` for bounded Activation member-CTA
-    // reads (earliest active regular Circle per setup lane). Always written with
-    // `circleSetupFields`.
-    setupComplete: v.boolean(),
+    // reads. Optional until prod Circles are backfilled; then narrow to required.
+    // Always written going forward via `circleSetupFields`.
+    setupComplete: v.optional(v.boolean()),
     // Currency is locked once any Transaction exists (PRD story 9).
     currencyLocked: v.boolean(),
     // Denormalized Account Deletion readiness (USR-3 / ADR 0029): finalization
