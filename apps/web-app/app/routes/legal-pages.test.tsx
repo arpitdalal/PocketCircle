@@ -46,7 +46,7 @@ describe("legal pages", () => {
     expect(screen.getByText(/Collection starts only after the onboarding notice/i)).toBeVisible();
     expect(screen.getByText(/allowlisted, coarse feature-usage events/i)).toBeVisible();
     expect(
-      screen.getByText(/application identifiers, or an identified person profile/i),
+      screen.getByText(/application identifiers, page URLs, or an identified person profile/i),
     ).toBeVisible();
     expect(screen.getByText(/Browser analytics state is memory-only/i)).toBeVisible();
     expect(screen.getByText(/clears in-memory PostHog state/i)).toBeVisible();

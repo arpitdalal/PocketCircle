@@ -8,7 +8,13 @@ vi.mock("~/lib/env.js", async (importOriginal) =>
 );
 
 import { posthogEnv, posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
-import { buildPostHogInitOptions, initAnalytics, setAnalyticsEnabled, track } from "./analytics.js";
+import {
+  buildPostHogInitOptions,
+  initAnalytics,
+  setAnalyticsEnabled,
+  teardownAnalytics,
+  track,
+} from "./analytics.js";
 import { FORBIDDEN_ANALYTICS_PROP_KEYS, sanitizeAnalyticsProps } from "./analytics-events.js";
 
 const readyUser = {
@@ -19,13 +25,30 @@ const readyUser = {
   analyticsEnabled: true,
 };
 
+function beforeSend(event: {
+  uuid: string;
+  event: string;
+  properties: Record<string, unknown>;
+  $set?: Record<string, unknown>;
+  $set_once?: Record<string, unknown>;
+  $unset?: string[];
+}) {
+  const { before_send } = buildPostHogInitOptions();
+  if (typeof before_send !== "function") {
+    throw new Error("expected before_send");
+  }
+  return before_send(event);
+}
+
 afterEach(() => {
   resetPostHogBoundary();
 });
 
 describe("buildPostHogInitOptions", () => {
-  it("uses memory persistence and disables session recording and page autocapture", () => {
-    expect(buildPostHogInitOptions()).toEqual({
+  it("uses memory persistence and disables session recording, page autocapture, and URL capture", () => {
+    const options = buildPostHogInitOptions();
+
+    expect(options).toMatchObject({
       api_host: "https://us.i.posthog.com",
       disable_session_recording: true,
       autocapture: false,
@@ -33,9 +56,15 @@ describe("buildPostHogInitOptions", () => {
       capture_pageleave: false,
       persistence: "memory",
       person_profiles: "never",
-      opt_out_capturing_by_default: true,
+      save_referrer: false,
+      save_campaign_params: false,
       opt_out_persistence_by_default: true,
     });
+    expect("opt_out_capturing_by_default" in options).toBe(false);
+    expect(options.property_denylist).toEqual(
+      expect.arrayContaining(["$current_url", "$pathname", "$referrer", "$title", "$host"]),
+    );
+    expect(options.before_send).toEqual(expect.any(Function));
   });
 });
 
@@ -51,14 +80,48 @@ describe("initAnalytics", () => {
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("initializes once with session recording disabled", () => {
+  it("initializes once with session recording disabled and without persisted consent APIs", () => {
     initAnalytics(readyUser);
     initAnalytics(readyUser);
 
     expect(posthogSdk.init).toHaveBeenCalledOnce();
     expect(posthogSdk.init).toHaveBeenCalledWith("phc_test", buildPostHogInitOptions());
-    expect(posthogSdk.opt_in_capturing).toHaveBeenCalledWith({ captureEventName: false });
+    expect(posthogSdk.opt_in_capturing).not.toHaveBeenCalled();
+    expect(posthogSdk.opt_out_capturing).not.toHaveBeenCalled();
     expect(posthogSdk.stopSessionRecording).toHaveBeenCalled();
+  });
+
+  it("resets PostHog identity when the authenticated user changes", () => {
+    initAnalytics(readyUser);
+    initAnalytics({ ...readyUser, id: "user-2" });
+
+    expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    expect(posthogSdk.init).toHaveBeenCalledOnce();
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
+  });
+
+  it("stops capture when the same user disables analytics", () => {
+    initAnalytics(readyUser);
+    initAnalytics({ ...readyUser, analyticsEnabled: false });
+    track("feedback_submitted", { type: "bug" });
+
+    expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    expect(posthogSdk.opt_out_capturing).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+});
+
+describe("teardownAnalytics", () => {
+  it("clears in-memory identity so a later user does not reuse the previous session", () => {
+    initAnalytics(readyUser);
+    teardownAnalytics();
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+
+    initAnalytics({ ...readyUser, id: "user-2" });
+    expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    expect(posthogSdk.init).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -69,21 +132,83 @@ describe("setAnalyticsEnabled", () => {
     setAnalyticsEnabled(false);
     track("feedback_submitted", { type: "bug" });
 
-    expect(posthogSdk.opt_out_capturing).toHaveBeenCalled();
+    expect(posthogSdk.opt_out_capturing).not.toHaveBeenCalled();
     expect(posthogSdk.stopSessionRecording).toHaveBeenCalled();
-    expect(posthogSdk.reset).toHaveBeenCalled();
+    expect(posthogSdk.reset).toHaveBeenCalledWith(true);
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("opts back in without requiring a reload", () => {
+  it("opts back in without requiring a reload or writing PostHog consent", () => {
     initAnalytics(readyUser);
     setAnalyticsEnabled(false);
 
     setAnalyticsEnabled(true);
     track("feedback_submitted", { type: "feature" });
 
-    expect(posthogSdk.opt_in_capturing).toHaveBeenCalled();
+    expect(posthogSdk.opt_in_capturing).not.toHaveBeenCalled();
     expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "feature" });
+  });
+});
+
+describe("outgoing capture scrubbing", () => {
+  it("drops automatic URL fields and person-profile payloads from allowlisted events", () => {
+    initAnalytics(readyUser);
+
+    expect(
+      beforeSend({
+        uuid: "evt-1",
+        event: "circle_created",
+        properties: {
+          currency: "USD",
+          $browser: "Chrome",
+          $current_url: "https://app.example/circles/family-circle-abc",
+          $pathname: "/circles/family-circle-abc?q=rent",
+          $referrer: "https://mail.example/inbox",
+          $title: "Family Circle",
+        },
+        $set: { email: "ada@example.com" },
+        $set_once: { $initial_current_url: "https://app.example/circles/secret" },
+      }),
+    ).toEqual({
+      uuid: "evt-1",
+      event: "circle_created",
+      properties: {
+        currency: "USD",
+        $browser: "Chrome",
+      },
+    });
+  });
+
+  it("drops SDK events that are not on the product allowlist", () => {
+    initAnalytics(readyUser);
+
+    expect(
+      beforeSend({
+        uuid: "evt-2",
+        event: "$pageview",
+        properties: { $current_url: "https://app.example/circles/family-circle-abc" },
+      }),
+    ).toBeNull();
+  });
+
+  it("drops events until capture is enabled after init", () => {
+    expect(
+      beforeSend({
+        uuid: "evt-3",
+        event: "circle_created",
+        properties: { currency: "USD" },
+      }),
+    ).toBeNull();
+
+    initAnalytics(readyUser);
+    setAnalyticsEnabled(false);
+    expect(
+      beforeSend({
+        uuid: "evt-4",
+        event: "circle_created",
+        properties: { currency: "USD" },
+      }),
+    ).toBeNull();
   });
 });
 

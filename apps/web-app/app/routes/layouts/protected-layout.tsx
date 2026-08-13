@@ -6,7 +6,7 @@ import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PageSkeleton } from "~/components/skeleton.js";
 import { Splash } from "~/components/splash.js";
-import { initAnalytics, setAnalyticsEnabled } from "~/lib/analytics.js";
+import { initAnalytics, teardownAnalytics } from "~/lib/analytics.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
 import { MOCKS } from "~/lib/env.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
@@ -37,18 +37,18 @@ export default function ProtectedLayout() {
   const navigation = useNavigation();
   const pendingTo = navigation.location?.pathname;
   const showBottomNavSkeleton = showSkeleton && pendingTo != null && isCircleScopedPath(pendingTo);
-  const analyticsUser =
+  const analyticsSession =
     session.state === "ready" && session.user.onboardingComplete ? session.user : undefined;
+  const analyticsUserId = analyticsSession?.id;
+  const analyticsEnabled = analyticsSession?.analyticsEnabled;
 
   useEffect(() => {
-    if (!analyticsUser) {
+    if (analyticsUserId === undefined || analyticsEnabled === undefined) {
+      teardownAnalytics();
       return;
     }
-    if (analyticsUser.analyticsEnabled) {
-      initAnalytics(analyticsUser);
-    }
-    setAnalyticsEnabled(analyticsUser.analyticsEnabled);
-  }, [analyticsUser]);
+    initAnalytics({ id: analyticsUserId, analyticsEnabled });
+  }, [analyticsUserId, analyticsEnabled]);
 
   if (session.state === "loading") {
     return <Splash />;

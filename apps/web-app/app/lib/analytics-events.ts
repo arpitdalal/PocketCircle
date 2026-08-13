@@ -127,6 +127,22 @@ function hasForbiddenKey(key: string) {
   return FORBIDDEN_KEY_SET.has(key);
 }
 
+const SENSITIVE_OUTGOING_PROPERTY_PATTERN = /url|pathname|referr|href|^host$|_host$/i;
+
+/** SDK automatic fields and any key that would leak the same class of data our allowlist forbids. */
+export function isSensitiveOutgoingPropertyKey(key: string) {
+  const unprefixed = key.startsWith("$") ? key.slice(1) : key;
+  if (FORBIDDEN_KEY_SET.has(key) || FORBIDDEN_KEY_SET.has(unprefixed)) {
+    return true;
+  }
+  const lower = unprefixed.toLowerCase();
+  return (
+    SENSITIVE_OUTGOING_PROPERTY_PATTERN.test(unprefixed) ||
+    lower === "title" ||
+    lower.endsWith("_title")
+  );
+}
+
 function isAnalyticsTransactionType(value: unknown): value is AnalyticsTransactionType {
   return value === "expense" || value === "income" || value === "all";
 }

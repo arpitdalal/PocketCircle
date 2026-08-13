@@ -109,8 +109,9 @@ export default function Privacy() {
           Existing stored analytics preferences are not changed by this update. Collection starts
           only after the onboarding notice. PostHog receives allowlisted, coarse feature-usage
           events such as feature names and workflow outcomes—not financial content, free text,
-          application identifiers, or an identified person profile. PocketCircle does not call
-          PostHog identify or attach user or profile properties.
+          application identifiers, page URLs, or an identified person profile. PocketCircle does not
+          call PostHog identify or attach user or profile properties. Automatic page URLs, paths,
+          referrers, and document titles are stripped before events leave the browser.
         </p>
         <p>
           Browser analytics state is memory-only and is not written to cookies or local storage.

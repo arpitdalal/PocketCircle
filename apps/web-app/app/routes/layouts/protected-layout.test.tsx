@@ -4,7 +4,12 @@ import { createRoutesStub, Link } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import { SnackbarProvider } from "~/lib/snackbar.js";
-import { configureConvex, makeCurrentUserView } from "~/test/convex-react.js";
+import {
+  configureConvex,
+  convexReactMock,
+  makeCurrentUserView,
+  testId,
+} from "~/test/convex-react.js";
 import { installIntersectionObserverStub } from "~/test/intersection-observer-stub.js";
 import { posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
 import { deferred, renderRouteStub } from "~/test/router-stub.js";
@@ -47,6 +52,7 @@ installIntersectionObserverStub();
 
 afterEach(() => {
   resetPostHogBoundary();
+  convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
 });
 
 function ready() {
@@ -368,5 +374,93 @@ describe("ProtectedLayout onboarding gate", () => {
     expect(await screen.findByText("Home stub")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Welcome" })).not.toBeInTheDocument();
     expect(posthogSdk.init).toHaveBeenCalled();
+  });
+
+  it("resets analytics when the session leaves an onboarded User", async () => {
+    let currentUser = makeCurrentUserView({
+      analyticsEnabled: true,
+      onboardingComplete: true,
+    });
+    configureConvex({
+      currentUser: () => currentUser,
+      circles: [],
+    });
+    const Stub = createRoutesStub([
+      {
+        path: "/",
+        Component: ProtectedLayout,
+        children: [
+          { index: true, Component: () => <h2>Home stub</h2> },
+          { path: "onboarding", Component: OnboardingRoute },
+        ],
+      },
+    ]);
+    const view = render(
+      <SnackbarProvider>
+        <Stub initialEntries={["/"]} />
+      </SnackbarProvider>,
+    );
+
+    await screen.findByText("Home stub");
+    expect(posthogSdk.init).toHaveBeenCalled();
+
+    currentUser = makeCurrentUserView({
+      analyticsEnabled: true,
+      onboardingComplete: false,
+    });
+    view.rerender(
+      <SnackbarProvider>
+        <Stub key="left-app" initialEntries={["/"]} />
+      </SnackbarProvider>,
+    );
+
+    await waitFor(() => {
+      expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it("resets analytics when the authenticated User changes", async () => {
+    let currentUser = makeCurrentUserView({
+      id: testId("user-ada"),
+      analyticsEnabled: true,
+      onboardingComplete: true,
+      email: "ada@example.com",
+    });
+    configureConvex({
+      currentUser: () => currentUser,
+      circles: [],
+    });
+    const Stub = createRoutesStub([
+      {
+        path: "/",
+        Component: ProtectedLayout,
+        children: [{ index: true, Component: () => <h2>Home stub</h2> }],
+      },
+    ]);
+    const view = render(
+      <SnackbarProvider>
+        <Stub initialEntries={["/"]} />
+      </SnackbarProvider>,
+    );
+
+    await screen.findByText("Home stub");
+    expect(posthogSdk.init).toHaveBeenCalledOnce();
+
+    currentUser = makeCurrentUserView({
+      id: testId("user-grace"),
+      analyticsEnabled: true,
+      onboardingComplete: true,
+      email: "grace@example.com",
+    });
+    view.rerender(
+      <SnackbarProvider>
+        <Stub key="user-switched" initialEntries={["/"]} />
+      </SnackbarProvider>,
+    );
+
+    await waitFor(() => {
+      expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    });
+    expect(posthogSdk.init).toHaveBeenCalledOnce();
   });
 });
