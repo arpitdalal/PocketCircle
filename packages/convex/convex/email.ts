@@ -30,10 +30,16 @@ import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFa
 // (Free-plan ceiling is 20 across ALL pools/workflows — keep the sum under that.)
 // Welcome email isn't urgent: back off generously. maxAttempts is TOTAL attempts
 // (5 = 1 initial + 4 retries): 30s, 60s, 120s, 240s of backoff (+jitter) ≈ 7.5 min cover.
+export const EMAIL_RETRY_BEHAVIOR = {
+  maxAttempts: 5,
+  initialBackoffMs: 30_000,
+  base: 2,
+};
+
 export const emailPool = new Workpool(components.emailWorkpool, {
   maxParallelism: 5,
   retryActionsByDefault: true,
-  defaultRetryBehavior: { maxAttempts: 5, initialBackoffMs: 30_000, base: 2 },
+  defaultRetryBehavior: EMAIL_RETRY_BEHAVIOR,
 });
 
 /** Resend vendor wiring — single seam for EML-2 / FBK-1. Uses fetch (not SDK).

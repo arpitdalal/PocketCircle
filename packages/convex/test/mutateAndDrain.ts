@@ -45,3 +45,36 @@ export async function mutateAndDrain<T>(t: ConvexTestHandle, run: () => Promise<
 export async function drainScheduledFunctions(t: ConvexTestHandle) {
   await withFakeTimers(() => finishScheduled(t));
 }
+
+type WorkpoolRetry = {
+  maxAttempts: number;
+  initialBackoffMs: number;
+  base: number;
+};
+
+/**
+ * Like `mutateAndDrain`, then advances through Workpool retry backoffs until
+ * the job is terminal (`onComplete` / final failure).
+ *
+ * `finishAllScheduledFunctions` returns once nothing is currently due, so a
+ * retry sitting in `pendingStart` (idle timeout + jitter) is left behind.
+ * Workpool jitter is `delay * (0.5 + random)` — advance 1.5x then drain again.
+ * Fake timers must wrap the enqueue: timeouts registered on the real clock
+ * cannot be fired by `advanceTimersByTime`.
+ */
+export async function mutateAndDrainRetries<T>(
+  t: ConvexTestHandle,
+  run: () => Promise<T>,
+  retry: WorkpoolRetry,
+) {
+  return withFakeTimers(async () => {
+    const result = await run();
+    await finishScheduled(t);
+    for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {
+      const backoffMs = retry.initialBackoffMs * retry.base ** (attempt - 1);
+      vi.advanceTimersByTime(Math.ceil(backoffMs * 1.5) + WORKPOOL_POLL_MS);
+      await finishScheduled(t);
+    }
+    return result;
+  });
+}
