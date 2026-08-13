@@ -59,6 +59,18 @@ jobs:
       - name: Build production web app
         run: pnpm build
 
+      # Worker before Convex: a new backend default (analyticsEnabled for new
+      # Users) must not go live while production still serves the previous client.
+      # This Worker must tolerate the previous Convex until the next step
+      # finishes. Additive Convex functions the client needs immediately belong
+      # in an earlier release.
+      - name: Deploy Cloudflare Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: "4.121.0"
+
       - name: Deploy Convex production backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -76,10 +88,3 @@ jobs:
           else
             pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
-
-      - name: Deploy Cloudflare Worker
-        uses: cloudflare/wrangler-action@v4
-        with:
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          wranglerVersion: "4.121.0"

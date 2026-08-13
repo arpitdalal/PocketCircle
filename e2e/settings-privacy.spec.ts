@@ -1,4 +1,4 @@
-import { establishE2ESession, expect, test } from "./fixtures.js";
+import { createIsolatedBrowserContext, establishE2ESession, expect, test } from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019 / #266): a newly bootstrapped User has analytics on after
@@ -12,15 +12,9 @@ test("a new user's analytics switch is on after onboarding and can be turned off
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const email = `e2e+analytics-${Date.now()}@example.com`;
 
-  const context = await browser.newContext();
+  const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   try {
-    // True-E2E (ADR 0019) does not run MSW. This Playwright route is the vendor
-    // firewall so a local/CI PostHog key cannot escape. Capture allowlist and
-    // immediate opt-out are asserted in Vitest against the real analytics module.
-    await page.route(/posthog\.com/i, (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: '{"status":1}' }),
-    );
     await establishE2ESession(page, { baseURL: resolvedBase, email, name: "Analytics User" });
     await page.goto(`${resolvedBase}/settings`);
 

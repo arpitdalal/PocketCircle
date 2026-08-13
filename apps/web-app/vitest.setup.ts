@@ -15,6 +15,41 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
+// jsdom / Node 26 may omit Web Storage; analytics leftover-key cleanup needs it.
+function createMemoryStorage() {
+  const data = new Map<string, string>();
+  return {
+    get length() {
+      return data.size;
+    },
+    key(index: number) {
+      return [...data.keys()][index] ?? null;
+    },
+    getItem(key: string) {
+      return data.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      data.set(key, String(value));
+    },
+    removeItem(key: string) {
+      data.delete(key);
+    },
+    clear() {
+      data.clear();
+    },
+  };
+}
+
+for (const name of ["localStorage", "sessionStorage"] as const) {
+  if (typeof globalThis[name] === "undefined") {
+    Object.defineProperty(window, name, {
+      configurable: true,
+      enumerable: true,
+      value: createMemoryStorage(),
+    });
+  }
+}
+
 // jsdom ships no IntersectionObserver; React Router's `<Link prefetch="viewport">`
 // (the mobile bottom bar — issue #121) wires one on mount. A no-op satisfies it —
 // nothing ever scrolls into view in jsdom, so no prefetch fires. Tests that need to

@@ -13,6 +13,7 @@ import {
   buildPostHogInitOptions,
   initAnalytics,
   retiredPostHogStorageKeys,
+  revertPendingAnalyticsEnabled,
   setAnalyticsEnabled,
   teardownAnalytics,
   track,
@@ -36,6 +37,8 @@ function beforeSend(event: CaptureResult) {
 }
 
 afterEach(() => {
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   resetPostHogBoundary();
 });
 
@@ -72,6 +75,19 @@ describe("initAnalytics", () => {
 
   it("does not initialize when analytics are disabled", () => {
     initAnalytics({ ...readyUser, analyticsEnabled: false });
+    expect(posthogSdk.init).not.toHaveBeenCalled();
+  });
+
+  it("wipes leftover PostHog browser storage even when analytics stay disabled", () => {
+    window.localStorage.setItem("ph_phc_test_posthog", "{}");
+    window.localStorage.setItem("__ph_opt_in_out_phc_test", "1");
+    window.localStorage.setItem("unrelated", "keep");
+
+    initAnalytics({ ...readyUser, analyticsEnabled: false });
+
+    expect(window.localStorage.getItem("ph_phc_test_posthog")).toBeNull();
+    expect(window.localStorage.getItem("__ph_opt_in_out_phc_test")).toBeNull();
+    expect(window.localStorage.getItem("unrelated")).toBe("keep");
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
@@ -171,6 +187,16 @@ describe("setAnalyticsEnabled", () => {
     initAnalytics(readyUser);
     setAnalyticsEnabled(false);
     initAnalytics(readyUser);
+    track("feedback_submitted", { type: "bug" });
+
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
+  it("clears a failed-toggle override so a later session opt-out can take effect", () => {
+    initAnalytics(readyUser);
+    setAnalyticsEnabled(false);
+    revertPendingAnalyticsEnabled(true);
+    initAnalytics({ ...readyUser, analyticsEnabled: false });
     track("feedback_submitted", { type: "bug" });
 
     expect(posthogSdk.capture).not.toHaveBeenCalled();

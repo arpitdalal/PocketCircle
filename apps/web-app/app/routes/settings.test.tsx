@@ -38,7 +38,7 @@ vi.mock("better-auth/react", () => ({
   })),
 }));
 
-import { track } from "~/lib/analytics.js";
+import { initAnalytics, track } from "~/lib/analytics.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
@@ -248,6 +248,27 @@ describe("Settings product-analytics preference", () => {
 
     track("feedback_submitted", { type: "bug" });
     expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
+  });
+
+  it("does not keep capturing after a failed opt-out when the session later reports disabled", async () => {
+    const currentUser = makeCurrentUserView({ analyticsEnabled: true });
+    primeAnalyticsForTests(currentUser);
+    const setAnalyticsEnabled = vi.fn().mockRejectedValue(new Error("network"));
+    configureConvex({
+      currentUser,
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+    expect(
+      await screen.findByText("Couldn't update your privacy preference. Please try again."),
+    ).toBeInTheDocument();
+
+    initAnalytics({ id: currentUser.id, analyticsEnabled: false });
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
   it("shows an error when setAnalyticsEnabled fails", async () => {

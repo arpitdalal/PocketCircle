@@ -156,6 +156,8 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
     return;
   }
 
+  clearRetiredPostHogBrowserStorage();
+
   if (initializedForUserId !== null && initializedForUserId !== user.id) {
     stopCaptureAndResetIdentity();
     initializedForUserId = null;
@@ -174,7 +176,6 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
   }
 
   if (!clientInitialized) {
-    clearRetiredPostHogBrowserStorage();
     posthog.init(POSTHOG_KEY, buildPostHogInitOptions());
     posthog.stopSessionRecording();
     clientInitialized = true;
@@ -189,6 +190,15 @@ export function setAnalyticsEnabled(enabled: boolean) {
     return;
   }
   pendingEnabled = enabled;
+  applyCaptureEnabled(enabled);
+}
+
+/** Restore capture from the persisted preference without keeping the optimistic override. */
+export function revertPendingAnalyticsEnabled(enabled: boolean) {
+  if (!POSTHOG_KEY || !isBrowser) {
+    return;
+  }
+  pendingEnabled = null;
   applyCaptureEnabled(enabled);
 }
 
