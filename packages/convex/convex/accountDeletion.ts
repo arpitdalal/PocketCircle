@@ -21,7 +21,7 @@ import { assertNoAccountDeletionBlockers } from "./accountDeletionFinalize.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool, sendEmailOrReport } from "./email.js";
 import { circleEntity, recordEvent } from "./history.js";
-import { reportTerminalFailure } from "./terminalFailure.js";
+import { reportTerminalFailure, sanitizeOperationalError } from "./terminalFailure.js";
 
 export {
   assertNoAccountDeletionBlockers,
@@ -258,6 +258,43 @@ export const resumeCleanup = internalMutation({
   },
 });
 
+async function persistCleanupFailure(
+  ctx: MutationCtx,
+  jobId: Id<"accountDeletionJobs">,
+  error: unknown,
+) {
+  const latest = await ctx.db.get(jobId);
+  if (!latest) {
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  await ctx.db.patch(jobId, {
+    failure: sanitizeOperationalError(message),
+    updatedAt: Date.now(),
+  });
+  await reportTerminalFailure(ctx, {
+    kind: "account_deletion_cleanup_failed",
+    entityId: jobId,
+    error: message,
+  });
+}
+
+async function patchCleanupProgress(
+  ctx: MutationCtx,
+  jobId: Id<"accountDeletionJobs">,
+  fields: {
+    phase?: string;
+    circleId?: Id<"circles"> | undefined;
+    circlePhase?: string | undefined;
+  } = {},
+) {
+  await ctx.db.patch(jobId, {
+    ...fields,
+    failure: undefined,
+    updatedAt: Date.now(),
+  });
+}
+
 /** One bounded cleanup batch; schedules the next when work remains. */
 export const runCleanupBatch = internalMutation({
   args: { jobId: v.id("accountDeletionJobs") },
@@ -267,57 +304,55 @@ export const runCleanupBatch = internalMutation({
       return;
     }
 
-    const phase = job.phase;
-    if (!isUserPhase(phase)) {
-      const failure = `unknown phase: ${phase}`;
-      await ctx.db.patch(args.jobId, {
-        failure,
-        updatedAt: Date.now(),
-      });
-      await reportTerminalFailure(ctx, {
-        kind: "account_deletion_cleanup_failed",
-        entityId: args.jobId,
-        error: failure,
-      });
-      return;
+    try {
+      await processCleanupBatch(ctx, job);
+    } catch (caught) {
+      await persistCleanupFailure(ctx, args.jobId, caught);
     }
-
-    const moreInPhase = await runUserPhaseBatch(ctx, job, phase);
-    const latest = await ctx.db.get(args.jobId);
-    if (!latest) {
-      return;
-    }
-
-    if (moreInPhase) {
-      await ctx.db.patch(args.jobId, { updatedAt: Date.now() });
-      await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
-        jobId: args.jobId,
-      });
-      return;
-    }
-
-    if (phase === "deleteOwnedCircles") {
-      await ctx.db.delete(args.jobId);
-      return;
-    }
-
-    const next = nextUserPhase(phase);
-    if (!next) {
-      await ctx.db.delete(args.jobId);
-      return;
-    }
-
-    await ctx.db.patch(args.jobId, {
-      phase: next,
-      circleId: undefined,
-      circlePhase: undefined,
-      updatedAt: Date.now(),
-    });
-    await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
-      jobId: args.jobId,
-    });
   },
 });
+
+async function processCleanupBatch(ctx: MutationCtx, job: Doc<"accountDeletionJobs">) {
+  const phase = job.phase;
+  if (!isUserPhase(phase)) {
+    await persistCleanupFailure(ctx, job._id, `unknown phase: ${phase}`);
+    return;
+  }
+
+  const moreInPhase = await runUserPhaseBatch(ctx, job, phase);
+  const latest = await ctx.db.get(job._id);
+  if (!latest) {
+    return;
+  }
+
+  if (moreInPhase) {
+    await patchCleanupProgress(ctx, job._id);
+    await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+      jobId: job._id,
+    });
+    return;
+  }
+
+  if (phase === "deleteOwnedCircles") {
+    await ctx.db.delete(job._id);
+    return;
+  }
+
+  const next = nextUserPhase(phase);
+  if (!next) {
+    await ctx.db.delete(job._id);
+    return;
+  }
+
+  await patchCleanupProgress(ctx, job._id, {
+    phase: next,
+    circleId: undefined,
+    circlePhase: undefined,
+  });
+  await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+    jobId: job._id,
+  });
+}
 
 async function runUserPhaseBatch(
   ctx: MutationCtx,
@@ -466,38 +501,25 @@ async function deleteOwnedCirclesBatch(ctx: MutationCtx, job: Doc<"accountDeleti
     }
     circleId = owned._id;
     circlePhase = CIRCLE_PHASES[0];
-    await ctx.db.patch(job._id, {
-      circleId,
-      circlePhase,
-      updatedAt: Date.now(),
-    });
+    await patchCleanupProgress(ctx, job._id, { circleId, circlePhase });
   }
 
   const moreInCirclePhase = await deleteCirclePhaseBatch(ctx, circleId, circlePhase);
   if (moreInCirclePhase) {
-    await ctx.db.patch(job._id, {
-      circleId,
-      circlePhase,
-      updatedAt: Date.now(),
-    });
+    await patchCleanupProgress(ctx, job._id, { circleId, circlePhase });
     return true;
   }
 
   if (circlePhase === "circle") {
-    await ctx.db.patch(job._id, {
+    await patchCleanupProgress(ctx, job._id, {
       circleId: undefined,
       circlePhase: undefined,
-      updatedAt: Date.now(),
     });
     return true;
   }
 
   const next = nextCirclePhase(circlePhase);
-  await ctx.db.patch(job._id, {
-    circleId,
-    circlePhase: next,
-    updatedAt: Date.now(),
-  });
+  await patchCleanupProgress(ctx, job._id, { circleId, circlePhase: next });
   return true;
 }
 

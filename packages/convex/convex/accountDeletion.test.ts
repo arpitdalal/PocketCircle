@@ -15,6 +15,7 @@ import {
   seedPersonalCircleOwner,
   seedTransaction,
 } from "../test/seed.js";
+import { enableSentryReporting, sentryNodeSdk } from "../test/sentry-boundary.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
@@ -30,7 +31,10 @@ import {
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
+const { mockCurrentUser, historyFault } = vi.hoisted(() => ({
+  mockCurrentUser: vi.fn(),
+  historyFault: { remainingFailures: 0 },
+}));
 vi.mock("./auth.js", () => ({
   getCurrentUserOrNull: mockCurrentUser,
   requireCurrentUser: async (ctx: unknown) => {
@@ -41,6 +45,22 @@ vi.mock("./auth.js", () => ({
     return user;
   },
 }));
+vi.mock("./history.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./history.js")>();
+  return {
+    ...actual,
+    recordEvent: async (
+      ctx: Parameters<typeof actual.recordEvent>[0],
+      args: Parameters<typeof actual.recordEvent>[1],
+    ) => {
+      if (historyFault.remainingFailures > 0) {
+        historyFault.remainingFailures -= 1;
+        throw new Error("histories insert failed");
+      }
+      return actual.recordEvent(ctx, args);
+    },
+  };
+});
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -55,6 +75,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  historyFault.remainingFailures = 0;
   vi.unstubAllEnvs();
   vi.useRealTimers();
 });
@@ -985,6 +1006,64 @@ describe("cleanup phases", () => {
 
     await expect(t.mutation(internal.accountDeletion.resumeCleanup, { jobId })).resolves.toBeNull();
     await drainScheduledFunctions(t);
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(jobId)).toBeNull();
+      expect(await ctx.db.get(deleting.personalCircleId)).toBeNull();
+    });
+  });
+
+  it("persists, alerts, and resumes when a valid cleanup phase throws", async () => {
+    enableSentryReporting();
+    historyFault.remainingFailures = 1;
+    const t = createTestConvex();
+    const deleting = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "phase-throw@example.com",
+        displayName: "Phase Throw",
+        onboarded: true,
+      }),
+    );
+    const ownerMemberId = await t.run(async (ctx) => {
+      const member = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", deleting.personalCircleId).eq("userId", deleting.userId),
+        )
+        .unique();
+      if (!member) {
+        throw new Error("missing owner member");
+      }
+      return member._id;
+    });
+    const jobId = await t.run(async (ctx) => {
+      await ctx.db.delete(deleting.userId);
+      return await ctx.db.insert("accountDeletionJobs", {
+        userId: deleting.userId,
+        emailLower: deleting.owner.email,
+        finalizedAt: Date.now(),
+        phase: "convertActiveMemberships",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await mutateAndDrain(t, () => t.mutation(internal.accountDeletion.runCleanupBatch, { jobId }));
+
+    const job = await t.run(async (ctx) => ctx.db.get(jobId));
+    expect(job?.phase).toBe("convertActiveMemberships");
+    expect(job?.failure).toBe("histories insert failed");
+    expect(sentryNodeSdk.captureEvent).toHaveBeenCalledOnce();
+    const [event] = sentryNodeSdk.captureEvent.mock.calls[0] ?? [];
+    expect(event).toMatchObject({
+      message: "account_deletion_cleanup_failed",
+      extra: { entityId: jobId, error: "histories insert failed" },
+    });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(ownerMemberId))?.status).toBe("deleted");
+    });
+
+    historyFault.remainingFailures = 0;
+    await mutateAndDrain(t, () => t.mutation(internal.accountDeletion.resumeCleanup, { jobId }));
     await t.run(async (ctx) => {
       expect(await ctx.db.get(jobId)).toBeNull();
       expect(await ctx.db.get(deleting.personalCircleId)).toBeNull();
