@@ -45,4 +45,17 @@ describe("Vite version injection", () => {
     );
     expect(deploy).not.toMatch(/APP_RELEASE_SHA:\s*\$\{\{\s*github\.sha\s*\}\}/);
   });
+
+  it("syncs Convex release and Sentry env only after a successful backend deploy", () => {
+    const deploy = readFileSync(
+      join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
+      "utf8",
+    );
+    const backendDeploy = deploy.indexOf("convex deploy -y");
+    const setRelease = deploy.indexOf("convex env set APP_RELEASE");
+    expect(backendDeploy).toBeGreaterThan(-1);
+    expect(setRelease).toBeGreaterThan(backendDeploy);
+    expect(deploy).toMatch(/convex env set SENTRY_DSN "\$VITE_SENTRY_DSN"/);
+    expect(deploy).toMatch(/convex env remove SENTRY_DSN/);
+  });
 });

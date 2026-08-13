@@ -59,7 +59,12 @@ jobs:
       - name: Build production web app
         run: pnpm build
 
-      - name: Set Convex release and Sentry env
+      - name: Deploy Convex production backend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
+
+      - name: Sync Convex release and Sentry env
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
@@ -68,12 +73,9 @@ jobs:
           pnpm --filter @pocketcircle/convex exec convex env set SENTRY_ENVIRONMENT production
           if [ -n "$VITE_SENTRY_DSN" ]; then
             pnpm --filter @pocketcircle/convex exec convex env set SENTRY_DSN "$VITE_SENTRY_DSN"
+          else
+            pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
-
-      - name: Deploy Convex production backend
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4

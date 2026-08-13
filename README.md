@@ -152,7 +152,13 @@ VITE_POSTHOG_KEY=phc_<project-key>
 VITE_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-Set the backend variables on the **production** Convex deployment:
+`VITE_SENTRY_DSN` is the single production DSN. After a successful Convex deploy,
+`.github/workflows/deploy.yml` copies it to Convex `SENTRY_DSN` and sets
+`APP_RELEASE` (short `workflow_run.head_sha`) plus `SENTRY_ENVIRONMENT=production`.
+Clearing the GitHub variable removes `SENTRY_DSN` so backend reporting stops with
+the frontend. Do not set those three Convex vars by hand in production.
+
+Set the remaining backend variables on the **production** Convex deployment:
 
 ```text
 SITE_URL=https://pocketcircle.app
@@ -162,11 +168,7 @@ GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
 RESEND_API_KEY=<resend-api-key>
 RESEND_FROM_EMAIL=<verified-from-address>
 SUPPORT_EMAIL=arpitdalalm@gmail.com
-SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
 ```
-
-`APP_RELEASE` and `SENTRY_ENVIRONMENT` are set by `.github/workflows/deploy.yml` from
-the checked-out `workflow_run.head_sha` (short SHA) and must not be edited by hand.
 
 Leave `E2E_TEST_AUTH` and `EMAIL_DEV_LOG` unset in production. Google OAuth must
 allow the exact callback URL:

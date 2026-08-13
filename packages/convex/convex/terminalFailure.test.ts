@@ -196,32 +196,36 @@ describe("terminal failure reporting", () => {
 
   it("strips emails and invitation links from the reported error", async () => {
     enableSentryReporting();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const t = createTestConvex();
     const { userId } = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
     );
+    const rawError =
+      'Resend send failed: 401 {"to":"ada@example.com","url":"https://app.example.com/invite/secret-token"}';
+    const sanitized = 'Resend send failed: 401 {"to":"[redacted-email]","url":"[redacted-url]"}';
 
-    await mutateAndDrain(t, () =>
-      t.mutation(internal.email.onWelcomeRunComplete, {
-        workId: "work-pii",
-        context: { userId },
-        result: {
-          kind: "failed",
-          error:
-            'Resend send failed: 401 {"to":"ada@example.com","url":"https://app.example.com/invite/secret-token"}',
-        },
-      }),
-    );
+    try {
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.email.onWelcomeRunComplete, {
+          workId: "work-pii",
+          context: { userId },
+          result: { kind: "failed", error: rawError },
+        }),
+      );
 
-    const { context } = capturedReport();
-    const extra =
-      context && typeof context === "object" && "extra" in context ? context.extra : null;
-    expect(extra).toMatchObject({
-      error: 'Resend send failed: 401 {"to":"[redacted-email]","url":"[redacted-url]"}',
-    });
-    expect(JSON.stringify(context)).not.toContain("ada@example.com");
-    expect(JSON.stringify(context)).not.toContain("secret-token");
-    expect(JSON.stringify(context)).not.toContain("Please add dark mode");
+      const { context } = capturedReport();
+      const extra =
+        context && typeof context === "object" && "extra" in context ? context.extra : null;
+      expect(extra).toMatchObject({ error: sanitized });
+      expect(errSpy.mock.calls.flat().join(" ")).toContain(sanitized);
+      expect(errSpy.mock.calls.flat().join(" ")).not.toContain("ada@example.com");
+      expect(JSON.stringify(context)).not.toContain("ada@example.com");
+      expect(JSON.stringify(context)).not.toContain("secret-token");
+      expect(JSON.stringify(context)).not.toContain("Please add dark mode");
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("does not throw when Sentry capture itself fails", async () => {

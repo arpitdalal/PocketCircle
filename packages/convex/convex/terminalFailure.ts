@@ -37,7 +37,7 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const URL_RE = /https?:\/\/[^\s"'<>]+/gi;
 const MAX_ERROR_CHARS = 300;
 
-/** Strip emails/URLs from vendor error text before it leaves the Convex runtime. */
+/** Strip emails/URLs from vendor error text before log or Sentry. */
 export function sanitizeOperationalError(error: string) {
   return error
     .replace(EMAIL_RE, "[redacted-email]")
@@ -54,12 +54,13 @@ export async function reportTerminalFailure(
     error: string;
   },
 ) {
-  console.error(LOG_MESSAGE[args.kind], args.entityId, args.error);
+  const error = sanitizeOperationalError(args.error);
+  console.error(LOG_MESSAGE[args.kind], args.entityId, error);
   try {
     await ctx.scheduler.runAfter(0, internal.terminalFailureSentry.captureTerminalFailure, {
       kind: args.kind,
       entityId: args.entityId,
-      error: sanitizeOperationalError(args.error),
+      error,
       release: process.env.APP_RELEASE ?? "local-dev",
     });
   } catch (caught) {
