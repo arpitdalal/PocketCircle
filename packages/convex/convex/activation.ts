@@ -3,7 +3,6 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
 import { requireCurrentUser } from "./auth.js";
-import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { getPersonalCircleForOwner } from "./model.js";
 
 const ACTIVATION_ITEM_IDS = [
@@ -234,51 +233,51 @@ async function earliestPersonalTransactionCreatedAt(
   return undefined;
 }
 
-async function earliestOwnedRegularCircleCreatedAt(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-) {
-  const circles = await ctx.db
-    .query("circles")
-    .withIndex("by_owner_and_kind", (q) => q.eq("ownerUserId", userId).eq("kind", "regular"))
+/**
+ * Durable "created a regular Circle" evidence: Circle History `created` whose
+ * actor is this User's Member row. Current `ownerUserId` is mutable under
+ * transferOwnership and must not credit the new Owner (ADR 0030).
+ */
+async function earliestCreatedRegularCircleAt(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
+  const memberships = await ctx.db
+    .query("members")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   let earliest: number | undefined;
-  for (const circle of circles) {
-    earliest = earliestTimestamp(earliest, circle.createdAt);
+  for (const membership of memberships) {
+    const circle = await ctx.db.get(membership.circleId);
+    if (!circle || circle.kind !== "regular") {
+      continue;
+    }
+    const events = await ctx.db
+      .query("histories")
+      .withIndex("by_entity", (q) => q.eq("entityId", circle._id))
+      .collect();
+    const createdByThisUser = events.some(
+      (event) => event.action === "created" && event.actorMemberId === membership._id,
+    );
+    if (createdByThisUser) {
+      earliest = earliestTimestamp(earliest, circle.createdAt);
+    }
   }
   return earliest;
 }
 
+/**
+ * Durable Member-milestone evidence: an Invitation this User sent that was
+ * accepted. Current co-membership under owned Circles is not evidence — those
+ * Members may have accepted a previous Owner's Invitation after transfer.
+ */
 async function sharedMemberEvidenceAt(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const accepted = await ctx.db
     .query("invitations")
     .withIndex("by_inviter_status_createdAt", (q) =>
       q.eq("invitedByUserId", userId).eq("status", "accepted"),
     )
-    .first();
-  if (accepted) {
-    return accepted.createdAt;
-  }
-
-  const ownedRegular = await ctx.db
-    .query("circles")
-    .withIndex("by_owner_and_kind", (q) => q.eq("ownerUserId", userId).eq("kind", "regular"))
     .collect();
   let earliest: number | undefined;
-  for (const circle of ownedRegular) {
-    const members = await ctx.db
-      .query("members")
-      .withIndex("by_circle_and_status", (q) => q.eq("circleId", circle._id).eq("status", "active"))
-      .collect();
-    for (const member of members) {
-      if (member.userId === userId) {
-        continue;
-      }
-      if (!(await isEffectiveActiveMember(ctx, member))) {
-        continue;
-      }
-      earliest = earliestTimestamp(earliest, member.joinedAt);
-    }
+  for (const invitation of accepted) {
+    earliest = earliestTimestamp(earliest, invitation.createdAt);
   }
   return earliest;
 }
@@ -306,7 +305,7 @@ async function collectActivationEvidence(
     }
   }
 
-  const regularAt = await earliestOwnedRegularCircleCreatedAt(ctx, userId);
+  const regularAt = await earliestCreatedRegularCircleAt(ctx, userId);
   if (regularAt !== undefined) {
     evidence.regularCircleCreatedAt = regularAt;
   }

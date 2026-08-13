@@ -13,6 +13,7 @@ import {
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
+import { circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 
@@ -174,7 +175,7 @@ describe("initializeActivationChecklist", () => {
     const categoryCreatedAt = 1_700_000_000_000;
     const txnCreatedAt = 1_700_000_100_000;
     const circleCreatedAt = 1_700_000_200_000;
-    const joinedAt = 1_700_000_300_000;
+    const inviteCreatedAt = 1_700_000_300_000;
 
     await t.run(async (ctx) => {
       const personal = await seedOwnedCircle(ctx, owner, {
@@ -213,16 +214,24 @@ describe("initializeActivationChecklist", () => {
         setupCompletedAt: circleCreatedAt,
         createdAt: circleCreatedAt,
       });
-      await addMember(ctx, regular.circleId, "joined@example.com", "Joiner");
-      const joiner = await ctx.db
-        .query("members")
-        .withIndex("by_circle", (q) => q.eq("circleId", regular.circleId))
-        .collect();
-      const guest = joiner.find((member) => member.userId !== owner._id);
-      if (!guest) {
-        throw new Error("expected co-member");
-      }
-      await ctx.db.patch(guest._id, { joinedAt });
+      const ownerMembership = await ctx.db.get(regular.ownerMemberId);
+      await recordEvent(ctx, {
+        entity: circleEntity(regular.circleId),
+        actor: ownerMembership,
+        action: "created",
+        changes: [{ field: "name", to: "Legacy Trip" }],
+      });
+      await ctx.db.insert("invitations", {
+        circleId: regular.circleId,
+        emailLower: "joined@example.com",
+        tokenHash: await hashInvitationToken(generateInvitationToken()),
+        status: "accepted",
+        invitedByUserId: owner._id,
+        resendCount: 0,
+        resendTimestamps: [],
+        createdAt: inviteCreatedAt,
+        expiresAt: inviteCreatedAt + INVITE_TTL_MS,
+      });
     });
 
     mockCurrentUser.mockResolvedValue(owner);
@@ -247,7 +256,7 @@ describe("initializeActivationChecklist", () => {
       expect(row?.personalCategoryCreatedAt).toBe(categoryCreatedAt);
       expect(row?.personalTransactionCreatedAt).toBe(txnCreatedAt);
       expect(row?.regularCircleCreatedAt).toBe(circleCreatedAt);
-      expect(row?.sharedMemberJoinedAt).toBe(joinedAt);
+      expect(row?.sharedMemberJoinedAt).toBe(inviteCreatedAt);
     });
 
     await t.mutation(api.activation.skipActivationChecklist, {});
@@ -262,6 +271,66 @@ describe("initializeActivationChecklist", () => {
       const [row] = await activationRows(ctx, owner._id);
       expect(row?.dismissedAt).toBe(dismissedAt);
       expect(row?.personalCategoryCreatedAt).toBe(categoryCreatedAt);
+    });
+  });
+
+  it("does not credit transferred ownership or co-members invited by a previous Owner", async () => {
+    const t = createTestConvex();
+    const creator = await t.run((ctx) => makeUser(ctx, "creator@example.com", "Creator"));
+    const recipient = await t.run((ctx) => makeUser(ctx, "recipient@example.com", "Recipient"));
+
+    await t.run(async (ctx) => {
+      const regular = await seedOwnedCircle(ctx, creator, {
+        name: "Handed Off",
+        setupCompletedAt: Date.now(),
+      });
+      const creatorMembership = await ctx.db.get(regular.ownerMemberId);
+      await recordEvent(ctx, {
+        entity: circleEntity(regular.circleId),
+        actor: creatorMembership,
+        action: "created",
+        changes: [{ field: "name", to: "Handed Off" }],
+      });
+      await ctx.db.insert("invitations", {
+        circleId: regular.circleId,
+        emailLower: "prior@example.com",
+        tokenHash: await hashInvitationToken(generateInvitationToken()),
+        status: "accepted",
+        invitedByUserId: creator._id,
+        resendCount: 0,
+        resendTimestamps: [],
+        createdAt: Date.now(),
+        expiresAt: Date.now() + INVITE_TTL_MS,
+      });
+      // Recipient receives ownership of a Circle with an active co-Member they never
+      // invited and never created — both milestones must stay incomplete for them.
+      await addMember(ctx, regular.circleId, "prior@example.com", "Prior");
+      await ctx.db.patch(regular.ownerMemberId, { role: "member" });
+      await ctx.db.insert("members", {
+        circleId: regular.circleId,
+        userId: recipient._id,
+        role: "owner",
+        status: "active",
+        displayName: recipient.displayName,
+        joinedAt: Date.now(),
+      });
+      await ctx.db.patch(regular.circleId, { ownerUserId: recipient._id });
+    });
+
+    mockCurrentUser.mockResolvedValue(recipient);
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      regularCircleComplete: false,
+      sharedMemberState: "not_started",
+      completedCount: 0,
+    });
+
+    mockCurrentUser.mockResolvedValue(creator);
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      regularCircleComplete: true,
+      sharedMemberState: "complete",
+      completedCount: 2,
     });
   });
 
