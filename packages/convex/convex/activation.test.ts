@@ -7,6 +7,7 @@ import {
   addMember,
   makeCategory,
   makeUser,
+  seedInvitationWithToken,
   seedOwnedCircle,
   seedPersonalCircleOwner,
 } from "../test/seed.js";
@@ -52,19 +53,11 @@ async function seedPendingInvitation(
     expiresAt?: number;
   },
 ) {
-  const token = generateInvitationToken();
-  await ctx.db.insert("invitations", {
-    circleId: opts.circleId,
-    emailLower: opts.email.toLowerCase(),
-    tokenHash: await hashInvitationToken(token),
-    status: "pending",
-    invitedByUserId: opts.invitedByUserId,
-    resendCount: 0,
-    resendTimestamps: [],
-    createdAt: Date.now(),
-    expiresAt: opts.expiresAt ?? Date.now() + INVITE_TTL_MS,
+  const seeded = await seedInvitationWithToken(ctx, opts.circleId, opts.invitedByUserId, {
+    email: opts.email,
+    expiresAt: opts.expiresAt,
   });
-  return token;
+  return seeded.token;
 }
 
 async function activationRows(ctx: MutationCtx, userId: Id<"users">) {
@@ -662,6 +655,42 @@ describe("skip and acknowledge", () => {
     await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
       expect(row?.dismissedAt).toBe(dismissedAt);
+    });
+  });
+
+  it("does not rescan evidence when Skip runs after backfill", async () => {
+    const t = createTestConvex();
+    const owner = await t.run((ctx) => makeUser(ctx, "skipscan@example.com", "Skip Scan"));
+    const personal = await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner, { kind: "personal", name: "Skip Scan's Circle" }),
+    );
+    await t.run(async (ctx) => {
+      await makeCategory(ctx, personal.circleId, {
+        name: "Preexisting",
+        creatorUserId: owner._id,
+      });
+      // Many decoy memberships would make a rescan expensive; one is enough to prove
+      // the short-circuit when evidenceBackfilledAt is already set.
+      await seedOwnedCircle(ctx, owner, {
+        name: "Decoy",
+        setupCompletedAt: Date.now(),
+      });
+    });
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    const backfilledAt = await t.run(async (ctx) => {
+      const [row] = await activationRows(ctx, owner._id);
+      expect(row?.evidenceBackfilledAt).toEqual(expect.any(Number));
+      expect(row?.personalCategoryCreatedAt).toEqual(expect.any(Number));
+      return row?.evidenceBackfilledAt;
+    });
+
+    await t.mutation(api.activation.skipActivationChecklist, {});
+    await t.run(async (ctx) => {
+      const [row] = await activationRows(ctx, owner._id);
+      expect(row?.evidenceBackfilledAt).toBe(backfilledAt);
+      expect(row?.dismissedAt).toEqual(expect.any(Number));
     });
   });
 

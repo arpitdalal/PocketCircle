@@ -1,5 +1,5 @@
 import { currentMonth } from "@pocketcircle/domain";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   resetPostHogBoundary();
   vi.restoreAllMocks();
 });
@@ -67,13 +68,15 @@ describe("ActivationChecklist visibility", () => {
     await waitFor(() => expect(initialize).toHaveBeenCalledWith({}));
   });
 
-  it("hides after dismiss and when all four items are complete", () => {
+  it("hides after dismiss", () => {
     configureConvex({
       activation: makeActivationChecklistView({ dismissed: true, visible: false }),
     });
     renderChecklist();
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+  });
 
+  it("hides when all four items are complete", () => {
     configureConvex({
       activation: makeActivationChecklistView({
         allComplete: true,
@@ -171,29 +174,24 @@ describe("ActivationChecklist items", () => {
     expect(screen.getByRole("link", { name: "Invite a member" })).toBeInTheDocument();
   });
 
-  it("routes the Member CTA to Members, Setup, or create", () => {
-    configureConvex({
-      activation: makeActivationChecklistView({
-        memberCta: { kind: "members", circleRef: "cabin-c2" },
-      }),
-    });
+  it.each([
+    {
+      memberCta: { kind: "members" as const, circleRef: "cabin-c2" },
+      name: "Invite a member",
+      href: `/circles/cabin-c2/members?returnTo=${encodeURIComponent(origin)}`,
+    },
+    {
+      memberCta: { kind: "setup" as const, circleRef: "alpha-c3" },
+      name: "Finish setup",
+      href: `/circles/alpha-c3/setup?returnTo=${encodeURIComponent(origin)}`,
+    },
+  ])("routes the Member CTA to $name", ({ memberCta, name, href }) => {
+    configureConvex({ activation: makeActivationChecklistView({ memberCta }) });
     renderChecklist();
-    expect(screen.getByRole("link", { name: "Invite a member" })).toHaveAttribute(
-      "href",
-      `/circles/cabin-c2/members?returnTo=${encodeURIComponent(origin)}`,
-    );
+    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+  });
 
-    configureConvex({
-      activation: makeActivationChecklistView({
-        memberCta: { kind: "setup", circleRef: "alpha-c3" },
-      }),
-    });
-    renderChecklist();
-    expect(screen.getByRole("link", { name: "Finish setup" })).toHaveAttribute(
-      "href",
-      `/circles/alpha-c3/setup?returnTo=${encodeURIComponent(origin)}`,
-    );
-
+  it("asks for a shared Circle first when no Circle exists", () => {
     configureConvex({
       activation: makeActivationChecklistView({ memberCta: { kind: "create" } }),
     });

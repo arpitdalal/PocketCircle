@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import {
   createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
@@ -17,6 +17,18 @@ async function openPersonalDashboard(page: Page) {
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 }
 
+async function openIsolatedActivationSession(
+  browser: Browser,
+  baseURL: string | undefined,
+  email: string,
+) {
+  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const context = await createIsolatedBrowserContext(browser);
+  const page = await context.newPage();
+  await establishE2ESession(page, { baseURL: resolvedBase, email, name: "Ada E2E" });
+  return { context, page, resolvedBase };
+}
+
 /**
  * TRUE-E2E (ADR 0019 / #265): isolated Users so the worker-shared session cannot
  * pre-complete Activation Checklist items.
@@ -25,15 +37,12 @@ test("skip hides the Personal checklist across reload; regular Dashboard never s
   browser,
   baseURL,
 }) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
-  const context = await createIsolatedBrowserContext(browser);
-  const page = await context.newPage();
+  const { context, page } = await openIsolatedActivationSession(
+    browser,
+    baseURL,
+    `e2e+activation-skip-${Date.now()}@example.com`,
+  );
   try {
-    await establishE2ESession(page, {
-      baseURL: resolvedBase,
-      email: `e2e+activation-skip-${Date.now()}@example.com`,
-      name: "Ada E2E",
-    });
     await openPersonalDashboard(page);
 
     const checklist = page.getByRole("region", { name: "Get started" });
@@ -59,18 +68,15 @@ test("checklist items complete in any order, pending stays waiting, accept hides
   baseURL,
 }) => {
   test.setTimeout(90_000);
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const stamp = `${Date.now()}`;
   const categoryName = `Act ${stamp}`.slice(0, 40);
   const inviteeEmail = `e2e+activation-join-${stamp}@example.com`;
-  const context = await createIsolatedBrowserContext(browser);
-  const page = await context.newPage();
+  const { context, page, resolvedBase } = await openIsolatedActivationSession(
+    browser,
+    baseURL,
+    `e2e+activation-${stamp}@example.com`,
+  );
   try {
-    await establishE2ESession(page, {
-      baseURL: resolvedBase,
-      email: `e2e+activation-${stamp}@example.com`,
-      name: "Ada E2E",
-    });
     await openPersonalDashboard(page);
 
     const checklist = page.getByRole("region", { name: "Get started" });
@@ -120,10 +126,9 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     const token = await inviteMemberByEmail(page, inviteeEmail);
 
     await openPersonalDashboard(page);
-    await expect(page.getByText("Invitation pending")).toBeVisible();
-    await expect(
-      page.getByRole("region", { name: "Get started" }).getByText("3 of 4 complete"),
-    ).toBeVisible();
+    const activation = page.getByRole("region", { name: "Get started" });
+    await expect(activation.getByText("Invitation pending")).toBeVisible();
+    await expect(activation.getByText("3 of 4 complete")).toBeVisible();
 
     const inviteeContext = await createIsolatedBrowserContext(browser);
     const inviteePage = await inviteeContext.newPage();

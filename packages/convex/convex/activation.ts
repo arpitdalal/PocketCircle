@@ -210,15 +210,11 @@ async function earliestPersonalCategoryCreatedAt(
   ctx: QueryCtx | MutationCtx,
   personalCircleId: Id<"circles">,
 ) {
-  const categories = await ctx.db
+  const category = await ctx.db
     .query("categories")
-    .withIndex("by_circle", (q) => q.eq("circleId", personalCircleId))
-    .collect();
-  let earliest: number | undefined;
-  for (const category of categories) {
-    earliest = earliestTimestamp(earliest, category.createdAt);
-  }
-  return earliest;
+    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", personalCircleId))
+    .first();
+  return category?.createdAt;
 }
 
 async function earliestPersonalTransactionCreatedAt(
@@ -228,7 +224,7 @@ async function earliestPersonalTransactionCreatedAt(
 ) {
   const transaction = await ctx.db
     .query("transactions")
-    .withIndex("by_circle", (q) => q.eq("circleId", personalCircle._id))
+    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", personalCircle._id))
     .first();
   if (transaction) {
     return transaction.createdAt;
@@ -255,14 +251,13 @@ async function earliestCreatedRegularCircleAt(ctx: QueryCtx | MutationCtx, userI
     if (circle?.kind !== "regular") {
       continue;
     }
-    const events = await ctx.db
+    const created = await ctx.db
       .query("histories")
-      .withIndex("by_entity", (q) => q.eq("entityId", circle._id))
-      .collect();
-    const createdByThisUser = events.some(
-      (event) => event.action === "created" && event.actorMemberId === membership._id,
-    );
-    if (createdByThisUser) {
+      .withIndex("by_entity_action_actorMemberId", (q) =>
+        q.eq("entityId", circle._id).eq("action", "created").eq("actorMemberId", membership._id),
+      )
+      .first();
+    if (created) {
       earliest = earliestTimestamp(earliest, circle.createdAt);
     }
   }
@@ -280,12 +275,8 @@ async function sharedMemberEvidenceAt(ctx: QueryCtx | MutationCtx, userId: Id<"u
     .withIndex("by_inviter_status_createdAt", (q) =>
       q.eq("invitedByUserId", userId).eq("status", "accepted"),
     )
-    .collect();
-  let earliest: number | undefined;
-  for (const invitation of accepted) {
-    earliest = earliestTimestamp(earliest, invitation.createdAt);
-  }
-  return earliest;
+    .first();
+  return accepted?.createdAt;
 }
 
 async function collectActivationEvidence(
@@ -437,12 +428,15 @@ function toActivationChecklistView(
 /**
  * Existing-User compatibility path: create the row if missing and merge durable
  * evidence into empty milestone fields only. Idempotent; never overwrites
- * progress or dismissal. New Users already have a bootstrap row and do not need
- * this for correctness, but calling it is a no-op merge.
+ * progress or dismissal. Skips the evidence scan once `evidenceBackfilledAt` is set
+ * so Skip/re-init cannot exceed read limits on active accounts.
  */
 async function initializeActivationFromEvidence(ctx: MutationCtx, userId: Id<"users">) {
   const now = Date.now();
   const existing = await getUniqueActivationRow(ctx, userId);
+  if (existing?.evidenceBackfilledAt !== undefined) {
+    return existing;
+  }
   if (existing) {
     return await applyEvidenceToRow(ctx, existing, userId);
   }

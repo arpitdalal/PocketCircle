@@ -360,6 +360,12 @@ describe("track", () => {
       sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 4 }),
     ).toBeNull();
     expect(
+      sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: -1 }),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 2.5 }),
+    ).toBeNull();
+    expect(
       sanitizeAnalyticsProps("activation_checklist_skipped", {
         completedCount: 2,
         ...{ email: "ada@example.com", circleId: "c1" },

@@ -59,11 +59,15 @@ export function useActivationChecklist(enabled: boolean) {
     if (checklist?.status !== "ready" || !checklist.completionEventPending) {
       return;
     }
-    void acknowledge({}).then((result) => {
-      if (result.claimed) {
-        track("activation_checklist_completed", {});
-      }
-    });
+    void acknowledge({})
+      .then((result) => {
+        if (result.claimed) {
+          track("activation_checklist_completed", {});
+        }
+      })
+      .catch(() => {
+        // Completion analytics are best-effort; do not surface failures to the User.
+      });
   }, [enabled, checklist, acknowledge]);
 
   if (MOCKS) {

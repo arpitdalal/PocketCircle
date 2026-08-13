@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 /** Mounts the create route with sink routes for the destinations it navigates to. */
-function renderCreate() {
+function renderCreate(entry = "/circles/new") {
   return renderRoutes(
     <>
       <Route path="/" element={<div>home</div>} />
@@ -46,7 +46,7 @@ function renderCreate() {
       <Route path="/circles/:circleRef" element={<div>circle page</div>} />
       <Route path="/circles/:circleRef/setup" element={<div>setup page</div>} />
     </>,
-    { initialEntries: ["/circles/new"] },
+    { initialEntries: [entry] },
   );
 }
 
@@ -129,15 +129,7 @@ describe("Create Circle", () => {
     const origin = "/circles/personal-p1";
     const createCircle = vi.fn().mockResolvedValue(newId);
     configureConvex({ createCircle });
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<div>home</div>} />
-        <Route path="/circles/new" element={<CreateCircle />} />
-        <Route path="/circles/:circleRef" element={<div>circle page</div>} />
-        <Route path="/circles/:circleRef/setup" element={<div>setup page</div>} />
-      </>,
-      { initialEntries: [`/circles/new?returnTo=${encodeURIComponent(origin)}`] },
-    );
+    const view = renderCreate(`/circles/new?returnTo=${encodeURIComponent(origin)}`);
 
     expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", origin);
 

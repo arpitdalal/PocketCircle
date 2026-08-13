@@ -416,10 +416,30 @@ export async function seedInvitation(
     tokenHash?: string;
     createdAt?: number;
   },
-): Promise<Id<"invitations">> {
+) {
+  const seeded = await seedInvitationWithToken(ctx, circleId, invitedByUserId, opts);
+  return seeded.invitationId;
+}
+
+/** Like {@link seedInvitation}, but also returns the plaintext token for accept flows. */
+export async function seedInvitationWithToken(
+  ctx: MutationCtx,
+  circleId: Id<"circles">,
+  invitedByUserId: Id<"users">,
+  opts: {
+    email: string;
+    status?: "pending" | "accepted" | "revoked" | "expired";
+    expiresAt?: number;
+    resendCount?: number;
+    resendTimestamps?: number[];
+    token?: string;
+    tokenHash?: string;
+    createdAt?: number;
+  },
+) {
   const now = Date.now();
-  const token = generateInvitationToken();
-  return await ctx.db.insert("invitations", {
+  const token = opts.token ?? generateInvitationToken();
+  const invitationId = await ctx.db.insert("invitations", {
     circleId,
     emailLower: opts.email.toLowerCase(),
     tokenHash: opts.tokenHash ?? (await hashInvitationToken(token)),
@@ -430,4 +450,5 @@ export async function seedInvitation(
     createdAt: opts.createdAt ?? now,
     expiresAt: opts.expiresAt ?? now + INVITE_TTL_MS,
   });
+  return { invitationId, token };
 }

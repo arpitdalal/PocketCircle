@@ -37,24 +37,22 @@ export function activationDouble(state: ActivationState): EntityDouble {
   };
 }
 
-export function makeActivationChecklistView(
-  over: Partial<ReadyActivationChecklist> = {},
-): ReadyActivationChecklist {
+export function makeActivationChecklistView(over: Partial<ReadyActivationChecklist> = {}) {
   return {
-    status: "ready",
+    status: "ready" as const,
     visible: true,
     dismissed: false,
     allComplete: false,
     completedCount: 0,
-    total: 4,
+    total: 4 as const,
     personalTransactionComplete: false,
     personalCategoryComplete: false,
     regularCircleComplete: false,
-    sharedMemberState: "not_started",
+    sharedMemberState: "not_started" as const,
     pendingInvitationExpiresAt: null,
-    firstIncomplete: "personalTransaction",
-    memberCta: { kind: "create" },
+    firstIncomplete: "personalTransaction" as const,
+    memberCta: { kind: "create" } as const,
     completionEventPending: false,
     ...over,
-  };
+  } satisfies ReadyActivationChecklist;
 }

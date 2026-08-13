@@ -132,6 +132,8 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    // Activation evidence: earliest Category in a Personal Circle (any type).
+    .index("by_circle_createdAt", ["circleId", "createdAt"])
     // The Category Filter's paginated reads sort on the domain `createdAt` (set
     // explicitly at create, so it can diverge from `_creationTime`) — the sort
     // key must live in the index (CAT-4). `by_circle_type_createdAt` supersedes
@@ -159,6 +161,8 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    // Activation evidence: earliest Transaction by domain createdAt.
+    .index("by_circle_createdAt", ["circleId", "createdAt"])
     .index("by_circle_and_status", ["circleId", "status"])
     .index("by_circle_and_month", ["circleId", "month"])
     .index("by_circle_and_date", ["circleId", "date"])
@@ -386,5 +390,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_entity", ["entityId"])
+    // Activation evidence: Circle History `created` acted by a specific Member.
+    .index("by_entity_action_actorMemberId", ["entityId", "action", "actorMemberId"])
     .index("by_circle", ["circleId"]),
 });
