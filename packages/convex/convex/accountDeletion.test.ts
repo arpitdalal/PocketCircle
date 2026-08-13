@@ -2,6 +2,7 @@ import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNextTableInserts } from "../test/db-syscall-fault.js";
 import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
@@ -15,6 +16,7 @@ import {
   seedPersonalCircleOwner,
   seedTransaction,
 } from "../test/seed.js";
+import { enableSentryReporting, sentryNodeSdk } from "../test/sentry-boundary.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
@@ -30,7 +32,9 @@ import {
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
+const { mockCurrentUser } = vi.hoisted(() => ({
+  mockCurrentUser: vi.fn(),
+}));
 vi.mock("./auth.js", () => ({
   getCurrentUserOrNull: mockCurrentUser,
   requireCurrentUser: async (ctx: unknown) => {
@@ -985,6 +989,71 @@ describe("cleanup phases", () => {
 
     await expect(t.mutation(internal.accountDeletion.resumeCleanup, { jobId })).resolves.toBeNull();
     await drainScheduledFunctions(t);
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(jobId)).toBeNull();
+      expect(await ctx.db.get(deleting.personalCircleId)).toBeNull();
+    });
+  });
+
+  it("persists, alerts, and resumes when a valid cleanup phase throws", async () => {
+    enableSentryReporting();
+    const t = createTestConvex();
+    const deleting = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "phase-throw@example.com",
+        displayName: "Phase Throw",
+        onboarded: true,
+      }),
+    );
+    const ownerMemberId = await t.run(async (ctx) => {
+      const member = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", deleting.personalCircleId).eq("userId", deleting.userId),
+        )
+        .unique();
+      if (!member) {
+        throw new Error("missing owner member");
+      }
+      return member._id;
+    });
+    const jobId = await t.run(async (ctx) => {
+      await ctx.db.delete(deleting.userId);
+      return await ctx.db.insert("accountDeletionJobs", {
+        userId: deleting.userId,
+        emailLower: deleting.owner.email,
+        finalizedAt: Date.now(),
+        phase: "convertActiveMemberships",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const restoreSyscall = failNextTableInserts("histories", 1);
+    try {
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.accountDeletion.runCleanupBatch, { jobId }),
+      );
+    } finally {
+      restoreSyscall();
+    }
+
+    const job = await t.run(async (ctx) => ctx.db.get(jobId));
+    expect(job?.phase).toBe("convertActiveMemberships");
+    expect(job?.failure).toBe("histories insert failed");
+    expect(sentryNodeSdk.captureEvent).toHaveBeenCalledOnce();
+    const [event] = sentryNodeSdk.captureEvent.mock.calls[0] ?? [];
+    expect(event).toMatchObject({
+      message: "account_deletion_cleanup_failed",
+      extra: { entityId: jobId, error: "histories insert failed" },
+    });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(ownerMemberId))?.status).toBe("active");
+      const events = await listEntityHistory(ctx, circleEntity(deleting.personalCircleId));
+      expect(events.filter((e) => e.action === "member deleted")).toEqual([]);
+    });
+
+    await mutateAndDrain(t, () => t.mutation(internal.accountDeletion.resumeCleanup, { jobId }));
     await t.run(async (ctx) => {
       expect(await ctx.db.get(jobId)).toBeNull();
       expect(await ctx.db.get(deleting.personalCircleId)).toBeNull();

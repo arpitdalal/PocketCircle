@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #188](https://github.com/arpitdalal/PocketCircle/pull/188) |
 | **Labels** | `area:membership`, `backend`, `ui` |
 | **Depends on** | MEM-1 (SHIPPED) |
 | **Unlocks** | MEM-5 (owner-must-transfer-first path before removing self), MEM-6 (owner-must-transfer-first path before leaving) |

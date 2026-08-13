@@ -22,6 +22,7 @@ jobs:
       name: production
       url: https://pocketcircle.app
     env:
+      APP_RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
       VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
       VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
       VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
@@ -62,6 +63,19 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: pnpm --filter @pocketcircle/convex exec convex deploy -y
+
+      - name: Sync Convex release and Sentry env
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          SHORT_SHA="${APP_RELEASE_SHA:0:7}"
+          pnpm --filter @pocketcircle/convex exec convex env set APP_RELEASE "$SHORT_SHA"
+          pnpm --filter @pocketcircle/convex exec convex env set SENTRY_ENVIRONMENT production
+          if [ -n "$VITE_SENTRY_DSN" ]; then
+            pnpm --filter @pocketcircle/convex exec convex env set SENTRY_DSN "$VITE_SENTRY_DSN"
+          else
+            pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
+          fi
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4

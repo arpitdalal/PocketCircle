@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #183](https://github.com/arpitdalal/PocketCircle/pull/183) |
 | **Labels** | `area:membership`, `backend`, `ui`, `security` |
 | **Depends on** | MEM-2 (shipped, PR #177) |
 | **Unlocks** | MEM-8 (archive bulk-revoke calls `revokeInvitation` directly) |

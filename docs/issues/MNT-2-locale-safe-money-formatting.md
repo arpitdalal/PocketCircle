@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #73](https://github.com/arpitdalal/SpendCircle/pull/73) |
+| **Status** | Done · [PR #73](https://github.com/arpitdalal/PocketCircle/pull/73) |
 | **Labels** | `area:platform`, `backend`, `ui`, `testing` |
 | **Depends on** | TXN-1, TXN-2, RPT-1, RPT-3 |
 | **Unlocks** | TXN-4, RPT-2, RPT-4, RPT-5, EXP-1 |

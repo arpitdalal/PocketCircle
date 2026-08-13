@@ -2,8 +2,14 @@ import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
 import { feedbackEmail, invitationEmail, welcomeEmail } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server.js";
+import {
+  type ActionCtx,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server.js";
 import { hashInvitationToken } from "./invitationToken.js";
+import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFailure.js";
 
 /**
  * Transactional email via Resend (ADR 0008). v1 sends only Welcome + Invitation
@@ -24,15 +30,22 @@ import { hashInvitationToken } from "./invitationToken.js";
 // (Free-plan ceiling is 20 across ALL pools/workflows — keep the sum under that.)
 // Welcome email isn't urgent: back off generously. maxAttempts is TOTAL attempts
 // (5 = 1 initial + 4 retries): 30s, 60s, 120s, 240s of backoff (+jitter) ≈ 7.5 min cover.
+export const EMAIL_RETRY_BEHAVIOR = {
+  maxAttempts: 5,
+  initialBackoffMs: 30_000,
+  base: 2,
+};
+
 export const emailPool = new Workpool(components.emailWorkpool, {
   maxParallelism: 5,
   retryActionsByDefault: true,
-  defaultRetryBehavior: { maxAttempts: 5, initialBackoffMs: 30_000, base: 2 },
+  defaultRetryBehavior: EMAIL_RETRY_BEHAVIOR,
 });
 
 /** Resend vendor wiring — single seam for EML-2 / FBK-1. Uses fetch (not SDK).
- *  Returns true on a confirmed 2xx; false when env is unset (no-op). THROWS on
- *  fetch rejection or non-2xx so the Workpool retries the handoff.
+ *  Returns true on a confirmed 2xx; false when env is unset (no-op, EML-1: a
+ *  missing key must not throw into bootstrap or trigger Workpool retries).
+ *  THROWS on fetch rejection or non-2xx so the Workpool retries the handoff.
  *  Pass `idempotencyKey` so a retried send dedupes at Resend instead of re-delivering. */
 export async function sendEmail(args: {
   to: string;
@@ -76,6 +89,26 @@ export async function sendEmail(args: {
   return true;
 }
 
+/** Skip-and-return when Resend is unset; report once so production misconfig alerts. */
+export async function sendEmailOrReport(
+  ctx: ActionCtx,
+  report: {
+    kind: (typeof TERMINAL_FAILURE_KINDS)[number];
+    entityId: string;
+  },
+  args: Parameters<typeof sendEmail>[0],
+) {
+  const sent = await sendEmail(args);
+  if (!sent) {
+    await reportTerminalFailure(ctx, {
+      kind: report.kind,
+      entityId: report.entityId,
+      error: "Resend env not configured",
+    });
+  }
+  return sent;
+}
+
 export const welcomePayload = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
@@ -109,12 +142,16 @@ export const sendWelcomeEmail = internalAction({
       return;
     }
     const { subject, html } = welcomeEmail({ displayName: p.displayName });
-    const sent = await sendEmail({
-      to: p.email,
-      subject,
-      html,
-      idempotencyKey: `welcome:${userId}`,
-    });
+    const sent = await sendEmailOrReport(
+      ctx,
+      { kind: "welcome_email_exhausted", entityId: userId },
+      {
+        to: p.email,
+        subject,
+        html,
+        idempotencyKey: `welcome:${userId}`,
+      },
+    );
     if (sent) {
       await ctx.runMutation(internal.email.markWelcomed, { userId });
     }
@@ -123,10 +160,13 @@ export const sendWelcomeEmail = internalAction({
 
 export const onWelcomeRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ userId: v.id("users") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Welcome email exhausted all retries", context.userId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "welcome_email_exhausted",
+        entityId: context.userId,
+        error: result.error,
+      });
     }
     // result.kind === "success" | "canceled" → nothing to do.
   },
@@ -230,21 +270,28 @@ export const sendInvitationEmail = internalAction({
       ownerDisplayName: p.ownerDisplayName,
       recipientEmail: p.recipientEmail,
     });
-    await sendEmail({
-      to: p.recipientEmail,
-      subject,
-      html,
-      idempotencyKey: `invite:${invitationId}:${resendCount}`,
-    });
+    await sendEmailOrReport(
+      ctx,
+      { kind: "invitation_email_exhausted", entityId: invitationId },
+      {
+        to: p.recipientEmail,
+        subject,
+        html,
+        idempotencyKey: `invite:${invitationId}:${resendCount}`,
+      },
+    );
   },
 });
 
 export const onInvitationRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ invitationId: v.id("invitations") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Invitation email exhausted all retries", context.invitationId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "invitation_email_exhausted",
+        entityId: context.invitationId,
+        error: result.error,
+      });
     }
   },
 });
@@ -267,10 +314,14 @@ export const sendFeedbackEmail = internalAction({
     circleRef: v.optional(v.string()),
     submittedAtIso: v.string(),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const supportEmail = process.env.SUPPORT_EMAIL;
     if (!supportEmail) {
-      console.error("SUPPORT_EMAIL not configured; skipping feedback email send");
+      await reportTerminalFailure(ctx, {
+        kind: "feedback_email_exhausted",
+        entityId: args.eventId,
+        error: "SUPPORT_EMAIL not configured",
+      });
       return;
     }
     const { subject, html } = feedbackEmail({
@@ -283,22 +334,29 @@ export const sendFeedbackEmail = internalAction({
       circleRef: args.circleRef,
       submittedAtIso: args.submittedAtIso,
     });
-    await sendEmail({
-      to: supportEmail,
-      subject,
-      html,
-      idempotencyKey: `feedback:${args.eventId}`,
-      logBodyInDev: false,
-    });
+    await sendEmailOrReport(
+      ctx,
+      { kind: "feedback_email_exhausted", entityId: args.eventId },
+      {
+        to: supportEmail,
+        subject,
+        html,
+        idempotencyKey: `feedback:${args.eventId}`,
+        logBodyInDev: false,
+      },
+    );
   },
 });
 
 export const onFeedbackRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ eventId: v.id("feedbackEmailEvents") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Feedback email exhausted all retries", context.eventId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "feedback_email_exhausted",
+        entityId: context.eventId,
+        error: result.error,
+      });
     }
   },
 });

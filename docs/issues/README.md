@@ -1,9 +1,11 @@
-# PocketCircle v1 — Implementation Issue Graph
+# PocketCircle v1 — Shipped Implementation Issue Graph
 
-This is the **single map an agent follows** to build PocketCircle v1 on top of the
-deep-module foundation (PR landing `arpitdalal/start-over`). Every remaining v1
-capability is captured here as an independently-grabbable **vertical slice**. Read
-this whole file once, then open the one slice file you are implementing.
+> Historical implementation record. PocketCircle v1 shipped to production on
+> 2026-08-12 at <https://pocketcircle.app>. Post-v1 work is tracked separately.
+
+This was the **single map agents followed** to build PocketCircle v1 on top of the
+deep-module foundation. Each v1 capability is preserved here as a completed
+**vertical slice** with its original implementation and verification guidance.
 
 Nothing here is busywork: each slice tells you **what** to build, **why** it must be
 built that way (so you don't have to re-derive intent or ask), and **how to test it
@@ -11,7 +13,7 @@ comprehensively**. If a slice and an ADR ever disagree, the ADR wins — stop an
 
 ---
 
-## 1. How to pick up a slice
+## 1. Historical slice workflow
 
 1. **Read this file top to bottom.** The conventions and the testing bar (§4, §5) are
    non-negotiable and apply to every slice. Don't re-litigate them per slice.

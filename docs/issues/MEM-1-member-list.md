@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #77](https://github.com/arpitdalal/SpendCircle/pull/77) |
+| **Status** | Done · [PR #77](https://github.com/arpitdalal/PocketCircle/pull/77) |
 | **Labels** | `area:membership`, `backend`, `ui` |
 | **Depends on** | F0 |
 | **Unlocks** | MEM-2, MEM-5, MEM-6, MEM-7 |

@@ -23,6 +23,7 @@
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/workpool": "0.4.9",
     "@pocketcircle/domain": "workspace:*",
+    "@sentry/node": "10.70.0",
     "better-auth": "1.6.16",
     "convex": "^1.43.0",
     "convex-helpers": "0.1.122",

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #177](https://github.com/arpitdalal/PocketCircle/pull/177) |
 | **Labels** | `area:membership`, `backend`, `ui`, `security` |
 | **Depends on** | MEM-1 |
 | **Unlocks** | MEM-3, MEM-4, MEM-8, MEM-9, EML-2 |

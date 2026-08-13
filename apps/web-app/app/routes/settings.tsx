@@ -202,16 +202,7 @@ function DangerZoneCard() {
         </p>
       </div>
 
-      <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-3">
-        <p className="text-sm font-medium">Account export</p>
-        <p className="text-xs text-muted-foreground">
-          Unavailable in this pre-alpha slice. Export is not required before deletion.
-        </p>
-        <Button type="button" variant="outline" disabled>
-          Export account data
-        </Button>
-      </div>
-
+      {/* Account Export belongs in this Danger zone once designed; omit the panel until then. */}
       <Field>
         <FieldLabel htmlFor="settings-delete-phrase">
           Type {DELETE_ACCOUNT_PHRASE} to confirm

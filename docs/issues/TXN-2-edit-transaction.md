@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #64](https://github.com/arpitdalal/SpendCircle/pull/64) |
+| **Status** | Done · [PR #64](https://github.com/arpitdalal/PocketCircle/pull/64) |
 | **Labels** | `area:transactions`, `backend`, `ui` |
 | **Depends on** | TXN-1 |
 | **Unlocks** | — |

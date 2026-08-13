@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #187](https://github.com/arpitdalal/PocketCircle/pull/187) |
 | **Labels** | `area:membership`, `backend`, `ui` |
 | **Depends on** | MEM-1 (shipped) |
 | **Cross-ref** | MEM-5 (removeMember twin), MEM-7 (transfer prerequisite for owners), MEM-3 (rejoin reactivates same row) |

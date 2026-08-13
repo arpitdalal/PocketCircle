@@ -83,16 +83,24 @@ export const submitFeedback = mutation({
     });
     await assertDailyFeedbackCapAfterInsert(ctx, user._id, eventId, now);
 
-    await emailPool.enqueueAction(ctx, internal.email.sendFeedbackEmail, {
-      eventId,
-      type: parsed.value.type,
-      message: parsed.value.message,
-      userEmail: user.email,
-      displayName: user.displayName,
-      appVersion: parsed.value.appVersion,
-      circleName,
-      circleRef,
-      submittedAtIso: new Date(now).toISOString(),
-    });
+    await emailPool.enqueueAction(
+      ctx,
+      internal.email.sendFeedbackEmail,
+      {
+        eventId,
+        type: parsed.value.type,
+        message: parsed.value.message,
+        userEmail: user.email,
+        displayName: user.displayName,
+        appVersion: parsed.value.appVersion,
+        circleName,
+        circleRef,
+        submittedAtIso: new Date(now).toISOString(),
+      },
+      {
+        onComplete: internal.email.onFeedbackRunComplete,
+        context: { eventId },
+      },
+    );
   },
 });

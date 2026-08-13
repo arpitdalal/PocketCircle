@@ -1,13 +1,13 @@
 # OBS-1 · Sentry error monitoring
 
-| | |
-|---|---|
-| **Status** | Done |
-| **Labels** | `area:observability`, `frontend`, `security` |
-| **Depends on** | F0 |
-| **PRD stories** | 92 |
-| **ADRs** | 0012, 0013 |
-| **Glossary** | — |
+|                 |                                              |
+| --------------- | -------------------------------------------- |
+| **Status**      | Done                                         |
+| **Labels**      | `area:observability`, `frontend`, `security` |
+| **Depends on**  | F0                                           |
+| **PRD stories** | 92                                           |
+| **ADRs**        | 0012, 0013                                   |
+| **Glossary**    | —                                            |
 
 ## Intent
 
@@ -18,7 +18,7 @@ diagnosed. There's already a `reportAppError` seam ([`report-error.ts`](../../ap
 whose doc comment says "Sentry wiring lands here (ADR 0012) without touching any call site"; this
 slice makes it real.
 
-**Note — SET-1 already shipped** ([PR #204](https://github.com/arpitdalal/SpendCircle/pull/204)): the
+**Note — SET-1 already shipped** ([PR #204](https://github.com/arpitdalal/PocketCircle/pull/204)): the
 analytics opt-out exists (`analyticsOptOut` on the User; `useSetAnalyticsOptOut`; the Privacy section
 in [`settings.tsx`](../../apps/web-app/app/routes/settings.tsx)). Its UI copy already **promises the
 user** "Operational error monitoring (Sentry) stays on regardless." This slice must make that true —

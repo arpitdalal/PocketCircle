@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #199](https://github.com/arpitdalal/PocketCircle/pull/199) |
 | **Labels** | `area:maintenance`, `frontend`, `routing` |
 | **Depends on** | F0 |
 | **Unlocks** | React Router v8 upgrade |

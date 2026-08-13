@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #175](https://github.com/arpitdalal/SpendCircle/pull/175) |
+| **Status** | Done · [PR #175](https://github.com/arpitdalal/PocketCircle/pull/175) |
 | **Labels** | `area:users`, `backend`, `ui` |
 | **Depends on** | USR-1 (Personal Circle name customization flag + `reconcilePersonalCircleFromDisplayName`) |
 | **Extends** | USR-1, ADR 0024 |

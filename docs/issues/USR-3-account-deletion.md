@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Ready for implementation |
+| **Status** | Done · [PR #255](https://github.com/arpitdalal/PocketCircle/pull/255) |
 | **Labels** | `enhancement`, `ready-for-agent` |
 | **Depends on** | EML-1, MEM-7, MEM-8 (shipped) |
 | **ADRs** | 0029 |

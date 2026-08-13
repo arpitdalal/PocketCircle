@@ -22,6 +22,8 @@ test("account deletion verifies, signs out, and blocks protected access", async 
     await establishE2ESession(page, { baseURL: resolvedBase, email, name: "Delete Me" });
     await page.goto(`${resolvedBase}/settings`);
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /export account data/i })).toHaveCount(0);
+    await expect(page.getByText(/account export/i)).toHaveCount(0);
     await waitForScE2E(page);
 
     const phrase = page.getByLabel(/type delete my account/i);

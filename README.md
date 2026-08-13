@@ -152,7 +152,13 @@ VITE_POSTHOG_KEY=phc_<project-key>
 VITE_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-Set the backend variables on the **production** Convex deployment:
+`VITE_SENTRY_DSN` is the single production DSN. After a successful Convex deploy,
+`.github/workflows/deploy.yml` copies it to Convex `SENTRY_DSN` and sets
+`APP_RELEASE` (short `workflow_run.head_sha`) plus `SENTRY_ENVIRONMENT=production`.
+Clearing the GitHub variable removes `SENTRY_DSN` so backend reporting stops with
+the frontend. Do not set those three Convex vars by hand in production.
+
+Set the remaining backend variables on the **production** Convex deployment:
 
 ```text
 SITE_URL=https://pocketcircle.app

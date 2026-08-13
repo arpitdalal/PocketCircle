@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #71](https://github.com/arpitdalal/SpendCircle/pull/71) |
+| **Status** | Done · [PR #71](https://github.com/arpitdalal/PocketCircle/pull/71) |
 | **Labels** | `area:transactions`, `backend`, `ui` |
 | **Depends on** | TXN-1 |
 | **Unlocks** | (RPT-* exclude archived from default totals/search; RPT-2 lifecycle filters) |

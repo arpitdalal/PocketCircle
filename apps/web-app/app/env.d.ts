@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-/** Injected at build time from `apps/web-app/package.json` `version` (SET-1). */
+/** Injected at build time from the deploy SHA (`APP_RELEASE_SHA`) or `local-dev`. */
 declare const __APP_VERSION__: string;
 
 interface ImportMetaEnv {

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #93](https://github.com/arpitdalal/SpendCircle/pull/93) |
+| **Status** | Done · [PR #93](https://github.com/arpitdalal/PocketCircle/pull/93) |
 | **Labels** | `area:categories`, `backend`, `ui` |
 | **Depends on** | CAT-2, RPT-2 |
 | **Unlocks** | Paginated/typeahead Category picker in the Transaction form |

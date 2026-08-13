@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #86](https://github.com/arpitdalal/SpendCircle/pull/86) |
+| **Status** | Done · [PR #86](https://github.com/arpitdalal/PocketCircle/pull/86) |
 | **Labels** | `area:reporting`, `backend`, `ui` |
 | **Depends on** | RPT-3 |
 | **PRD stories** | 70, 71, 72 |

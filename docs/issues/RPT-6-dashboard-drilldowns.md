@@ -1,13 +1,13 @@
 # RPT-6 · Dashboard drilldowns
 
-| | |
-|---|---|
-| **Status** | Done |
-| **Labels** | `area:reporting`, `ui` |
-| **Depends on** | RPT-1 (Done), RPT-2 (Done), RPT-3 (Done), RPT-4 (Done · [PR #86](https://github.com/arpitdalal/SpendCircle/pull/86)), RPT-5 (Done · [PR #213](https://github.com/arpitdalal/SpendCircle/pull/213)) — all merged |
-| **PRD stories** | 74 |
-| **ADRs** | 0005, 0016, 0017 |
-| **Glossary** | Dashboard, Monthly Ledger, Ledger Filter |
+|                 |                                                                                                                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**      | Done                                                                                                                                                                                                              |
+| **Labels**      | `area:reporting`, `ui`                                                                                                                                                                                            |
+| **Depends on**  | RPT-1 (Done), RPT-2 (Done), RPT-3 (Done), RPT-4 (Done · [PR #86](https://github.com/arpitdalal/PocketCircle/pull/86)), RPT-5 (Done · [PR #213](https://github.com/arpitdalal/PocketCircle/pull/213)) — all merged |
+| **PRD stories** | 74                                                                                                                                                                                                                |
+| **ADRs**        | 0005, 0016, 0017                                                                                                                                                                                                  |
+| **Glossary**    | Dashboard, Monthly Ledger, Ledger Filter                                                                                                                                                                          |
 
 ## Intent
 
@@ -53,7 +53,7 @@ MonthNavigator when they need another month.
 
 ### The drilldown href: translate Dashboard scope → Ledger Filter URL
 
-The two routes use **different URL codecs** — this is the one non-obvious part. Build a *Ledger*
+The two routes use **different URL codecs** — this is the one non-obvious part. Build a _Ledger_
 URL, never reuse the Dashboard's params:
 
 - Dashboard codec ([`dashboard-url.ts`](../../apps/web-app/app/lib/dashboard-url.ts)): `range`
@@ -66,20 +66,26 @@ URL, never reuse the Dashboard's params:
 Build the link with the existing helpers (do not hand-roll query strings):
 
 ```ts
-import { canonicalLedgerParams, defaultLedgerFilters } from "~/lib/transaction-filter-url.js";
+import {
+  canonicalLedgerParams,
+  defaultLedgerFilters,
+} from "~/lib/transaction-filter-url.js";
 import { circlePath } from "~/lib/circle-path.js";
 import { withQuery } from "~/lib/ledger-url.js";
 
 function ledgerDrilldownHref(circle, { month, categoryId, type }) {
-  const filters = defaultLedgerFilters(month);          // month + empty filters
-  if (categoryId) filters.categories = [categoryId];    // single id → ledger's array param
-  if (type) filters.type = type;                        // "expense" | "income" (else default "all")
-  return withQuery(circlePath(circle.ref, "transactions"), canonicalLedgerParams(filters).toString());
+  const filters = defaultLedgerFilters(month); // month + empty filters
+  if (categoryId) filters.categories = [categoryId]; // single id → ledger's array param
+  if (type) filters.type = type; // "expense" | "income" (else default "all")
+  return withQuery(
+    circlePath(circle.ref, "transactions"),
+    canonicalLedgerParams(filters).toString(),
+  );
 }
 ```
 
 - A **category-row** drilldown: `{ month: currentMonth(new Date()), categoryId: row.categoryId,
-  type: selection.type }` — `selection.type` comes from `readDashboardSelection(searchParams)` and
+type: selection.type }` — `selection.type` comes from `readDashboardSelection(searchParams)` and
   matches the analytics query.
 - `defaultLedgerFilters` already leaves `status: "all"`, so archived Transactions appear in the
   drilled-in Ledger marked as archived — same as opening the Ledger directly (CONTEXT: Ledger
@@ -148,7 +154,7 @@ redefine per-file scaffolding (CLAUDE.md). No new Convex tests (no backend chang
 - The chart math and surfaces themselves (RPT-3 totals, RPT-4 comparison, RPT-5 category analytics),
   and the Monthly Ledger + Ledger Filter (RPT-1/RPT-2) — all reused, not rebuilt.
 - **Month-bar drilldown from the comparison chart** — removed; use Ledger MonthNavigator for other
-  months ([issue #218](https://github.com/arpitdalal/SpendCircle/issues/218), [PR #221](https://github.com/arpitdalal/SpendCircle/pull/221)).
+  months ([issue #218](https://github.com/arpitdalal/PocketCircle/issues/218), [PR #221](https://github.com/arpitdalal/PocketCircle/pull/221)).
 - **Recent Transaction → detail** — already shipped in `RecentRow` (`dashboard.tsx`).
 - Member-specific Dashboard reporting.
 - Any new backend query, fixture, or `data.ts` hook — this slice wires existing reads.
