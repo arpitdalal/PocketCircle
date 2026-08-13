@@ -21,7 +21,7 @@ function defaultFieldValues(previewId: (typeof EMAIL_PREVIEWS)[number]["id"]) {
   const preview = EMAIL_PREVIEWS.find((entry) => entry.id === previewId) ?? EMAIL_PREVIEWS[0];
   const values: Record<string, string> = {};
   for (const field of preview.fields) {
-    values[field.key] = field.default;
+    values[field.key] = field.key === "appVersion" ? __APP_VERSION__ : field.default;
   }
   return values;
 }

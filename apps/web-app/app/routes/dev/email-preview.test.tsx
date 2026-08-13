@@ -48,6 +48,16 @@ describe("Email preview route", () => {
     expect(iframe.getAttribute("srcdoc")).toContain("https://app.example.com/invite/sample-token");
   });
 
+  it("seeds Feedback app version from the injected release identifier", async () => {
+    const user = userEvent.setup();
+    renderEmailPreview();
+
+    await user.click(screen.getByRole("button", { name: "Feedback" }));
+
+    expect(screen.getByLabelText("App version")).toHaveValue(__APP_VERSION__);
+    expect(screen.getByTitle("Email preview").getAttribute("srcdoc")).toContain(__APP_VERSION__);
+  });
+
   it("updates the iframe when a field value changes", async () => {
     const user = userEvent.setup();
     renderEmailPreview();

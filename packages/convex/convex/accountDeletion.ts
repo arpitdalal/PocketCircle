@@ -21,6 +21,7 @@ import { assertNoAccountDeletionBlockers } from "./accountDeletionFinalize.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool, sendEmail } from "./email.js";
 import { circleEntity, recordEvent } from "./history.js";
+import { reportTerminalFailure } from "./terminalFailure.js";
 
 export {
   assertNoAccountDeletionBlockers,
@@ -232,9 +233,13 @@ export const sendAccountDeletionEmail = internalAction({
 
 export const onAccountDeletionEmailComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ userId: v.id("users") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Account deletion email exhausted all retries", context.userId, result.error);
+      await reportTerminalFailure(ctx, {
+        kind: "account_deletion_email_exhausted",
+        entityId: context.userId,
+        error: result.error,
+      });
     }
   },
 });
@@ -260,9 +265,15 @@ export const runCleanupBatch = internalMutation({
 
     const phase = job.phase;
     if (!isUserPhase(phase)) {
+      const failure = `unknown phase: ${phase}`;
       await ctx.db.patch(args.jobId, {
-        failure: `unknown phase: ${phase}`,
+        failure,
         updatedAt: Date.now(),
+      });
+      await reportTerminalFailure(ctx, {
+        kind: "account_deletion_cleanup_failed",
+        entityId: args.jobId,
+        error: failure,
       });
       return;
     }

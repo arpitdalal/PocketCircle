@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server.js";
 import { hashInvitationToken } from "./invitationToken.js";
+import { reportTerminalFailure } from "./terminalFailure.js";
 
 /**
  * Transactional email via Resend (ADR 0008). v1 sends only Welcome + Invitation
@@ -123,10 +124,13 @@ export const sendWelcomeEmail = internalAction({
 
 export const onWelcomeRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ userId: v.id("users") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Welcome email exhausted all retries", context.userId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "welcome_email_exhausted",
+        entityId: context.userId,
+        error: result.error,
+      });
     }
     // result.kind === "success" | "canceled" → nothing to do.
   },
@@ -241,10 +245,13 @@ export const sendInvitationEmail = internalAction({
 
 export const onInvitationRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ invitationId: v.id("invitations") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Invitation email exhausted all retries", context.invitationId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "invitation_email_exhausted",
+        entityId: context.invitationId,
+        error: result.error,
+      });
     }
   },
 });
@@ -295,10 +302,13 @@ export const sendFeedbackEmail = internalAction({
 
 export const onFeedbackRunComplete = internalMutation({
   args: vOnCompleteValidator(v.object({ eventId: v.id("feedbackEmailEvents") })),
-  handler: async (_ctx, { context, result }) => {
+  handler: async (ctx, { context, result }) => {
     if (result.kind === "failed") {
-      console.error("Feedback email exhausted all retries", context.eventId, result.error);
-      // TODO(OBS-1): Sentry.captureMessage here.
+      await reportTerminalFailure(ctx, {
+        kind: "feedback_email_exhausted",
+        entityId: context.eventId,
+        error: result.error,
+      });
     }
   },
 });

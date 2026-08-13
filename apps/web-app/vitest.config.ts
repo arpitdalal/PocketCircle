@@ -1,12 +1,13 @@
 import babel from "@rolldown/plugin-babel";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineProject } from "vitest/config";
+import { resolveAppVersion } from "./resolve-app-version.js";
 
 // Component tests run under jsdom with the React plugin only — the React Router
 // Vite plugin is intentionally excluded so tests render components directly.
 // The React Compiler preset matches production (vite.config.ts) so unit tests
 // exercise compiled output, not a separate uncompiled code path.
-const appVersion = process.env.npm_package_version ?? "0.0.0";
+const appVersion = resolveAppVersion();
 
 export default defineProject({
   define: {
@@ -21,6 +22,6 @@ export default defineProject({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["app/**/*.test.{ts,tsx}"],
+    include: ["app/**/*.test.{ts,tsx}", "resolve-app-version.test.ts"],
   },
 });

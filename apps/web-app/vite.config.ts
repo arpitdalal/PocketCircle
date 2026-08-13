@@ -3,8 +3,9 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { resolveAppVersion } from "./resolve-app-version.js";
 
-const appVersion = process.env.npm_package_version ?? "0.0.0";
+const appVersion = resolveAppVersion();
 
 export default defineConfig({
   define: {

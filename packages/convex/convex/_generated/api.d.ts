@@ -36,6 +36,8 @@ import type * as monthActivity from "../monthActivity.js";
 import type * as notifications from "../notifications.js";
 import type * as notify from "../notify.js";
 import type * as search from "../search.js";
+import type * as terminalFailure from "../terminalFailure.js";
+import type * as terminalFailureSentry from "../terminalFailureSentry.js";
 import type * as transactionSearchDocuments from "../transactionSearchDocuments.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
@@ -75,6 +77,8 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   notify: typeof notify;
   search: typeof search;
+  terminalFailure: typeof terminalFailure;
+  terminalFailureSentry: typeof terminalFailureSentry;
   transactionSearchDocuments: typeof transactionSearchDocuments;
   transactions: typeof transactions;
   users: typeof users;

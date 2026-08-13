@@ -395,7 +395,7 @@ describe("Settings danger zone", () => {
     expect(loadMore).toHaveBeenCalled();
   });
 
-  it("disables Export, gates delete on exact phrase, and shows check-your-email after request", async () => {
+  it("gates delete on exact phrase, omits Account Export, and shows check-your-email after request", async () => {
     auth.deleteUser.mockResolvedValue({ data: {}, error: null });
     configureConvex({
       currentUser: makeCurrentUserView(),
@@ -404,8 +404,10 @@ describe("Settings danger zone", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    expect(await screen.findByRole("button", { name: "Export account data" })).toBeDisabled();
-    expect(screen.getByText(/Unavailable in this pre-alpha slice/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Delete my account" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export account data" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Account export/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unavailable in this pre-alpha slice/i)).not.toBeInTheDocument();
 
     const submit = screen.getByRole("button", { name: "Delete my account" });
     expect(submit).toBeDisabled();

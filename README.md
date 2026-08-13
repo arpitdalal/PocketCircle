@@ -162,7 +162,11 @@ GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
 RESEND_API_KEY=<resend-api-key>
 RESEND_FROM_EMAIL=<verified-from-address>
 SUPPORT_EMAIL=arpitdalalm@gmail.com
+SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
 ```
+
+`APP_RELEASE` and `SENTRY_ENVIRONMENT` are set by `.github/workflows/deploy.yml` from
+the checked-out `workflow_run.head_sha` (short SHA) and must not be edited by hand.
 
 Leave `E2E_TEST_AUTH` and `EMAIL_DEV_LOG` unset in production. Google OAuth must
 allow the exact callback URL:
