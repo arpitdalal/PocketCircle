@@ -23,6 +23,7 @@ export class IntersectionObserverStub implements IntersectionObserver {
 
   readonly root: Element | Document | null = null;
   readonly rootMargin = "";
+  readonly scrollMargin = "0px 0px 0px 0px";
   readonly thresholds: ReadonlyArray<number> = [0];
   private readonly observed = new Set<Element>();
 

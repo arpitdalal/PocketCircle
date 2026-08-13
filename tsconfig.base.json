@@ -17,6 +17,8 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    // Drop once tsc is TypeScript 7 (6→7 migration complete).
+    "stableTypeOrdering": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true

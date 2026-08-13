@@ -28,7 +28,7 @@
     "@types/node": "^26.2.0",
     "kysely": "0.28.17",
     "lefthook": "^2.1.10",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10",
     "wrangler": "4.121.0"
   }
