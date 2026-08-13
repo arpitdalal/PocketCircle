@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #166](https://github.com/arpitdalal/PocketCircle/pull/166) |
 | **Labels** | `area:users`, `backend`, `ui` |
 | **Depends on** | F0 |
 | **Unlocks** | richer EML/MEM identity (Welcome email + Member List use the owned name) |

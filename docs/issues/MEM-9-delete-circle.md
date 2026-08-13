@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #206](https://github.com/arpitdalal/SpendCircle/pull/206) |
+| **Status** | Done · [PR #206](https://github.com/arpitdalal/PocketCircle/pull/206) |
 | **Labels** | `area:circles`, `backend`, `ui` |
 | **Depends on** | MEM-2, TXN-1 |
 | **PRD stories** | 23 |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #185](https://github.com/arpitdalal/PocketCircle/pull/185) |
 | **Labels** | `area:membership`, `backend`, `ui`, `security` |
 | **Depends on** | MEM-2 (SHIPPED — PR #177) |
 | **PRD stories** | 13, 44 |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #63](https://github.com/arpitdalal/SpendCircle/pull/63) |
+| **Status** | Done · [PR #63](https://github.com/arpitdalal/PocketCircle/pull/63) |
 | **Labels** | `area:transactions`, `backend`, `ui` |
 | **Depends on** | CAT-1 |
 | **Unlocks** | TXN-2, TXN-3, TXN-4, CS-3, MEM-9, RPT-1, RPT-2, RPT-3, EXP-1 |

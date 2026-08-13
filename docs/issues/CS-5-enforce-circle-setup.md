@@ -1,26 +1,26 @@
 # CS-5 · Enforce Circle Setup (completion flag + route gate, remove Skip)
 
-| | |
-|---|---|
-| **Status** | Todo |
-| **Labels** | `area:circles`, `backend`, `ui` |
-| **Depends on** | CS-1, CS-2 (PR #153 must merge first) |
-| **PRD stories** | 11 |
-| **ADRs** | 0015, 0016, 0017, 0023 |
-| **Glossary** | Circle Setup, Setup answers |
+|                 |                                                                       |
+| --------------- | --------------------------------------------------------------------- |
+| **Status**      | Done · [PR #155](https://github.com/arpitdalal/PocketCircle/pull/155) |
+| **Labels**      | `area:circles`, `backend`, `ui`                                       |
+| **Depends on**  | CS-1, CS-2 (PR #153 must merge first)                                 |
+| **PRD stories** | 11                                                                    |
+| **ADRs**        | 0015, 0016, 0017, 0023                                                |
+| **Glossary**    | Circle Setup, Setup answers                                           |
 
 ## Intent
 
-Today Circle Setup is **optional and skippable**, and "setup completed" is *inferred* from
+Today Circle Setup is **optional and skippable**, and "setup completed" is _inferred_ from
 `circles.setupAnswers !== undefined` — a lossy signal that collapses four distinct states
 (Finished, Skipped, never-reached, Personal Circle) into one. That inference is the root cause
-of the CS-2 bug ([PR #153 review](https://github.com/arpitdalal/SpendCircle/pull/153#discussion_r3431471099)):
+of the CS-2 bug ([PR #153 review](https://github.com/arpitdalal/PocketCircle/pull/153#discussion_r3431471099)):
 `updateCircleSettings` writing `setupAnswers` flips `undefined → defined` **without** running
 `completeCircleSetup`, permanently locking out the one-shot starter-Category seeding.
 
 This slice makes setup **mandatory** for regular Circles and tracks completion **explicitly**:
 
-- Add a dedicated `setupCompletedAt` completion flag (separate from the answer *data*).
+- Add a dedicated `setupCompletedAt` completion flag (separate from the answer _data_).
 - **Remove the Skip option.** A single **Finish** button: default answers (none chosen) seed
   the 9 default starter Categories; specific answers work as they do today. No owner ever leaves
   setup with zero Categories.
@@ -29,7 +29,7 @@ This slice makes setup **mandatory** for regular Circles and tracks completion *
 
 > **Why a flag, not the inferred signal.** "Did the owner pass the setup step" (a workflow
 > milestone) and "what did the owner answer" (domain data CS-2 lets them re-edit) are two
-> different facts. Overloading the data's *presence* to mean *completion* is exactly the
+> different facts. Overloading the data's _presence_ to mean _completion_ is exactly the
 > conflation that produced the bug. The flag separates them; `setupAnswers` goes back to being
 > pure data.
 
@@ -52,7 +52,7 @@ This slice makes setup **mandatory** for regular Circles and tracks completion *
 - **`updateCircleSettings`** (`circles.ts`): **re-home the interim guard** added in PR #153.
   Replace "reject `setupAnswers` when `circle.setupAnswers === undefined`" with "reject
   `setupAnswers` edits unless `circle.setupCompletedAt !== null`." This keeps the one-shot
-  invariant *and* correctly allows post-setup answer edits (the original presence-based guard was
+  invariant _and_ correctly allows post-setup answer edits (the original presence-based guard was
   only correct for the pre-flag model). `color` edits remain allowed regardless.
 - **`toCircleView`** (`circles.ts`): expose a derived `setupComplete: circle.setupCompletedAt !== null`
   on the client view (keep `setupAnswers` for the settings form). The route gate reads this.
@@ -62,7 +62,7 @@ This slice makes setup **mandatory** for regular Circles and tracks completion *
 - **Setup route** (`routes/circle/setup.tsx`): **remove the Skip button and its `onSkip`/`finish`
   skip path.** Keep only **Finish** → `completeCircleSetup`. Submitting with the default
   "Not sure yet" purpose sends `{}` and seeds the 9 default starters (already how Finish behaves).
-  Keep the existing `setupAnswers !== undefined`→dashboard redirect *or* switch it to
+  Keep the existing `setupAnswers !== undefined`→dashboard redirect _or_ switch it to
   `circle.setupComplete` (equivalent post-flag). Defensive owner check: a non-owner who somehow
   lands here redirects to the Circle dashboard (the server already rejects their
   `completeCircleSetup` call; this avoids showing a form that errors on submit).
@@ -108,5 +108,5 @@ This slice makes setup **mandatory** for regular Circles and tracks completion *
 ## Out of scope
 
 The Color / Setup-answer editing surface itself (CS-2), starter-Category derivation (CS-1), Circle
-History view (CS-4). This slice changes *when* setup happens and *how completion is tracked*, not
-*what* setup writes.
+History view (CS-4). This slice changes _when_ setup happens and _how completion is tracked_, not
+_what_ setup writes.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #88](https://github.com/arpitdalal/SpendCircle/pull/88) |
+| **Status** | Done · [PR #88](https://github.com/arpitdalal/PocketCircle/pull/88) |
 | **Labels** | `area:categories`, `backend`, `ui` |
 | **Depends on** | CAT-1 |
 | **Unlocks** | (analytics/search archived-category behavior leans on this) |

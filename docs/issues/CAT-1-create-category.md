@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #23](https://github.com/arpitdalal/SpendCircle/pull/23) |
+| **Status** | Done · [PR #23](https://github.com/arpitdalal/PocketCircle/pull/23) |
 | **Labels** | `area:categories`, `backend`, `ui` |
 | **Depends on** | F0 (foundation) |
 | **Unlocks** | TXN-1, CAT-2, CAT-3, CS-1 |

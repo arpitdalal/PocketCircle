@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Todo |
+| **Status** | Done · [PR #176](https://github.com/arpitdalal/PocketCircle/pull/176) |
 | **Labels** | `area:email`, `backend`, `security` |
 | **Depends on** | F0 |
 | **Unlocks** | EML-2, FBK-1 |

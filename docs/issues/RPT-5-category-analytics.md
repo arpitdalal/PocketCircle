@@ -1,13 +1,13 @@
 # RPT-5 · Category analytics
 
-| | |
-|---|---|
-| **Status** | Done · [PR #213](https://github.com/arpitdalal/SpendCircle/pull/213) |
-| **Labels** | `area:reporting`, `backend`, `ui` |
-| **Depends on** | RPT-3 (Done · [PR #70](https://github.com/arpitdalal/SpendCircle/pull/70)) — also reuses RPT-4's chart/URL wiring (Done · [PR #86](https://github.com/arpitdalal/SpendCircle/pull/86)) |
-| **PRD stories** | 58, 73 |
-| **ADRs** | 0005, 0009, 0015, 0016 |
-| **Glossary** | Dashboard, Category, Archived Category |
+|                 |                                                                                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**      | Done · [PR #213](https://github.com/arpitdalal/PocketCircle/pull/213)                                                                                                                    |
+| **Labels**      | `area:reporting`, `backend`, `ui`                                                                                                                                                        |
+| **Depends on**  | RPT-3 (Done · [PR #70](https://github.com/arpitdalal/PocketCircle/pull/70)) — also reuses RPT-4's chart/URL wiring (Done · [PR #86](https://github.com/arpitdalal/PocketCircle/pull/86)) |
+| **PRD stories** | 58, 73                                                                                                                                                                                   |
+| **ADRs**        | 0005, 0009, 0015, 0016                                                                                                                                                                   |
+| **Glossary**    | Dashboard, Category, Archived Category                                                                                                                                                   |
 
 ## Intent
 
@@ -41,7 +41,7 @@ mirroring what's already there.
    with the totals cards about which Transactions count (active-only, archived excluded — TXN-3).
 4. If `type` is set, filter the returned set in memory (`txns.filter(t => t.type === type)`).
    The set is one bounded month, so an in-memory narrow is fine (README §4 forbids sorting/
-   filtering *unbounded* sets, not a bounded month) — there is no month+type index and you must
+   filtering _unbounded_ sets, not a bounded month) — there is no month+type index and you must
    not add one. NOTE: Categories are typed and only attach to a Transaction of their own type, so
    filtering Transactions by `type` inherently yields only that type's Categories.
 5. For each active Transaction in the (filtered) set, read its Category links via the
@@ -51,7 +51,7 @@ mirroring what's already there.
    indexes (no `by_circle`), so accumulate per-Transaction, not by scanning `by_category`.
    Accumulate into a `Map<Id<"categories">, { taggedTotalMinor, txnCount }>`: for each link add
    the Transaction's full `amountMinorUnits` to its Category's `taggedTotalMinor` and `++txnCount`.
-   A multi-Category Transaction adds its full amount to *each* of its Categories (the non-additive
+   A multi-Category Transaction adds its full amount to _each_ of its Categories (the non-additive
    property, by construction).
 6. Resolve each distinct `categoryId` to `{ name, color, status }` via `ctx.db.get`. The existing
    `categoryRef` helper drops `status` (returns `{id,name,color}` only), so read the Category doc
@@ -59,7 +59,7 @@ mirroring what's already there.
    prefer, but the distinct-category count is already bounded by the month set.
 7. Return a **ranked** list sorted by `taggedTotalMinor` **descending** (stable on ties), plus the
    Circle Currency for the edge to format: `{ rows: { categoryId, name, color, status,
-   taggedTotalMinor, txnCount }[], currency }`. Money stays minor units (ADR 0009 — the edge
+taggedTotalMinor, txnCount }[], currency }`. Money stays minor units (ADR 0009 — the edge
    formats once; never sum formatted strings). Archived-but-used Categories appear (badged via
    `status`); purely-archived-unused Categories are absent automatically (no in-period link).
 
@@ -89,7 +89,7 @@ mirroring what's already there.
 
 - **Non-additive by construction:** compute per-Category tagged totals; never present a
   whole-equals-sum-of-parts chart. A multi-category Transaction contributes its full amount to
-  *each* of its Categories — document this in the UI so it isn't read as additive.
+  _each_ of its Categories — document this in the UI so it isn't read as additive.
 - **One shared month set:** routing through `collectMonthActiveTransactions` means the category
   ranking, the totals cards (RPT-3), and the comparison chart (RPT-4) can never drift on what a
   Circle-month contains.

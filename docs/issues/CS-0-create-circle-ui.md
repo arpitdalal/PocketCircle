@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #78](https://github.com/arpitdalal/SpendCircle/pull/78) |
+| **Status** | Done · [PR #78](https://github.com/arpitdalal/PocketCircle/pull/78) |
 | **Labels** | `area:circles`, `ui` |
 | **Depends on** | F0 |
 | **Unlocks** | CS-1, CS-2, CS-4 |

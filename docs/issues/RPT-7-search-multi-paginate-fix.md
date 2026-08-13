@@ -1,13 +1,13 @@
 # RPT-7 · Fix multi-paginate crash in Transaction Search / Ledger Filter
 
-| | |
-|---|---|
-| **Status** | Done · [PR #95](https://github.com/arpitdalal/SpendCircle/pull/95) |
-| **Labels** | `area:reporting`, `backend`, `bug` |
-| **Depends on** | RPT-2, CAT-4 |
+|                 |                                                                          |
+| --------------- | ------------------------------------------------------------------------ |
+| **Status**      | Done · [PR #95](https://github.com/arpitdalal/PocketCircle/pull/95)      |
+| **Labels**      | `area:reporting`, `backend`, `bug`                                       |
+| **Depends on**  | RPT-2, CAT-4                                                             |
 | **PRD stories** | 41, 65, 66, 67 (keeps the RPT-2 surfaces working at scale; no new story) |
-| **ADRs** | 0006, 0015, 0016 |
-| **Glossary** | Ledger Filter, Transaction Search |
+| **ADRs**        | 0006, 0015, 0016                                                         |
+| **Glossary**    | Ledger Filter, Transaction Search                                        |
 
 ## Intent
 
@@ -19,7 +19,7 @@ in-handler predicates (text, type, Category, amount), and if the page isn't full
 `.paginate()` call per query execution; the second iteration throws
 
 > `This query or mutation function ran multiple paginated queries. Convex only supports a
-> single paginated query in each function.`
+single paginated query in each function.`
 
 convex-test does **not** enforce this restriction, so the unit suite is green — the bug
 only surfaces against a real backend, whenever the filters are sparse enough that the first
@@ -29,7 +29,7 @@ query, and `usePaginatedQuery` surfaces the error boundary ("Something went wron
 matches (most current E2E flows) never hit the second iteration, which is why it shipped.
 
 CAT-4 hit this exact wall building `filterCategories` on the same loop shape and fixed it
-with `convex-helpers` streams (see [PR #93](https://github.com/arpitdalal/SpendCircle/pull/93));
+with `convex-helpers` streams (see [PR #93](https://github.com/arpitdalal/PocketCircle/pull/93));
 this slice applies the same fix to the Transaction reads.
 
 ## Implement
@@ -64,7 +64,7 @@ this slice applies the same fix to the Transaction reads.
   filtering would be legal but breaks the "no empty intermediate page while further matches
   exist" contract RPT-2 promised and CAT-4 reaffirmed; streams fill the page reading the
   same index ranges via `take` under the hood.
-- **Don't hand-roll cursors** — a bespoke createdAt/_creationTime continuation re-implements
+- **Don't hand-roll cursors** — a bespoke createdAt/\_creationTime continuation re-implements
   what `convex-helpers` already maintains, without the journal-adjacent edge handling.
 - **One fix, one slice** — this deliberately changes no filter semantics, no args, no UI.
   Identical inputs must produce identical pages (modulo cursor encoding).
@@ -72,7 +72,7 @@ this slice applies the same fix to the Transaction reads.
 ## How to test
 
 - **Regression (the crash):** convex-test can't reproduce the throw (it doesn't enforce the
-  restriction), so encode the *behavior* it implies: seed sparse matches — e.g. 12+
+  restriction), so encode the _behavior_ it implies: seed sparse matches — e.g. 12+
   Transactions where every other row matches the text query — and assert a small-numItems
   page comes back **full** of matches with a working continue cursor, on both
   `filterLedgerTransactions` and `searchTransactions`, on the status-index and

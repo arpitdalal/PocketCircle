@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Done · [PR #65](https://github.com/arpitdalal/SpendCircle/pull/65) |
+| **Status** | Done · [PR #65](https://github.com/arpitdalal/PocketCircle/pull/65) |
 | **Labels** | `area:reporting`, `backend`, `ui` |
 | **Depends on** | TXN-1 |
 | **Unlocks** | RPT-2, RPT-6 |

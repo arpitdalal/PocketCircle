@@ -1,15 +1,15 @@
 # OBS-2 · PostHog product analytics
 
-| | |
-|---|---|
-| **Status** | Done |
-| **Issue** | [#48](https://github.com/arpitdalal/SpendCircle/issues/48) |
-| **Labels** | `enhancement`, `area:observability`, `frontend`, `security`, `ready-for-agent` |
-| **Depends on** | SET-1 (done), OBS-1 (done) |
-| **Related** | FBK-1 (done; optional `feedback_submitted` event) |
-| **PRD stories** | 93, 91, 184 |
-| **ADRs** | 0013, 0006, 0017 |
-| **Glossary** | User, Feedback, Transaction, Ledger Filter, Transaction Search, Export |
+|                 |                                                                                |
+| --------------- | ------------------------------------------------------------------------------ |
+| **Status**      | Done                                                                           |
+| **Issue**       | [#48](https://github.com/arpitdalal/PocketCircle/issues/48)                    |
+| **Labels**      | `enhancement`, `area:observability`, `frontend`, `security`, `ready-for-agent` |
+| **Depends on**  | SET-1 (done), OBS-1 (done)                                                     |
+| **Related**     | FBK-1 (done; optional `feedback_submitted` event)                              |
+| **PRD stories** | 93, 91, 184                                                                    |
+| **ADRs**        | 0013, 0006, 0017                                                               |
+| **Glossary**    | User, Feedback, Transaction, Ledger Filter, Transaction Search, Export         |
 
 ## Intent
 
@@ -45,16 +45,16 @@ Display Names, refs, ids, or raw URLs. Only event names and whitelisted coarse p
 
 ### v1 events (wired)
 
-| Event | Call site |
-|---|---|
-| `circle_created` | `circle-new.tsx` |
-| `transaction_added` | `transaction-form.tsx` (create only) |
-| `category_created` | `category-form.tsx`, `transaction-form-category-section.tsx` |
-| `ledger_filter_applied` | `transactions.tsx` (Apply) |
-| `transaction_search_submitted` | `search.tsx` (debounced search + filter Apply) |
-| `transaction_search_page_changed` | `search.tsx` (pagination) |
-| `export_performed` | `search.tsx` (downloaded / too_many / inaccessible / failed) |
-| `feedback_submitted` | `settings.tsx` (after mutation success) |
+| Event                             | Call site                                                    |
+| --------------------------------- | ------------------------------------------------------------ |
+| `circle_created`                  | `circle-new.tsx`                                             |
+| `transaction_added`               | `transaction-form.tsx` (create only)                         |
+| `category_created`                | `category-form.tsx`, `transaction-form-category-section.tsx` |
+| `ledger_filter_applied`           | `transactions.tsx` (Apply)                                   |
+| `transaction_search_submitted`    | `search.tsx` (debounced search + filter Apply)               |
+| `transaction_search_page_changed` | `search.tsx` (pagination)                                    |
+| `export_performed`                | `search.tsx` (downloaded / too_many / inaccessible / failed) |
+| `feedback_submitted`              | `settings.tsx` (after mutation success)                      |
 
 Coarse prop helpers live in `app/lib/analytics-props.ts`. Event/prop allowlists in
 `app/lib/analytics-events.ts`.
