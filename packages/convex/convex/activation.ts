@@ -343,13 +343,13 @@ async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">
 
   const setupComplete = activeRegular.find((circle) => circle.setupCompletedAt !== null);
   if (setupComplete) {
-    return { kind: "members", circleRef: circleRefOf(setupComplete) };
+    return { kind: "members" as const, circleRef: circleRefOf(setupComplete) };
   }
   const incomplete = activeRegular[0];
   if (incomplete) {
-    return { kind: "setup", circleRef: circleRefOf(incomplete) };
+    return { kind: "setup" as const, circleRef: circleRefOf(incomplete) };
   }
-  return { kind: "create" };
+  return { kind: "create" as const };
 }
 
 function completedCountOf(row: ActivationRow) {
