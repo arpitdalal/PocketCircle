@@ -246,7 +246,7 @@ async function earliestCreatedRegularCircleAt(ctx: QueryCtx | MutationCtx, userI
   let earliest: number | undefined;
   for (const membership of memberships) {
     const circle = await ctx.db.get(membership.circleId);
-    if (!circle || circle.kind !== "regular") {
+    if (circle?.kind !== "regular") {
       continue;
     }
     const events = await ctx.db
