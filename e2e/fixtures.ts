@@ -134,16 +134,29 @@ function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** True-E2E does not run MSW. Block PostHog at the context so a leaked key cannot escape. */
+export async function installVendorFirewall(context: BrowserContext) {
+  await context.route(/posthog\.com/i, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"status":1}' }),
+  );
+}
+
+export async function createIsolatedBrowserContext(
+  browser: Browser,
+  options?: Parameters<Browser["newContext"]>[0],
+) {
+  const context = await browser.newContext(options);
+  await installVendorFirewall(context);
+  return context;
+}
+
 /**
  * Extra browser session for a second User: inherits the active project's device
  * settings (desktop-chromium vs mobile-chromium viewport/UA) but not the
  * per-worker `storageState` — pair with `establishE2ESession` on `newPage()`.
  */
-export function createSecondaryBrowserContext(
-  browser: Browser,
-  testInfo: TestInfo,
-): Promise<BrowserContext> {
-  return browser.newContext(testInfo.project.use);
+export function createSecondaryBrowserContext(browser: Browser, testInfo: TestInfo) {
+  return createIsolatedBrowserContext(browser, testInfo.project.use);
 }
 
 /** Signs in a second User and accepts an invitation via the E2E-only backend helper. */
@@ -154,7 +167,7 @@ export async function joinCircleViaInvitation(opts: {
   memberName: string;
   token: string;
 }) {
-  const context = await opts.browser.newContext();
+  const context = await createIsolatedBrowserContext(opts.browser);
   const page = await context.newPage();
   try {
     await establishE2ESession(page, {
@@ -419,14 +432,15 @@ async function signUpUserAndSaveStorageState(opts: {
   const email = `e2e+w${opts.workerIndex}-${Date.now()}@example.com`;
   const storagePath = join(e2eDir, ".auth", `worker-${opts.workerIndex}.json`);
 
-  const page = await opts.browser.newPage();
+  const context = await createIsolatedBrowserContext(opts.browser);
+  const page = await context.newPage();
   try {
     await establishE2ESession(page, { baseURL: opts.baseURL, email });
     await mkdir(dirname(storagePath), { recursive: true });
     await page.context().storageState({ path: storagePath });
     return storagePath;
   } finally {
-    await page.close();
+    await context.close();
   }
 }
 
@@ -436,6 +450,11 @@ async function signUpUserAndSaveStorageState(opts: {
  * each other's list/total assertions.
  */
 export const test = base.extend<object, { workerStorageState: string }>({
+  context: async ({ context }, use) => {
+    await installVendorFirewall(context);
+    await use(context);
+  },
+
   storageState: async ({ workerStorageState }, use) => {
     await use(workerStorageState);
   },

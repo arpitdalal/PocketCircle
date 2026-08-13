@@ -4,6 +4,7 @@ import { testId } from "../apps/web-app/app/test/convex/ids.js";
 import { MUTATION_ERRORS } from "../packages/domain/src/mutation-errors.js";
 import {
   clickCircleChromeTab,
+  createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
   establishE2ESession,
   expect,
@@ -55,7 +56,7 @@ test("an invited user accepts and lands in the Circle member list", async ({
   const circleName = `Invite Circle ${Date.now()}`;
   const inviteeEmail = `e2e+invite-${Date.now()}@example.com`;
 
-  const ownerContext = await browser.newContext();
+  const ownerContext = await createIsolatedBrowserContext(browser);
   const ownerPage = await ownerContext.newPage();
   try {
     await establishE2ESession(ownerPage, {
@@ -65,7 +66,7 @@ test("an invited user accepts and lands in the Circle member list", async ({
     await createRegularCircleAndFinishSetup(ownerPage, { name: circleName });
     const token = await inviteMemberByEmail(ownerPage, inviteeEmail);
 
-    const inviteeContext = await browser.newContext();
+    const inviteeContext = await createIsolatedBrowserContext(browser);
     const inviteePage = await inviteeContext.newPage();
     try {
       await establishE2ESession(inviteePage, {
@@ -95,7 +96,7 @@ test("a removed member rejoins through a fresh invitation on the same member row
   const circleName = `Rejoin Circle ${Date.now()}`;
   const inviteeEmail = `e2e+rejoin-${Date.now()}@example.com`;
 
-  const ownerContext = await browser.newContext();
+  const ownerContext = await createIsolatedBrowserContext(browser);
   const ownerPage = await ownerContext.newPage();
   try {
     await establishE2ESession(ownerPage, {
@@ -105,7 +106,7 @@ test("a removed member rejoins through a fresh invitation on the same member row
     await createRegularCircleAndFinishSetup(ownerPage, { name: circleName });
     const firstToken = await inviteMemberByEmail(ownerPage, inviteeEmail);
 
-    const inviteeContext = await browser.newContext();
+    const inviteeContext = await createIsolatedBrowserContext(browser);
     const inviteePage = await inviteeContext.newPage();
     try {
       await establishE2ESession(inviteePage, {
@@ -162,7 +163,7 @@ test("a signed-in user with the wrong email sees invite.invalid accept copy", as
   const circleName = `Wrong Email ${Date.now()}`;
   const invitedEmail = `e2e+invited-${Date.now()}@example.com`;
 
-  const ownerContext = await browser.newContext();
+  const ownerContext = await createIsolatedBrowserContext(browser);
   const ownerPage = await ownerContext.newPage();
   try {
     await establishE2ESession(ownerPage, {
@@ -172,7 +173,7 @@ test("a signed-in user with the wrong email sees invite.invalid accept copy", as
     await createRegularCircleAndFinishSetup(ownerPage, { name: circleName });
     const token = await inviteMemberByEmail(ownerPage, invitedEmail);
 
-    const wrongContext = await browser.newContext();
+    const wrongContext = await createIsolatedBrowserContext(browser);
     const wrongPage = await wrongContext.newPage();
     try {
       await establishE2ESession(wrongPage, {

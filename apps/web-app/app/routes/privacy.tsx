@@ -17,7 +17,7 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-foreground">Profile and settings:</strong> Display Name, default
-            Currency, onboarding state, legal-document acceptance, analytics consent, and Account
+            Currency, onboarding state, legal-document acceptance, analytics preference, and Account
             Deletion state.
           </li>
           <li>
@@ -92,8 +92,8 @@ export default function Privacy() {
             masked, error-triggered Session Replay; and
           </li>
           <li>
-            <strong className="text-foreground">PostHog</strong> for limited product analytics only
-            after you opt in.
+            <strong className="text-foreground">PostHog</strong> for limited product analytics after
+            onboarding, unless you turn it off in Settings → Privacy.
           </li>
         </LegalList>
         <p>
@@ -105,12 +105,21 @@ export default function Privacy() {
 
       <LegalSection title="5. Analytics and operational monitoring">
         <p>
-          Product analytics are off by default for every user, regardless of location. PostHog is
-          not initialized until you explicitly enable product analytics in Settings → Privacy. Once
-          enabled, PostHog receives allowlisted, coarse events such as feature names and workflow
-          outcomes—not financial content or free text. You can withdraw consent at any time by
-          turning product analytics off; capture stops and PostHog&apos;s local analytics state is
-          cleared. You can opt in again later. PostHog Session Replay is disabled.
+          Product analytics default on for Users created after this Policy&apos;s effective date.
+          Existing stored analytics preferences are not changed by this update. Collection starts
+          only after the onboarding notice. PostHog receives allowlisted, coarse feature-usage
+          events such as feature names and workflow outcomes—not financial content, free text,
+          application identifiers, page URLs, or an identified person profile. PocketCircle does not
+          call PostHog identify or attach user or profile properties. Automatic page URLs, paths,
+          referrers, and document titles are stripped before events leave the browser.
+        </p>
+        <p>
+          Browser analytics state is memory-only and is not written to cookies or local storage.
+          Turning product analytics off in Settings → Privacy stops capture immediately and clears
+          in-memory PostHog state. You can turn it on again later. PostHog Session Replay,
+          autocapture, automatic pageviews, and page-leave capture are disabled. PostHog&apos;s
+          servers may still receive standard technical request metadata such as IP address and user
+          agent as part of delivering those events.
         </p>
         <p>
           Sentry operational monitoring remains enabled regardless of that preference. Normal
@@ -124,10 +133,10 @@ export default function Privacy() {
       <LegalSection title="6. Cookies and local storage">
         <p>
           PocketCircle and its authentication provider use cookies or equivalent browser storage to
-          keep you signed in and protect account access. After you opt in, PostHog may use local
-          storage for your analytics preference and analytics state. Browser storage is also used
-          for limited user interface state. Blocking required storage may prevent the service from
-          working.
+          keep you signed in and protect account access. Product analytics do not use cookies or
+          local storage; PostHog state is held in memory only while the page is open. Browser
+          storage is also used for limited user interface state. Blocking required storage may
+          prevent the service from working.
         </p>
       </LegalSection>
 
@@ -160,13 +169,14 @@ export default function Privacy() {
 
       <LegalSection title="9. Your choices and requests">
         <LegalList>
-          <li>Update your Display Name and privacy preference in Settings.</li>
+          <li>Update your Display Name and analytics preference in Settings.</li>
           <li>Export Circle Transactions to CSV where Export is available.</li>
           <li>Leave eligible shared Circles or ask an Owner to correct shared records.</li>
           <li>Request Account Deletion in Settings.</li>
           <li>
-            Contact us to ask about access, correction, deletion, consent withdrawal, or a privacy
-            concern. Some requests may be limited by shared-record integrity or legal obligations.
+            Contact us to ask about access, correction, deletion, turning analytics off, or a
+            privacy concern. Some requests may be limited by shared-record integrity or legal
+            obligations.
           </li>
         </LegalList>
       </LegalSection>

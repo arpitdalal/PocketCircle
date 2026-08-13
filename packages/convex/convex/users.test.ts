@@ -261,6 +261,7 @@ describe("completeOnboarding", () => {
       const user = await ctx.db.get(userId);
       expect(user?.displayName).toBe("Ada King");
       expect(user?.onboardingCompletedAt).toBeTypeOf("number");
+      expect(user?.analyticsEnabled).toBe(true);
 
       const circle = await ctx.db.query("circles").first();
       expect(circle?.name).toBe("Ada's Circle");
@@ -482,7 +483,7 @@ describe("updateProfile", () => {
 });
 
 describe("setAnalyticsEnabled", () => {
-  it("defaults analyticsEnabled to false for a freshly bootstrapped User", async () => {
+  it("defaults analyticsEnabled to true for a freshly bootstrapped User", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) =>
       createUserWithPersonalCircle(ctx, {
@@ -493,11 +494,32 @@ describe("setAnalyticsEnabled", () => {
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
-      expect(user?.analyticsEnabled).toBe(false);
+      expect(user?.analyticsEnabled).toBe(true);
     });
   });
 
-  it("persists explicit opt-in and withdrawal", async () => {
+  it("does not change an existing disabled preference through onboarding", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedOwner(t, {
+      email: "ada@example.com",
+      displayName: "Ada Lovelace",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(userId, { analyticsEnabled: false });
+    });
+    await signInOwner(t, userId);
+
+    await t.mutation(api.users.completeOnboarding, { displayName: "Ada Lovelace" });
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.analyticsEnabled).toBe(false);
+      expect(user?.onboardingCompletedAt).toBeTypeOf("number");
+    });
+  });
+
+  it("persists opt-out and later opt-in", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await seedOwner(t, {
       email: "ada@example.com",
@@ -505,32 +527,29 @@ describe("setAnalyticsEnabled", () => {
       onboarded: true,
     });
 
-    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
-
-    await t.run(async (ctx) => {
-      const user = await ctx.db.get(userId);
-      expect(user?.analyticsEnabled).toBe(true);
-    });
-
-    await signInOwner(t, userId);
     await t.mutation(api.users.setAnalyticsEnabled, { enabled: false });
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
       expect(user?.analyticsEnabled).toBe(false);
     });
+
+    await signInOwner(t, userId);
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.analyticsEnabled).toBe(true);
+    });
   });
 
   it("exposes analyticsEnabled via getCurrentUser", async () => {
     const t = convexTest(schema, modules);
-    const { userId } = await seedOwner(t, {
+    await seedOwner(t, {
       email: "ada@example.com",
       displayName: "Ada Lovelace",
       onboarded: true,
     });
-
-    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
-    await signInOwner(t, userId);
 
     const view = await t.query(api.users.getCurrentUser, {});
     expect(view?.analyticsEnabled).toBe(true);
@@ -546,11 +565,11 @@ describe("setAnalyticsEnabled", () => {
 
     const before = await t.run(async (ctx) => ctx.db.get(userId));
 
-    await t.mutation(api.users.setAnalyticsEnabled, { enabled: true });
+    await t.mutation(api.users.setAnalyticsEnabled, { enabled: false });
 
     await t.run(async (ctx) => {
       const after = await ctx.db.get(userId);
-      expect(after?.analyticsEnabled).toBe(true);
+      expect(after?.analyticsEnabled).toBe(false);
       expect(after?.email).toBe(before?.email);
       expect(after?.displayName).toBe(before?.displayName);
       expect(after?.onboardingCompletedAt).toBe(before?.onboardingCompletedAt);

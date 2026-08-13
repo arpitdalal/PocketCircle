@@ -38,7 +38,7 @@ export default defineSchema({
     acceptedTermsVersion: v.string(),
     acceptedPrivacyVersion: v.string(),
     acceptedAt: v.number(),
-    // Explicit product-analytics consent (ADR 0013); operational monitoring is unaffected.
+    // Product-analytics preference (ADR 0013); operational monitoring is unaffected.
     analyticsEnabled: v.boolean(),
     // null until Onboarding completes; a number means the User confirmed their profile (USR-1).
     onboardingCompletedAt: v.union(v.number(), v.null()),

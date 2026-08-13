@@ -1,6 +1,6 @@
 import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
-import { Navigate } from "react-router";
+import { href, Link, Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
 import { Field, FieldError, FieldLabel } from "~/components/ui/field.js";
@@ -91,6 +91,18 @@ function OnboardingForm({ user }: { user: { email: string; displayName: string }
         </Field>
 
         {error ? <FieldError>{error}</FieldError> : null}
+
+        <p className="text-sm text-muted-foreground">
+          PocketCircle collects limited feature-usage analytics to improve the product. Transaction
+          amounts, titles, notes, names, and other free text are never included. You can opt out
+          anytime in Settings → Privacy.{" "}
+          <Link
+            to={href("/privacy")}
+            className="underline underline-offset-2 transition-colors hover:text-foreground"
+          >
+            Privacy Policy
+          </Link>
+        </p>
 
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "Continuing…" : "Continue"}

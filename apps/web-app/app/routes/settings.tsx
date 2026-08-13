@@ -19,7 +19,11 @@ import {
 import { Input } from "~/components/ui/input.js";
 import { Switch } from "~/components/ui/switch.js";
 import { Textarea } from "~/components/ui/textarea.js";
-import { track } from "~/lib/analytics.js";
+import {
+  revertPendingAnalyticsEnabled,
+  setAnalyticsEnabled as setClientAnalyticsEnabled,
+  track,
+} from "~/lib/analytics.js";
 import { requestAccountDeletion } from "~/lib/auth-client.js";
 import {
   type AccountDeletionBlocker,
@@ -42,7 +46,7 @@ const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
 };
 
 /** Settings shell. App Version aids support diagnosis (PRD story 90); Privacy hosts
- * product-analytics consent (ADR 0013). */
+ * the product-analytics opt-out (ADR 0013). */
 export default function Settings() {
   const session = useAppSession();
 
@@ -307,6 +311,7 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
 
     setError(null);
     setEnabled(nextEnabled);
+    setClientAnalyticsEnabled(nextEnabled);
     setSubmitting(true);
     try {
       await setAnalyticsEnabled({ enabled: nextEnabled });
@@ -314,6 +319,7 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
     } catch (caught) {
       console.error("setAnalyticsEnabled failed", caught);
       setEnabled(user.analyticsEnabled);
+      revertPendingAnalyticsEnabled(user.analyticsEnabled);
       setError("Couldn't update your privacy preference. Please try again.");
     }
     setSubmitting(false);
@@ -334,9 +340,9 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
             Share product analytics
           </FieldLabel>
           <FieldDescription>
-            Off by default. When enabled, PocketCircle shares limited feature-usage events with
-            PostHog. Turn it off anytime to withdraw consent. Operational error monitoring (Sentry)
-            stays on regardless.
+            On by default for new accounts. PocketCircle shares only coarse feature-usage events
+            with PostHog—not transaction amounts, titles, notes, names, or other free text. Turn
+            this off anytime. Operational error monitoring (Sentry) stays on regardless.
           </FieldDescription>
         </FieldContent>
       </Field>

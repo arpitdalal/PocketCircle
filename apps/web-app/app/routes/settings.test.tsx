@@ -38,6 +38,7 @@ vi.mock("better-auth/react", () => ({
   })),
 }));
 
+import { initAnalytics, track } from "~/lib/analytics.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
@@ -141,7 +142,7 @@ describe("Settings profile form", () => {
   });
 });
 
-describe("Settings product-analytics consent", () => {
+describe("Settings product-analytics preference", () => {
   it("reflects analyticsEnabled false as switch off", async () => {
     configureConvex({
       currentUser: makeCurrentUserView({ analyticsEnabled: false }),
@@ -166,9 +167,11 @@ describe("Settings product-analytics consent", () => {
       "aria-checked",
       "true",
     );
+    expect(screen.getByText(/on by default for new accounts/i)).toBeVisible();
+    expect(screen.queryByText(/off by default/i)).not.toBeInTheDocument();
   });
 
-  it("records explicit consent and shows confirmation when enabled", async () => {
+  it("persists opt-in from a disabled preference", async () => {
     const setAnalyticsEnabled = vi.fn().mockResolvedValue(undefined);
     configureConvex({
       currentUser: makeCurrentUserView({ analyticsEnabled: false }),
@@ -183,6 +186,89 @@ describe("Settings product-analytics consent", () => {
       expect(setAnalyticsEnabled).toHaveBeenCalledWith({ enabled: true });
     });
     expect(screen.getByText("Privacy preference updated.")).toBeInTheDocument();
+  });
+
+  it("persists opt-out from an enabled preference", async () => {
+    const setAnalyticsEnabled = vi.fn().mockResolvedValue(undefined);
+    configureConvex({
+      currentUser: makeCurrentUserView({ analyticsEnabled: true }),
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+
+    await waitFor(() => {
+      expect(setAnalyticsEnabled).toHaveBeenCalledWith({ enabled: false });
+    });
+    expect(screen.getByText("Privacy preference updated.")).toBeInTheDocument();
+  });
+
+  it("stops capture before the preference mutation resolves", async () => {
+    let resolveMutation!: () => void;
+    const setAnalyticsEnabled = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    configureConvex({
+      currentUser: makeCurrentUserView({ analyticsEnabled: true }),
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+    await waitFor(() => {
+      expect(setAnalyticsEnabled).toHaveBeenCalledWith({ enabled: false });
+    });
+
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+
+    resolveMutation();
+    expect(await screen.findByText("Privacy preference updated.")).toBeInTheDocument();
+  });
+
+  it("restores capture when opt-out persistence fails", async () => {
+    const setAnalyticsEnabled = vi.fn().mockRejectedValue(new Error("network"));
+    configureConvex({
+      currentUser: makeCurrentUserView({ analyticsEnabled: true }),
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+    expect(
+      await screen.findByText("Couldn't update your privacy preference. Please try again."),
+    ).toBeInTheDocument();
+
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
+  });
+
+  it("does not keep capturing after a failed opt-out when the session later reports disabled", async () => {
+    const currentUser = makeCurrentUserView({ analyticsEnabled: true });
+    primeAnalyticsForTests(currentUser);
+    const setAnalyticsEnabled = vi.fn().mockRejectedValue(new Error("network"));
+    configureConvex({
+      currentUser,
+      setAnalyticsEnabled,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(await screen.findByRole("switch", { name: /share product analytics/i }));
+    expect(
+      await screen.findByText("Couldn't update your privacy preference. Please try again."),
+    ).toBeInTheDocument();
+
+    initAnalytics({ id: currentUser.id, analyticsEnabled: false });
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
   it("shows an error when setAnalyticsEnabled fails", async () => {

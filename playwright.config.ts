@@ -45,6 +45,9 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       VITE_E2E: "true",
+      // Empty so Vite does not load a real key from `.env.local`. New E2E users
+      // default analytics on; without this the suite can capture to PostHog.
+      VITE_POSTHOG_KEY: "",
       VITE_CONVEX_URL: process.env.VITE_CONVEX_URL ?? "http://127.0.0.1:3210",
       VITE_CONVEX_SITE_URL: process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211",
     },

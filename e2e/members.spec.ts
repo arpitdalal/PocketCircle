@@ -1,5 +1,6 @@
 import {
   clickCircleChromeTab,
+  createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
   establishE2ESession,
   expect,
@@ -47,7 +48,7 @@ test("an owner transfers ownership and owner-only actions follow the new owner",
   const newOwnerEmail = `e2e-transfer-new-${stamp}@example.com`;
   const circleName = `E2E Transfer ${stamp}`;
 
-  const newOwnerContext = await browser.newContext();
+  const newOwnerContext = await createIsolatedBrowserContext(browser);
   const newOwnerPage = await newOwnerContext.newPage();
   await establishE2ESession(newOwnerPage, {
     baseURL: baseURL ?? "http://127.0.0.1:5173",
@@ -88,7 +89,7 @@ test("an owner removes a member and the row disappears from the list", async ({
   const memberEmail = `e2e-remove-member-${stamp}@example.com`;
   const circleName = `E2E Remove ${stamp}`;
 
-  const memberContext = await browser.newContext();
+  const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
     baseURL: baseURL ?? "http://127.0.0.1:5173",
@@ -115,7 +116,7 @@ test("a non-owner member does not see remove buttons", async ({ page, browser, b
   const memberEmail = `e2e-no-remove-${stamp}@example.com`;
   const circleName = `E2E No Remove ${stamp}`;
 
-  const memberContext = await browser.newContext();
+  const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
     baseURL: baseURL ?? "http://127.0.0.1:5173",
@@ -144,7 +145,7 @@ test("removeMember as a non-owner returns the coded forbidden error", async ({
   const memberEmail = `e2e-forbidden-${stamp}@example.com`;
   const circleName = `E2E Forbidden ${stamp}`;
 
-  const memberContext = await browser.newContext();
+  const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
     baseURL: baseURL ?? "http://127.0.0.1:5173",
@@ -181,7 +182,7 @@ test("a removed member's transactions still show their frozen display name", asy
   const categoryName = `E2E Cat ${stamp}`;
   const title = `E2E Frozen Txn ${stamp}`;
 
-  const memberContext = await browser.newContext();
+  const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
     baseURL: baseURL ?? "http://127.0.0.1:5173",

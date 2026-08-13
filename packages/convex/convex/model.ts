@@ -44,7 +44,7 @@ export async function createUserWithPersonalCircle(
     acceptedTermsVersion: CURRENT_TERMS_VERSION,
     acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
     acceptedAt: now,
-    analyticsEnabled: false,
+    analyticsEnabled: true,
     onboardingCompletedAt: null,
     createdAt: now,
   });

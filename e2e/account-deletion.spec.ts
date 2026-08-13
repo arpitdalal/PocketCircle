@@ -1,4 +1,10 @@
-import { establishE2ESession, expect, test, waitForScE2E } from "./fixtures.js";
+import {
+  createIsolatedBrowserContext,
+  establishE2ESession,
+  expect,
+  test,
+  waitForScE2E,
+} from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019) for USR-3 Account Deletion: request → emailed token →
@@ -16,7 +22,7 @@ test("account deletion verifies, signs out, and blocks protected access", async 
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const email = `e2e+delete-${Date.now()}@example.com`;
 
-  const context = await browser.newContext();
+  const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   try {
     await establishE2ESession(page, { baseURL: resolvedBase, email, name: "Delete Me" });

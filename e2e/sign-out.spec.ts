@@ -1,4 +1,4 @@
-import { establishE2ESession, expect, test } from "./fixtures.js";
+import { createIsolatedBrowserContext, establishE2ESession, expect, test } from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019) regression guard for the sign-out wiring fixed in #132/#135.
@@ -22,7 +22,7 @@ test("signing out clears the session and lands on /signin", async ({ browser, ba
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const email = `e2e+signout-${Date.now()}@example.com`;
 
-  const context = await browser.newContext();
+  const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   try {
     await establishE2ESession(page, { baseURL: resolvedBase, email });
