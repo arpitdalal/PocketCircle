@@ -2,6 +2,7 @@ import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNextTableInserts } from "../test/db-syscall-fault.js";
 import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
@@ -31,9 +32,8 @@ import {
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser, historyFault } = vi.hoisted(() => ({
+const { mockCurrentUser } = vi.hoisted(() => ({
   mockCurrentUser: vi.fn(),
-  historyFault: { remainingFailures: 0 },
 }));
 vi.mock("./auth.js", () => ({
   getCurrentUserOrNull: mockCurrentUser,
@@ -45,22 +45,6 @@ vi.mock("./auth.js", () => ({
     return user;
   },
 }));
-vi.mock("./history.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./history.js")>();
-  return {
-    ...actual,
-    recordEvent: async (
-      ctx: Parameters<typeof actual.recordEvent>[0],
-      args: Parameters<typeof actual.recordEvent>[1],
-    ) => {
-      if (historyFault.remainingFailures > 0) {
-        historyFault.remainingFailures -= 1;
-        throw new Error("histories insert failed");
-      }
-      return actual.recordEvent(ctx, args);
-    },
-  };
-});
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -75,7 +59,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  historyFault.remainingFailures = 0;
   vi.unstubAllEnvs();
   vi.useRealTimers();
 });
@@ -1014,7 +997,6 @@ describe("cleanup phases", () => {
 
   it("persists, alerts, and resumes when a valid cleanup phase throws", async () => {
     enableSentryReporting();
-    historyFault.remainingFailures = 1;
     const t = createTestConvex();
     const deleting = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, {
@@ -1047,7 +1029,14 @@ describe("cleanup phases", () => {
       });
     });
 
-    await mutateAndDrain(t, () => t.mutation(internal.accountDeletion.runCleanupBatch, { jobId }));
+    const restoreSyscall = failNextTableInserts("histories", 1);
+    try {
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.accountDeletion.runCleanupBatch, { jobId }),
+      );
+    } finally {
+      restoreSyscall();
+    }
 
     const job = await t.run(async (ctx) => ctx.db.get(jobId));
     expect(job?.phase).toBe("convertActiveMemberships");
@@ -1059,10 +1048,11 @@ describe("cleanup phases", () => {
       extra: { entityId: jobId, error: "histories insert failed" },
     });
     await t.run(async (ctx) => {
-      expect((await ctx.db.get(ownerMemberId))?.status).toBe("deleted");
+      expect((await ctx.db.get(ownerMemberId))?.status).toBe("active");
+      const events = await listEntityHistory(ctx, circleEntity(deleting.personalCircleId));
+      expect(events.filter((e) => e.action === "member deleted")).toEqual([]);
     });
 
-    historyFault.remainingFailures = 0;
     await mutateAndDrain(t, () => t.mutation(internal.accountDeletion.resumeCleanup, { jobId }));
     await t.run(async (ctx) => {
       expect(await ctx.db.get(jobId)).toBeNull();

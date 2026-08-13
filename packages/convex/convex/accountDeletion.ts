@@ -295,8 +295,24 @@ async function patchCleanupProgress(
   });
 }
 
-/** One bounded cleanup batch; schedules the next when work remains. */
+/**
+ * Scheduled entry: nested phase work rolls back on throw (Convex sub-transaction);
+ * this parent still commits the failure diagnostic.
+ */
 export const runCleanupBatch = internalMutation({
+  args: { jobId: v.id("accountDeletionJobs") },
+  handler: async (ctx, args) => {
+    try {
+      await ctx.runMutation(internal.accountDeletion.processCleanupBatch, {
+        jobId: args.jobId,
+      });
+    } catch (caught) {
+      await persistCleanupFailure(ctx, args.jobId, caught);
+    }
+  },
+});
+
+export const processCleanupBatch = internalMutation({
   args: { jobId: v.id("accountDeletionJobs") },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
@@ -304,55 +320,47 @@ export const runCleanupBatch = internalMutation({
       return;
     }
 
-    try {
-      await processCleanupBatch(ctx, job);
-    } catch (caught) {
-      await persistCleanupFailure(ctx, args.jobId, caught);
+    const phase = job.phase;
+    if (!isUserPhase(phase)) {
+      await persistCleanupFailure(ctx, job._id, `unknown phase: ${phase}`);
+      return;
     }
-  },
-});
 
-async function processCleanupBatch(ctx: MutationCtx, job: Doc<"accountDeletionJobs">) {
-  const phase = job.phase;
-  if (!isUserPhase(phase)) {
-    await persistCleanupFailure(ctx, job._id, `unknown phase: ${phase}`);
-    return;
-  }
+    const moreInPhase = await runUserPhaseBatch(ctx, job, phase);
+    const latest = await ctx.db.get(job._id);
+    if (!latest) {
+      return;
+    }
 
-  const moreInPhase = await runUserPhaseBatch(ctx, job, phase);
-  const latest = await ctx.db.get(job._id);
-  if (!latest) {
-    return;
-  }
+    if (moreInPhase) {
+      await patchCleanupProgress(ctx, job._id);
+      await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
+        jobId: job._id,
+      });
+      return;
+    }
 
-  if (moreInPhase) {
-    await patchCleanupProgress(ctx, job._id);
+    if (phase === "deleteOwnedCircles") {
+      await ctx.db.delete(job._id);
+      return;
+    }
+
+    const next = nextUserPhase(phase);
+    if (!next) {
+      await ctx.db.delete(job._id);
+      return;
+    }
+
+    await patchCleanupProgress(ctx, job._id, {
+      phase: next,
+      circleId: undefined,
+      circlePhase: undefined,
+    });
     await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
       jobId: job._id,
     });
-    return;
-  }
-
-  if (phase === "deleteOwnedCircles") {
-    await ctx.db.delete(job._id);
-    return;
-  }
-
-  const next = nextUserPhase(phase);
-  if (!next) {
-    await ctx.db.delete(job._id);
-    return;
-  }
-
-  await patchCleanupProgress(ctx, job._id, {
-    phase: next,
-    circleId: undefined,
-    circlePhase: undefined,
-  });
-  await ctx.scheduler.runAfter(0, internal.accountDeletion.runCleanupBatch, {
-    jobId: job._id,
-  });
-}
+  },
+});
 
 async function runUserPhaseBatch(
   ctx: MutationCtx,
