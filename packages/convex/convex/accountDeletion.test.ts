@@ -332,6 +332,12 @@ describe("finalizeOnUserDelete", () => {
       // Job deleted when cleanup finishes.
       expect(job).toBeNull();
       expect(await ctx.db.get(personalCircleId)).toBeNull();
+      expect(
+        await ctx.db
+          .query("userActivation")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first(),
+      ).toBeNull();
 
       const member = await ctx.db.get(host.memberId);
       expect(member?.status).toBe("deleted");

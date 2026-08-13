@@ -79,6 +79,10 @@ export async function createUserWithPersonalCircle(
     joinedAt: now,
   });
 
+  // Empty Activation Checklist row so New Users skip the existing-User evidence path
+  // (ADR 0030). Writers only fill timestamps; they never fabricate completion.
+  await ctx.db.insert("userActivation", { userId, initializedAt: now });
+
   return userId;
 }
 

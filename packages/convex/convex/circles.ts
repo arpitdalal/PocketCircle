@@ -21,6 +21,7 @@ import {
   accountDeletionBlockerFields,
   recomputeAccountDeletionBlockers,
 } from "./accountDeletionBlockers.js";
+import { markActivationMilestone } from "./activation.js";
 import { requireCurrentUser } from "./auth.js";
 import { createCategoryForMember } from "./categories.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
@@ -165,6 +166,8 @@ export const createCircle = mutation({
       action: "created",
       changes: [{ field: "name", to: input.name }], // no `from` on create
     });
+
+    await markActivationMilestone(ctx, user._id, "regularCircleCreatedAt", now);
 
     return circleId;
   },

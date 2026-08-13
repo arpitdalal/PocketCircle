@@ -1,3 +1,4 @@
+import { PERSONAL_CIRCLE_COLOR_ID } from "@pocketcircle/domain";
 import type { Doc, Id } from "../convex/_generated/dataModel.js";
 import type { MutationCtx } from "../convex/_generated/server.js";
 import { accountDeletionBlockerFields } from "../convex/accountDeletionBlockers.js";
@@ -128,6 +129,51 @@ export async function seedCircle(
     joinedAt: now,
   });
   return { owner, ownerMemberId, circleId };
+}
+
+/** Inserts a Circle owned by an existing User (activation tests, extra Circles). */
+export async function seedOwnedCircle(
+  ctx: MutationCtx,
+  owner: Doc<"users">,
+  opts: {
+    name?: string;
+    kind?: "personal" | "regular";
+    archived?: boolean;
+    setupCompletedAt?: number | null;
+    currencyLocked?: boolean;
+    createdAt?: number;
+  } = {},
+) {
+  const now = opts.createdAt ?? Date.now();
+  const kind = opts.kind ?? "regular";
+  const status = opts.archived ? "archived" : "active";
+  const name = opts.name ?? (kind === "personal" ? "Ada's Circle" : "Trip");
+  const setupCompletedAt =
+    opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : kind === "personal" ? now : null;
+  const circleId = await ctx.db.insert("circles", {
+    name,
+    kind,
+    currency: "USD",
+    color: kind === "personal" ? PERSONAL_CIRCLE_COLOR_ID : "blue",
+    mark: kind === "personal" ? "AC" : "T",
+    ownerUserId: owner._id,
+    status,
+    setupCompletedAt,
+    currencyLocked: opts.currencyLocked ?? false,
+    ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
+    createdAt: now,
+    ...(opts.archived ? { archivedAt: now } : {}),
+  });
+  const ownerMemberId = await ctx.db.insert("members", {
+    circleId,
+    userId: owner._id,
+    role: "owner",
+    status: "active",
+    displayName: owner.displayName,
+    image: owner.image,
+    joinedAt: now,
+  });
+  return { circleId, ownerMemberId };
 }
 
 /** Adds a Member (active or removed) to a Circle and returns the User + member id. */

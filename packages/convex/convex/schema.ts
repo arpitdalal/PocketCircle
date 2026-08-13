@@ -73,7 +73,9 @@ export default defineSchema({
     .index("by_owner", ["ownerUserId"])
     .index("by_owner_and_kind", ["ownerUserId", "kind"])
     .index("by_owner_and_status", ["ownerUserId", "status"])
-    .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"]),
+    .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"])
+    // Activation Checklist member-CTA: earliest active regular Circle the User owns.
+    .index("by_owner_kind_status_createdAt", ["ownerUserId", "kind", "status", "createdAt"]),
 
   // Membership join. Exactly one row per (circleId, userId): leaving flips
   // status to "removed", rejoining reactivates the SAME row — never a duplicate
@@ -244,6 +246,7 @@ export default defineSchema({
     .index("by_circle_status_and_expiresAt", ["circleId", "status", "expiresAt"])
     .index("by_token_hash", ["tokenHash"])
     .index("by_inviter_status_createdAt", ["invitedByUserId", "status", "createdAt"])
+    .index("by_inviter_status_expiresAt", ["invitedByUserId", "status", "expiresAt"])
     .index("by_email_status_createdAt", ["emailLower", "status", "createdAt"]),
 
   // Append-only send log for invitation rate limits (ADR 0026).
@@ -298,6 +301,24 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_email_lower", ["emailLower"]),
+
+  // User-level Activation Checklist progress (ADR 0030). One row per User: explicit
+  // first-completed timestamps plus dismissal. Never derived from live entity state
+  // after initialization — archiving, leaving, or deleting source data cannot reopen
+  // a milestone. Bootstrap inserts the empty row; existing Users get it from the
+  // authenticated initializer.
+  userActivation: defineTable({
+    userId: v.id("users"),
+    initializedAt: v.number(),
+    personalTransactionCreatedAt: v.optional(v.number()),
+    personalCategoryCreatedAt: v.optional(v.number()),
+    regularCircleCreatedAt: v.optional(v.number()),
+    sharedMemberJoinedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    // Set once when the owner client observes all four milestones; prevents repeat
+    // `activation_checklist_completed` analytics across reloads/tabs.
+    completionEventDeliveredAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
 
   notifications: defineTable({
     userId: v.id("users"),

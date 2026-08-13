@@ -11,6 +11,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/server.js";
+import { markActivationMilestone } from "./activation.js";
 import { requireCircleAccess, requireTransactionAccess, resolveCircleAccess } from "./guard.js";
 import {
   type HistoryChange,
@@ -659,6 +660,10 @@ export const createTransaction = mutation({
     // flag here. Idempotent: only patch when it isn't already set.
     if (!access.circle.currencyLocked) {
       await ctx.db.patch(args.circleId, { currencyLocked: true });
+    }
+
+    if (access.circle.kind === "personal") {
+      await markActivationMilestone(ctx, access.user._id, "personalTransactionCreatedAt", now);
     }
 
     // Record the create now (ADR 0018) even though the Transaction History view is

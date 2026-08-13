@@ -10,6 +10,7 @@ import {
 } from "@pocketcircle/domain";
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
+import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { LoadingStatus, RowsSkeleton, Skeleton } from "~/components/skeleton.js";
 import {
   canonicalDashboardParams,
@@ -94,6 +95,7 @@ export default function CircleDashboard() {
         label="Loading dashboard…"
       />
       <h2 className="font-display text-lg font-semibold tracking-tight">Dashboard</h2>
+      {circle.kind === "personal" ? <ActivationChecklist circle={circle} /> : null}
 
       <DashboardTotalsCards dashboard={dashboard} fallbackCurrency={circle.currency} />
       <MonthlyComparisonSection

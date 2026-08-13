@@ -87,6 +87,8 @@ export type AnalyticsEventMap = {
     hasAmountRange: boolean;
   };
   feedback_submitted: { type: AnalyticsFeedbackType };
+  activation_checklist_skipped: { completedCount: number };
+  activation_checklist_completed: Record<string, never>;
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -117,6 +119,8 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   transaction_search_page_changed: new Set(["page"]),
   export_performed: new Set(["status", "result", "hasQuery", "hasDateRange", "hasAmountRange"]),
   feedback_submitted: new Set(["type"]),
+  activation_checklist_skipped: new Set(["completedCount"]),
+  activation_checklist_completed: new Set(),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,6 +181,10 @@ function isPositiveInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+function isActivationCompletedCount(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3;
+}
+
 function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
   if (value === undefined) {
     return false;
@@ -218,6 +226,10 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
       return false;
     case "feedback_submitted":
       return key === "type" && isAnalyticsFeedbackType(value);
+    case "activation_checklist_skipped":
+      return key === "completedCount" && isActivationCompletedCount(value);
+    case "activation_checklist_completed":
+      return false;
     default:
       return false;
   }
@@ -311,6 +323,18 @@ function isFeedbackSubmittedPayload(
   return isAnalyticsFeedbackType(value.type) && Object.keys(value).length === 1;
 }
 
+function isActivationChecklistSkippedPayload(
+  value: Record<string, unknown>,
+): value is AnalyticsEventMap["activation_checklist_skipped"] {
+  return isActivationCompletedCount(value.completedCount) && Object.keys(value).length === 1;
+}
+
+function isActivationChecklistCompletedPayload(
+  value: Record<string, unknown>,
+): value is AnalyticsEventMap["activation_checklist_completed"] {
+  return Object.keys(value).length === 0;
+}
+
 function toValidatedPayload(
   event: "circle_created",
   sanitized: Record<string, unknown>,
@@ -344,6 +368,14 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["feedback_submitted"] | null;
 function toValidatedPayload(
+  event: "activation_checklist_skipped",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["activation_checklist_skipped"] | null;
+function toValidatedPayload(
+  event: "activation_checklist_completed",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["activation_checklist_completed"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -365,6 +397,10 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
       return isExportPerformedPayload(sanitized) ? sanitized : null;
     case "feedback_submitted":
       return isFeedbackSubmittedPayload(sanitized) ? sanitized : null;
+    case "activation_checklist_skipped":
+      return isActivationChecklistSkippedPayload(sanitized) ? sanitized : null;
+    case "activation_checklist_completed":
+      return isActivationChecklistCompletedPayload(sanitized) ? sanitized : null;
     default:
       return null;
   }
@@ -375,6 +411,9 @@ export function sanitizeAnalyticsProps<E extends AnalyticsEvent>(
   props: AnalyticsEventMap[E] | undefined,
 ) {
   if (props === undefined) {
+    if (EVENT_ALLOWLISTS[event].size === 0) {
+      return toValidatedPayload(event, {});
+    }
     return null;
   }
   if (!isRecord(props)) {

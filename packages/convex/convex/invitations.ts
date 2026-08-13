@@ -11,6 +11,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
 import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
+import { markActivationMilestone } from "./activation.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool } from "./email.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
@@ -374,6 +375,8 @@ export const acceptInvitation = mutation({
     });
 
     await recomputeAccountDeletionBlockers(ctx, circle._id);
+
+    await markActivationMilestone(ctx, invitation.invitedByUserId, "sharedMemberJoinedAt");
 
     await notifyInvitationAccepted(ctx, {
       inviterUserId: invitation.invitedByUserId,

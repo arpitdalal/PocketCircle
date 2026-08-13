@@ -347,6 +347,42 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("circle_created", { currency: "EUR" });
   });
 
+  it("captures activation skip with completedCount 0–3 and empty completion payload", () => {
+    initAnalytics(readyUser);
+
+    expect(sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 0 })).toEqual({
+      completedCount: 0,
+    });
+    expect(sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 3 })).toEqual({
+      completedCount: 3,
+    });
+    expect(
+      sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 4 }),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("activation_checklist_skipped", {
+        completedCount: 2,
+        ...{ email: "ada@example.com", circleId: "c1" },
+      }),
+    ).toEqual({ completedCount: 2 });
+    expect(sanitizeAnalyticsProps("activation_checklist_completed", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("activation_checklist_completed", undefined)).toEqual({});
+    expect(
+      sanitizeAnalyticsProps(
+        "activation_checklist_completed",
+        // @ts-expect-error intentional extra key for runtime allowlist
+        { email: "ada@example.com" },
+      ),
+    ).toEqual({});
+
+    track("activation_checklist_skipped", { completedCount: 1 });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_skipped", {
+      completedCount: 1,
+    });
+    track("activation_checklist_completed", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_completed", {});
+  });
+
   it("does not throw when PostHog capture rejects", () => {
     initAnalytics(readyUser);
     posthogSdk.capture.mockImplementation(() => {

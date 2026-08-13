@@ -13,6 +13,7 @@ import { ConvexError, v } from "convex/values";
 import { mergedStream, stream } from "convex-helpers/server/stream";
 import type { Doc } from "./_generated/dataModel.js";
 import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/server.js";
+import { markActivationMilestone } from "./activation.js";
 import {
   type AuthorizedCircle,
   requireCategoryAccess,
@@ -160,6 +161,10 @@ export async function createCategoryForMember(ctx: MutationCtx, args: CreateCate
       { field: "type", to: input.type },
     ],
   });
+
+  if (args.access.circle.kind === "personal") {
+    await markActivationMilestone(ctx, args.access.user._id, "personalCategoryCreatedAt");
+  }
 
   return { created: true, categoryId, name: input.name };
 }

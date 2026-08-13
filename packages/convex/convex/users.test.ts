@@ -79,6 +79,17 @@ describe("createUserWithPersonalCircle", () => {
       expect(members).toHaveLength(1);
       expect(members[0]?.role).toBe("owner");
       expect(members[0]?.userId).toBe(userId);
+
+      const activation = await ctx.db
+        .query("userActivation")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .unique();
+      expect(activation?.initializedAt).toBeTypeOf("number");
+      expect(activation?.personalTransactionCreatedAt).toBeUndefined();
+      expect(activation?.personalCategoryCreatedAt).toBeUndefined();
+      expect(activation?.regularCircleCreatedAt).toBeUndefined();
+      expect(activation?.sharedMemberJoinedAt).toBeUndefined();
+      expect(activation?.dismissedAt).toBeUndefined();
     });
   });
 

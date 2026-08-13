@@ -12,6 +12,7 @@ import type {
 } from "~/lib/data.js";
 import {
   configureConvex,
+  makeActivationChecklistView,
   makeCircleView,
   makeTransactionView,
   renderCircleRoutes,
@@ -455,5 +456,36 @@ describe("Dashboard drilldowns (RPT-6)", () => {
     const comparison = screen.getByRole("region", { name: /month-over-month/i });
     expect(within(comparison).queryAllByRole("link")).toHaveLength(0);
     expect(screen.queryByRole("link", { name: /view .* transactions/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("Dashboard activation checklist", () => {
+  it("renders the checklist on a Personal Circle after the heading and before totals", () => {
+    configureConvex({
+      dashboard: makeDashboard(),
+      activation: makeActivationChecklistView(),
+    });
+    renderInCircle(makeCircleView({ kind: "personal", name: "Ada's Circle" }), <CircleDashboard />);
+
+    const heading = screen.getByRole("heading", { name: "Dashboard" });
+    const checklist = screen.getByRole("heading", { name: "Get started" });
+    const totals = screen.getByText(/this month's totals/i);
+    expect(heading.compareDocumentPosition(checklist) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(checklist.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("does not render the checklist on a regular Circle Dashboard", () => {
+    configureConvex({
+      dashboard: makeDashboard(),
+      activation: makeActivationChecklistView(),
+    });
+    renderInCircle(makeCircleView({ kind: "regular" }), <CircleDashboard />);
+
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 });
