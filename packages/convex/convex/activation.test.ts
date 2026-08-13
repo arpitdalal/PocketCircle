@@ -14,7 +14,6 @@ import {
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
-import { circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
 
@@ -209,13 +208,6 @@ describe("initializeActivationChecklist", () => {
         setupCompletedAt: circleCreatedAt,
         createdAt: circleCreatedAt,
       });
-      const ownerMembership = await ctx.db.get(regular.ownerMemberId);
-      await recordEvent(ctx, {
-        entity: circleEntity(regular.circleId),
-        actor: ownerMembership,
-        action: "created",
-        changes: [{ field: "name", to: "Legacy Trip" }],
-      });
       await ctx.db.insert("invitations", {
         circleId: regular.circleId,
         emailLower: "joined@example.com",
@@ -278,13 +270,6 @@ describe("initializeActivationChecklist", () => {
       const regular = await seedOwnedCircle(ctx, creator, {
         name: "Handed Off",
         setupCompletedAt: Date.now(),
-      });
-      const creatorMembership = await ctx.db.get(regular.ownerMemberId);
-      await recordEvent(ctx, {
-        entity: circleEntity(regular.circleId),
-        actor: creatorMembership,
-        action: "created",
-        changes: [{ field: "name", to: "Handed Off" }],
       });
       await ctx.db.insert("invitations", {
         circleId: regular.circleId,
@@ -582,6 +567,42 @@ describe("activation writers", () => {
 
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
       sharedMemberState: "not_started",
+    });
+  });
+
+  it("keeps pending until the latest unexpired Invitation expires", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+    const circleId = await t.mutation(api.circles.createCircle, {
+      name: "Studio",
+      currency: "USD",
+      color: "blue",
+      mark: "S",
+    });
+    await t.mutation(api.circles.completeCircleSetup, { circleId, answers: {} });
+
+    const soon = Date.now() + 60_000;
+    const later = Date.now() + 120_000;
+    await t.run(async (ctx) => {
+      await seedPendingInvitation(ctx, {
+        circleId,
+        email: "soon@example.com",
+        invitedByUserId: owner._id,
+        expiresAt: soon,
+      });
+      await seedPendingInvitation(ctx, {
+        circleId,
+        email: "later@example.com",
+        invitedByUserId: owner._id,
+        expiresAt: later,
+      });
+    });
+
+    const view = await t.query(api.activation.getActivationChecklist, {});
+    expect(view).toMatchObject({
+      sharedMemberState: "pending",
+      pendingInvitationExpiresAt: later,
     });
   });
 });

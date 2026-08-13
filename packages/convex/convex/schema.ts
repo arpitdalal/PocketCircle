@@ -54,6 +54,10 @@ export default defineSchema({
     color: v.string(),
     mark: v.string(),
     ownerUserId: v.id("users"),
+    // Immutable creating User (Activation “created a regular Circle”). Distinct from
+    // mutable `ownerUserId` (transferOwnership). Optional until prod Circles are
+    // backfilled; always written going forward on insert.
+    creatorUserId: v.optional(v.id("users")),
     status: lifecycleStatus,
     setupAnswers: v.optional(circleSetupAnswers),
     // Workflow milestone: timestamp when complete; null means incomplete regular Circle.
@@ -85,7 +89,9 @@ export default defineSchema({
       "status",
       "setupComplete",
       "createdAt",
-    ]),
+    ])
+    // Activation evidence: earliest regular Circle this User created (transfer-safe).
+    .index("by_creatorUserId_kind_createdAt", ["creatorUserId", "kind", "createdAt"]),
 
   // Membership join. Exactly one row per (circleId, userId): leaving flips
   // status to "removed", rejoining reactivates the SAME row — never a duplicate
@@ -390,7 +396,5 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_entity", ["entityId"])
-    // Activation evidence: Circle History `created` acted by a specific Member.
-    .index("by_entity_action_actorMemberId", ["entityId", "action", "actorMemberId"])
     .index("by_circle", ["circleId"]),
 });

@@ -60,6 +60,7 @@ export async function createUserWithPersonalCircle(
     color: PERSONAL_CIRCLE_COLOR_ID,
     mark: initials(personalName),
     ownerUserId: userId,
+    creatorUserId: userId,
     status: "active",
     currencyLocked: false,
     ...circleSetupFields(now),

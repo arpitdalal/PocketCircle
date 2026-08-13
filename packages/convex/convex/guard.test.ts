@@ -62,6 +62,7 @@ async function seed(
     color: "blue",
     mark: kind === "personal" ? "P" : "T",
     ownerUserId: userId,
+    creatorUserId: userId,
     status: opts.archived ? "archived" : "active",
     ...circleSetupFields(setupCompletedAt),
     currencyLocked: false,

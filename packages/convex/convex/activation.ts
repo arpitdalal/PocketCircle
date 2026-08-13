@@ -237,32 +237,18 @@ async function earliestPersonalTransactionCreatedAt(
 }
 
 /**
- * Durable "created a regular Circle" evidence: Circle History `created` whose
- * actor is this User's Member row. Current `ownerUserId` is mutable under
- * transferOwnership and must not credit the new Owner (ADR 0030).
+ * Durable "created a regular Circle" evidence: immutable `creatorUserId` on the
+ * Circle (not mutable `ownerUserId` after transferOwnership). One indexed read.
+ * Circles missing the optional field until prod backfill cannot be inferred here.
  */
 async function earliestCreatedRegularCircleAt(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const memberships = await ctx.db
-    .query("members")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
-  let earliest: number | undefined;
-  for (const membership of memberships) {
-    const circle = await ctx.db.get(membership.circleId);
-    if (circle?.kind !== "regular") {
-      continue;
-    }
-    const created = await ctx.db
-      .query("histories")
-      .withIndex("by_entity_action_actorMemberId", (q) =>
-        q.eq("entityId", circle._id).eq("action", "created").eq("actorMemberId", membership._id),
-      )
-      .first();
-    if (created) {
-      earliest = earliestTimestamp(earliest, circle.createdAt);
-    }
-  }
-  return earliest;
+  const circle = await ctx.db
+    .query("circles")
+    .withIndex("by_creatorUserId_kind_createdAt", (q) =>
+      q.eq("creatorUserId", userId).eq("kind", "regular"),
+    )
+    .first();
+  return circle?.createdAt;
 }
 
 /**
@@ -316,7 +302,12 @@ async function collectActivationEvidence(
   return evidence;
 }
 
-async function earliestUnexpiredPendingInvitationExpiresAt(
+/**
+ * Latest unexpired pending Invitation expiry for this inviter. The client timer
+ * must wait until every live pending Invitation has expired; `.order("desc")`
+ * yields the furthest `expiresAt` among rows still past `Date.now()`.
+ */
+async function latestUnexpiredPendingInvitationExpiresAt(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
 ) {
@@ -325,6 +316,7 @@ async function earliestUnexpiredPendingInvitationExpiresAt(
     .withIndex("by_inviter_status_expiresAt", (q) =>
       q.eq("invitedByUserId", userId).eq("status", "pending").gt("expiresAt", Date.now()),
     )
+    .order("desc")
     .first();
   return pending?.expiresAt;
 }
@@ -493,7 +485,7 @@ export const getActivationChecklist = query({
     if (!row || row.evidenceBackfilledAt === undefined) {
       return { status: "uninitialized" as const };
     }
-    const pendingInvitationExpiresAt = await earliestUnexpiredPendingInvitationExpiresAt(
+    const pendingInvitationExpiresAt = await latestUnexpiredPendingInvitationExpiresAt(
       ctx,
       user._id,
     );

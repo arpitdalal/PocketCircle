@@ -140,6 +140,7 @@ export const createCircle = mutation({
       color: input.color || DEFAULT_COLOR_ID,
       mark: input.mark,
       ownerUserId: user._id,
+      creatorUserId: user._id,
       status: "active",
       ...circleSetupFields(null),
       currencyLocked: false,
