@@ -167,27 +167,27 @@ describe("CircleLayout shell skeleton", () => {
   });
 });
 
+function setupGateRoutes() {
+  return circleGuardRoutes([
+    { index: true, Component: () => <h2>Dashboard stub</h2> },
+    { path: "setup", Component: CircleSetup },
+    { path: "feedback", Component: () => <h2>Feedback stub</h2> },
+  ]);
+}
+
 describe("CircleLayout setup gate", () => {
   const ownerMember = makeMemberView({ role: "owner", isSelf: true });
 
-  it("redirects incomplete Circles to setup, but not when already on setup", async () => {
+  function renderIncompleteCircle(initialEntry: string) {
     configureConvex({
       circle: makeCircleView({ ref: "trip-c1", setupComplete: false }),
       members: [ownerMember],
     });
-    renderRouteStub(
-      [
-        {
-          path: "/circles/:circleRef",
-          Component: CircleLayout,
-          children: [
-            { index: true, Component: () => <h2>Dashboard stub</h2> },
-            { path: "setup", Component: CircleSetup },
-          ],
-        },
-      ],
-      ["/circles/trip-c1"],
-    );
+    renderRouteStub(setupGateRoutes(), [initialEntry]);
+  }
+
+  it("redirects incomplete Circles to setup, but not when already on setup", async () => {
+    renderIncompleteCircle("/circles/trip-c1");
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Circle setup" })).toBeInTheDocument();
@@ -195,18 +195,30 @@ describe("CircleLayout setup gate", () => {
     expect(screen.queryByText("Dashboard stub")).not.toBeInTheDocument();
   });
 
+  it("lets incomplete Circles open Feedback instead of bouncing to setup", async () => {
+    renderIncompleteCircle("/circles/trip-c1/feedback");
+
+    expect(await screen.findByText("Feedback stub")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Circle setup" })).not.toBeInTheDocument();
+  });
+
+  it("shows Feedback chrome on setup so incomplete Circles can report from there", async () => {
+    renderIncompleteCircle("/circles/trip-c1/setup");
+
+    expect(await screen.findByRole("heading", { name: "Circle setup" })).toBeInTheDocument();
+    const feedback = screen.getByRole("link", { name: "Send feedback about Trip" });
+    expect(feedback).toHaveAttribute(
+      "href",
+      withReturnTo("/circles/trip-c1/feedback", "/circles/trip-c1/setup"),
+    );
+
+    await userEvent.click(feedback);
+    expect(await screen.findByText("Feedback stub")).toBeInTheDocument();
+  });
+
   it("lets complete Circles render child routes normally", async () => {
     configureConvex({ circle: makeCircleView({ ref: "trip-c1", setupComplete: true }) });
-    renderRouteStub(
-      [
-        {
-          path: "/circles/:circleRef",
-          Component: CircleLayout,
-          children: [{ index: true, Component: () => <h2>Dashboard stub</h2> }],
-        },
-      ],
-      ["/circles/trip-c1"],
-    );
+    renderRouteStub(setupGateRoutes(), ["/circles/trip-c1"]);
 
     expect(await screen.findByText("Dashboard stub")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Circle setup" })).not.toBeInTheDocument();

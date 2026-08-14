@@ -74,8 +74,11 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
   const settingsPath = href("/circles/:circleRef/settings", { circleRef: circle.ref });
   const feedbackPath = href("/circles/:circleRef/feedback", { circleRef: circle.ref });
   const onFeedback = location.pathname === feedbackPath;
+  const onSetup = location.pathname === setupPath;
+  // Feedback chrome lives on setup, so that route must stay reachable while setup is incomplete.
+  const allowedDuringSetup = onSetup || onFeedback;
 
-  if (!circle.setupComplete && location.pathname !== setupPath) {
+  if (!circle.setupComplete && !allowedDuringSetup) {
     return <Navigate to={setupPath} replace />;
   }
 
