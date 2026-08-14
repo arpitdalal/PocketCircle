@@ -1,10 +1,8 @@
 name: Deploy Production
 
 on:
-  workflow_run:
-    workflows: [E2E]
-    branches: [main]
-    types: [completed]
+  push:
+    tags: [v*]
 
 concurrency:
   group: production
@@ -14,31 +12,38 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Verify release
+    uses: ./.github/workflows/e2e.yml
+
   deploy:
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: verify
     name: Deploy
     runs-on: ubuntu-latest
     environment:
       name: production
       url: https://pocketcircle.app
-    env:
-      APP_RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-      VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
-      VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-      VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
-      VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
-      VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.ref }}
 
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 26
           cache: pnpm
+
+      - name: Resolve immutable release
+        id: release
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Production tags must be stable SemVer: vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - run: pnpm install --frozen-lockfile
 
@@ -47,6 +52,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
@@ -57,6 +64,14 @@ jobs:
       - run: pnpm validate
 
       - name: Build production web app
+        env:
+          APP_RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          APP_RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
       # Worker before Convex: a new backend default (analyticsEnabled for new
@@ -79,9 +94,11 @@ jobs:
       - name: Sync Convex release and Sentry env
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          APP_RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          APP_RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: |
-          SHORT_SHA="${APP_RELEASE_SHA:0:7}"
-          pnpm --filter @pocketcircle/convex exec convex env set APP_RELEASE "$SHORT_SHA"
+          pnpm --filter @pocketcircle/convex exec convex env set APP_RELEASE "$APP_RELEASE_VERSION+$APP_RELEASE_SHA"
           pnpm --filter @pocketcircle/convex exec convex env set SENTRY_ENVIRONMENT production
           if [ -n "$VITE_SENTRY_DSN" ]; then
             pnpm --filter @pocketcircle/convex exec convex env set SENTRY_DSN "$VITE_SENTRY_DSN"

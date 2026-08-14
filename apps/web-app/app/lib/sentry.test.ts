@@ -34,7 +34,7 @@ describe("buildSentryInitOptions", () => {
     expect(options.replaysOnErrorSampleRate).toBeGreaterThan(0);
     expect(options.dsn).toBe("https://example@sentry.io/1");
     expect(options.environment).toBe(import.meta.env.MODE);
-    expect(options.release).toBe(__APP_VERSION__);
+    expect(options.release).toBe(__APP_RELEASE__);
   });
 
   it("wires replay integration with strict masking", () => {

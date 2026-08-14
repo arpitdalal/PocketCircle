@@ -1,23 +1,27 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LOCAL_APP_VERSION, resolveAppVersion } from "./resolve-app-version.js";
+import { LOCAL_APP_VERSION, resolveAppRelease, resolveAppVersion } from "./resolve-app-version.js";
 
 describe("resolveAppVersion", () => {
-  it("uses a short SHA from the checked-out deployment revision", () => {
-    expect(resolveAppVersion({ APP_RELEASE_SHA: "a1b2c3d4e5f6789012345678901234567890abcd" })).toBe(
-      "a1b2c3d",
-    );
+  it("uses the immutable release tag", () => {
+    expect(resolveAppVersion({ APP_RELEASE_VERSION: "v0.1.0" })).toBe("v0.1.0");
   });
 
-  it("labels local builds when no deployment SHA is supplied", () => {
+  it("labels local builds when no release tag is supplied", () => {
     expect(resolveAppVersion({})).toBe("local-dev");
-    expect(resolveAppVersion({ APP_RELEASE_SHA: "   " })).toBe("local-dev");
+    expect(resolveAppVersion({ APP_RELEASE_VERSION: "   " })).toBe("local-dev");
     expect(LOCAL_APP_VERSION).toBe("local-dev");
   });
 
-  it("trims whitespace around a supplied SHA", () => {
-    expect(resolveAppVersion({ APP_RELEASE_SHA: "  abcdef1zzzz  " })).toBe("abcdef1");
+  it("keeps the full SHA as telemetry provenance", () => {
+    expect(
+      resolveAppRelease({
+        APP_RELEASE_VERSION: " v0.1.0 ",
+        APP_RELEASE_SHA: " a1b2c3d4e5f6789012345678901234567890abcd ",
+      }),
+    ).toBe("v0.1.0+a1b2c3d4e5f6789012345678901234567890abcd");
+    expect(resolveAppRelease({ APP_RELEASE_VERSION: "v0.1.0" })).toBe("v0.1.0");
   });
 });
 
@@ -35,15 +39,16 @@ describe("Vite version injection", () => {
     expect(vitestConfig).not.toMatch(/npm_package_version/);
   });
 
-  it("injects the workflow_run head SHA into the production web build", () => {
+  it("deploys only verified immutable SemVer release tags", () => {
     const deploy = readFileSync(
       join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
       "utf8",
     );
-    expect(deploy).toMatch(
-      /APP_RELEASE_SHA:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha\s*\}\}/,
-    );
-    expect(deploy).not.toMatch(/APP_RELEASE_SHA:\s*\$\{\{\s*github\.sha\s*\}\}/);
+    expect(deploy).toContain("tags: [v*]");
+    expect(deploy).toContain("uses: ./.github/workflows/e2e.yml");
+    expect(deploy).toContain("APP_RELEASE_VERSION: $" + "{{ steps.release.outputs.version }}");
+    expect(deploy).toContain("APP_RELEASE_SHA: $" + "{{ steps.release.outputs.sha }}");
+    expect(deploy).not.toContain("workflow_run:");
   });
 
   it("syncs Convex release and Sentry env only after a successful backend deploy", () => {

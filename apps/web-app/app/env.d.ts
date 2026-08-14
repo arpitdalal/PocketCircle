@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
-/** Injected at build time from the deploy SHA (`APP_RELEASE_SHA`) or `local-dev`. */
+/** Human-facing release tag injected at build time, or `local-dev`. */
 declare const __APP_VERSION__: string;
+/** Telemetry release: human-facing tag plus immutable commit SHA. */
+declare const __APP_RELEASE__: string;
 
 interface ImportMetaEnv {
   readonly VITE_CONVEX_URL: string;

@@ -12,7 +12,7 @@ export function buildSentryInitOptions(dsn: string) {
   return {
     dsn,
     environment: import.meta.env.MODE,
-    release: __APP_VERSION__,
+    release: __APP_RELEASE__,
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1.0,
     integrations: [sentryReplayIntegration()],

@@ -115,12 +115,15 @@ serves `index.html` for direct navigation to client routes.
 
 Configure the GitHub `production` environment before the first deployment:
 
-- Under **Deployment branches and tags**, allow only the selected branch `main`.
-- Add at least one required reviewer who is not the person initiating deployments.
-- Enable **Prevent self-review**.
+- Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
+- Add at least one required reviewer who is not the person initiating deployments,
+  then enable **Prevent self-review**.
+- Add a tag ruleset for `v*` that restricts updates and deletion. Release tags are
+  immutable; use a new tag for a fix or rollback.
 
-The workflow also guards the deploy job to `refs/heads/main`; manual runs from
-other refs are skipped.
+The release workflow runs the real E2E suite again, waits for the production
+approval, then deploys only an immutable stable SemVer tag (`vMAJOR.MINOR.PATCH`).
+Merges to `main` run CI/E2E but never deploy production.
 
 Configure these GitHub Actions secrets:
 
@@ -154,7 +157,7 @@ VITE_POSTHOG_HOST=https://us.i.posthog.com
 
 `VITE_SENTRY_DSN` is the single production DSN. After a successful Convex deploy,
 `.github/workflows/deploy.yml` copies it to Convex `SENTRY_DSN` and sets
-`APP_RELEASE` (short `workflow_run.head_sha`) plus `SENTRY_ENVIRONMENT=production`.
+`APP_RELEASE` (release tag plus full commit SHA) plus `SENTRY_ENVIRONMENT=production`.
 Clearing the GitHub variable removes `SENTRY_DSN` so backend reporting stops with
 the frontend. Do not set those three Convex vars by hand in production.
 
@@ -181,9 +184,15 @@ Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.
 
-Deploy automatically by pushing to `main`, or run **Deploy Production** from
-GitHub Actions manually. The workflow fails before deployment when a required
-secret or Convex URL variable is missing.
+To release, tag a tested `main` commit and push the tag:
+
+```sh
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+The workflow fails before deployment when a required secret or Convex URL
+variable is missing.
 
 ### End-to-end (Playwright)
 
