@@ -29,6 +29,7 @@ import {
   accountDeletionBlockerFields,
   recomputeAccountDeletionBlockers,
 } from "./accountDeletionBlockers.js";
+import { circleSetupFields } from "./circleSetup.js";
 import { circleEntity, listEntityHistory, recordEvent } from "./history.js";
 import schema from "./schema.js";
 
@@ -64,7 +65,7 @@ afterEach(() => {
 });
 
 async function completeSetup(ctx: MutationCtx, circleId: Id<"circles">) {
-  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
+  await ctx.db.patch(circleId, circleSetupFields(Date.now()));
   await recomputeAccountDeletionBlockers(ctx, circleId);
 }
 
@@ -154,7 +155,7 @@ describe("listAccountDeletionBlockers", () => {
         mark: "S",
         ownerUserId: owner._id,
         status: "active",
-        setupCompletedAt: Date.now(),
+        ...circleSetupFields(Date.now()),
         currencyLocked: false,
         ...accountDeletionBlockerFields(
           { kind: "regular", status: "active", setupCompletedAt: Date.now() },
@@ -332,6 +333,12 @@ describe("finalizeOnUserDelete", () => {
       // Job deleted when cleanup finishes.
       expect(job).toBeNull();
       expect(await ctx.db.get(personalCircleId)).toBeNull();
+      expect(
+        await ctx.db
+          .query("userActivation")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first(),
+      ).toBeNull();
 
       const member = await ctx.db.get(host.memberId);
       expect(member?.status).toBe("deleted");
@@ -846,7 +853,7 @@ describe("cleanup phases", () => {
         mark: "I",
         ownerUserId: deleting.userId,
         status: "active",
-        setupCompletedAt: null,
+        ...circleSetupFields(null),
         currencyLocked: false,
         ...accountDeletionBlockerFields(
           { kind: "regular", status: "active", setupCompletedAt: null },
@@ -895,7 +902,7 @@ describe("cleanup phases", () => {
         mark: "A",
         ownerUserId: deleting.userId,
         status: "archived",
-        setupCompletedAt: now,
+        ...circleSetupFields(now),
         currencyLocked: false,
         archivedAt: now,
         ...accountDeletionBlockerFields(

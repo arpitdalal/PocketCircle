@@ -10,13 +10,15 @@ import {
   SUPPORTED_CURRENCIES,
 } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
-import { href, Link, useNavigate } from "react-router";
+import { href, Link, useNavigate, useSearchParams } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { track } from "~/lib/analytics.js";
+import { isCircleScopedPath } from "~/lib/circle-path.js";
 import { useCreateCircle } from "~/lib/data.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 import { cn } from "~/lib/utils.js";
 
@@ -39,8 +41,12 @@ import { cn } from "~/lib/utils.js";
  */
 export default function CreateCircle() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const createCircle = useCreateCircle();
   const { show } = useSnackbar();
+  const homePath = href("/");
+  const returnTo = parseReturnTo(searchParams.get(RETURN_TO_PARAM), { fallback: homePath });
+  const setupReturnTo = isCircleScopedPath(returnTo) ? returnTo : undefined;
 
   const [name, setName] = useState("");
   // Locale-derived default (USD fallback) computed once on mount, not hardcoded. Held
@@ -77,9 +83,12 @@ export default function CreateCircle() {
       });
       track("circle_created", { currency: parsed.data.currency });
       // Navigate with the canonical ref so the URL is id-authoritative from the first
-      // load — no stale-slug redirect (ADR 0016). Setup remains skippable.
+      // load — no stale-slug redirect (ADR 0016). Setup remains skippable. Preserve
+      // Activation Checklist `returnTo` through setup so Finish returns to origin.
       const ref = buildRef(parsed.data.name, circleId);
-      await navigate(href("/circles/:circleRef/setup", { circleRef: ref }));
+      await navigate(
+        withReturnTo(href("/circles/:circleRef/setup", { circleRef: ref }), setupReturnTo),
+      );
       show(`"${parsed.data.name}" created.`);
     } catch (caught) {
       // Names duplicate by design, so there is no expected "already exists" rejection
@@ -197,7 +206,7 @@ export default function CreateCircle() {
               Cancel
             </Button>
           ) : (
-            <Link to={href("/")} className={buttonVariants({ variant: "ghost", size: "default" })}>
+            <Link to={returnTo} className={buttonVariants({ variant: "ghost", size: "default" })}>
               Cancel
             </Link>
           )}

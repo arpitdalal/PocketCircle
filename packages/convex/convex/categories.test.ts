@@ -14,6 +14,7 @@ import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { accountDeletionBlockerFields } from "./accountDeletionBlockers.js";
+import { circleSetupFields } from "./circleSetup.js";
 import schema from "./schema.js";
 
 // createCategory/listCategories resolve access through guard.ts, which folds in
@@ -83,7 +84,7 @@ async function seedCircle(
     mark: "T",
     ownerUserId: owner._id,
     status,
-    setupCompletedAt: now,
+    ...circleSetupFields(now),
     currencyLocked: false,
     ...accountDeletionBlockerFields({ kind, status, setupCompletedAt: now }, 1),
     createdAt: now,
@@ -360,7 +361,7 @@ describe("createCategory — uniqueness (case-insensitive, includes archived)", 
         mark: "O",
         ownerUserId: owner._id,
         status: "active",
-        setupCompletedAt: Date.now(),
+        ...circleSetupFields(Date.now()),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: Date.now(),
@@ -1287,7 +1288,7 @@ describe("listCategoryHistory", () => {
         mark: "O",
         ownerUserId: creator._id,
         status: "active",
-        setupCompletedAt: Date.now(),
+        ...circleSetupFields(Date.now()),
         currencyLocked: false,
         accountDeletionBlocked: false,
         createdAt: Date.now(),

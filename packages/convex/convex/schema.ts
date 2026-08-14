@@ -54,10 +54,18 @@ export default defineSchema({
     color: v.string(),
     mark: v.string(),
     ownerUserId: v.id("users"),
+    // Immutable creating User (Activation “created a regular Circle”). Distinct from
+    // mutable `ownerUserId` (transferOwnership). Optional until prod Circles are
+    // backfilled; always written going forward on insert.
+    creatorUserId: v.optional(v.id("users")),
     status: lifecycleStatus,
     setupAnswers: v.optional(circleSetupAnswers),
     // Workflow milestone: timestamp when complete; null means incomplete regular Circle.
     setupCompletedAt: v.union(v.number(), v.null()),
+    // Indexed twin of `setupCompletedAt !== null` for bounded Activation member-CTA
+    // reads. Optional until prod Circles are backfilled; then narrow to required.
+    // Always written going forward via `circleSetupFields`.
+    setupComplete: v.optional(v.boolean()),
     // Currency is locked once any Transaction exists (PRD story 9).
     currencyLocked: v.boolean(),
     // Denormalized Account Deletion readiness (USR-3 / ADR 0029): finalization
@@ -73,7 +81,17 @@ export default defineSchema({
     .index("by_owner", ["ownerUserId"])
     .index("by_owner_and_kind", ["ownerUserId", "kind"])
     .index("by_owner_and_status", ["ownerUserId", "status"])
-    .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"]),
+    .index("by_owner_and_account_deletion_blocked", ["ownerUserId", "accountDeletionBlocked"])
+    // Activation Checklist member-CTA: earliest active regular Circle in a setup lane.
+    .index("by_owner_kind_status_setupComplete_createdAt", [
+      "ownerUserId",
+      "kind",
+      "status",
+      "setupComplete",
+      "createdAt",
+    ])
+    // Activation evidence: earliest regular Circle this User created (transfer-safe).
+    .index("by_creatorUserId_kind_createdAt", ["creatorUserId", "kind", "createdAt"]),
 
   // Membership join. Exactly one row per (circleId, userId): leaving flips
   // status to "removed", rejoining reactivates the SAME row — never a duplicate
@@ -120,6 +138,8 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    // Activation evidence: earliest Category in a Personal Circle (any type).
+    .index("by_circle_createdAt", ["circleId", "createdAt"])
     // The Category Filter's paginated reads sort on the domain `createdAt` (set
     // explicitly at create, so it can diverge from `_creationTime`) — the sort
     // key must live in the index (CAT-4). `by_circle_type_createdAt` supersedes
@@ -147,6 +167,8 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    // Activation evidence: earliest Transaction by domain createdAt.
+    .index("by_circle_createdAt", ["circleId", "createdAt"])
     .index("by_circle_and_status", ["circleId", "status"])
     .index("by_circle_and_month", ["circleId", "month"])
     .index("by_circle_and_date", ["circleId", "date"])
@@ -244,6 +266,7 @@ export default defineSchema({
     .index("by_circle_status_and_expiresAt", ["circleId", "status", "expiresAt"])
     .index("by_token_hash", ["tokenHash"])
     .index("by_inviter_status_createdAt", ["invitedByUserId", "status", "createdAt"])
+    .index("by_inviter_status_expiresAt", ["invitedByUserId", "status", "expiresAt"])
     .index("by_email_status_createdAt", ["emailLower", "status", "createdAt"]),
 
   // Append-only send log for invitation rate limits (ADR 0026).
@@ -298,6 +321,28 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_email_lower", ["emailLower"]),
+
+  // User-level Activation Checklist progress (ADR 0030). One row per User: explicit
+  // first-completed timestamps plus dismissal. Never derived from live entity state
+  // after initialization — archiving, leaving, or deleting source data cannot reopen
+  // a milestone. Bootstrap inserts the empty row; existing Users get it from the
+  // authenticated initializer.
+  userActivation: defineTable({
+    userId: v.id("users"),
+    initializedAt: v.number(),
+    // Set after the one-shot evidence scan (bootstrap or initialize). Writers may
+    // create a row without this; the dashboard treats that as uninitialized so
+    // backfill stays off the Transaction/Category/Circle/Invitation hot path.
+    evidenceBackfilledAt: v.optional(v.number()),
+    personalTransactionCreatedAt: v.optional(v.number()),
+    personalCategoryCreatedAt: v.optional(v.number()),
+    regularCircleCreatedAt: v.optional(v.number()),
+    sharedMemberJoinedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    // Set once when the owner client observes all four milestones; prevents repeat
+    // `activation_checklist_completed` analytics across reloads/tabs.
+    completionEventDeliveredAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
 
   notifications: defineTable({
     userId: v.id("users"),

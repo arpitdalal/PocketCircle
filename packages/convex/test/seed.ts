@@ -1,6 +1,8 @@
+import { PERSONAL_CIRCLE_COLOR_ID } from "@pocketcircle/domain";
 import type { Doc, Id } from "../convex/_generated/dataModel.js";
 import type { MutationCtx } from "../convex/_generated/server.js";
 import { accountDeletionBlockerFields } from "../convex/accountDeletionBlockers.js";
+import { circleSetupFields } from "../convex/circleSetup.js";
 import { generateInvitationToken, hashInvitationToken } from "../convex/invitationToken.js";
 import { createUserWithPersonalCircle, type NewUserProfile } from "../convex/model.js";
 import { syncTransactionSearchDocument } from "../convex/transactionSearchDocuments.js";
@@ -112,8 +114,9 @@ export async function seedCircle(
     color: opts.color ?? "blue",
     mark: "T",
     ownerUserId: owner._id,
+    creatorUserId: owner._id,
     status,
-    setupCompletedAt,
+    ...circleSetupFields(setupCompletedAt),
     currencyLocked: opts.currencyLocked ?? false,
     ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
     createdAt: now,
@@ -128,6 +131,52 @@ export async function seedCircle(
     joinedAt: now,
   });
   return { owner, ownerMemberId, circleId };
+}
+
+/** Inserts a Circle owned by an existing User (activation tests, extra Circles). */
+export async function seedOwnedCircle(
+  ctx: MutationCtx,
+  owner: Doc<"users">,
+  opts: {
+    name?: string;
+    kind?: "personal" | "regular";
+    archived?: boolean;
+    setupCompletedAt?: number | null;
+    currencyLocked?: boolean;
+    createdAt?: number;
+  } = {},
+) {
+  const now = opts.createdAt ?? Date.now();
+  const kind = opts.kind ?? "regular";
+  const status = opts.archived ? "archived" : "active";
+  const name = opts.name ?? (kind === "personal" ? "Ada's Circle" : "Trip");
+  const setupCompletedAt =
+    opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : kind === "personal" ? now : null;
+  const circleId = await ctx.db.insert("circles", {
+    name,
+    kind,
+    currency: "USD",
+    color: kind === "personal" ? PERSONAL_CIRCLE_COLOR_ID : "blue",
+    mark: kind === "personal" ? "AC" : "T",
+    ownerUserId: owner._id,
+    creatorUserId: owner._id,
+    status,
+    ...circleSetupFields(setupCompletedAt),
+    currencyLocked: opts.currencyLocked ?? false,
+    ...accountDeletionBlockerFields({ kind, status, setupCompletedAt }, 1),
+    createdAt: now,
+    ...(opts.archived ? { archivedAt: now } : {}),
+  });
+  const ownerMemberId = await ctx.db.insert("members", {
+    circleId,
+    userId: owner._id,
+    role: "owner",
+    status: "active",
+    displayName: owner.displayName,
+    image: owner.image,
+    joinedAt: now,
+  });
+  return { circleId, ownerMemberId };
 }
 
 /** Adds a Member (active or removed) to a Circle and returns the User + member id. */
@@ -180,7 +229,7 @@ export async function makeCategory(
 
 /** Marks a seeded Circle as setup-complete (test-only; outside deploy graph). */
 export async function markCircleSetupComplete(ctx: MutationCtx, circleId: Id<"circles">) {
-  await ctx.db.patch(circleId, { setupCompletedAt: Date.now() });
+  await ctx.db.patch(circleId, circleSetupFields(Date.now()));
 }
 
 export interface Fixture extends Seed {
@@ -369,10 +418,30 @@ export async function seedInvitation(
     tokenHash?: string;
     createdAt?: number;
   },
-): Promise<Id<"invitations">> {
+) {
+  const seeded = await seedInvitationWithToken(ctx, circleId, invitedByUserId, opts);
+  return seeded.invitationId;
+}
+
+/** Like {@link seedInvitation}, but also returns the plaintext token for accept flows. */
+export async function seedInvitationWithToken(
+  ctx: MutationCtx,
+  circleId: Id<"circles">,
+  invitedByUserId: Id<"users">,
+  opts: {
+    email: string;
+    status?: "pending" | "accepted" | "revoked" | "expired";
+    expiresAt?: number;
+    resendCount?: number;
+    resendTimestamps?: number[];
+    token?: string;
+    tokenHash?: string;
+    createdAt?: number;
+  },
+) {
   const now = Date.now();
-  const token = generateInvitationToken();
-  return await ctx.db.insert("invitations", {
+  const token = opts.token ?? generateInvitationToken();
+  const invitationId = await ctx.db.insert("invitations", {
     circleId,
     emailLower: opts.email.toLowerCase(),
     tokenHash: opts.tokenHash ?? (await hashInvitationToken(token)),
@@ -383,4 +452,5 @@ export async function seedInvitation(
     createdAt: opts.createdAt ?? now,
     expiresAt: opts.expiresAt ?? now + INVITE_TTL_MS,
   });
+  return { invitationId, token };
 }

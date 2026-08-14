@@ -16,12 +16,13 @@ import {
   seedCircle,
   seedFixture,
   seedInvitation,
+  seedInvitationWithToken,
   seedTransaction,
 } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
-import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
+import { circleSetupFields } from "./circleSetup.js";
 import schema from "./schema.js";
 
 const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
@@ -37,7 +38,6 @@ vi.mock("./auth.js", () => ({
 }));
 
 const modules = import.meta.glob("./**/*.ts");
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 beforeEach(() => {
   mockCurrentUser.mockReset();
@@ -57,21 +57,11 @@ async function seedPendingInvitation(
     token?: string;
   },
 ) {
-  const token = opts.token ?? generateInvitationToken();
-  const tokenHash = await hashInvitationToken(token);
-  const now = Date.now();
-  await ctx.db.insert("invitations", {
-    circleId: opts.circleId,
-    emailLower: opts.email.toLowerCase(),
-    tokenHash,
-    status: "pending",
-    invitedByUserId: opts.invitedByUserId,
-    resendCount: 0,
-    resendTimestamps: [],
-    createdAt: now,
-    expiresAt: now + INVITE_TTL_MS,
+  const seeded = await seedInvitationWithToken(ctx, opts.circleId, opts.invitedByUserId, {
+    email: opts.email,
+    token: opts.token,
   });
-  return token;
+  return seeded.token;
 }
 
 function baseExpense(categoryIds: Id<"categories">[]) {
@@ -140,7 +130,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -170,7 +160,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -191,7 +181,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -226,7 +216,7 @@ describe("scheduler decoupling (ADR 0027)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);
@@ -359,7 +349,7 @@ describe("notification creation on events (NTF-2)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     const maya = await t.run((ctx) => addMember(ctx, circleId, "m@example.com", "Maya Member"));
@@ -393,7 +383,7 @@ describe("notification creation on events (NTF-2)", () => {
     const t = convexTest(schema, modules);
     const { owner, circleId } = await t.run(async (ctx) => {
       const seed = await seedCircle(ctx);
-      await ctx.db.patch(seed.circleId, { setupCompletedAt: Date.now() });
+      await ctx.db.patch(seed.circleId, circleSetupFields(Date.now()));
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);

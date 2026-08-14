@@ -14,13 +14,15 @@ import {
   seedFixture,
   seedInvitation,
   seedInvitationEmailEvent,
+  seedInvitationWithToken,
   seedPersonalCircleOwner,
   seedTransaction,
 } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import type { MutationCtx } from "./_generated/server.js";
 import { circleEntity, listEntityHistory } from "./history.js";
-import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
+import { hashInvitationToken } from "./invitationToken.js";
 import { createUserWithPersonalCircle } from "./model.js";
 import schema from "./schema.js";
 
@@ -50,21 +52,13 @@ async function seedPendingInvitation(
     status?: "pending" | "accepted" | "revoked" | "expired";
   },
 ) {
-  const token = opts.token ?? generateInvitationToken();
-  const tokenHash = await hashInvitationToken(token);
-  const now = Date.now();
-  await ctx.db.insert("invitations", {
-    circleId: opts.circleId,
-    emailLower: opts.email.toLowerCase(),
-    tokenHash,
-    status: opts.status ?? "pending",
-    invitedByUserId: opts.invitedByUserId,
-    resendCount: 0,
-    resendTimestamps: [],
-    createdAt: now,
-    expiresAt: opts.expiresAt ?? now + INVITE_TTL_MS,
+  const seeded = await seedInvitationWithToken(ctx, opts.circleId, opts.invitedByUserId, {
+    email: opts.email,
+    token: opts.token,
+    expiresAt: opts.expiresAt,
+    status: opts.status,
   });
-  return token;
+  return seeded.token;
 }
 
 function resendBodyHtml(body: unknown) {

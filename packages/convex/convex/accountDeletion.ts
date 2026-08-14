@@ -41,6 +41,7 @@ const USER_PHASES = [
   "deleteFeedbackEmailEvents",
   "deleteInvitationEmailEventsByUser",
   "deleteE2eAccountDeletionTokens",
+  "deleteUserActivation",
   "deleteOwnedCircles",
 ] as const;
 
@@ -384,6 +385,8 @@ async function runUserPhaseBatch(
       return await deleteInvitationEmailEventsByUserBatch(ctx, job.userId);
     case "deleteE2eAccountDeletionTokens":
       return await deleteE2eAccountDeletionTokensBatch(ctx, job.userId);
+    case "deleteUserActivation":
+      return await deleteUserActivationBatch(ctx, job.userId);
     case "deleteOwnedCircles":
       return await deleteOwnedCirclesBatch(ctx, job);
   }
@@ -489,6 +492,14 @@ async function deleteInvitationEmailEventsByUserBatch(ctx: MutationCtx, userId: 
 async function deleteE2eAccountDeletionTokensBatch(ctx: MutationCtx, userId: Id<"users">) {
   const rows = await ctx.db
     .query("e2eAccountDeletionTokens")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(ACCOUNT_DELETION_BATCH_SIZE);
+  return await deleteDocs(ctx, rows);
+}
+
+async function deleteUserActivationBatch(ctx: MutationCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("userActivation")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(ACCOUNT_DELETION_BATCH_SIZE);
   return await deleteDocs(ctx, rows);
@@ -634,7 +645,8 @@ async function deleteDocs(
       | Id<"members">
       | Id<"notifications">
       | Id<"feedbackEmailEvents">
-      | Id<"e2eAccountDeletionTokens">;
+      | Id<"e2eAccountDeletionTokens">
+      | Id<"userActivation">;
   }>,
 ) {
   if (rows.length === 0) {

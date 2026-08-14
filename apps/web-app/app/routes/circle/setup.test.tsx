@@ -24,15 +24,20 @@ const regularMember = makeMemberView({
   displayName: "Maya Member",
 });
 
-function renderSetup(circle = makeCircleView({ setupComplete: false }), convex: ConvexState = {}) {
+function renderSetup(
+  circle = makeCircleView({ setupComplete: false }),
+  convex: ConvexState = {},
+  initialEntry?: string,
+) {
   configureConvex({ members: [ownerMember], ...convex });
   return renderCircleRoutes(
     circle,
     <>
       <Route path="/circles/:circleRef" element={<div>dashboard</div>} />
+      <Route path="/circles/personal-p1" element={<div>personal dashboard</div>} />
       <Route path="/circles/:circleRef/setup" element={<CircleSetup />} />
     </>,
-    { initialEntries: [`/circles/${circle.ref}/setup`] },
+    { initialEntries: [initialEntry ?? `/circles/${circle.ref}/setup`] },
   );
 }
 
@@ -68,6 +73,24 @@ describe("Circle setup", () => {
     expect(completeCircleSetup).toHaveBeenCalledWith({ circleId: circle.id, answers: {} });
     await waitFor(() => {
       expect(view.location()).toBe(`/circles/${circle.ref}`);
+    });
+  });
+
+  it("returns to returnTo origin after finishing setup", async () => {
+    const user = userEvent.setup();
+    const completeCircleSetup = vi.fn().mockResolvedValue({ createdCategoryIds: [] });
+    const circle = makeCircleView({ ref: "trip-c1", setupComplete: false });
+    const origin = "/circles/personal-p1";
+    const view = renderSetup(
+      circle,
+      { completeCircleSetup },
+      `/circles/${circle.ref}/setup?returnTo=${encodeURIComponent(origin)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => {
+      expect(view.location()).toBe(origin);
     });
   });
 

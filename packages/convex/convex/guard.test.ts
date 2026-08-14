@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
+import { circleSetupFields } from "./circleSetup.js";
 import schema from "./schema.js";
 
 // `resolveCircleAccess` folds in `getCurrentUserOrNull`, which is backed by the
@@ -61,8 +62,9 @@ async function seed(
     color: "blue",
     mark: kind === "personal" ? "P" : "T",
     ownerUserId: userId,
+    creatorUserId: userId,
     status: opts.archived ? "archived" : "active",
-    setupCompletedAt,
+    ...circleSetupFields(setupCompletedAt),
     currencyLocked: false,
     accountDeletionBlocked: false,
     createdAt: now,
