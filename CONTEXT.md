@@ -77,7 +77,7 @@ The new-**User** experience. It begins with a one-time gated profile confirmatio
 _Avoid_: Circle Setup, Wizard, Profile Setup
 
 **Activation Checklist**:
-The non-blocking, skippable continuation of **Onboarding** shown on the **Personal Circle** Dashboard. It helps a **User** record a first Personal-Circle **Transaction**, create a Personal-Circle **Category**, create a regular Circle, and have another active **Member** join a regular Circle they invited them to. Items can be completed in any order. Each achieved milestone remains complete forever even if its source entity is later archived, deleted, removed, or left; progress and dismissal are durable User-level facts. A pending Invitation is shown as waiting and does not complete the Member milestone. Joining someone else's Circle is contextual Invitation onboarding, not an Activation Checklist item.
+The non-blocking, skippable continuation of **Onboarding** shown on the **Home Summary**. It helps a **User** create a first **Transaction** and **Category** in any eligible Circle, create a regular Circle, and have another active **Member** join a regular Circle they invited them to. The first Transaction milestone follows **Recorded By**, not **Paid By**; setup-seeded Categories do not count as User creation. Items can be completed in any order. Each achieved milestone remains complete forever even if its source entity is later archived, deleted, removed, or left; progress and dismissal are durable User-level facts. A pending Invitation is shown as waiting and does not complete the Member milestone. Joining someone else's Circle is contextual Invitation onboarding, not an Activation Checklist item.
 _Avoid_: Circle Checklist, Circle Setup, Launch Checklist, Wizard
 
 **Member**:
@@ -213,8 +213,8 @@ A per-**Circle** summary of money activity. The v1 Dashboard shows current-month
 _Avoid_: Overview
 
 **Home Summary**:
-A future cross-**Circle** summary of a **User's** money activity across visible Circles. Home Summary is distinct from the per-Circle **Dashboard** and does not replace Circle-scoped reporting.
-_Avoid_: Global Dashboard, Overview
+A cross-**Circle** summary of a **User's** attributed cash flow across the visible Circles they include in reporting. It counts active **Transactions** whose **Paid By** resolves to the User, and presents Income, Expenses, Net cash flow, monthly trends, recent Transactions, and per-Circle contribution for one Currency and one 1/3/6/12-calendar-month range at a time. Headline totals cover the entire selected range. Every visible Circle is initially included; exclusions persist for reporting only and do not change Circle Visibility, navigation, or per-Circle reporting. Different Currencies remain separate and are never converted or added together. Home Summary does not represent account balance, net worth, the User's economic share of a shared Expense, or money receivable/payable from other Members.
+_Avoid_: Global Dashboard, Overview, Balance, Financial Position, My Spending
 
 **Monthly Ledger**:
 The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, and that month's Transactions sorted by Transaction Date descending and then created-at descending.
@@ -390,7 +390,7 @@ _Avoid_: Release Notes
 
 **Engineer**: "Does the Dashboard combine all Circles?"
 
-**Product**: "No. The v1 Dashboard is per Circle and compares Income, Expenses, and Net over a selected Comparison Range."
+**Product**: "No. The Dashboard remains per Circle. Home Summary separately reports the User's Paid-By cash flow across included Circles, one Currency at a time."
 
 **Engineer**: "Can Transaction Search find Categories without Transactions?"
 
