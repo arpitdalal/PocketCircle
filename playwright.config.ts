@@ -22,14 +22,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  // Stay on Playwright's CI default of 1 worker. Per-worker User+Circle isolation
-  // (e2e/fixtures.ts) makes the *data* safe to parallelize, but the single self-hosted
-  // Convex container is the bottleneck: 4 workers overwhelmed it (timeouts, unresolved
-  // queries, slower overall — see the failed run on PR #140). Scaling workers needs the
-  // backend scaled too (per-worker container), which is out of scope here.
-  // CI: `github` for inline PR annotations plus `html` for an uploadable report
-  // (written to playwright-report/) so failed runs leave a trace to inspect.
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  // Playwright otherwise uses 50% of detected CPUs. Pin CI to the measured-safe two:
+  // 4 workers overwhelmed one Convex container. CI scales through three shards, each
+  // with its own backend, instead of adding contention within a shard.
+  workers: process.env.CI ? 2 : undefined,
+  // Shards upload mergeable blobs; the final CI job emits GitHub annotations and one
+  // seven-day HTML report. Local runs keep the readable terminal reporter.
+  reporter: process.env.CI ? "blob" : "list",
   use: {
     baseURL,
     trace: "on-first-retry",

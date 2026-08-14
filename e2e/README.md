@@ -15,6 +15,14 @@ per parallel worker and saves `storageState` to `e2e/.auth/worker-<index>.json`
 not race; a stray `@playwright/test` import would drop back to an unsigned-in context
 and is easy to miss in review.
 
+## CI sharding
+
+CI splits the suite across three concurrent Playwright shards. Each shard owns an
+ephemeral Convex container and runs at most two Playwright workers, so speed comes from
+scaling the backend with the tests instead of overloading one backend. Shards upload
+one-day blob reports; the final `true-e2e` job merges them into one seven-day HTML report
+and fails when any shard fails.
+
 ## Running locally
 
 `pnpm test:e2e` on its own only boots the **frontend** — it does **not** start the
