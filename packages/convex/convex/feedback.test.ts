@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { buildRef, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { capturedRequests, HttpResponse, http, resetCapturedRequests } from "@pocketcircle/mocks";
 import { server } from "@pocketcircle/mocks/server";
 import { ConvexError } from "convex/values";
@@ -222,6 +222,7 @@ describe("submitFeedback", () => {
     const html = resendBodyHtml(capturedRequests.filter((r) => r.vendor === "resend")[0]?.body);
     expect(html).not.toContain("Trip");
     expect(html).not.toContain("<strong>Circle:</strong>");
+    expect(html).not.toContain(circleId);
   });
 
   it("rejects the 21st submission inside the rolling day", async () => {
@@ -415,5 +416,30 @@ describe("submitFeedback", () => {
     const html = resendBodyHtml(capturedRequests.filter((r) => r.vendor === "resend")[0]?.body);
     expect(html).toContain("<strong>Circle:</strong>");
     expect(html).toContain("Trip");
+    expect(html).toContain(buildRef("Trip", circleId));
+  });
+
+  it("omits Circle name and ref when circleId is not provided", async () => {
+    const t = createTestConvex();
+    const seed = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada Lovelace",
+        onboarded: true,
+      }),
+    );
+    mockCurrentUser.mockResolvedValue(seed.owner);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(api.feedback.submitFeedback, {
+        type: "bug",
+        message: "No circle attached",
+        appVersion: "0.1.0",
+      }),
+    );
+
+    const html = resendBodyHtml(capturedRequests.filter((r) => r.vendor === "resend")[0]?.body);
+    expect(html).not.toContain("<strong>Circle:</strong>");
+    expect(html).not.toContain(seed.personalCircleId);
   });
 });

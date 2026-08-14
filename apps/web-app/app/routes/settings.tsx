@@ -1,11 +1,4 @@
-import {
-  FEEDBACK_TYPES,
-  type FeedbackType,
-  isFeedbackType,
-  LIMITS,
-  parseFeedbackInput,
-  parseProfileUpdate,
-} from "@pocketcircle/domain";
+import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
 import { href, Link } from "react-router";
 import { Button } from "~/components/ui/button.js";
@@ -18,18 +11,15 @@ import {
 } from "~/components/ui/field.js";
 import { Input } from "~/components/ui/input.js";
 import { Switch } from "~/components/ui/switch.js";
-import { Textarea } from "~/components/ui/textarea.js";
 import {
   revertPendingAnalyticsEnabled,
   setAnalyticsEnabled as setClientAnalyticsEnabled,
-  track,
 } from "~/lib/analytics.js";
 import { requestAccountDeletion } from "~/lib/auth-client.js";
 import {
   type AccountDeletionBlocker,
   useAccountDeletionBlockers,
   useSetAnalyticsEnabled,
-  useSubmitFeedback,
   useUpdateProfile,
 } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
@@ -38,12 +28,6 @@ import { useSnackbar } from "~/lib/snackbar.js";
 
 /** Exact confirmation phrase for Account Deletion (USR-3); case-sensitive UI friction. */
 const DELETE_ACCOUNT_PHRASE = "DELETE MY ACCOUNT";
-
-const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
-  bug: "Bug",
-  feature: "Feature request",
-  currency: "Currency request",
-};
 
 /** Settings shell. App Version aids support diagnosis (PRD story 90); Privacy hosts
  * the product-analytics opt-out (ADR 0013). */
@@ -69,11 +53,6 @@ export default function Settings() {
           key={`privacy-${session.user.id}-${String(session.user.analyticsEnabled)}`}
           user={session.user}
         />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-sm font-medium text-muted-foreground">Feedback</h2>
-        <FeedbackSettingsForm key={`feedback-${session.user.id}`} user={session.user} />
       </section>
 
       <section className="space-y-2">
@@ -349,112 +328,5 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
 
       {error ? <FieldError>{error}</FieldError> : null}
     </div>
-  );
-}
-
-function FeedbackSettingsForm({ user }: { user: SessionUser }) {
-  const submitFeedback = useSubmitFeedback();
-  const { show } = useSnackbar();
-  const [type, setType] = useState<FeedbackType>("bug");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const trimmedMessage = message.trim();
-  const canSubmit = trimmedMessage.length > 0 && !submitting;
-  const remaining = LIMITS.feedbackMessageMax - message.length;
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    const parsed = parseFeedbackInput({ type, message });
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await submitFeedback({
-        type: parsed.value.type,
-        message: parsed.value.message,
-        appVersion: __APP_VERSION__,
-      });
-      track("feedback_submitted", { type: parsed.value.type });
-      setMessage("");
-      show("Thanks — your feedback was sent.");
-    } catch (caught) {
-      console.error("submitFeedback failed", caught);
-      setError(
-        mutationErrorMessageForUser(caught, "Couldn't send your feedback. Please try again."),
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form
-      onSubmit={onSubmit}
-      className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm"
-    >
-      <Field>
-        <FieldLabel htmlFor="settings-feedback-type">Type</FieldLabel>
-        <select
-          id="settings-feedback-type"
-          value={type}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (isFeedbackType(next)) {
-              setType(next);
-            }
-          }}
-          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
-        >
-          {FEEDBACK_TYPES.map((option) => (
-            <option key={option} value={option}>
-              {FEEDBACK_TYPE_LABELS[option]}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field>
-        <FieldLabel htmlFor="settings-feedback-message">Message</FieldLabel>
-        <Textarea
-          id="settings-feedback-message"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          maxLength={LIMITS.feedbackMessageMax}
-          rows={5}
-          required
-        />
-        <FieldDescription>{remaining} characters remaining</FieldDescription>
-      </Field>
-
-      <div className="space-y-1 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        <p>
-          <span className="font-medium text-foreground">From:</span> {user.displayName} (
-          {user.email})
-        </p>
-        <p>
-          <span className="font-medium text-foreground">App version:</span> {__APP_VERSION__}
-        </p>
-        <p>
-          <span className="font-medium text-foreground">Circle context:</span> None (global
-          settings)
-        </p>
-      </div>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-
-      <Button type="submit" disabled={!canSubmit}>
-        {submitting ? "Sending…" : "Send feedback"}
-      </Button>
-    </form>
   );
 }

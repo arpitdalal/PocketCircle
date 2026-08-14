@@ -1,4 +1,5 @@
-import { Settings } from "lucide-react";
+import { MessageSquare, Settings } from "lucide-react";
+import type { ReactNode } from "react";
 import { href, Link, Navigate, NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";
 import { CircleMobileBottomNav } from "~/components/circle-mobile-bottom-nav.js";
@@ -6,6 +7,7 @@ import { PageSkeleton } from "~/components/skeleton.js";
 import { Splash } from "~/components/splash.js";
 import { circleNavItems } from "~/lib/circle-nav.js";
 import { useMembers } from "~/lib/data.js";
+import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { coversCircleNavigation, usePendingRouteSkeleton } from "~/lib/route-skeleton.js";
 import { type Circle, useResolvedCircle } from "~/lib/use-resolved-circle.js";
 import { cn } from "~/lib/utils.js";
@@ -17,6 +19,31 @@ export interface CircleOutletContext {
 /** Reads the resolved Circle provided by the Circle guard layout. */
 export function useCircle(): Circle {
   return useOutletContext<CircleOutletContext>().circle;
+}
+
+const chromeIconLinkClass =
+  "flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-ring/60 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+function CircleChromeIconLink({
+  to,
+  label,
+  children,
+}: {
+  to: string;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      prefetch="intent"
+      aria-label={label}
+      title={label}
+      className={chromeIconLinkClass}
+    >
+      {children}
+    </Link>
+  );
 }
 
 /**
@@ -38,12 +65,15 @@ export default function CircleLayout() {
 
 function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSkeleton: boolean }) {
   const location = useLocation();
+  const origin = useReturnToOrigin();
   const setupPath = href("/circles/:circleRef/setup", { circleRef: circle.ref });
   const tabs = circleNavItems(circle.ref);
   const members = useMembers(circle.id);
   const showSettings =
     members !== undefined && members?.find((member) => member.isSelf)?.role === "owner";
   const settingsPath = href("/circles/:circleRef/settings", { circleRef: circle.ref });
+  const feedbackPath = href("/circles/:circleRef/feedback", { circleRef: circle.ref });
+  const onFeedback = location.pathname === feedbackPath;
 
   if (!circle.setupComplete && location.pathname !== setupPath) {
     return <Navigate to={setupPath} replace />;
@@ -59,16 +89,21 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
             {circle.kind === "personal" ? "Your Circle" : "Circle"} · {circle.currency}
           </p>
         </div>
-        {showSettings ? (
-          <Link
-            to={settingsPath}
-            prefetch="intent"
-            aria-label="Circle settings"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-ring/60 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            <Settings aria-hidden className="size-4" />
-          </Link>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {onFeedback ? null : (
+            <CircleChromeIconLink
+              to={withReturnTo(feedbackPath, origin)}
+              label={`Send feedback about ${circle.name}`}
+            >
+              <MessageSquare aria-hidden className="size-4" />
+            </CircleChromeIconLink>
+          )}
+          {showSettings ? (
+            <CircleChromeIconLink to={settingsPath} label="Circle settings">
+              <Settings aria-hidden className="size-4" />
+            </CircleChromeIconLink>
+          ) : null}
+        </div>
       </div>
 
       <nav
