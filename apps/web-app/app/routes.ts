@@ -30,6 +30,7 @@ export default [
     index("routes/home.tsx"),
     route("onboarding", "routes/onboarding.tsx"),
     route("settings", "routes/settings.tsx"),
+    route("feedback", "routes/feedback.tsx"),
 
     // Circle-scoped routes. The Circle guard resolves/canonicalizes/guards the
     // Circle and provides it to children via Outlet context; object routes
@@ -72,6 +73,7 @@ export default [
         route("members", "routes/circle/members.tsx"),
         route("history", "routes/circle/history.tsx"),
         route("settings", "routes/circle/settings.tsx"),
+        route("feedback", "routes/circle/feedback.tsx"),
       ]),
     ]),
   ]),

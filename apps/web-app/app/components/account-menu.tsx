@@ -5,6 +5,8 @@ import { Link, useNavigate } from "react-router";
 import { Avatar } from "~/components/ui/avatar.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { signOut } from "~/lib/auth-client.js";
+import { isCircleScopedPath } from "~/lib/circle-path.js";
+import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import type { SessionUser } from "~/lib/session.js";
 import { cn } from "~/lib/utils.js";
 
@@ -13,11 +15,15 @@ const menuItemClass =
 
 /**
  * Header account control: avatar trigger opens a Base UI `Menu` with identity,
- * Settings navigation, and optional Sign out (ADR 0019 / issue #124).
+ * Settings, Send feedback, and optional Sign out (ADR 0019 / issue #124).
+ * Send feedback is always the global route; Circle-scoped origins only carry
+ * `returnTo` so Back can restore them. Circle chrome owns contextual Feedback.
  */
 export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSignOut: boolean }) {
   const navigate = useNavigate();
+  const origin = useReturnToOrigin();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const feedbackTo = isCircleScopedPath(origin) ? withReturnTo("/feedback", origin) : "/feedback";
 
   // Sign-out is terminal: success lets the reactive ProtectedLayout guard redirect to
   // /signin once the session clears (no bespoke routing here), while a failed request
@@ -66,6 +72,13 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               render={<Link to="/settings" prefetch="intent" />}
             >
               Settings
+            </Menu.LinkItem>
+            <Menu.LinkItem
+              className={menuItemClass}
+              closeOnClick
+              render={<Link to={feedbackTo} prefetch="intent" />}
+            >
+              Send feedback
             </Menu.LinkItem>
             {showSignOut ? (
               <Menu.Item

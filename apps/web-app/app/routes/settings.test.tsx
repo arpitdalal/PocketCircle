@@ -304,133 +304,17 @@ describe("Settings app version", () => {
   });
 });
 
-describe("Settings feedback form", () => {
-  it("renders support context with user email, name, and app version", async () => {
-    configureConvex({
-      currentUser: makeCurrentUserView({
-        email: "ada@example.com",
-        displayName: "Ada Lovelace",
-      }),
-      submitFeedback: vi.fn(),
-    });
-    renderSettings();
-
-    expect(await screen.findByText(/Ada Lovelace/)).toBeInTheDocument();
-    expect(screen.getByText(/ada@example.com/)).toBeInTheDocument();
-    expect(screen.getAllByText(__APP_VERSION__, { exact: false }).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Circle context:/)).toBeInTheDocument();
-  });
-
-  it("blocks submit when the message is empty", async () => {
+describe("Settings no longer hosts Feedback", () => {
+  it("does not render a Feedback form", async () => {
     configureConvex({
       currentUser: makeCurrentUserView(),
-      submitFeedback: vi.fn(),
     });
     renderSettings();
 
-    expect(await screen.findByRole("button", { name: "Send feedback" })).toBeDisabled();
-  });
-
-  it("submits trimmed feedback, disables while pending, and clears on success", async () => {
-    let resolveSubmit: (() => void) | undefined;
-    const submitFeedback = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveSubmit = resolve;
-        }),
-    );
-    configureConvex({
-      currentUser: makeCurrentUserView(),
-      submitFeedback,
-    });
-    const user = userEvent.setup();
-    renderSettings();
-
-    const message = await screen.findByLabelText("Message");
-    await user.type(message, "  Please add dark mode  ");
-    const submit = screen.getByRole("button", { name: "Send feedback" });
-    await user.click(submit);
-
-    expect(submit).toBeDisabled();
-    expect(submitFeedback).toHaveBeenCalledWith({
-      type: "bug",
-      message: "Please add dark mode",
-      appVersion: __APP_VERSION__,
-    });
-
-    resolveSubmit?.();
-    await waitFor(() => {
-      expect(screen.getByText("Thanks — your feedback was sent.")).toBeInTheDocument();
-    });
-    expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
-    expect(message).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Send feedback" })).toBeDisabled();
-  });
-
-  it("does not call submitFeedback when validation fails on submit", async () => {
-    const submitFeedback = vi.fn();
-    configureConvex({
-      currentUser: makeCurrentUserView(),
-      submitFeedback,
-    });
-    renderSettings();
-
-    const message = await screen.findByLabelText("Message");
-    const form = message.closest("form");
-    if (!form) throw new Error("feedback form missing");
-    fireEvent.submit(form);
-
-    expect(screen.getByText("Message is required")).toBeInTheDocument();
-    expect(submitFeedback).not.toHaveBeenCalled();
-  });
-
-  it("shows the coded daily-cap user message", async () => {
-    const submitFeedback = vi
-      .fn()
-      .mockRejectedValue(
-        new ConvexError(mutationErrorData(MUTATION_ERRORS.feedbackDailyCapReached)),
-      );
-    configureConvex({
-      currentUser: makeCurrentUserView(),
-      submitFeedback,
-    });
-    const user = userEvent.setup();
-    renderSettings();
-
-    await user.type(await screen.findByLabelText("Message"), "Another one");
-    await user.click(screen.getByRole("button", { name: "Send feedback" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "You've sent too much feedback today. Try again tomorrow.",
-    );
-  });
-
-  it("shows a fallback alert for unexpected failures", async () => {
-    const submitFeedback = vi.fn().mockRejectedValue(new Error("network"));
-    configureConvex({
-      currentUser: makeCurrentUserView(),
-      submitFeedback,
-    });
-    const user = userEvent.setup();
-    renderSettings();
-
-    await user.type(await screen.findByLabelText("Message"), "Broken");
-    await user.click(screen.getByRole("button", { name: "Send feedback" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn't send your feedback. Please try again.",
-    );
-  });
-
-  it("does not import PostHog directly", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { dirname, join } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-    const dir = dirname(fileURLToPath(import.meta.url));
-    const moduleText = readFileSync(join(dir, "settings.tsx"), "utf8");
-    expect(moduleText).not.toMatch(/from\s+["'][^"']*posthog/i);
-    expect(moduleText).not.toMatch(/import\s*\(\s*["'][^"']*posthog/i);
-    expect(moduleText).toMatch(/from\s+["']~\/lib\/analytics\.js["']/);
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Feedback" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send feedback" })).not.toBeInTheDocument();
   });
 });
 

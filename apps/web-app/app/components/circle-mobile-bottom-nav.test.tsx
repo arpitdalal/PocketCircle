@@ -49,6 +49,12 @@ describe("CircleMobileBottomNav", () => {
       "href",
       `/circles/${circle.ref}/search`,
     );
+    expect(
+      within(nav).queryByRole("link", { name: "Feedback", hidden: true }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(nav).queryByRole("link", { name: /Send feedback/, hidden: true }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders an icon in each primary slot", () => {
@@ -88,6 +94,8 @@ describe("CircleMobileBottomNav", () => {
       "href",
       `/circles/${circle.ref}/history`,
     );
+    expect(within(dialog).queryByRole("link", { name: "Feedback" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("link", { name: /Send feedback/ })).not.toBeInTheDocument();
   });
 
   it("sets aria-current=page on More when the route is Categories", () => {

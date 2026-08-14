@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withReturnTo } from "~/lib/return-to-url.js";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import { configureConvex, makeCircleView, makeMemberView } from "~/test/convex-react.js";
 import { installIntersectionObserverStub } from "~/test/intersection-observer-stub.js";
@@ -21,6 +22,16 @@ vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).con
 import CircleSetup from "../circle/setup.js";
 import CircleLayout from "./circle-layout.js";
 
+function circleGuardRoutes(children: Array<Record<string, unknown>>) {
+  return [
+    {
+      path: "/circles/:circleRef",
+      Component: CircleLayout,
+      children,
+    },
+  ];
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: thin route-tree stand-ins; the layout is the unit under test.
 function routesWith(transactionsLoader: () => any, searchLoader?: () => any) {
   const children: Array<Record<string, unknown>> = [
@@ -38,13 +49,7 @@ function routesWith(transactionsLoader: () => any, searchLoader?: () => any) {
       loader: searchLoader,
     });
   }
-  return [
-    {
-      path: "/circles/:circleRef",
-      Component: CircleLayout,
-      children,
-    },
-  ];
+  return circleGuardRoutes(children);
 }
 
 function tabs() {
@@ -162,27 +167,27 @@ describe("CircleLayout shell skeleton", () => {
   });
 });
 
+function setupGateRoutes() {
+  return circleGuardRoutes([
+    { index: true, Component: () => <h2>Dashboard stub</h2> },
+    { path: "setup", Component: CircleSetup },
+    { path: "feedback", Component: () => <h2>Feedback stub</h2> },
+  ]);
+}
+
 describe("CircleLayout setup gate", () => {
   const ownerMember = makeMemberView({ role: "owner", isSelf: true });
 
-  it("redirects incomplete Circles to setup, but not when already on setup", async () => {
+  function renderIncompleteCircle(initialEntry: string) {
     configureConvex({
       circle: makeCircleView({ ref: "trip-c1", setupComplete: false }),
       members: [ownerMember],
     });
-    renderRouteStub(
-      [
-        {
-          path: "/circles/:circleRef",
-          Component: CircleLayout,
-          children: [
-            { index: true, Component: () => <h2>Dashboard stub</h2> },
-            { path: "setup", Component: CircleSetup },
-          ],
-        },
-      ],
-      ["/circles/trip-c1"],
-    );
+    renderRouteStub(setupGateRoutes(), [initialEntry]);
+  }
+
+  it("redirects incomplete Circles to setup, but not when already on setup", async () => {
+    renderIncompleteCircle("/circles/trip-c1");
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Circle setup" })).toBeInTheDocument();
@@ -190,20 +195,109 @@ describe("CircleLayout setup gate", () => {
     expect(screen.queryByText("Dashboard stub")).not.toBeInTheDocument();
   });
 
+  it("lets incomplete Circles open Feedback instead of bouncing to setup", async () => {
+    renderIncompleteCircle("/circles/trip-c1/feedback");
+
+    expect(await screen.findByText("Feedback stub")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Circle setup" })).not.toBeInTheDocument();
+  });
+
+  it("shows Feedback chrome on setup so incomplete Circles can report from there", async () => {
+    renderIncompleteCircle("/circles/trip-c1/setup");
+
+    expect(await screen.findByRole("heading", { name: "Circle setup" })).toBeInTheDocument();
+    const feedback = screen.getByRole("link", { name: "Send feedback about Trip" });
+    expect(feedback).toHaveAttribute(
+      "href",
+      withReturnTo("/circles/trip-c1/feedback", "/circles/trip-c1/setup"),
+    );
+
+    await userEvent.click(feedback);
+    expect(await screen.findByText("Feedback stub")).toBeInTheDocument();
+  });
+
   it("lets complete Circles render child routes normally", async () => {
     configureConvex({ circle: makeCircleView({ ref: "trip-c1", setupComplete: true }) });
-    renderRouteStub(
-      [
-        {
-          path: "/circles/:circleRef",
-          Component: CircleLayout,
-          children: [{ index: true, Component: () => <h2>Dashboard stub</h2> }],
-        },
-      ],
-      ["/circles/trip-c1"],
-    );
+    renderRouteStub(setupGateRoutes(), ["/circles/trip-c1"]);
 
     expect(await screen.findByText("Dashboard stub")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Circle setup" })).not.toBeInTheDocument();
+  });
+});
+
+function chromeRoutes() {
+  return circleGuardRoutes([
+    { index: true, Component: () => <h2>Dashboard stub</h2> },
+    { path: "transactions", Component: () => <h2>Transactions stub</h2> },
+    { path: "feedback", Component: () => <h2>Feedback stub</h2> },
+  ]);
+}
+
+describe("CircleLayout chrome Feedback", () => {
+  it("renders Feedback for an Owner and keeps Settings owner-only", async () => {
+    configureConvex({
+      circle: makeCircleView(),
+      members: [makeMemberView({ role: "owner", isSelf: true })],
+    });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
+
+    expect(
+      await screen.findByRole("link", { name: "Send feedback about Trip" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Circle settings" })).toBeInTheDocument();
+    expect(tabs().queryByRole("link", { name: "Feedback" })).not.toBeInTheDocument();
+  });
+
+  it("renders Feedback for a non-Owner Member without Settings", async () => {
+    configureConvex({
+      circle: makeCircleView(),
+      members: [makeMemberView({ role: "member", isSelf: true })],
+    });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
+
+    expect(
+      await screen.findByRole("link", { name: "Send feedback about Trip" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Circle settings" })).not.toBeInTheDocument();
+  });
+
+  it("renders Feedback for an Archived Circle", async () => {
+    configureConvex({
+      circle: makeCircleView({ status: "archived" }),
+      members: [makeMemberView({ role: "member", isSelf: true })],
+    });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
+
+    expect(
+      await screen.findByRole("link", { name: "Send feedback about Trip" }),
+    ).toBeInTheDocument();
+  });
+
+  it("links to the Circle Feedback path carrying the exact Circle origin", async () => {
+    configureConvex({
+      circle: makeCircleView(),
+      members: [makeMemberView({ role: "member", isSelf: true })],
+    });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1/transactions"]);
+
+    expect(await screen.findByText("Transactions stub")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Send feedback about Trip" })).toHaveAttribute(
+      "href",
+      withReturnTo("/circles/trip-c1/feedback", "/circles/trip-c1/transactions"),
+    );
+  });
+
+  it("hides the Feedback chrome action on the Feedback route", async () => {
+    configureConvex({
+      circle: makeCircleView(),
+      members: [makeMemberView({ role: "owner", isSelf: true })],
+    });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1/feedback"]);
+
+    expect(await screen.findByText("Feedback stub")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Send feedback about Trip" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Circle settings" })).toBeInTheDocument();
   });
 });
