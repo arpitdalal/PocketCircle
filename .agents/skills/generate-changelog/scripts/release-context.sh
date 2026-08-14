@@ -9,18 +9,22 @@ die() {
 
 usage() {
   cat <<'USAGE'
-Usage: release-context.sh [--version vMAJOR.MINOR.PATCH] [--base <tag-or-commit>] [--head <revision>]
+Usage: release-context.sh [--version vMAJOR.MINOR.PATCH] [--base <release-tag>] [--head <revision>]
 
 Emit read-only release evidence for PocketCircle changelog drafting.
 
 Baseline order without --base:
-  1. newest versioned heading in CHANGELOG.md
-  2. newest stable SemVer tag reachable from --head
-  3. complete history (initial release)
+  1. newest published GitHub Release whose stable SemVer tag is an ancestor of --head
+  2. complete history (initial release)
 
+--base must name a published GitHub Release with a stable SemVer tag.
 --version validates the intended stable release tag and only labels the output.
-It does not create a tag, release, commit, or changelog entry.
+Neither option creates a tag, release, commit, or changelog entry.
 USAGE
+}
+
+is_stable_version() {
+  [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 }
 
 version=""
@@ -54,49 +58,64 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "$version" || "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || \
+[[ -z "$version" ]] || is_stable_version "$version" || \
   die "version must be stable SemVer: vMAJOR.MINOR.PATCH"
+[[ -z "$base" ]] || is_stable_version "$base" || \
+  die "base must be a stable SemVer tag: vMAJOR.MINOR.PATCH"
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "run inside a Git work tree"
 head_commit="$(git rev-parse --verify "${head}^{commit}")" || die "invalid head: $head"
+command -v gh >/dev/null 2>&1 || die "GitHub CLI is required to verify published releases"
+gh auth status >/dev/null 2>&1 || die "authenticate GitHub CLI before generating release evidence"
 
-changelog_version=""
-if [[ -f CHANGELOG.md ]]; then
-  changelog_version="$(sed -nE 's/^##[[:space:]]+\[?(v[0-9]+\.[0-9]+\.[0-9]+)\]?.*/\1/p' CHANGELOG.md | sed -n '1p')"
+published_releases="$(gh release list --limit 1000 --json tagName,isDraft,isPrerelease,publishedAt \
+  --jq '.[] | select(.isDraft | not) | select(.isPrerelease | not) | select(.tagName | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) | .tagName')" || \
+  die "could not list published GitHub Releases"
+
+if [[ -n "$base" ]]; then
+  printf '%s\n' "$published_releases" | grep -Fx -- "$base" >/dev/null || \
+    die "base '$base' is not a published GitHub Release"
+  candidates="$base"
+else
+  candidates="$published_releases"
 fi
 
-baseline_source=""
-if [[ -n "$base" ]]; then
-  baseline="$base"
-  baseline_source="--base"
-elif [[ -n "$changelog_version" ]]; then
-  baseline="$changelog_version"
-  baseline_source="CHANGELOG.md"
-else
-  reachable_tags="$(git tag --merged "$head_commit" --sort=-version:refname)"
-  baseline="$(printf '%s\n' "$reachable_tags" | sed -nE '/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/p' | sed -n '1p')"
-  [[ -z "$baseline" ]] || baseline_source="reachable SemVer tag"
+baseline=""
+baseline_commit=""
+while IFS= read -r candidate; do
+  [[ -n "$candidate" ]] || continue
+  candidate_commit="$(git rev-parse --verify "refs/tags/${candidate}^{commit}" 2>/dev/null)" || \
+    die "published GitHub Release '$candidate' has no local immutable tag; fetch tags and retry"
+  if git merge-base --is-ancestor "$candidate_commit" "$head_commit"; then
+    baseline="$candidate"
+    baseline_commit="$candidate_commit"
+    break
+  fi
+done <<< "$candidates"
+
+if [[ -n "$base" && -z "$baseline" ]]; then
+  die "base '$base' is not an ancestor of $head_commit"
 fi
 
 if [[ -n "$baseline" ]]; then
-  baseline_commit="$(git rev-parse --verify "${baseline}^{commit}")" || \
-    die "baseline '$baseline' does not resolve to a commit"
-  git merge-base --is-ancestor "$baseline_commit" "$head_commit" || \
-    die "baseline '$baseline' is not an ancestor of $head_commit"
   range="${baseline_commit}..${head_commit}"
 else
-  baseline_commit=""
   range="$head_commit"
+fi
+
+changelog_version=""
+if [[ -f CHANGELOG.md ]]; then
+  changelog_version="$(sed -nE 's/^##[[:space:]]+\[?(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))\]?.*/\1/p' CHANGELOG.md | sed -n '1p')"
 fi
 
 echo "# Release evidence"
 [[ -z "$version" ]] || echo "- Target version: \`$version\`"
 echo "- Head: \`$head_commit\`"
 if [[ -n "$baseline" ]]; then
-  echo "- Baseline: \`$baseline\` (${baseline_source}, \`$baseline_commit\`)"
+  echo "- Baseline: \`$baseline\` (published GitHub Release, \`$baseline_commit\`)"
   echo "- Git range: \`${range}\`"
 else
-  echo "- Baseline: initial release; complete reachable history"
+  echo "- Baseline: initial release; no published GitHub Release is reachable"
 fi
 
 echo
@@ -114,7 +133,7 @@ if [[ -n "$baseline" ]]; then
 else
   subjects="$(git log --first-parent --format=%s "$head_commit")"
 fi
-references="$(printf '%s\n' "$subjects" | sed -nE 's/.*\(#([0-9]+)\).*/#\1/p' | sort -u)"
+references="$(printf '%s\n' "$subjects" | { grep -oE '\(#[0-9]+\)' || true; } | tr -d '()' | sort -u)"
 if [[ -n "$references" ]]; then
   printf '%s\n' "$references"
 else
@@ -124,12 +143,9 @@ fi
 echo
 echo "## Checks"
 if [[ -n "$changelog_version" && "$changelog_version" != "$baseline" ]]; then
-  echo "- warning: CHANGELOG.md resolves to $changelog_version but --base overrides it"
-fi
-if [[ -n "$baseline" && "$baseline" == "$changelog_version" ]]; then
-  echo "- CHANGELOG.md baseline is represented by an ancestor commit"
+  echo "- warning: CHANGELOG.md starts at $changelog_version, which is not this successful release baseline; keep its changes in scope"
 elif [[ -n "$baseline" ]]; then
-  echo "- baseline came from $baseline_source; confirm it is the last published changelog"
+  echo "- baseline is a published GitHub Release with an immutable ancestor tag"
 else
-  echo "- no prior versioned changelog entry or reachable stable tag was found"
+  echo "- no successful released baseline was found"
 fi

@@ -184,7 +184,12 @@ Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.
 
-To release, tag a tested `main` commit and push the tag:
+Before tagging, prepare the versioned `CHANGELOG.md` section on `main` (the
+repo-local `$generate-changelog` skill drafts it). The deployment workflow
+requires the exact heading `## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD`, then
+publishes that section as the GitHub Release only after production succeeds.
+
+Tag the tested release-preparation commit and push the tag:
 
 ```sh
 git tag -a v0.1.0 -m "v0.1.0"

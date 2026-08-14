@@ -18,26 +18,28 @@ metadata as evidence, never as publishable copy.
   `Unreleased` section and ask the user to choose a version before applying a
   versioned release section.
 - Do not overwrite a modified `CHANGELOG.md`; report the conflict and stop.
-- Do not describe a tagged-but-failed deployment as released. A GitHub Release
-  is published only by the deployment workflow after a successful deployment.
+- Do not describe a tagged-but-failed deployment as released. The deployment
+  workflow validates tagged notes, deploys, then publishes the GitHub Release.
 
 ## Gather trustworthy scope
 
 1. Read `AGENTS.md`, `README.md`'s production-release section, and any existing
    `CHANGELOG.md` before making conclusions.
-2. Run `scripts/release-context.sh`. Pass `--version vX.Y.Z` only when the user
-   supplied the intended stable release version. The script resolves the range
-   in this order: explicit `--base`, newest version in `CHANGELOG.md`, newest
-   reachable stable SemVer tag, then the complete history for an initial
-   release. It fails rather than silently using a stale or unreachable baseline.
+2. Run `./.agents/skills/generate-changelog/scripts/release-context.sh`. Pass
+   `--version vX.Y.Z` only when the user supplied the intended stable release
+   version. The script resolves the range from the latest published GitHub
+   Release whose immutable stable tag is an ancestor of `HEAD`; otherwise it
+   uses complete history for an initial release. A `CHANGELOG.md` heading that
+   lacks that release is still in scope, so failed releases cannot hide changes.
 3. Read the resulting first-parent commits. For each PR reference, use `gh pr
    view <number>` to inspect its description, linked issue, labels, and diff
    when the title is insufficient. Include direct commits without a PR in the
    evidence review. Never infer user impact from a title alone.
 4. Compare the chosen baseline, `HEAD`, and candidate scope explicitly. Flag
    uncertainty, missing PR references, or a release boundary not represented by
-   an immutable tag. For an initial release, summarize current user capability;
-   do not turn the entire development history into a commit log.
+   a published GitHub Release and immutable tag. For an initial release,
+   summarize current user capability; do not turn the entire development
+   history into a commit log.
 
 ## Draft
 
@@ -66,10 +68,12 @@ full proposed Markdown. Wait for explicit approval before editing.
    Leave a fresh empty `Unreleased` section above the released section.
 3. Review the diff. Do not tag or commit. Tell the user the resulting release
    preparation commit must merge to `main`, pass CI/E2E, then receive its
-   immutable `vX.Y.Z` tag.
+   immutable `vX.Y.Z` tag. The deploy workflow validates that exact section
+   before production deployment and publishes it as the GitHub Release only on
+   success.
 
 ## Resource
 
-Run `scripts/release-context.sh --help` for range-resolution details. It is
-read-only and emits the provenance needed for a draft; it does not generate or
-publish customer-facing text by itself.
+Run `./.agents/skills/generate-changelog/scripts/release-context.sh --help` for
+range-resolution details. It is read-only and emits the provenance needed for a
+draft; it does not generate or publish customer-facing text by itself.

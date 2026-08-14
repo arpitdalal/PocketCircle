@@ -48,6 +48,11 @@ describe("Vite version injection", () => {
     expect(deploy).toContain("uses: ./.github/workflows/e2e.yml");
     expect(deploy).toContain("APP_RELEASE_VERSION: $" + "{{ steps.release.outputs.version }}");
     expect(deploy).toContain("APP_RELEASE_SHA: $" + "{{ steps.release.outputs.sha }}");
+    expect(deploy).toContain("run: ./scripts/release-notes.sh");
+    expect(deploy).toContain("release:");
+    expect(deploy).toContain("needs: deploy");
+    expect(deploy).toContain("contents: write");
+    expect(deploy).toContain("gh release create");
     expect(deploy).not.toContain("workflow_run:");
   });
 

@@ -4,34 +4,28 @@ Research date: 2026-08-14. Sources are primary documentation/specifications.
 
 ## Recommendation
 
-Use a GitHub Release as the canonical public record for each immutable `vX.Y.Z`
-production tag. Generate its notes from merged pull requests, then review the
-draft before publishing. Keep a repository `CHANGELOG.md` only if release notes
-must be visible outside GitHub (for example, in the product or a docs site).
-Do not maintain both as independent sources of truth.
+Use a curated `CHANGELOG.md` section as the source for each immutable `vX.Y.Z`
+production tag. The deployment workflow publishes that exact section as the
+GitHub Release only after production succeeds, so there is one authored source
+and one public representation.
 
 This matches PocketCircle's deliberate tag-gated release process without adding
 a package-release tool to a deployable application monorepo.
 
 ## Release-note workflow
 
-1. Give every user-visible pull request exactly one release category label:
-   `release: feature`, `release: fix`, or `release: breaking`. Label internal,
-   dependency-only, CI, and documentation-only pull requests `release: skip`.
-2. Add `.github/release.yml` mapping those labels to human-facing sections,
-   with a catch-all category so nothing is silently lost.
-3. Before cutting `vX.Y.Z`, inspect GitHub's generated notes and rewrite the
-   headings/bullets for customers: outcome first, no commit SHAs or internal
-   implementation detail, clear migration/action for any breaking change.
-4. Push the annotated tag. The production workflow verifies and deploys it;
-   only after success should it publish the reviewed GitHub Release for that
-   exact tag. This needs `contents: write` in that final workflow step.
-5. If release notes must be in-repository, copy the same curated text into
-   `CHANGELOG.md` under a dated release heading. Keep a short `Unreleased`
-   section; move it into the versioned section when releasing.
+1. Before cutting `vX.Y.Z`, draft and review a dated `CHANGELOG.md` section:
+   outcome first, no commit SHAs or internal implementation detail, and clear
+   migration/action for any breaking change.
+2. Merge that release-preparation commit to `main` and let CI/E2E pass.
+3. Push the annotated tag. The production workflow verifies the matching
+   changelog section before deployment, then publishes it as the GitHub Release
+   only after success. The release job alone receives `contents: write`.
+4. Keep a short `Unreleased` section at the top for the next release.
 
 GitHub can generate notes from merged PRs, contributors, and a full-change
-link. Its `.github/release.yml` supports label-based categories and exclusions.
+link. Its `.github/release.yml` supports label-based categories and exclusions;
+use it as draft evidence, not a second authoritative changelog.
 [GitHub automated release notes](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes)
 
 ## Why not release automation from commits

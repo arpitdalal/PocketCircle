@@ -45,6 +45,9 @@ jobs:
           echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate release notes
+        run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
+
       - run: pnpm install --frozen-lockfile
 
       - name: Validate production configuration
@@ -105,3 +108,33 @@ jobs:
           else
             pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
+
+  release:
+    needs: deploy
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Publish release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if existing_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            test "$existing_draft" = false || {
+              echo "::error::GitHub Release $GITHUB_REF_NAME already exists as a draft. Publish or remove it before retrying."
+              exit 1
+            }
+            echo "GitHub Release $GITHUB_REF_NAME already exists; treating this retry as complete."
+            exit 0
+          fi
+          ./scripts/release-notes.sh "$GITHUB_REF_NAME" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md
