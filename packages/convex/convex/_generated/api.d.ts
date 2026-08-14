@@ -16,6 +16,7 @@ import type * as activation from "../activation.js";
 import type * as asyncBatch from "../asyncBatch.js";
 import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
+import type * as circleSetup from "../circleSetup.js";
 import type * as circles from "../circles.js";
 import type * as dashboard from "../dashboard.js";
 import type * as e2e from "../e2e.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   asyncBatch: typeof asyncBatch;
   auth: typeof auth;
   categories: typeof categories;
+  circleSetup: typeof circleSetup;
   circles: typeof circles;
   dashboard: typeof dashboard;
   e2e: typeof e2e;
