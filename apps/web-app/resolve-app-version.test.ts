@@ -1,7 +1,13 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { LOCAL_APP_VERSION, resolveAppRelease, resolveAppVersion } from "./resolve-app-version.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("resolveAppVersion", () => {
   it("uses the immutable release tag", () => {
@@ -53,6 +59,13 @@ describe("Vite version injection", () => {
     expect(deploy).toContain("needs: deploy");
     expect(deploy).toContain("contents: write");
     expect(deploy).toContain("gh release create");
+    expect(deploy).toContain("gh release edit");
+    expect(deploy).toContain("--notes-file release-notes.md");
+    expect(deploy).toContain("--draft=false");
+    expect(deploy).toMatch(
+      /published with notes that differ from CHANGELOG\.md\. Refusing to overwrite/,
+    );
+    expect(deploy).not.toContain("treating this retry as complete");
     expect(deploy).not.toContain("workflow_run:");
   });
 
@@ -67,5 +80,39 @@ describe("Vite version injection", () => {
     expect(setRelease).toBeGreaterThan(backendDeploy);
     expect(deploy).toMatch(/convex env set SENTRY_DSN "\$VITE_SENTRY_DSN"/);
     expect(deploy).toMatch(/convex env remove SENTRY_DSN/);
+  });
+});
+
+describe("release-notes.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/release-notes.sh");
+
+  async function extractNotes(changelog: string, version: string) {
+    const dir = await mkdtemp(join(tmpdir(), "release-notes-"));
+    await writeFile(join(dir, "CHANGELOG.md"), changelog);
+    try {
+      return await execFileAsync(script, [version], { cwd: dir });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("requires a bullet or paragraph, not only category headings", async () => {
+    await expect(
+      extractNotes(
+        `# Changelog\n\n## [v0.1.0] - 2026-08-14\n\n### Added\n\n## [Unreleased]\n`,
+        "v0.1.0",
+      ),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/bullet or paragraph/),
+    });
+  });
+
+  it("emits the dated section body when it has substantive notes", async () => {
+    const { stdout } = await extractNotes(
+      `# Changelog\n\n## [v0.1.0] - 2026-08-14\n\n### Added\n\n- Ship release notes from CHANGELOG.md\n`,
+      "v0.1.0",
+    );
+    expect(stdout).toContain("### Added");
+    expect(stdout).toContain("- Ship release notes from CHANGELOG.md");
   });
 });

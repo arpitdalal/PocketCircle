@@ -7,6 +7,14 @@ die() {
   exit 1
 }
 
+# Keep a Changelog category headings alone are not release notes.
+is_substantive_note_line() {
+  local line="$1"
+  [[ -z "${line//[[:space:]]/}" ]] && return 1
+  [[ "$line" =~ ^#+[[:space:]] ]] && return 1
+  return 0
+}
+
 [[ $# -eq 1 ]] || die "usage: release-notes.sh vMAJOR.MINOR.PATCH"
 version="$1"
 [[ "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || \
@@ -17,6 +25,7 @@ version="$1"
 heading_prefix="## [$version] - "
 found=false
 has_content=false
+body=()
 
 while IFS= read -r line || [[ -n "$line" ]]; do
   if [[ "$found" == false ]]; then
@@ -30,9 +39,16 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   fi
 
   [[ "$line" == "## "* ]] && break
-  printf '%s\n' "$line"
-  [[ -z "${line//[[:space:]]/}" ]] || has_content=true
+  body+=("$line")
+  if is_substantive_note_line "$line"; then
+    has_content=true
+  fi
 done < CHANGELOG.md
 
 [[ "$found" == true ]] || die "missing release heading for $version in CHANGELOG.md"
-[[ "$has_content" == true ]] || die "release notes for $version are empty"
+[[ "$has_content" == true ]] || \
+  die "release notes for $version need a bullet or paragraph, not only category headings"
+
+if ((${#body[@]} > 0)); then
+  printf '%s\n' "${body[@]}"
+fi

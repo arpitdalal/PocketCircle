@@ -125,16 +125,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if existing_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)"; then
-            test "$existing_draft" = false || {
-              echo "::error::GitHub Release $GITHUB_REF_NAME already exists as a draft. Publish or remove it before retrying."
-              exit 1
-            }
-            echo "GitHub Release $GITHUB_REF_NAME already exists; treating this retry as complete."
+          set -euo pipefail
+          version="$GITHUB_REF_NAME"
+          ./scripts/release-notes.sh "$version" > release-notes.md
+          expected="$(tr -d '\r' < release-notes.md)"
+
+          if ! gh release view "$version" >/dev/null 2>&1; then
+            gh release create "$version" \
+              --verify-tag \
+              --title "$version" \
+              --notes-file release-notes.md
             exit 0
           fi
-          ./scripts/release-notes.sh "$GITHUB_REF_NAME" > release-notes.md
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file release-notes.md
+
+          is_draft="$(gh release view "$version" --json isDraft --jq .isDraft)"
+          if [[ "$is_draft" == true ]]; then
+            # Draft notes are never trusted; overwrite from CHANGELOG, then publish.
+            gh release edit "$version" \
+              --verify-tag \
+              --title "$version" \
+              --notes-file release-notes.md \
+              --draft=false
+            exit 0
+          fi
+
+          actual="$(gh release view "$version" --json body --jq -r .body | tr -d '\r')"
+          if [[ "$actual" == "$expected" ]]; then
+            echo "GitHub Release $version already published with matching CHANGELOG notes."
+            exit 0
+          fi
+
+          echo "::error::GitHub Release $version is published with notes that differ from CHANGELOG.md. Refusing to overwrite a public release."
+          exit 1

@@ -27,10 +27,12 @@ metadata as evidence, never as publishable copy.
    `CHANGELOG.md` before making conclusions.
 2. Run `./.agents/skills/generate-changelog/scripts/release-context.sh`. Pass
    `--version vX.Y.Z` only when the user supplied the intended stable release
-   version. The script resolves the range from the latest published GitHub
-   Release whose immutable stable tag is an ancestor of `HEAD`; otherwise it
-   uses complete history for an initial release. A `CHANGELOG.md` heading that
-   lacks that release is still in scope, so failed releases cannot hide changes.
+   version. The script rejects a target that already exists as a tag/release or
+   does not advance past the published baseline. It resolves the range from the
+   latest published GitHub Release whose immutable stable tag is an ancestor of
+   `HEAD`; otherwise it uses complete history for an initial release. A
+   `CHANGELOG.md` heading that lacks that release is still in scope, so failed
+   releases cannot hide changes.
 3. Read the resulting first-parent commits. For each PR reference, use `gh pr
    view <number>` to inspect its description, linked issue, labels, and diff
    when the title is insufficient. Include direct commits without a PR in the

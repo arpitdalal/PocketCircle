@@ -18,13 +18,31 @@ Baseline order without --base:
   2. complete history (initial release)
 
 --base must name a published GitHub Release with a stable SemVer tag.
---version validates the intended stable release tag and only labels the output.
+--version must be an unused stable tag that advances past the resolved baseline.
 Neither option creates a tag, release, commit, or changelog entry.
 USAGE
 }
 
 is_stable_version() {
   [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+}
+
+# True when $1 is strictly greater than $2 under stable SemVer ordering.
+version_greater() {
+  local IFS=.
+  local -a left right
+  read -r -a left <<< "${1#v}"
+  read -r -a right <<< "${2#v}"
+  local i
+  for i in 0 1 2; do
+    if (( left[i] > right[i] )); then
+      return 0
+    fi
+    if (( left[i] < right[i] )); then
+      return 1
+    fi
+  done
+  return 1
 }
 
 version=""
@@ -103,13 +121,30 @@ else
   range="$head_commit"
 fi
 
+if [[ -n "$version" ]]; then
+  if git rev-parse --verify "refs/tags/${version}" >/dev/null 2>&1; then
+    die "version '$version' already exists as an immutable tag"
+  fi
+  printf '%s\n' "$published_releases" | grep -Fx -- "$version" >/dev/null && \
+    die "version '$version' already has a published GitHub Release"
+  if [[ -n "$baseline" ]] && ! version_greater "$version" "$baseline"; then
+    die "version '$version' must be greater than baseline '$baseline'"
+  fi
+fi
+
 changelog_version=""
 if [[ -f CHANGELOG.md ]]; then
   changelog_version="$(sed -nE 's/^##[[:space:]]+\[?(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))\]?.*/\1/p' CHANGELOG.md | sed -n '1p')"
 fi
 
 echo "# Release evidence"
-[[ -z "$version" ]] || echo "- Target version: \`$version\`"
+if [[ -n "$version" ]]; then
+  if [[ -n "$baseline" ]]; then
+    echo "- Target version: \`$version\` (unused; greater than baseline \`$baseline\`)"
+  else
+    echo "- Target version: \`$version\` (unused; initial release)"
+  fi
+fi
 echo "- Head: \`$head_commit\`"
 if [[ -n "$baseline" ]]; then
   echo "- Baseline: \`$baseline\` (published GitHub Release, \`$baseline_commit\`)"
@@ -142,6 +177,11 @@ fi
 
 echo
 echo "## Checks"
+if [[ -n "$version" && -n "$baseline" ]]; then
+  echo "- target version \`$version\` is unused and greater than baseline \`$baseline\`"
+elif [[ -n "$version" ]]; then
+  echo "- target version \`$version\` is unused (initial release)"
+fi
 if [[ -n "$changelog_version" && "$changelog_version" != "$baseline" ]]; then
   echo "- warning: CHANGELOG.md starts at $changelog_version, which is not this successful release baseline; keep its changes in scope"
 elif [[ -n "$baseline" ]]; then
