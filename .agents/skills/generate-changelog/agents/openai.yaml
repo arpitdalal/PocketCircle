@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Changelog"
+  short_description: "Draft release notes from merged changes"
+  default_prompt: "Use $generate-changelog to draft the next PocketCircle release changelog."
