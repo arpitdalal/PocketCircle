@@ -614,6 +614,7 @@ describe("sendInvitationEmail", () => {
         color: "blue",
         mark: "B",
         ownerUserId: owner._id,
+        creatorUserId: owner._id,
         status: "active",
         ...circleSetupFields(now),
         currencyLocked: false,

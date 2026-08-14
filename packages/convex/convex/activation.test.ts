@@ -608,51 +608,6 @@ describe("activation writers", () => {
 });
 
 describe("activation member CTA", () => {
-  it("resolves Member CTA for Circles missing setupComplete via setupCompletedAt", async () => {
-    const t = createTestConvex();
-    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
-    mockCurrentUser.mockResolvedValue(owner);
-
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      // Pre-deploy Circles: setupCompletedAt set, setupComplete absent from the doc.
-      await ctx.db.insert("circles", {
-        name: "Legacy Complete",
-        kind: "regular",
-        currency: "USD",
-        color: "blue",
-        mark: "L",
-        ownerUserId: owner._id,
-        status: "active",
-        setupCompletedAt: now,
-        currencyLocked: false,
-        accountDeletionBlocked: true,
-        accountDeletionBlockerAction: "archive",
-        createdAt: now,
-      });
-      await ctx.db.insert("circles", {
-        name: "Legacy Incomplete",
-        kind: "regular",
-        currency: "USD",
-        color: "green",
-        mark: "I",
-        ownerUserId: owner._id,
-        status: "active",
-        setupCompletedAt: null,
-        currencyLocked: false,
-        accountDeletionBlocked: false,
-        createdAt: now - 1_000,
-      });
-    });
-
-    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
-      memberCta: {
-        kind: "members",
-        circleRef: expect.stringMatching(/^legacy-complete-/),
-      },
-    });
-  });
-
   it("prefers the earliest setup-complete owned regular Circle, else incomplete Setup, else create", async () => {
     const t = createTestConvex();
     const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));

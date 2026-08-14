@@ -3,7 +3,6 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
 import { requireCurrentUser } from "./auth.js";
-import { circleIsSetupComplete } from "./circleSetup.js";
 import { getPersonalCircleForOwner } from "./model.js";
 
 const ACTIVATION_ITEM_IDS = [
@@ -239,7 +238,6 @@ async function earliestPersonalTransactionCreatedAt(
 /**
  * Durable "created a regular Circle" evidence: immutable `creatorUserId` on the
  * Circle (not mutable `ownerUserId` after transferOwnership). One indexed read.
- * Circles missing the optional field until prod backfill cannot be inferred here.
  */
 async function earliestCreatedRegularCircleAt(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const circle = await ctx.db
@@ -325,14 +323,9 @@ function circleRefOf(circle: Doc<"circles">) {
   return buildRef(circle.name, circle._id);
 }
 
-/**
- * Member CTA target. Prefers the setupComplete index. Circles missing the optional
- * field (pre-backfill) are absent from that index — merge them via by_owner_and_kind
- * using setupCompletedAt until prod is backfilled. After backfill this collapses to
- * two indexed `.first()` reads.
- */
+/** Bounded Member CTA: one `.first()` per setup lane via the setupComplete index. */
 async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const indexedComplete = await ctx.db
+  const setupComplete = await ctx.db
     .query("circles")
     .withIndex("by_owner_kind_status_setupComplete_createdAt", (q) =>
       q
@@ -342,7 +335,11 @@ async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">
         .eq("setupComplete", true),
     )
     .first();
-  const indexedIncomplete = await ctx.db
+  if (setupComplete) {
+    return { kind: "members" as const, circleRef: circleRefOf(setupComplete) };
+  }
+
+  const incomplete = await ctx.db
     .query("circles")
     .withIndex("by_owner_kind_status_setupComplete_createdAt", (q) =>
       q
@@ -352,41 +349,8 @@ async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">
         .eq("setupComplete", false),
     )
     .first();
-
-  const ownedRegular = await ctx.db
-    .query("circles")
-    .withIndex("by_owner_and_kind", (q) => q.eq("ownerUserId", userId).eq("kind", "regular"))
-    .collect();
-  const legacyActive = ownedRegular.filter(
-    (circle) => circle.status === "active" && circle.setupComplete === undefined,
-  );
-
-  if (legacyActive.length === 0) {
-    if (indexedComplete) {
-      return { kind: "members" as const, circleRef: circleRefOf(indexedComplete) };
-    }
-    if (indexedIncomplete) {
-      return { kind: "setup" as const, circleRef: circleRefOf(indexedIncomplete) };
-    }
-    return { kind: "create" as const };
-  }
-
-  const completeCandidates = [
-    ...(indexedComplete ? [indexedComplete] : []),
-    ...legacyActive.filter((circle) => circleIsSetupComplete(circle)),
-  ].sort((left, right) => left.createdAt - right.createdAt);
-  const earliestComplete = completeCandidates[0];
-  if (earliestComplete) {
-    return { kind: "members" as const, circleRef: circleRefOf(earliestComplete) };
-  }
-
-  const incompleteCandidates = [
-    ...(indexedIncomplete ? [indexedIncomplete] : []),
-    ...legacyActive.filter((circle) => !circleIsSetupComplete(circle)),
-  ].sort((left, right) => left.createdAt - right.createdAt);
-  const earliestIncomplete = incompleteCandidates[0];
-  if (earliestIncomplete) {
-    return { kind: "setup" as const, circleRef: circleRefOf(earliestIncomplete) };
+  if (incomplete) {
+    return { kind: "setup" as const, circleRef: circleRefOf(incomplete) };
   }
   return { kind: "create" as const };
 }

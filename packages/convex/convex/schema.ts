@@ -55,17 +55,15 @@ export default defineSchema({
     mark: v.string(),
     ownerUserId: v.id("users"),
     // Immutable creating User (Activation “created a regular Circle”). Distinct from
-    // mutable `ownerUserId` (transferOwnership). Optional until prod Circles are
-    // backfilled; always written going forward on insert.
-    creatorUserId: v.optional(v.id("users")),
+    // mutable `ownerUserId` (transferOwnership). Always written on insert.
+    creatorUserId: v.id("users"),
     status: lifecycleStatus,
     setupAnswers: v.optional(circleSetupAnswers),
     // Workflow milestone: timestamp when complete; null means incomplete regular Circle.
     setupCompletedAt: v.union(v.number(), v.null()),
     // Indexed twin of `setupCompletedAt !== null` for bounded Activation member-CTA
-    // reads. Optional until prod Circles are backfilled; then narrow to required.
-    // Always written going forward via `circleSetupFields`.
-    setupComplete: v.optional(v.boolean()),
+    // reads. Always written with `circleSetupFields`.
+    setupComplete: v.boolean(),
     // Currency is locked once any Transaction exists (PRD story 9).
     currencyLocked: v.boolean(),
     // Denormalized Account Deletion readiness (USR-3 / ADR 0029): finalization
