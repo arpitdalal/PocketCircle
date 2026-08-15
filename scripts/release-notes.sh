@@ -15,11 +15,15 @@ is_substantive_note_line() {
   trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
 
   [[ -z "$trimmed" ]] && return 1
-  [[ "$trimmed" =~ ^#+[[:space:]] ]] && return 1
+  # ATX headings: empty (`###`) or titled (`### Added`)
+  [[ "$trimmed" =~ ^#{1,6}([[:space:]]|$) ]] && return 1
   case "$trimmed" in
     '<!--'*'-->') return 1 ;;
   esac
-  [[ "$trimmed" =~ ^(\*\*\*+|---+|___+)$ ]] && return 1
+  # Thematic breaks, including CommonMark spaced forms (`- - -`, `* * *`, `_ _ _`)
+  [[ "$trimmed" =~ ^([*][[:space:]]*){3,}$ ||
+    "$trimmed" =~ ^(-[[:space:]]*){3,}$ ||
+    "$trimmed" =~ ^(_[[:space:]]*){3,}$ ]] && return 1
   [[ "$trimmed" =~ ^[-*+]([[:space:]]*)$ ]] && return 1
   return 0
 }

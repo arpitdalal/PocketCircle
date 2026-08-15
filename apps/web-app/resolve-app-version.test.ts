@@ -110,6 +110,10 @@ describe("release-notes.sh", () => {
   it.each([
     ["HTML comment", "<!-- internal -->"],
     ["thematic break", "---"],
+    ["spaced thematic break", "- - -"],
+    ["spaced asterisk break", "* * *"],
+    ["spaced underscore break", "_ _ _"],
+    ["empty ATX heading", "###"],
     ["empty list marker", "-"],
   ])("rejects %s-only sections", async (_label, filler) => {
     await expect(
