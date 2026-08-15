@@ -2,6 +2,7 @@ import { Menu } from "@base-ui/react/menu";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { usePwaInstall } from "~/components/pwa-install.js";
 import { Avatar } from "~/components/ui/avatar.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { signOut } from "~/lib/auth-client.js";
@@ -15,13 +16,15 @@ const menuItemClass =
 
 /**
  * Header account control: avatar trigger opens a Base UI `Menu` with identity,
- * Settings, Send feedback, and optional Sign out (ADR 0019 / issue #124).
- * Send feedback is always the global route; Circle-scoped origins only carry
- * `returnTo` so Back can restore them. Circle chrome owns contextual Feedback.
+ * Settings, conditional Install PocketCircle (#262), Send feedback, and optional
+ * Sign out (ADR 0019 / issue #124). Send feedback is always the global route;
+ * Circle-scoped origins only carry `returnTo` so Back can restore them. Circle
+ * chrome owns contextual Feedback.
  */
 export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSignOut: boolean }) {
   const navigate = useNavigate();
   const origin = useReturnToOrigin();
+  const { available: installAvailable, install } = usePwaInstall();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const feedbackTo = isCircleScopedPath(origin) ? withReturnTo("/feedback", origin) : "/feedback";
 
@@ -73,6 +76,11 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
             >
               Settings
             </Menu.LinkItem>
+            {installAvailable ? (
+              <Menu.Item className={menuItemClass} closeOnClick onClick={() => install()}>
+                Install PocketCircle
+              </Menu.Item>
+            ) : null}
             <Menu.LinkItem
               className={menuItemClass}
               closeOnClick

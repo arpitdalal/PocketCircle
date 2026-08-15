@@ -1,6 +1,6 @@
 import { cn } from "~/lib/utils.js";
 
-/** Shared bottom-sheet backdrop + mobile popup base classes (FilterPanel + Circle "More"). */
+/** Shared bottom-sheet backdrop + mobile popup base classes (FilterPanel, Circle "More", PWA install). */
 export const mobileSheetBackdropClassName =
   "fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] data-open:animate-fade-in";
 

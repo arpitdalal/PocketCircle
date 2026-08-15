@@ -52,7 +52,7 @@ describe("AccountMenu", () => {
     expect(await screen.findByText("settings-screen")).toBeInTheDocument();
   });
 
-  it("orders Settings, Send feedback, then Sign out", async () => {
+  it("orders Settings, Send feedback, then Sign out when install is unavailable", async () => {
     const u = userEvent.setup();
     renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
       initialEntries: ["/"],
