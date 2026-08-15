@@ -45,6 +45,9 @@ jobs:
           echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate release notes
+        run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
+
       - run: pnpm install --frozen-lockfile
 
       - name: Validate production configuration
@@ -105,3 +108,52 @@ jobs:
           else
             pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
+
+  release:
+    needs: deploy
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Publish release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$GITHUB_REF_NAME"
+          ./scripts/release-notes.sh "$version" > release-notes.md
+          expected="$(tr -d '\r' < release-notes.md)"
+
+          if ! gh release view "$version" >/dev/null 2>&1; then
+            gh release create "$version" \
+              --verify-tag \
+              --title "$version" \
+              --notes-file release-notes.md
+            exit 0
+          fi
+
+          is_draft="$(gh release view "$version" --json isDraft --jq .isDraft)"
+          if [[ "$is_draft" == true ]]; then
+            # Draft notes are never trusted; overwrite from CHANGELOG, then publish.
+            gh release edit "$version" \
+              --verify-tag \
+              --title "$version" \
+              --notes-file release-notes.md \
+              --draft=false
+            exit 0
+          fi
+
+          actual="$(gh release view "$version" --json body --jq -r .body | tr -d '\r')"
+          if [[ "$actual" == "$expected" ]]; then
+            echo "GitHub Release $version already published with matching CHANGELOG notes."
+            exit 0
+          fi
+
+          echo "::error::GitHub Release $version is published with notes that differ from CHANGELOG.md. Refusing to overwrite a public release."
+          exit 1
