@@ -2,6 +2,7 @@
  * Entity-scoped Convex test doubles; import from `~/test/convex-react.js` (barrel).
  */
 
+export { AppTestProviders } from "./app-test-providers.js";
 /**
  * Shared view-shape builders for route and component tests — one canonical default per
  * model (`Circle`, `Category`, `Member`, `Transaction`, detail, history event), typed

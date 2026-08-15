@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { Circle } from "~/lib/data.js";
 import type { CircleOutletContext } from "~/routes/layouts/circle-layout.js";
-import { AppTestProviders } from "~/test/router-stub.js";
+import { AppTestProviders } from "~/test/app-test-providers.js";
 
 function withRouter(node: ReactElement, initialEntries?: string[]) {
   return <MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>;

@@ -117,6 +117,31 @@ describe("PWA install soft prompt and header shortcut", () => {
     });
   });
 
+  it("calls Chromium prompt() only once when activated repeatedly while userChoice is pending", async () => {
+    const u = userEvent.setup();
+    renderInstallChrome();
+    const { prompt, resolveOutcome } = dispatchBeforeInstallPrompt("accepted");
+    // Real browsers reject a second prompt() with InvalidStateError; our consume clears first.
+    prompt
+      .mockImplementationOnce(async () => undefined)
+      .mockImplementation(async () => {
+        throw new DOMException("The prompt() method may only be called once.", "InvalidStateError");
+      });
+    await dismissInstallPromo(u);
+
+    const headerInstall = screen.getByRole("button", { name: "Install PocketCircle" });
+    // Two clicks in one act: second must not call prompt() after the deferred event is consumed.
+    await act(async () => {
+      headerInstall.click();
+      headerInstall.click();
+    });
+    expect(prompt).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveOutcome();
+    });
+  });
+
   it("promo Install on iOS opens Home Screen instructions", async () => {
     setNavigatorInstallProps({
       userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",

@@ -157,12 +157,24 @@ function createPwaInstallStore() {
     replace({ ...snapshot, promptDismissed: true });
   }
 
+  /** Take the deferred Chromium prompt exactly once; clears store before `prompt()`. */
+  function consumeDeferredPrompt() {
+    if (snapshot.availability !== "chromium" || snapshot.deferredPrompt == null) {
+      return null;
+    }
+    const event = snapshot.deferredPrompt;
+    writePromptDismissed(false);
+    replace(SERVER_SNAPSHOT);
+    return event;
+  }
+
   return {
     subscribe,
     getSnapshot: () => snapshot,
     getServerSnapshot: () => SERVER_SNAPSHOT,
     replace,
     dismissPrompt,
+    consumeDeferredPrompt,
   };
 }
 
@@ -186,7 +198,7 @@ const PwaInstallContext = createContext<PwaInstallContextValue | null>(null);
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const [store] = useState(createPwaInstallStore);
 
-  const { availability, deferredPrompt, promptDismissed } = useSyncExternalStore(
+  const { availability, promptDismissed } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getServerSnapshot,
@@ -207,15 +219,19 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       setIosInstructionsOpen(true);
       return;
     }
-    if (availability !== "chromium" || deferredPrompt == null) {
+    // Consume synchronously so a second click in the same turn cannot call prompt() again
+    // (BeforeInstallPromptEvent is single-use and rejects with InvalidStateError).
+    const promptEvent = store.consumeDeferredPrompt();
+    if (promptEvent == null) {
       return;
     }
-    const promptEvent = deferredPrompt;
     void (async () => {
-      await promptEvent.prompt();
-      await promptEvent.userChoice;
-      writePromptDismissed(false);
-      store.replace(SERVER_SNAPSHOT);
+      try {
+        await promptEvent.prompt();
+        await promptEvent.userChoice;
+      } catch {
+        // Already consumed, dismissed, or browser-rejected — UI already cleared.
+      }
     })();
   };
 
