@@ -29,8 +29,8 @@ metadata as evidence, never as publishable copy.
    `--version vX.Y.Z` only when the user supplied the intended stable release
    version. The script rejects a target that already exists as a tag/release or
    does not advance past the published baseline. It resolves the range from the
-   latest published GitHub Release whose immutable stable tag is an ancestor of
-   `HEAD`; otherwise it uses complete history for an initial release. A
+   nearest published GitHub Release ancestor of `HEAD` (tip-most among stable
+   SemVer tags); otherwise it uses complete history for an initial release. A
    `CHANGELOG.md` heading that lacks that release is still in scope, so failed
    releases cannot hide changes.
 3. Read the resulting first-parent commits. For each PR reference, use `gh pr

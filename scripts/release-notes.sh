@@ -7,11 +7,20 @@ die() {
   exit 1
 }
 
-# Keep a Changelog category headings alone are not release notes.
+# Visible Keep a Changelog body only — not headings, comments, rules, or empty markers.
 is_substantive_note_line() {
   local line="$1"
-  [[ -z "${line//[[:space:]]/}" ]] && return 1
-  [[ "$line" =~ ^#+[[:space:]] ]] && return 1
+  local trimmed="$line"
+  trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+
+  [[ -z "$trimmed" ]] && return 1
+  [[ "$trimmed" =~ ^#+[[:space:]] ]] && return 1
+  case "$trimmed" in
+    '<!--'*'-->') return 1 ;;
+  esac
+  [[ "$trimmed" =~ ^(\*\*\*+|---+|___+)$ ]] && return 1
+  [[ "$trimmed" =~ ^[-*+]([[:space:]]*)$ ]] && return 1
   return 0
 }
 

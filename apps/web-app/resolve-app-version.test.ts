@@ -107,6 +107,18 @@ describe("release-notes.sh", () => {
     });
   });
 
+  it.each([
+    ["HTML comment", "<!-- internal -->"],
+    ["thematic break", "---"],
+    ["empty list marker", "-"],
+  ])("rejects %s-only sections", async (_label, filler) => {
+    await expect(
+      extractNotes(`# Changelog\n\n## [v0.1.0] - 2026-08-14\n\n### Added\n\n${filler}\n`, "v0.1.0"),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/bullet or paragraph/),
+    });
+  });
+
   it("emits the dated section body when it has substantive notes", async () => {
     const { stdout } = await extractNotes(
       `# Changelog\n\n## [v0.1.0] - 2026-08-14\n\n### Added\n\n- Ship release notes from CHANGELOG.md\n`,

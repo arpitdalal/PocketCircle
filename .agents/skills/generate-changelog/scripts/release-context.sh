@@ -14,7 +14,8 @@ Usage: release-context.sh [--version vMAJOR.MINOR.PATCH] [--base <release-tag>] 
 Emit read-only release evidence for PocketCircle changelog drafting.
 
 Baseline order without --base:
-  1. newest published GitHub Release whose stable SemVer tag is an ancestor of --head
+  1. nearest published GitHub Release ancestor of --head (tip-most among
+     stable SemVer tags ordered by publishedAt, then ancestry)
   2. complete history (initial release)
 
 --base must name a published GitHub Release with a stable SemVer tag.
@@ -87,7 +88,7 @@ command -v gh >/dev/null 2>&1 || die "GitHub CLI is required to verify published
 gh auth status >/dev/null 2>&1 || die "authenticate GitHub CLI before generating release evidence"
 
 published_releases="$(gh release list --limit 1000 --json tagName,isDraft,isPrerelease,publishedAt \
-  --jq '.[] | select(.isDraft | not) | select(.isPrerelease | not) | select(.tagName | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) | .tagName')" || \
+  --jq '[.[] | select(.isDraft | not) | select(.isPrerelease | not) | select(.tagName | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))] | sort_by(.publishedAt) | reverse | .[].tagName')" || \
   die "could not list published GitHub Releases"
 
 if [[ -n "$base" ]]; then
@@ -98,16 +99,26 @@ else
   candidates="$published_releases"
 fi
 
+# Prefer the tip-most published ancestor of HEAD, not the first list entry.
+# publishedAt ordering alone is wrong when an older draft is published later.
 baseline=""
 baseline_commit=""
 while IFS= read -r candidate; do
   [[ -n "$candidate" ]] || continue
   candidate_commit="$(git rev-parse --verify "refs/tags/${candidate}^{commit}" 2>/dev/null)" || \
     die "published GitHub Release '$candidate' has no local immutable tag; fetch tags and retry"
-  if git merge-base --is-ancestor "$candidate_commit" "$head_commit"; then
+  git merge-base --is-ancestor "$candidate_commit" "$head_commit" || continue
+  if [[ -z "$baseline_commit" ]]; then
     baseline="$candidate"
     baseline_commit="$candidate_commit"
-    break
+    continue
+  fi
+  if git merge-base --is-ancestor "$baseline_commit" "$candidate_commit" && \
+    [[ "$baseline_commit" != "$candidate_commit" ]]; then
+    baseline="$candidate"
+    baseline_commit="$candidate_commit"
+  elif [[ "$baseline_commit" == "$candidate_commit" ]] && version_greater "$candidate" "$baseline"; then
+    baseline="$candidate"
   fi
 done <<< "$candidates"
 
