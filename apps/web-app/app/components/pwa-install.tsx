@@ -1,6 +1,7 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import { createContext, type ReactNode, use, useId, useState, useSyncExternalStore } from "react";
+import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import {
   mobileSheetBackdropClassName,
@@ -38,16 +39,40 @@ function isIosDevice() {
   return platform === "MacIntel" && maxTouchPoints > 1;
 }
 
+const PROMPT_DISMISSED_KEY = "pocketcircle.pwaInstallPromptDismissed";
+
+function readPromptDismissed() {
+  try {
+    return window.localStorage.getItem(PROMPT_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePromptDismissed(dismissed: boolean) {
+  try {
+    if (dismissed) {
+      window.localStorage.setItem(PROMPT_DISMISSED_KEY, "1");
+    } else {
+      window.localStorage.removeItem(PROMPT_DISMISSED_KEY);
+    }
+  } catch {
+    // Private mode / blocked storage — in-memory snapshot still updates.
+  }
+}
+
 type PwaInstallAvailability = "unavailable" | "chromium" | "ios";
 
 type InstallSnapshot = {
   availability: PwaInstallAvailability;
   deferredPrompt: BeforeInstallPromptEventLike | null;
+  promptDismissed: boolean;
 };
 
 const SERVER_SNAPSHOT: InstallSnapshot = {
   availability: "unavailable",
   deferredPrompt: null,
+  promptDismissed: false,
 };
 
 /**
@@ -82,8 +107,11 @@ function createPwaInstallStore() {
       return;
     }
 
+    const promptDismissed = readPromptDismissed();
     if (isIosDevice()) {
-      snapshot = { availability: "ios", deferredPrompt: null };
+      snapshot = { availability: "ios", deferredPrompt: null, promptDismissed };
+    } else {
+      snapshot = { ...SERVER_SNAPSHOT, promptDismissed };
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
@@ -91,10 +119,15 @@ function createPwaInstallStore() {
         return;
       }
       event.preventDefault();
-      replace({ availability: "chromium", deferredPrompt: event });
+      replace({
+        availability: "chromium",
+        deferredPrompt: event,
+        promptDismissed: snapshot.promptDismissed,
+      });
     };
 
     const onAppInstalled = () => {
+      writePromptDismissed(false);
       replace(SERVER_SNAPSHOT);
     };
 
@@ -119,35 +152,50 @@ function createPwaInstallStore() {
     };
   }
 
+  function dismissPrompt() {
+    writePromptDismissed(true);
+    replace({ ...snapshot, promptDismissed: true });
+  }
+
   return {
     subscribe,
     getSnapshot: () => snapshot,
     getServerSnapshot: () => SERVER_SNAPSHOT,
     replace,
+    dismissPrompt,
   };
 }
 
 interface PwaInstallContextValue {
   available: boolean;
+  /** Soft install dialog — available and not yet dismissed. */
+  showInstallPrompt: boolean;
+  /** Header shortcut — available after the soft prompt was dismissed. */
+  showInstallHeaderButton: boolean;
   install: () => void;
+  dismissInstallPrompt: () => void;
 }
 
 const PwaInstallContext = createContext<PwaInstallContextValue | null>(null);
 
 /**
  * App-wide PWA install lifecycle (issue #262). Mounts above auth so
- * `beforeinstallprompt` is not missed while the session resolves. Owns the iOS
- * instruction sheet; AccountMenu only reads availability + `install()`.
+ * `beforeinstallprompt` is not missed while the session resolves. Owns the soft
+ * install prompt, iOS instruction sheet, and exposes a header shortcut after dismiss.
  */
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const [store] = useState(createPwaInstallStore);
 
-  const { availability, deferredPrompt } = useSyncExternalStore(
+  const { availability, deferredPrompt, promptDismissed } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getServerSnapshot,
   );
   const [iosInstructionsOpen, setIosInstructionsOpen] = useState(false);
+
+  const available = availability !== "unavailable";
+  const showInstallPrompt = available && !promptDismissed;
+  const showInstallHeaderButton = available && promptDismissed;
 
   // Close the iOS sheet if installability flips to unavailable (e.g. appinstalled).
   if (availability === "unavailable" && iosInstructionsOpen) {
@@ -166,18 +214,40 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     void (async () => {
       await promptEvent.prompt();
       await promptEvent.userChoice;
+      writePromptDismissed(false);
       store.replace(SERVER_SNAPSHOT);
     })();
+  };
+
+  const dismissInstallPrompt = () => {
+    store.dismissPrompt();
+  };
+
+  const installFromPrompt = () => {
+    dismissInstallPrompt();
+    install();
   };
 
   return (
     <PwaInstallContext.Provider
       value={{
-        available: availability !== "unavailable",
+        available,
+        showInstallPrompt,
+        showInstallHeaderButton,
         install,
+        dismissInstallPrompt,
       }}
     >
       {children}
+      <InstallPromoDialog
+        open={showInstallPrompt}
+        onOpenChange={(open) => {
+          if (!open) {
+            dismissInstallPrompt();
+          }
+        }}
+        onInstall={installFromPrompt}
+      />
       <IosInstallInstructionsDialog
         open={iosInstructionsOpen}
         onOpenChange={setIosInstructionsOpen}
@@ -192,6 +262,84 @@ export function usePwaInstall() {
     throw new Error("usePwaInstall must be used within a PwaInstallProvider");
   }
   return context;
+}
+
+/** Header shortcut shown after the soft install prompt is dismissed. */
+export function PwaInstallHeaderButton() {
+  const { showInstallHeaderButton, install } = usePwaInstall();
+  if (!showInstallHeaderButton) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      aria-label="Install PocketCircle"
+      onClick={() => install()}
+      className={cn(
+        buttonVariants({ variant: "ghost", size: "icon-xs" }),
+        "size-10 shrink-0 rounded-full focus-visible:ring-offset-background",
+      )}
+    >
+      <Download aria-hidden className="size-5" />
+    </button>
+  );
+}
+
+function InstallPromoDialog({
+  open,
+  onOpenChange,
+  onInstall,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onInstall: () => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={mobileSheetBackdropClassName} />
+        <Dialog.Popup
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          className={cn(
+            "fixed top-1/2 left-1/2 z-50 w-[min(100%-2rem,22rem)] -translate-x-1/2 -translate-y-1/2",
+            "space-y-4 rounded-xl border border-border bg-card p-5 shadow-xl outline-none",
+            "data-open:animate-fade-in",
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <Dialog.Title
+              id={titleId}
+              className="font-display text-lg font-semibold tracking-tight"
+            >
+              Install PocketCircle
+            </Dialog.Title>
+            <Dialog.Close
+              type="button"
+              aria-label="Close"
+              className={cn(buttonVariants({ variant: "ghost", size: "icon-xs" }))}
+            >
+              <X aria-hidden className="size-4" />
+            </Dialog.Close>
+          </div>
+          <Dialog.Description id={descriptionId} className="text-sm text-muted-foreground">
+            Add PocketCircle to your home screen for a faster, app-like experience.
+          </Dialog.Description>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Dialog.Close type="button" className={cn(buttonVariants({ variant: "outline" }))}>
+              Not now
+            </Dialog.Close>
+            <Button type="button" onClick={onInstall}>
+              Install
+            </Button>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
 }
 
 function IosInstallInstructionsDialog({

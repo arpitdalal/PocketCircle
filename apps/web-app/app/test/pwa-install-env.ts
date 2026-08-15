@@ -107,3 +107,13 @@ export function dispatchBeforeInstallPrompt(outcome: "accepted" | "dismissed" = 
 export function dispatchAppInstalled() {
   window.dispatchEvent(new Event("appinstalled"));
 }
+
+export const PWA_INSTALL_PROMPT_DISMISSED_KEY = "pocketcircle.pwaInstallPromptDismissed";
+
+export function clearPwaInstallPromptDismissal() {
+  window.localStorage.removeItem(PWA_INSTALL_PROMPT_DISMISSED_KEY);
+}
+
+export function seedPwaInstallPromptDismissed() {
+  window.localStorage.setItem(PWA_INSTALL_PROMPT_DISMISSED_KEY, "1");
+}

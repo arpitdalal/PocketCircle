@@ -4,6 +4,7 @@ import { AccountMenu } from "~/components/account-menu.js";
 import { CircleBottomNavSkeleton } from "~/components/circle-mobile-bottom-nav.js";
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { NotificationCenter } from "~/components/notification-center.js";
+import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
 import { Splash } from "~/components/splash.js";
 import { initAnalytics, teardownAnalytics } from "~/lib/analytics.js";
@@ -81,6 +82,7 @@ export default function ProtectedLayout() {
           <CircleSwitcher />
         </div>
         <div className="flex items-center gap-1">
+          <PwaInstallHeaderButton />
           <NotificationCenter />
           <AccountMenu user={session.user} showSignOut={!MOCKS} />
         </div>
