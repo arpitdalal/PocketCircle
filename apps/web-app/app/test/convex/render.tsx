@@ -2,8 +2,8 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { Circle } from "~/lib/data.js";
-import { SnackbarProvider } from "~/lib/snackbar.js";
 import type { CircleOutletContext } from "~/routes/layouts/circle-layout.js";
+import { AppTestProviders } from "~/test/app-test-providers.js";
 
 function withRouter(node: ReactElement, initialEntries?: string[]) {
   return <MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>;
@@ -80,7 +80,7 @@ export function circleLayoutHeadingChrome(circle: Pick<Circle, "name">) {
 export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[] } = {}) {
   let navigate: ReturnType<typeof useNavigate> | undefined;
   const result = render(
-    <SnackbarProvider>
+    <AppTestProviders>
       <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
         <LocationProbe />
         <NavigationProbe
@@ -90,7 +90,7 @@ export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[
         />
         <Routes>{routes}</Routes>
       </MemoryRouter>
-    </SnackbarProvider>,
+    </AppTestProviders>,
   );
   return {
     ...result,
@@ -129,7 +129,7 @@ export function renderCircleRoutes(
   opts: { initialEntries?: string[]; chrome?: ReactNode } = {},
 ) {
   const wrap = (current: Circle) => (
-    <SnackbarProvider>
+    <AppTestProviders>
       <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
         <LocationProbe />
         {opts.chrome}
@@ -139,7 +139,7 @@ export function renderCircleRoutes(
           </Route>
         </Routes>
       </MemoryRouter>
-    </SnackbarProvider>
+    </AppTestProviders>
   );
   const result = render(wrap(circle));
   return {

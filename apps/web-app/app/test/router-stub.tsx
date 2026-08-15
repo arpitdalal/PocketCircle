@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
-import { SnackbarProvider } from "~/lib/snackbar.js";
+import { AppTestProviders } from "~/test/app-test-providers.js";
 
 /**
  * The "stub + deferred loader" seam for driving the router's PENDING navigation state
@@ -32,13 +32,15 @@ export function deferred() {
   return { promise, resolve };
 }
 
-/** Renders a `createRoutesStub` route tree under the app's `SnackbarProvider` (the
- * Circle guard's resolver needs it), seeding the address bar via `initialEntries`. */
+export { AppTestProviders } from "~/test/app-test-providers.js";
+
+/** Renders a `createRoutesStub` route tree under {@link AppTestProviders}, seeding
+ * the address bar via `initialEntries`. */
 export function renderRouteStub(routes: StubRoutes, initialEntries: string[]) {
   const Stub = createRoutesStub(routes);
   return render(
-    <SnackbarProvider>
+    <AppTestProviders>
       <Stub initialEntries={initialEntries} />
-    </SnackbarProvider>,
+    </AppTestProviders>,
   );
 }

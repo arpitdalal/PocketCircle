@@ -69,8 +69,27 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
   };
 }
 
-// The MSW node server is enabled unconditionally for the whole unit/integration
-// suite so tests never reach real vendors (ADR 0006).
+// jsdom ships no matchMedia; PwaInstallProvider (#262) reads display-mode on mount.
+// Default to non-standalone. Suites that need a specific match install
+// `installMatchMediaFake` from `~/test/pwa-install-env.js` over this.
+if (typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() {
+        return false;
+      },
+    }),
+  });
+}
 beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
 afterEach(() => {
   cleanup();

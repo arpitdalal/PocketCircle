@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
-import { SnackbarProvider } from "~/lib/snackbar.js";
 import {
   configureConvex,
   convexReactMock,
@@ -12,7 +11,7 @@ import {
 } from "~/test/convex-react.js";
 import { installIntersectionObserverStub } from "~/test/intersection-observer-stub.js";
 import { posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
-import { deferred, renderRouteStub } from "~/test/router-stub.js";
+import { AppTestProviders, deferred, renderRouteStub } from "~/test/router-stub.js";
 
 /**
  * Phase-1 shell-skeleton behavior for the protected (app shell) layout (issue #121).
@@ -194,9 +193,9 @@ describe("ProtectedLayout onboarding gate", () => {
     ];
     const Stub = createRoutesStub(routes);
     const view = render(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub initialEntries={["/circles/abc"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     const user = userEvent.setup();
@@ -210,9 +209,9 @@ describe("ProtectedLayout onboarding gate", () => {
     });
 
     view.rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub key="session-updated" initialEntries={["/onboarding?returnTo=/circles/abc"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     expect(await screen.findByText("Circle stub")).toBeInTheDocument();
@@ -349,9 +348,9 @@ describe("ProtectedLayout onboarding gate", () => {
     ];
     const Stub = createRoutesStub(routes);
     const view = render(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub initialEntries={["/onboarding"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     const user = userEvent.setup();
@@ -366,9 +365,9 @@ describe("ProtectedLayout onboarding gate", () => {
     expect(posthogSdk.init).not.toHaveBeenCalled();
 
     view.rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub key="session-updated" initialEntries={["/onboarding"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     expect(await screen.findByText("Home stub")).toBeInTheDocument();
@@ -396,9 +395,9 @@ describe("ProtectedLayout onboarding gate", () => {
       },
     ]);
     const view = render(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub initialEntries={["/"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     await screen.findByText("Home stub");
@@ -409,9 +408,9 @@ describe("ProtectedLayout onboarding gate", () => {
       onboardingComplete: false,
     });
     view.rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub key="left-app" initialEntries={["/"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     await waitFor(() => {
@@ -438,9 +437,9 @@ describe("ProtectedLayout onboarding gate", () => {
       },
     ]);
     const view = render(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub initialEntries={["/"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     await screen.findByText("Home stub");
@@ -453,9 +452,9 @@ describe("ProtectedLayout onboarding gate", () => {
       email: "grace@example.com",
     });
     view.rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <Stub key="user-switched" initialEntries={["/"]} />
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     await waitFor(() => {
