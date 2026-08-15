@@ -1,5 +1,7 @@
 import { render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { createRoutesStub } from "react-router";
+import { PwaInstallProvider } from "~/components/pwa-install.js";
 import { SnackbarProvider } from "~/lib/snackbar.js";
 
 /**
@@ -32,13 +34,25 @@ export function deferred() {
   return { promise, resolve };
 }
 
-/** Renders a `createRoutesStub` route tree under the app's `SnackbarProvider` (the
- * Circle guard's resolver needs it), seeding the address bar via `initialEntries`. */
+/**
+ * App-shell providers needed by ProtectedLayout and siblings in route-stub tests
+ * (snackbar for Circle guard; PWA install for AccountMenu — #262).
+ */
+export function AppTestProviders({ children }: { children: ReactNode }) {
+  return (
+    <PwaInstallProvider>
+      <SnackbarProvider>{children}</SnackbarProvider>
+    </PwaInstallProvider>
+  );
+}
+
+/** Renders a `createRoutesStub` route tree under {@link AppTestProviders}, seeding
+ * the address bar via `initialEntries`. */
 export function renderRouteStub(routes: StubRoutes, initialEntries: string[]) {
   const Stub = createRoutesStub(routes);
   return render(
-    <SnackbarProvider>
+    <AppTestProviders>
       <Stub initialEntries={initialEntries} />
-    </SnackbarProvider>,
+    </AppTestProviders>,
   );
 }

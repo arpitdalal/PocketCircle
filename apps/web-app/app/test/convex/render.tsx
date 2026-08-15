@@ -1,10 +1,9 @@
 import { act, render } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
-import { PwaInstallProvider } from "~/components/pwa-install.js";
 import type { Circle } from "~/lib/data.js";
-import { SnackbarProvider } from "~/lib/snackbar.js";
 import type { CircleOutletContext } from "~/routes/layouts/circle-layout.js";
+import { AppTestProviders } from "~/test/router-stub.js";
 
 function withRouter(node: ReactElement, initialEntries?: string[]) {
   return <MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>;
@@ -81,19 +80,17 @@ export function circleLayoutHeadingChrome(circle: Pick<Circle, "name">) {
 export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[] } = {}) {
   let navigate: ReturnType<typeof useNavigate> | undefined;
   const result = render(
-    <PwaInstallProvider>
-      <SnackbarProvider>
-        <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
-          <LocationProbe />
-          <NavigationProbe
-            onNavigate={(nextNavigate) => {
-              navigate = nextNavigate;
-            }}
-          />
-          <Routes>{routes}</Routes>
-        </MemoryRouter>
-      </SnackbarProvider>
-    </PwaInstallProvider>,
+    <AppTestProviders>
+      <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
+        <LocationProbe />
+        <NavigationProbe
+          onNavigate={(nextNavigate) => {
+            navigate = nextNavigate;
+          }}
+        />
+        <Routes>{routes}</Routes>
+      </MemoryRouter>
+    </AppTestProviders>,
   );
   return {
     ...result,
@@ -132,19 +129,17 @@ export function renderCircleRoutes(
   opts: { initialEntries?: string[]; chrome?: ReactNode } = {},
 ) {
   const wrap = (current: Circle) => (
-    <PwaInstallProvider>
-      <SnackbarProvider>
-        <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
-          <LocationProbe />
-          {opts.chrome}
-          <Routes>
-            <Route element={<Outlet context={{ circle: current } satisfies CircleOutletContext} />}>
-              {routes}
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </SnackbarProvider>
-    </PwaInstallProvider>
+    <AppTestProviders>
+      <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
+        <LocationProbe />
+        {opts.chrome}
+        <Routes>
+          <Route element={<Outlet context={{ circle: current } satisfies CircleOutletContext} />}>
+            {routes}
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </AppTestProviders>
   );
   const result = render(wrap(circle));
   return {
