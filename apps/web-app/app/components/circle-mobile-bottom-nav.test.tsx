@@ -34,6 +34,16 @@ function renderStrictMobileNav(initialPath: string) {
 }
 
 describe("CircleMobileBottomNav", () => {
+  it("sizes the bar so safe-area padding adds below the content band", () => {
+    renderMobileNav(`/circles/${circle.ref}`);
+    const nav = screen.getByTestId("circle-mobile-bottom-nav");
+    // Fixed h-16 + pb-safe under border-box crushed labels into the top; height must
+    // be the CSS var that includes safe-area, with padding applied separately.
+    expect(nav.className).toContain("h-[var(--mobile-bottom-nav-height)]");
+    expect(nav.className).toContain("pb-[var(--safe-area-bottom)]");
+    expect(nav.className).not.toMatch(/\bh-16\b/);
+  });
+
   it("links Dashboard, Transactions, and Search to canonical circle routes", () => {
     renderMobileNav(`/circles/${circle.ref}`);
     const nav = screen.getByTestId("circle-mobile-bottom-nav");

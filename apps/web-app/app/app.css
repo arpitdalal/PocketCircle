@@ -40,6 +40,21 @@
     --destructive-soft: oklch(0.7 0.18 22 / 14%);
 
     --radius: 0.625rem;
+
+    /* Device chrome insets (0 when viewport-fit≠cover or no hardware intrusion).
+       Bottom nav height ADDS the inset so labels stay in a full 4rem content band
+       instead of border-box eating h-16 into the home-indicator padding. */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --mobile-bottom-nav-content-height: 4rem;
+    --mobile-bottom-nav-height: calc(
+      var(--mobile-bottom-nav-content-height) +
+      var(--safe-area-bottom)
+    );
+    /* nav height + breathing room; main uses this below sm */
+    --mobile-bottom-nav-clearance: calc(var(--mobile-bottom-nav-height) + 2rem);
   }
 
   /* Light palette — ready for the theme-switching slice; nothing applies it yet. */
@@ -70,12 +85,17 @@
     --destructive-soft: oklch(0.55 0.2 25 / 10%);
   }
 
-  html,
-  body {
+  /*
+   * Prefer dvh over % / vh: mobile browser chrome makes 100vh taller than the
+   * visible area; dvh tracks the current visual viewport. min-height (not height)
+   * so long pages still grow. dvh is baseline in current Safari/Chrome/Firefox.
+   */
+  html {
     height: 100%;
   }
 
   body {
+    min-height: 100dvh;
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);

@@ -69,7 +69,7 @@ export default function ProtectedLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <Link
             to="/"
@@ -87,7 +87,8 @@ export default function ProtectedLayout() {
           <AccountMenu user={session.user} showSignOut={!MOCKS} />
         </div>
       </header>
-      <main className="flex-1 px-4 pb-24 pt-6 sm:pb-6">
+      {/* Mobile clearance tracks nav height + safe-area (see --mobile-bottom-nav-clearance). */}
+      <main className="flex-1 px-4 pb-[var(--mobile-bottom-nav-clearance)] pt-6 sm:pb-6">
         {showSkeleton ? <PageSkeleton /> : <Outlet />}
       </main>
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}

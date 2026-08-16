@@ -48,7 +48,9 @@ export function FilterPanel({
             </Dialog.Close>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
-          <div className="flex gap-2 border-t border-border px-4 py-3">{footer}</div>
+          <div className="flex gap-2 border-t border-border px-4 pt-3 pb-[max(0.75rem,var(--safe-area-bottom))] md:pb-3">
+            {footer}
+          </div>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
