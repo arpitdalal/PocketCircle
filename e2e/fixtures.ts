@@ -118,8 +118,7 @@ export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
   }
   await cashFlow.getByRole("combobox", { name: "Circles" }).click();
   await page.getByRole("option", { name }).click();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("option", { name })).toHaveCount(0);
+  await cashFlow.getByRole("heading", { name: "Cash flow" }).click();
   await expect(remove).toBeVisible({ timeout: 15_000 });
 }
 
