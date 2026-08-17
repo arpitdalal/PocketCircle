@@ -375,7 +375,9 @@ const E2E_PASSWORD = "e2e-Password-123";
 
 /** USR-1: fresh sign-ups gate on `/onboarding` until Display Name is confirmed. */
 async function ensureAppShellReady(page: Page) {
-  const homeHeading = page.getByRole("heading", { name: "Your circles" });
+  // `Home` is the signed-in h1 (visible during Home Summary loading). `Your circles`
+  // is now a section heading behind getHomeSummary — waiting on it stalls shell-ready.
+  const homeHeading = page.getByRole("heading", { name: "Home", exact: true });
   const continueButton = page.getByRole("button", { name: "Continue" });
 
   const deadline = Date.now() + 30_000;

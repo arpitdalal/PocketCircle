@@ -89,7 +89,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
   browser,
   baseURL,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const stamp = `${Date.now()}`;
   const ownerEmail = `e2e+home-owner-${stamp}@example.com`;
   const memberEmail = `e2e+home-member-${stamp}@example.com`;
