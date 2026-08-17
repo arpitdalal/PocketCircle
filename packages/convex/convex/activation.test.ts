@@ -12,7 +12,7 @@ import {
   seedPersonalCircleOwner,
 } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
-import type { Id } from "./_generated/dataModel.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
@@ -64,6 +64,17 @@ async function activationRows(ctx: MutationCtx, userId: Id<"users">) {
     .query("userActivation")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
+}
+
+async function replaceActivationRow(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  fields: Omit<Doc<"userActivation">, "_id" | "_creationTime" | "userId">,
+) {
+  for (const row of await activationRows(ctx, userId)) {
+    await ctx.db.delete(row._id);
+  }
+  await ctx.db.insert("userActivation", { userId, ...fields });
 }
 
 async function seedOnboardedOwner(ctx: MutationCtx) {
@@ -998,13 +1009,8 @@ describe("activation field migration", () => {
     const t = createTestConvex();
     const { owner, userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
 
-    await t.run(async (ctx) => {
-      const existing = await activationRows(ctx, userId);
-      for (const row of existing) {
-        await ctx.db.delete(row._id);
-      }
-      await ctx.db.insert("userActivation", {
-        userId,
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
         initializedAt: 1000,
         evidenceBackfilledAt: 2000,
         personalTransactionCreatedAt: 3000,
@@ -1012,8 +1018,8 @@ describe("activation field migration", () => {
         regularCircleCreatedAt: 5000,
         sharedMemberJoinedAt: 6000,
         dismissedAt: 7000,
-      });
-    });
+      }),
+    );
 
     mockCurrentUser.mockResolvedValue(owner);
     await t.mutation(internal.activation.migrateActivationRows, {});
@@ -1034,21 +1040,16 @@ describe("activation field migration", () => {
     const t = createTestConvex();
     const { userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
 
-    await t.run(async (ctx) => {
-      const existing = await activationRows(ctx, userId);
-      for (const row of existing) {
-        await ctx.db.delete(row._id);
-      }
-      await ctx.db.insert("userActivation", {
-        userId,
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
         initializedAt: 1000,
         evidenceBackfilledAt: 2000,
         transactionCreatedAt: 5000,
         personalTransactionCreatedAt: 3000,
         categoryCreatedAt: 2000,
         personalCategoryCreatedAt: 4000,
-      });
-    });
+      }),
+    );
 
     await t.mutation(internal.activation.migrateActivationRows, {});
 
@@ -1065,17 +1066,12 @@ describe("activation field migration", () => {
     const t = createTestConvex();
     const { userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
 
-    await t.run(async (ctx) => {
-      const existing = await activationRows(ctx, userId);
-      for (const row of existing) {
-        await ctx.db.delete(row._id);
-      }
-      await ctx.db.insert("userActivation", {
-        userId,
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
         initializedAt: 1000,
         personalTransactionCreatedAt: 3000,
-      });
-    });
+      }),
+    );
 
     const result = await t.mutation(internal.activation.migrateActivationRows, {});
     expect(result.migrated).toBeGreaterThanOrEqual(1);

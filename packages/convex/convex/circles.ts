@@ -612,6 +612,14 @@ async function deleteCircleCascade(ctx: MutationCtx, circleId: Id<"circles">) {
 
   await deleteHistoriesForEntity(ctx, circleId);
 
+  const exclusions = await ctx.db
+    .query("homeSummaryExclusions")
+    .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+    .collect();
+  for (const exclusion of exclusions) {
+    await ctx.db.delete(exclusion._id);
+  }
+
   const members = await ctx.db
     .query("members")
     .withIndex("by_circle", (q) => q.eq("circleId", circleId))

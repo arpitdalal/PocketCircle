@@ -605,7 +605,7 @@ describe("excludeCircle / includeCircle", () => {
     const rows = await t.run(async (ctx) =>
       ctx.db
         .query("homeSummaryExclusions")
-        .withIndex("by_user", (q) => q.eq("userId", owner._id))
+        .withIndex("by_user_circle", (q) => q.eq("userId", owner._id))
         .collect(),
     );
     expect(rows).toHaveLength(1);
@@ -649,7 +649,7 @@ describe("excludeCircle / includeCircle", () => {
     const rows = await t.run(async (ctx) =>
       ctx.db
         .query("homeSummaryExclusions")
-        .withIndex("by_user", (q) => q.eq("userId", owner._id))
+        .withIndex("by_user_circle", (q) => q.eq("userId", owner._id))
         .collect(),
     );
     expect(rows).toHaveLength(0);

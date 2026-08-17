@@ -103,14 +103,22 @@ export function homeCircleCard(page: Page, name: string | RegExp) {
   return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
 }
 
-/** Open the Circles Home scope picker and toggle one option. Options portal to body. */
+/** Toggle a Circle in the Home scope multi-select. Included Circles are chips. */
 export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
-  await page
-    .getByRole("region", { name: "Cash flow" })
-    .getByRole("combobox", { name: "Circles" })
-    .click();
-  await page.getByRole("option", { name }).click();
-  await page.keyboard.press("Escape");
+  const cashFlow = page.getByRole("region", { name: "Cash flow" });
+  const removeName =
+    typeof name === "string"
+      ? new RegExp(`^Remove ${escapeRegExp(name)}$`)
+      : new RegExp(`^Remove ${name.source}$`);
+  const remove = cashFlow.getByRole("button", { name: removeName });
+  if (await remove.isVisible()) {
+    await remove.click();
+  } else {
+    await cashFlow.getByRole("combobox", { name: "Circles" }).click();
+    await page.getByRole("option", { name }).click();
+    await page.keyboard.press("Escape");
+  }
+  await expect(cashFlow.getByRole("combobox", { name: "Circles" })).toBeEnabled();
 }
 
 /** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */

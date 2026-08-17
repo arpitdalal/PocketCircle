@@ -348,7 +348,7 @@ describe("finalizeOnUserDelete", () => {
       expect(
         await ctx.db
           .query("homeSummaryExclusions")
-          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .withIndex("by_user_circle", (q) => q.eq("userId", userId))
           .first(),
       ).toBeNull();
 
@@ -903,6 +903,12 @@ describe("cleanup phases", () => {
       for (let i = 0; i < ACCOUNT_DELETION_BATCH_SIZE + 5; i += 1) {
         await seedTransaction(ctx, fixture, { title: `t${i}`, date: "2026-05-01" });
       }
+      const leftover = await makeUser(ctx, "leftover@example.com", "Leftover");
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: leftover._id,
+        circleId,
+        excludedAt: now,
+      });
       return circleId;
     });
     const archived = await t.run(async (ctx) => {
@@ -971,6 +977,12 @@ describe("cleanup phases", () => {
       expect(
         await ctx.db
           .query("histories")
+          .withIndex("by_circle", (q) => q.eq("circleId", incomplete))
+          .first(),
+      ).toBeNull();
+      expect(
+        await ctx.db
+          .query("homeSummaryExclusions")
           .withIndex("by_circle", (q) => q.eq("circleId", incomplete))
           .first(),
       ).toBeNull();

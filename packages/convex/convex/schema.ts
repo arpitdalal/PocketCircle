@@ -359,8 +359,8 @@ export default defineSchema({
     circleId: v.id("circles"),
     excludedAt: v.number(),
   })
-    .index("by_user", ["userId"])
-    .index("by_user_circle", ["userId", "circleId"]),
+    .index("by_user_circle", ["userId", "circleId"])
+    .index("by_circle", ["circleId"]),
 
   notifications: defineTable({
     userId: v.id("users"),

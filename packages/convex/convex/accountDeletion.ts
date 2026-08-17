@@ -58,6 +58,7 @@ const CIRCLE_PHASES = [
   "invitationEmailEvents",
   "e2eInvitationTokens",
   "members",
+  "homeSummaryExclusions",
   "circle",
 ] as const;
 
@@ -511,7 +512,7 @@ async function deleteUserActivationBatch(ctx: MutationCtx, userId: Id<"users">) 
 async function deleteHomeSummaryExclusionsBatch(ctx: MutationCtx, userId: Id<"users">) {
   const rows = await ctx.db
     .query("homeSummaryExclusions")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .withIndex("by_user_circle", (q) => q.eq("userId", userId))
     .take(ACCOUNT_DELETION_BATCH_SIZE);
   return await deleteDocs(ctx, rows);
 }
@@ -628,6 +629,14 @@ async function deleteCirclePhaseBatch(
         ctx,
         await ctx.db
           .query("members")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "homeSummaryExclusions":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("homeSummaryExclusions")
           .withIndex("by_circle", (q) => q.eq("circleId", circleId))
           .take(ACCOUNT_DELETION_BATCH_SIZE),
       );

@@ -1150,6 +1150,11 @@ describe("deleteCircle", () => {
         token,
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: seed.owner._id,
+        circleId: seed.circleId,
+        excludedAt: Date.now(),
+      });
       return seed;
     });
     mockCurrentUser.mockResolvedValue(owner);
@@ -1180,6 +1185,12 @@ describe("deleteCircle", () => {
         await ctx.db
           .query("e2eInvitationTokens")
           .withIndex("by_circle_and_email", (q) => q.eq("circleId", circleId))
+          .collect(),
+      ).toHaveLength(0);
+      expect(
+        await ctx.db
+          .query("homeSummaryExclusions")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
           .collect(),
       ).toHaveLength(0);
       expect(

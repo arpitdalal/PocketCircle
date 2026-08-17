@@ -23,6 +23,12 @@ import { newViewCaches, toTransactionView } from "./transactions.js";
  */
 const HOME_RECENT_LIMIT = 5;
 
+function newestTransactions(txns: Doc<"transactions">[], limit: number) {
+  return [...txns]
+    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
+    .slice(0, limit);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Returns all Circles the user is an active member of (including archived Circles). */
@@ -47,7 +53,7 @@ async function visibleCircles(ctx: QueryCtx | MutationCtx, userId: Id<"users">) 
 async function getExcludedCircleIds(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const exclusions = await ctx.db
     .query("homeSummaryExclusions")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .withIndex("by_user_circle", (q) => q.eq("userId", userId))
     .collect();
   return new Set(exclusions.map((e) => e.circleId));
 }
@@ -130,7 +136,12 @@ export const getHomeSummary = query({
           cell.month,
           cell.circle.membershipId,
         );
-        return { circle: cell.circle, month: cell.month, totals: sumMonthTotals(txns), txns };
+        return {
+          circle: cell.circle,
+          month: cell.month,
+          totals: sumMonthTotals(txns),
+          txns: newestTransactions(txns, HOME_RECENT_LIMIT),
+        };
       },
     );
 

@@ -424,8 +424,10 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
     }
     setError(null);
     setPending(true);
+    let current: HomeSummaryCircle | undefined;
     try {
       for (const circle of changed) {
+        current = circle;
         if (circle.included) {
           await excludeCircle({ circleId: circle.id });
         } else {
@@ -433,7 +435,7 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
         }
       }
     } catch {
-      setError(`Couldn't update ${changed[0]?.name ?? "circle"}. Try again.`);
+      setError(`Couldn't update ${current?.name ?? "circle"}. Try again.`);
     } finally {
       setPending(false);
     }
