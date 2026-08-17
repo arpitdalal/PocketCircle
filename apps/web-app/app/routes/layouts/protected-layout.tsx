@@ -1,7 +1,10 @@
 import { useEffect } from "react";
 import { href, Link, Navigate, Outlet, useLocation, useNavigation } from "react-router";
 import { AccountMenu } from "~/components/account-menu.js";
-import { CircleBottomNavSkeleton } from "~/components/circle-mobile-bottom-nav.js";
+import {
+  CircleBottomNavSkeleton,
+  mobileBottomNavClearanceClassName,
+} from "~/components/circle-mobile-bottom-nav.js";
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
@@ -13,6 +16,7 @@ import { MOCKS } from "~/lib/env.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import { coversShellNavigation, usePendingRouteSkeleton } from "~/lib/route-skeleton.js";
 import { useAppSession } from "~/lib/session.js";
+import { cn } from "~/lib/utils.js";
 
 /**
  * Gates the authenticated app across auth states (ADR 0017) and the product
@@ -38,6 +42,10 @@ export default function ProtectedLayout() {
   const navigation = useNavigation();
   const pendingTo = navigation.location?.pathname;
   const showBottomNavSkeleton = showSkeleton && pendingTo != null && isCircleScopedPath(pendingTo);
+  // Clearance tracks a painted bar, not "this is a protected route". Home/Settings have
+  // no Circle bar (ADR 0022); Circle→Home unmounts it with the shell skeleton.
+  const circleBarPainted =
+    showBottomNavSkeleton || (!showSkeleton && isCircleScopedPath(location.pathname));
   const analyticsSession =
     session.state === "ready" && session.user.onboardingComplete ? session.user : undefined;
   const analyticsUserId = analyticsSession?.id;
@@ -87,8 +95,14 @@ export default function ProtectedLayout() {
           <AccountMenu user={session.user} showSignOut={!MOCKS} />
         </div>
       </header>
-      {/* Mobile clearance tracks nav height + safe-area (see --mobile-bottom-nav-clearance). */}
-      <main className="flex-1 px-4 pb-[var(--mobile-bottom-nav-clearance)] pt-6 sm:pb-6">
+      <main
+        className={cn(
+          "flex-1 px-4 pt-6 sm:pb-6",
+          circleBarPainted
+            ? mobileBottomNavClearanceClassName
+            : "pb-[calc(1.5rem+var(--safe-area-bottom))]",
+        )}
+      >
         {showSkeleton ? <PageSkeleton /> : <Outlet />}
       </main>
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}

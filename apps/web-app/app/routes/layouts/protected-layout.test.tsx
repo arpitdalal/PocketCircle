@@ -77,6 +77,7 @@ describe("ProtectedLayout shell skeleton", () => {
     expect(screen.queryByRole("link", { name: "Go to settings" })).not.toBeInTheDocument();
     // A non-Circle destination gets no Circle bottom-bar placeholder.
     expect(screen.queryByTestId("circle-bottom-nav-skeleton")).not.toBeInTheDocument();
+    expect(main.className).not.toContain("--mobile-bottom-nav-clearance");
 
     slow.resolve();
     expect(await screen.findByText("Settings stub")).toBeInTheDocument();
@@ -127,12 +128,49 @@ describe("ProtectedLayout shell skeleton", () => {
 
     expect(await screen.findByTestId("route-skeleton")).toBeInTheDocument();
     expect(screen.getByTestId("circle-bottom-nav-skeleton")).toBeInTheDocument();
+    expect(screen.getByRole("main").className).toContain("--mobile-bottom-nav-clearance");
 
     // Once the destination resolves the placeholder gives way (the real Circle layout,
     // not exercised here, owns the live bar from then on).
     slow.resolve();
     expect(await screen.findByText("Circle stub")).toBeInTheDocument();
     expect(screen.queryByTestId("circle-bottom-nav-skeleton")).not.toBeInTheDocument();
+    expect(screen.getByRole("main").className).toContain("--mobile-bottom-nav-clearance");
+  });
+
+  it("drops Circle bottom-bar clearance while a slow navigation OUT of a Circle loads", async () => {
+    const slow = deferred();
+    ready();
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [
+            {
+              index: true,
+              Component: () => <h2>Home stub</h2>,
+              loader: () => slow.promise,
+            },
+            {
+              path: "circles/:circleRef",
+              Component: () => <Link to="/">Back home</Link>,
+            },
+          ],
+        },
+      ],
+      ["/circles/home-c2"],
+    );
+
+    await userEvent.click(await screen.findByRole("link", { name: "Back home" }));
+
+    expect(await screen.findByTestId("route-skeleton")).toBeInTheDocument();
+    expect(screen.queryByTestId("circle-bottom-nav-skeleton")).not.toBeInTheDocument();
+    expect(screen.getByRole("main").className).not.toContain("--mobile-bottom-nav-clearance");
+
+    slow.resolve();
+    expect(await screen.findByText("Home stub")).toBeInTheDocument();
+    expect(screen.getByRole("main").className).not.toContain("--mobile-bottom-nav-clearance");
   });
 });
 
@@ -288,6 +326,7 @@ describe("ProtectedLayout onboarding gate", () => {
 
     expect(await screen.findByText("Home stub")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Welcome" })).not.toBeInTheDocument();
+    expect(screen.getByRole("main").className).not.toContain("--mobile-bottom-nav-clearance");
     expect(posthogSdk.init).toHaveBeenCalledWith(
       "phc_test",
       expect.objectContaining({

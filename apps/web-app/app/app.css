@@ -48,13 +48,10 @@
     --safe-area-right: env(safe-area-inset-right, 0px);
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --safe-area-left: env(safe-area-inset-left, 0px);
-    --mobile-bottom-nav-content-height: 4rem;
-    --mobile-bottom-nav-height: calc(
-      var(--mobile-bottom-nav-content-height) +
-      var(--safe-area-bottom)
-    );
-    /* nav height + breathing room; main uses this below sm */
-    --mobile-bottom-nav-clearance: calc(var(--mobile-bottom-nav-height) + 2rem);
+    --mobile-bottom-nav-height: calc(4rem + var(--safe-area-bottom));
+    /* Bar height + 2rem breathing room. Applied on <main> only while the Circle
+       bar (or its shell skeleton) is painted — not on Home/Settings. */
+    --mobile-bottom-nav-clearance: calc(6rem + var(--safe-area-bottom));
   }
 
   /* Light palette — ready for the theme-switching slice; nothing applies it yet. */
