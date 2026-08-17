@@ -95,18 +95,33 @@ export async function finishCircleSetup(page: Page) {
   await expect(setupToast).toBeHidden({ timeout: 10_000 });
 }
 
+export function circleSwitcher(page: Page) {
+  return page.getByRole("button", { name: "Circles", exact: true });
+}
+
+export function homeCircleCard(page: Page, name: string | RegExp) {
+  return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
+}
+
+/** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */
+export async function openPersonalCircleFromHome(page: Page) {
+  await page.goto("/");
+  await homeCircleCard(page, /Your Circle/).click();
+}
+
 /**
  * Shell → create regular Circle → mandatory setup complete → dashboard.
  * Use for specs that need an isolated Circle without polluting Personal pickers.
  */
 export async function createRegularCircleAndFinishSetup(
   page: Page,
-  { name, color }: { name: string; color?: string },
+  { name, color, currency }: { name: string; color?: string; currency?: string },
 ) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Circles" }).click();
-  await page.getByRole("menu").getByRole("menuitem", { name: "Create circle" }).click();
+  await page.goto("/circles/new");
   await page.getByLabel("Name").fill(name);
+  if (currency) {
+    await page.getByLabel("Currency").selectOption(currency);
+  }
   if (color) {
     await page.getByRole("button", { name: color }).click();
   }

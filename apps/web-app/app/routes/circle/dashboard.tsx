@@ -10,7 +10,7 @@ import {
 } from "@pocketcircle/domain";
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ActivationChecklist } from "~/components/activation-checklist.js";
+import { CashFlowTrend } from "~/components/cash-flow-trend.js";
 import { LoadingStatus, RowsSkeleton, Skeleton } from "~/components/skeleton.js";
 import {
   canonicalDashboardParams,
@@ -34,7 +34,6 @@ import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 import { DashboardCategoryAnalytics } from "./dashboard-category-analytics.js";
-import { DashboardComparisonChart } from "./dashboard-comparison-chart.js";
 
 /**
  * The per-Circle Dashboard (RPT-3; PRD stories 68, 75) — the Circle index route.
@@ -95,7 +94,6 @@ export default function CircleDashboard() {
         label="Loading dashboard…"
       />
       <h2 className="font-display text-lg font-semibold tracking-tight">Dashboard</h2>
-      {circle.kind === "personal" ? <ActivationChecklist circle={circle} /> : null}
 
       <DashboardTotalsCards dashboard={dashboard} fallbackCurrency={circle.currency} />
       <MonthlyComparisonSection
@@ -231,7 +229,11 @@ function MonthlyComparisonSection({
           No comparison available.
         </p>
       ) : (
-        <DashboardComparisonChart comparison={comparison} />
+        <CashFlowTrend
+          currency={comparison.currency}
+          series={comparison.series}
+          caption="Month-over-month Income, Expense, and Net"
+        />
       )}
     </section>
   );

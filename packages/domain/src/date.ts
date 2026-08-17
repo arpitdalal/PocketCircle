@@ -97,8 +97,22 @@ export const COMPARISON_RANGE_OPTIONS = [1, 3, 6, 12] as const;
 export type ComparisonRangeMonths = (typeof COMPARISON_RANGE_OPTIONS)[number];
 export const DEFAULT_COMPARISON_RANGE_MONTHS = 6 as const satisfies ComparisonRangeMonths;
 
+/**
+ * Home Summary range — reuses the same calendar-month window vocabulary as the
+ * Dashboard Comparison Range (same [1, 3, 6, 12] set and `comparisonWindowMonths`
+ * builder) with a distinct default of 1 month (GH-273). Keeps the two surfaces
+ * decoupled so a future change to one default doesn't silently change the other.
+ */
+export const HOME_RANGE_OPTIONS = COMPARISON_RANGE_OPTIONS;
+export type HomeRangeMonths = ComparisonRangeMonths;
+export const DEFAULT_HOME_RANGE_MONTHS = 1 as const satisfies HomeRangeMonths;
+
 export function isComparisonRangeMonths(value: number): value is ComparisonRangeMonths {
-  return (COMPARISON_RANGE_OPTIONS as readonly number[]).includes(value);
+  return COMPARISON_RANGE_OPTIONS.some((option) => option === value);
+}
+
+export function isHomeRangeMonths(value: number): value is HomeRangeMonths {
+  return isComparisonRangeMonths(value);
 }
 
 /**

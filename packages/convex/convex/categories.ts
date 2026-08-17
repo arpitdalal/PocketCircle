@@ -113,6 +113,8 @@ interface CreateCategoryForMemberArgs {
   type: "expense" | "income";
   color: string;
   duplicate: "throw" | "skip";
+  /** Explicit origin: "manual" marks activation; "setup" (starter seeding) never marks. */
+  origin: "manual" | "setup";
 }
 
 export async function createCategoryForMember(ctx: MutationCtx, args: CreateCategoryForMemberArgs) {
@@ -162,8 +164,9 @@ export async function createCategoryForMember(ctx: MutationCtx, args: CreateCate
     ],
   });
 
-  if (args.access.circle.kind === "personal") {
-    await markActivationMilestone(ctx, args.access.user._id, "personalCategoryCreatedAt");
+  if (args.origin === "manual") {
+    // Mark activation milestone in any active setup-complete Circle (GH-273).
+    await markActivationMilestone(ctx, args.access.user._id, "categoryCreatedAt");
   }
 
   return { created: true, categoryId, name: input.name };
@@ -426,7 +429,12 @@ export const createCategory = mutation({
     const access = await requireCircleAccess(ctx, args.circleId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
     access.assertSetupComplete();
-    const result = await createCategoryForMember(ctx, { access, ...args, duplicate: "throw" });
+    const result = await createCategoryForMember(ctx, {
+      access,
+      ...args,
+      duplicate: "throw",
+      origin: "manual",
+    });
     if (!result.created) {
       throw duplicateCategoryNameError();
     }

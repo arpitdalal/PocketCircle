@@ -11,12 +11,13 @@ export { AppTestProviders } from "./app-test-providers.js";
  * fixtures tweaked per file). Ids default to stable slugs; pass overrides for the rest.
  */
 export { makeAccountDeletionBlocker } from "./convex/account-deletion.js";
-export { makeActivationChecklistView } from "./convex/activation.js";
+export { makeActivationChecklistView, makeEligibleCircle } from "./convex/activation.js";
 export { makeCategoryDetailView, makeCategoryView } from "./convex/categories.js";
 export { makeCircleView } from "./convex/circles.js";
 export type { ConvexState } from "./convex/core.js";
 export { configureConvex, convexHelpersReactMock, convexReactMock } from "./convex/core.js";
 export { makeHistoryEventView } from "./convex/history.js";
+export { makeHomeSummaryRecent, makeHomeSummaryView } from "./convex/home-summary.js";
 export { testId } from "./convex/ids.js";
 export { makeMemberView } from "./convex/members.js";
 export { makeNotificationView } from "./convex/notifications.js";

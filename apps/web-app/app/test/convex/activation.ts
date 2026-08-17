@@ -4,6 +4,7 @@ import type { Mock } from "vitest";
 import type { ActivationChecklist, ReadyActivationChecklist } from "~/lib/data/activation.js";
 import type { EntityDouble } from "./contract.js";
 import { resolveWith } from "./contract.js";
+import { testId } from "./ids.js";
 
 export interface ActivationState {
   /** `getActivationChecklist` — `undefined` ≡ loading. */
@@ -37,6 +38,19 @@ export function activationDouble(state: ActivationState): EntityDouble {
   };
 }
 
+export function makeEligibleCircle(
+  over: Partial<ReadyActivationChecklist["eligibleCircles"][number]> = {},
+) {
+  return {
+    id: testId("c1"),
+    ref: "personal-c1",
+    name: "Personal",
+    currency: "USD",
+    kind: "personal" as const,
+    ...over,
+  } satisfies ReadyActivationChecklist["eligibleCircles"][number];
+}
+
 export function makeActivationChecklistView(over: Partial<ReadyActivationChecklist> = {}) {
   return {
     status: "ready" as const,
@@ -45,14 +59,15 @@ export function makeActivationChecklistView(over: Partial<ReadyActivationCheckli
     allComplete: false,
     completedCount: 0,
     total: 4 as const,
-    personalTransactionComplete: false,
-    personalCategoryComplete: false,
+    transactionComplete: false,
+    categoryComplete: false,
     regularCircleComplete: false,
     sharedMemberState: "not_started" as const,
     pendingInvitationExpiresAt: null,
-    firstIncomplete: "personalTransaction" as const,
+    firstIncomplete: "transaction" as const,
     memberCta: { kind: "create" } as const,
     completionEventPending: false,
+    eligibleCircles: [makeEligibleCircle()],
     ...over,
   } satisfies ReadyActivationChecklist;
 }

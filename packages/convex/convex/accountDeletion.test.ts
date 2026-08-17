@@ -312,6 +312,11 @@ describe("finalizeOnUserDelete", () => {
         joinedAt: Date.now(),
       });
       await recomputeAccountDeletionBlockers(ctx, seed.circleId);
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId,
+        circleId: seed.circleId,
+        excludedAt: Date.now(),
+      });
       return { ...seed, memberId };
     });
 
@@ -337,6 +342,12 @@ describe("finalizeOnUserDelete", () => {
       expect(
         await ctx.db
           .query("userActivation")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first(),
+      ).toBeNull();
+      expect(
+        await ctx.db
+          .query("homeSummaryExclusions")
           .withIndex("by_user", (q) => q.eq("userId", userId))
           .first(),
       ).toBeNull();

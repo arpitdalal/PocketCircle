@@ -2,6 +2,7 @@ import {
   clickCircleChromeTab,
   createCategoryViaForm,
   expect,
+  openPersonalCircleFromHome,
   pickFormCategory,
   test,
 } from "./fixtures.js";
@@ -24,9 +25,7 @@ test("the dashboard shows recent activity", async ({ page }, testInfo) => {
   const categoryName = `E2E D ${stamp}`; // keep ≤ 40 chars (categoryNameMax)
   const title = `E2E Dash ${stamp}`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   // Seed an expense Category to attach (CAT-1's flow).
   await clickCircleChromeTab(page, "Categories");
@@ -66,9 +65,7 @@ test("the dashboard shows recent activity", async ({ page }, testInfo) => {
 test("the month-over-month comparison defaults to 6 months and the range selector reshapes it", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 
   const section = page.getByRole("region", { name: /month-over-month/i });
@@ -117,9 +114,7 @@ test("a category analytics row drills into the ledger filtered to that category"
   const categoryName = `E2E DD ${stamp}`; // keep ≤ 40 chars (categoryNameMax)
   const title = `E2E Drill ${stamp}`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });

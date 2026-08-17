@@ -74,13 +74,17 @@ export function useReturnToOrigin() {
 }
 
 /**
- * Validates a raw `returnTo` query value, returning it only when it is a safe in-Circle
+ * Validates a raw `returnTo` query value, returning it only when it is a safe in-app
  * destination, else the caller's `fallback`. The `fallback` (a route the caller already
  * trusts — typically the Circle's ledger) covers every reject path, so a tampered value
  * never reaches `navigate()` and missing-vs-inaccessible stay indistinguishable (ADR
  * 0016). The value is only a navigation HINT — the destination route still resolves
  * through its own guard (`useResolvedRef`), so a well-formed but inaccessible path still
  * ejects via the normal fallback.
+ *
+ * Allowed destinations:
+ * - In-Circle paths: `/circles/<ref>/…` (non-reserved)
+ * - Home: `/` optionally with query and/or hash (`/?currency=CAD&range=3`)
  */
 export function parseReturnTo(raw: string | null, { fallback }: { fallback: string }) {
   if (!raw) {
@@ -101,6 +105,12 @@ export function parseReturnTo(raw: string | null, { fallback }: { fallback: stri
   if (!raw.startsWith("/") || raw.startsWith("//")) {
     return fallback;
   }
+
+  // Home path: exactly `/` optionally followed by `?` or `#` (no further path segments).
+  if (raw === "/" || raw.startsWith("/?") || raw.startsWith("/#")) {
+    return raw;
+  }
+
   // Self-scoping (ADR 0016): only an in-Circle object path is a valid return origin —
   // not a top-level `/settings`, not another app area.
   if (!isCircleScopedPath(raw)) {

@@ -1,27 +1,30 @@
 import { buildRef } from "@pocketcircle/domain";
+import { v } from "convex/values";
+import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import type { MutationCtx, QueryCtx } from "./_generated/server.js";
-import { mutation, query } from "./_generated/server.js";
+import {
+  internalMutation,
+  type MutationCtx,
+  mutation,
+  type QueryCtx,
+  query,
+} from "./_generated/server.js";
+import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { requireCurrentUser } from "./auth.js";
 import { getPersonalCircleForOwner } from "./model.js";
 
-const ACTIVATION_ITEM_IDS = [
-  "personalTransaction",
-  "personalCategory",
-  "regularCircle",
-  "sharedMember",
-] as const;
-
+// Generic Activation item IDs (GH-273 rename from Personal-specific language).
+const ACTIVATION_ITEM_IDS = ["transaction", "category", "regularCircle", "sharedMember"] as const;
 const ACTIVATION_TOTAL = ACTIVATION_ITEM_IDS.length;
 
-const MILESTONE_FIELDS = [
-  "personalTransactionCreatedAt",
-  "personalCategoryCreatedAt",
-  "regularCircleCreatedAt",
-  "sharedMemberJoinedAt",
-] as const;
+const ITEM_MILESTONE_FIELD = {
+  transaction: "transactionCreatedAt",
+  category: "categoryCreatedAt",
+  regularCircle: "regularCircleCreatedAt",
+  sharedMember: "sharedMemberJoinedAt",
+} as const;
 
-type ActivationMilestoneField = (typeof MILESTONE_FIELDS)[number];
+type ActivationMilestoneField = (typeof ITEM_MILESTONE_FIELD)[keyof typeof ITEM_MILESTONE_FIELD];
 
 type SharedMemberState = "not_started" | "pending" | "complete";
 
@@ -49,9 +52,61 @@ function earliestTimestamp(left: number | undefined, right: number | undefined) 
   return Math.min(left, right);
 }
 
+/**
+ * Normalizes a row: merges legacy Personal-specific fields into generic fields
+ * using earliest-timestamp-wins. Returns the patch needed to normalize. Legacy
+ * fields are cleared. Preserves dismissal/completion markers. Does NOT infer
+ * old regular activity — only merges timestamps that are present.
+ */
+function normalizationPatch(row: ActivationRow) {
+  const patch: Record<string, number | undefined> = {};
+
+  // transactionCreatedAt = earliest of (generic, legacy personalTransactionCreatedAt)
+  const mergedTxn = earliestTimestamp(row.transactionCreatedAt, row.personalTransactionCreatedAt);
+  if (mergedTxn !== undefined && mergedTxn !== row.transactionCreatedAt) {
+    patch.transactionCreatedAt = mergedTxn;
+  }
+
+  // categoryCreatedAt = earliest of (generic, legacy personalCategoryCreatedAt)
+  const mergedCat = earliestTimestamp(row.categoryCreatedAt, row.personalCategoryCreatedAt);
+  if (mergedCat !== undefined && mergedCat !== row.categoryCreatedAt) {
+    patch.categoryCreatedAt = mergedCat;
+  }
+
+  // Clear legacy fields if they are set
+  if (row.personalTransactionCreatedAt !== undefined) {
+    patch.personalTransactionCreatedAt = undefined;
+  }
+  if (row.personalCategoryCreatedAt !== undefined) {
+    patch.personalCategoryCreatedAt = undefined;
+  }
+
+  return patch;
+}
+
+/**
+ * Returns a view of an activation row with legacy fields merged into generic.
+ * Used for reads (query path) where we don't persist the normalization.
+ */
+function normalizedView(row: ActivationRow) {
+  const txnAt = earliestTimestamp(row.transactionCreatedAt, row.personalTransactionCreatedAt);
+  const catAt = earliestTimestamp(row.categoryCreatedAt, row.personalCategoryCreatedAt);
+  const cleared: { personalTransactionCreatedAt: undefined; personalCategoryCreatedAt: undefined } =
+    {
+      personalTransactionCreatedAt: undefined,
+      personalCategoryCreatedAt: undefined,
+    };
+  return {
+    ...row,
+    transactionCreatedAt: txnAt,
+    categoryCreatedAt: catAt,
+    ...cleared,
+  };
+}
+
 function mergedActivationFields(rows: ActivationRow[]) {
-  let personalTransactionCreatedAt: number | undefined;
-  let personalCategoryCreatedAt: number | undefined;
+  let transactionCreatedAt: number | undefined;
+  let categoryCreatedAt: number | undefined;
   let regularCircleCreatedAt: number | undefined;
   let sharedMemberJoinedAt: number | undefined;
   let dismissedAt: number | undefined;
@@ -61,13 +116,14 @@ function mergedActivationFields(rows: ActivationRow[]) {
 
   for (const row of rows) {
     initializedAt = Math.min(initializedAt, row.initializedAt);
-    personalTransactionCreatedAt = earliestTimestamp(
-      personalTransactionCreatedAt,
-      row.personalTransactionCreatedAt,
+    // Merge generic + legacy for each row
+    transactionCreatedAt = earliestTimestamp(
+      transactionCreatedAt,
+      earliestTimestamp(row.transactionCreatedAt, row.personalTransactionCreatedAt),
     );
-    personalCategoryCreatedAt = earliestTimestamp(
-      personalCategoryCreatedAt,
-      row.personalCategoryCreatedAt,
+    categoryCreatedAt = earliestTimestamp(
+      categoryCreatedAt,
+      earliestTimestamp(row.categoryCreatedAt, row.personalCategoryCreatedAt),
     );
     regularCircleCreatedAt = earliestTimestamp(regularCircleCreatedAt, row.regularCircleCreatedAt);
     sharedMemberJoinedAt = earliestTimestamp(sharedMemberJoinedAt, row.sharedMemberJoinedAt);
@@ -81,13 +137,16 @@ function mergedActivationFields(rows: ActivationRow[]) {
 
   return {
     initializedAt: Number.isFinite(initializedAt) ? initializedAt : Date.now(),
-    ...(personalTransactionCreatedAt === undefined ? {} : { personalTransactionCreatedAt }),
-    ...(personalCategoryCreatedAt === undefined ? {} : { personalCategoryCreatedAt }),
+    ...(transactionCreatedAt === undefined ? {} : { transactionCreatedAt }),
+    ...(categoryCreatedAt === undefined ? {} : { categoryCreatedAt }),
     ...(regularCircleCreatedAt === undefined ? {} : { regularCircleCreatedAt }),
     ...(sharedMemberJoinedAt === undefined ? {} : { sharedMemberJoinedAt }),
     ...(dismissedAt === undefined ? {} : { dismissedAt }),
     ...(completionEventDeliveredAt === undefined ? {} : { completionEventDeliveredAt }),
     ...(evidenceBackfilledAt === undefined ? {} : { evidenceBackfilledAt }),
+    // Always clear legacy fields in merged output
+    personalTransactionCreatedAt: undefined,
+    personalCategoryCreatedAt: undefined,
   };
 }
 
@@ -109,11 +168,21 @@ function pickKeeper(rows: ActivationRow[]) {
 
 /**
  * Enforces one row per User: keep the earliest, merge timestamps (never clear a
- * set field), delete extras. Safe to call from any mutation.
+ * set field), delete extras. Normalizes legacy fields. Safe to call from any mutation.
  */
 async function collapseActivationRows(ctx: MutationCtx, rows: ActivationRow[]) {
   if (rows.length <= 1) {
-    return rows[0] ?? null;
+    const single = rows[0] ?? null;
+    if (single) {
+      // Normalize legacy fields on the single row
+      const patch = normalizationPatch(single);
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(single._id, patch);
+        const updated = await ctx.db.get(single._id);
+        return updated;
+      }
+    }
+    return single;
   }
 
   const keeper = pickKeeper(rows);
@@ -141,13 +210,19 @@ function readActivationRow(rows: ActivationRow[]) {
     return null;
   }
   if (rows.length === 1) {
-    return rows[0] ?? null;
+    const row = rows[0] ?? null;
+    if (!row) {
+      return null;
+    }
+    // Return normalized view (merge legacy into generic without persisting)
+    return normalizedView(row);
   }
   const keeper = pickKeeper(rows);
   if (!keeper) {
     return null;
   }
-  return { ...keeper, ...mergedActivationFields(rows) };
+  const merged = { ...keeper, ...mergedActivationFields(rows) };
+  return merged;
 }
 
 async function insertActivationRow(ctx: MutationCtx, userId: Id<"users">, initializedAt: number) {
@@ -157,16 +232,23 @@ async function insertActivationRow(ctx: MutationCtx, userId: Id<"users">, initia
 
 async function applyEvidenceToRow(ctx: MutationCtx, row: ActivationRow, userId: Id<"users">) {
   const evidence = await collectActivationEvidence(ctx, userId, row.initializedAt);
-  const patch: Partial<ActivationRow> = {};
-  for (const field of MILESTONE_FIELDS) {
+  const patch: Record<string, number | undefined> = {};
+  // Use the normalized view for comparison
+  const normalized = normalizedView(row);
+  for (const id of ACTIVATION_ITEM_IDS) {
+    const field = ITEM_MILESTONE_FIELD[id];
     const next = evidence[field];
-    if (row[field] === undefined && next !== undefined) {
+    if (normalized[field] === undefined && next !== undefined) {
       patch[field] = next;
     }
   }
   if (row.evidenceBackfilledAt === undefined) {
     patch.evidenceBackfilledAt = Date.now();
   }
+  // Also normalize legacy fields during evidence application
+  const normPatch = normalizationPatch(row);
+  Object.assign(patch, normPatch);
+
   if (Object.keys(patch).length === 0) {
     return row;
   }
@@ -192,7 +274,7 @@ async function ensureActivationRow(ctx: MutationCtx, userId: Id<"users">, now = 
   return created;
 }
 
-/** Idempotent: sets a milestone timestamp only when absent. */
+/** Idempotent: sets a milestone timestamp only when absent. Uses generic field names only. */
 export async function markActivationMilestone(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -200,36 +282,35 @@ export async function markActivationMilestone(
   at = Date.now(),
 ) {
   const row = await ensureActivationRow(ctx, userId, at);
-  if (row[field] !== undefined) {
+  // Read from normalized view to check if already set
+  const normalized = normalizedView(row);
+  if (normalized[field] !== undefined) {
     return;
   }
   await ctx.db.patch(row._id, { [field]: at });
 }
 
-async function earliestPersonalCategoryCreatedAt(
-  ctx: QueryCtx | MutationCtx,
-  personalCircleId: Id<"circles">,
-) {
+async function earliestCategoryCreatedAt(ctx: QueryCtx | MutationCtx, circleId: Id<"circles">) {
   const category = await ctx.db
     .query("categories")
-    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", personalCircleId))
+    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", circleId))
     .first();
   return category?.createdAt;
 }
 
-async function earliestPersonalTransactionCreatedAt(
+async function earliestTransactionCreatedAt(
   ctx: QueryCtx | MutationCtx,
-  personalCircle: Doc<"circles">,
+  circle: Doc<"circles">,
   fallback: number,
 ) {
   const transaction = await ctx.db
     .query("transactions")
-    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", personalCircle._id))
+    .withIndex("by_circle_createdAt", (q) => q.eq("circleId", circle._id))
     .first();
   if (transaction) {
     return transaction.createdAt;
   }
-  if (personalCircle.currencyLocked) {
+  if (circle.currencyLocked) {
     return fallback;
   }
   return undefined;
@@ -273,17 +354,13 @@ async function collectActivationEvidence(
   const evidence: Partial<Record<ActivationMilestoneField, number>> = {};
 
   if (personalCircle) {
-    const categoryAt = await earliestPersonalCategoryCreatedAt(ctx, personalCircle._id);
+    const categoryAt = await earliestCategoryCreatedAt(ctx, personalCircle._id);
     if (categoryAt !== undefined) {
-      evidence.personalCategoryCreatedAt = categoryAt;
+      evidence.categoryCreatedAt = categoryAt;
     }
-    const transactionAt = await earliestPersonalTransactionCreatedAt(
-      ctx,
-      personalCircle,
-      initializedAt,
-    );
+    const transactionAt = await earliestTransactionCreatedAt(ctx, personalCircle, initializedAt);
     if (transactionAt !== undefined) {
-      evidence.personalTransactionCreatedAt = transactionAt;
+      evidence.transactionCreatedAt = transactionAt;
     }
   }
 
@@ -355,36 +432,102 @@ async function resolveMemberCta(ctx: QueryCtx | MutationCtx, userId: Id<"users">
   return { kind: "create" as const };
 }
 
-function completedCountOf(row: ActivationRow) {
+function completedCountOf(row: {
+  transactionCreatedAt?: number;
+  categoryCreatedAt?: number;
+  regularCircleCreatedAt?: number;
+  sharedMemberJoinedAt?: number;
+}) {
   let count = 0;
-  for (const field of MILESTONE_FIELDS) {
-    if (row[field] !== undefined) {
-      count += 1;
-    }
-  }
+  if (row.transactionCreatedAt !== undefined) count += 1;
+  if (row.categoryCreatedAt !== undefined) count += 1;
+  if (row.regularCircleCreatedAt !== undefined) count += 1;
+  if (row.sharedMemberJoinedAt !== undefined) count += 1;
   return count;
 }
 
-function firstIncompleteOf(row: ActivationRow) {
-  if (row.personalTransactionCreatedAt === undefined) {
-    return "personalTransaction";
-  }
-  if (row.personalCategoryCreatedAt === undefined) {
-    return "personalCategory";
-  }
-  if (row.regularCircleCreatedAt === undefined) {
-    return "regularCircle";
-  }
-  if (row.sharedMemberJoinedAt === undefined) {
-    return "sharedMember";
+function firstIncompleteOf(row: {
+  transactionCreatedAt?: number;
+  categoryCreatedAt?: number;
+  regularCircleCreatedAt?: number;
+  sharedMemberJoinedAt?: number;
+}) {
+  for (const id of ACTIVATION_ITEM_IDS) {
+    if (row[ITEM_MILESTONE_FIELD[id]] === undefined) {
+      return id;
+    }
   }
   return null;
 }
 
+/**
+ * Minimal Circle picker ref for activation checklist: only active, setup-complete,
+ * visible Circles that are eligible to satisfy checklist items (GH-273 req 6).
+ */
+export interface ActivationCircleRef {
+  id: Id<"circles">;
+  ref: string;
+  name: string;
+  currency: string;
+  kind: "personal" | "regular";
+}
+
+/**
+ * Returns minimal eligible active setup-complete visible Circle picker refs
+ * for the activation checklist (GH-273 req 6). These are Circles where the
+ * user is an active member and the Circle is active + setup-complete.
+ * Sorted: Personal first, then by creation order (ascending).
+ */
+async function resolveEligibleCircles(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
+  const memberships = await ctx.db
+    .query("members")
+    .withIndex("by_user_and_status", (q) => q.eq("userId", userId).eq("status", "active"))
+    .collect();
+
+  // Chunk Circle document loads — no serial N+1
+  const resolved = await asyncMapChunked(
+    memberships,
+    DEFAULT_READ_CONCURRENCY,
+    async (membership) => {
+      const circle = await ctx.db.get(membership.circleId);
+      if (circle?.status !== "active" || circle.setupCompletedAt === null) {
+        return null;
+      }
+      return {
+        id: circle._id,
+        ref: circleRefOf(circle),
+        name: circle.name,
+        currency: circle.currency,
+        kind: circle.kind,
+        createdAt: circle.createdAt,
+      } satisfies ActivationCircleRef & { createdAt: number };
+    },
+  );
+
+  const circles = resolved.filter((c): c is NonNullable<typeof c> => c !== null);
+
+  // Sort: Personal first, then by creation order (ascending)
+  circles.sort((a, b) => {
+    if (a.kind === "personal" && b.kind !== "personal") return -1;
+    if (a.kind !== "personal" && b.kind === "personal") return 1;
+    return a.createdAt - b.createdAt;
+  });
+
+  return circles.map(({ createdAt: _, ...rest }) => rest);
+}
+
 function toActivationChecklistView(
-  row: ActivationRow,
+  row: {
+    transactionCreatedAt?: number;
+    categoryCreatedAt?: number;
+    regularCircleCreatedAt?: number;
+    sharedMemberJoinedAt?: number;
+    dismissedAt?: number;
+    completionEventDeliveredAt?: number;
+  },
   pendingInvitationExpiresAt: number | undefined,
   memberCta: MemberCta,
+  eligibleCircles: ActivationCircleRef[],
 ) {
   const completedCount = completedCountOf(row);
   const allComplete = completedCount === ACTIVATION_TOTAL;
@@ -396,6 +539,10 @@ function toActivationChecklistView(
         ? "pending"
         : "not_started";
 
+  const transactionComplete = row.transactionCreatedAt !== undefined;
+  const categoryComplete = row.categoryCreatedAt !== undefined;
+  const regularCircleComplete = row.regularCircleCreatedAt !== undefined;
+
   return {
     status: "ready" as const,
     visible: !dismissed && !allComplete,
@@ -403,16 +550,16 @@ function toActivationChecklistView(
     allComplete,
     completedCount,
     total: ACTIVATION_TOTAL,
-    personalTransactionComplete: row.personalTransactionCreatedAt !== undefined,
-    personalCategoryComplete: row.personalCategoryCreatedAt !== undefined,
-    regularCircleComplete: row.regularCircleCreatedAt !== undefined,
+    // Generic boolean names (GH-273 rename)
+    transactionComplete,
+    categoryComplete,
+    regularCircleComplete,
     sharedMemberState,
-    // Wall-clock expiry does not mutate Invitation status; clients reevaluate CTA
-    // when this timestamp elapses (Convex reactivity alone cannot).
     pendingInvitationExpiresAt: pendingInvitationExpiresAt ?? null,
     firstIncomplete: firstIncompleteOf(row),
     memberCta,
     completionEventPending: allComplete && row.completionEventDeliveredAt === undefined,
+    eligibleCircles,
   };
 }
 
@@ -454,11 +601,12 @@ export const getActivationChecklist = query({
       user._id,
     );
     const memberCta = await resolveMemberCta(ctx, user._id);
-    return toActivationChecklistView(row, pendingInvitationExpiresAt, memberCta);
+    const eligibleCircles = await resolveEligibleCircles(ctx, user._id);
+    return toActivationChecklistView(row, pendingInvitationExpiresAt, memberCta, eligibleCircles);
   },
 });
 
-/** Idempotent per-User evidence backfill. Existing Users call this once from the dashboard. */
+/** Idempotent per-User evidence backfill. Existing Users call this once from Home. */
 export const initializeActivationChecklist = mutation({
   args: {},
   handler: async (ctx) => {
@@ -479,7 +627,8 @@ export const skipActivationChecklist = mutation({
     // Skip may be the first touch for a legacy User — backfill evidence here so
     // completedCount is accurate, without putting scans on create writers.
     const row = await initializeActivationFromEvidence(ctx, user._id);
-    const completedCount = completedCountOf(row);
+    const normalized = normalizedView(row);
+    const completedCount = completedCountOf(normalized);
     if (row.dismissedAt !== undefined) {
       return { completedCount, claimed: false };
     }
@@ -497,7 +646,11 @@ export const acknowledgeActivationCompleted = mutation({
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
     const row = await getUniqueActivationRow(ctx, user._id);
-    if (!row || completedCountOf(row) !== ACTIVATION_TOTAL) {
+    if (!row) {
+      return { claimed: false };
+    }
+    const normalized = normalizedView(row);
+    if (completedCountOf(normalized) !== ACTIVATION_TOTAL) {
       return { claimed: false };
     }
     if (row.completionEventDeliveredAt !== undefined) {
@@ -505,5 +658,43 @@ export const acknowledgeActivationCompleted = mutation({
     }
     await ctx.db.patch(row._id, { completionEventDeliveredAt: Date.now() });
     return { claimed: true };
+  },
+});
+
+/**
+ * Bounded internal migration: normalizes activation rows that still have legacy
+ * fields. Processes at most MIGRATION_BATCH_SIZE rows per call using cursor
+ * pagination (bounded at source). Returns whether more remain so the caller can
+ * schedule continuation. Idempotent — safe to re-run.
+ */
+const MIGRATION_BATCH_SIZE = 50;
+
+export const migrateActivationRows = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("userActivation").paginate({
+      cursor: args.cursor ?? null,
+      numItems: MIGRATION_BATCH_SIZE,
+    });
+    let migrated = 0;
+    for (const row of page.page) {
+      if (
+        row.personalTransactionCreatedAt === undefined &&
+        row.personalCategoryCreatedAt === undefined
+      ) {
+        continue;
+      }
+      const patch = normalizationPatch(row);
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(row._id, patch);
+        migrated += 1;
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.activation.migrateActivationRows, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { done: page.isDone, migrated, continueCursor: page.continueCursor };
   },
 });

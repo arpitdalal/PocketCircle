@@ -383,6 +383,7 @@ export const completeCircleSetup = mutation({
         type: category.type,
         color: category.color,
         duplicate: "skip",
+        origin: "setup",
       });
       if (result.categoryId) {
         createdCategoryIds.push(result.categoryId);

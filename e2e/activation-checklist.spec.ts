@@ -5,15 +5,21 @@ import {
   establishE2ESession,
   expect,
   finishCircleSetup,
+  homeCircleCard,
   inviteMemberByEmail,
   pickFormCategory,
   test,
 } from "./fixtures.js";
 
-async function openPersonalDashboard(page: Page) {
+async function openHome(page: Page) {
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Ada's Circle/ }).click();
+}
+
+async function openPersonalDashboard(page: Page) {
+  await openHome(page);
+  await homeCircleCard(page, /Ada's Circle/).click();
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 }
 
@@ -30,10 +36,10 @@ async function openIsolatedActivationSession(
 }
 
 /**
- * TRUE-E2E (ADR 0019 / #265): isolated Users so the worker-shared session cannot
- * pre-complete Activation Checklist items.
+ * TRUE-E2E (ADR 0019 / #265 / #273): isolated Users so the worker-shared session cannot
+ * pre-complete Activation Checklist items. The checklist lives on Home Summary only.
  */
-test("skip hides the Personal checklist across reload; regular Dashboard never shows it", async ({
+test("skip hides the Home checklist across reload; Circle Dashboards never show it", async ({
   browser,
   baseURL,
 }) => {
@@ -43,7 +49,7 @@ test("skip hides the Personal checklist across reload; regular Dashboard never s
     `e2e+activation-skip-${Date.now()}@example.com`,
   );
   try {
-    await openPersonalDashboard(page);
+    await openHome(page);
 
     const checklist = page.getByRole("region", { name: "Get started" });
     await expect(checklist).toBeVisible();
@@ -52,11 +58,17 @@ test("skip hides the Personal checklist across reload; regular Dashboard never s
     await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
+
+    await openPersonalDashboard(page);
     await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
 
     await createRegularCircleAndFinishSetup(page, { name: `Act Skip ${Date.now()}` });
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
+
+    await openHome(page);
     await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
   } finally {
     await context.close();
@@ -77,7 +89,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     `e2e+activation-${stamp}@example.com`,
   );
   try {
-    await openPersonalDashboard(page);
+    await openHome(page);
 
     const checklist = page.getByRole("region", { name: "Get started" });
     await expect(checklist).toBeVisible();
@@ -85,7 +97,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     const categoryForm = page.getByRole("form", { name: "New category" });
     await categoryForm.getByLabel(/New expense category/).fill(categoryName);
     await categoryForm.getByRole("button", { name: "Add category" }).click();
-    await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("1 of 4 complete"),
     ).toBeVisible();
@@ -99,21 +111,21 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     await form.getByLabel(/Amount/).fill("4.50");
     await pickFormCategory(page, form, categoryName);
     await form.getByRole("button", { name: "Add expense" }).click();
-    await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("2 of 4 complete"),
     ).toBeVisible();
 
     await page
-      .getByRole("region", { name: "Get started" })
+      .getByRole("listitem")
+      .filter({ hasText: "Create a shared Circle" })
       .getByRole("link", { name: "Create circle" })
-      .first()
       .click();
     await page.getByLabel("Name").fill(`Act Shared ${stamp}`);
     await page.getByRole("button", { name: "Create circle" }).click();
     await finishCircleSetup(page);
 
-    await openPersonalDashboard(page);
+    await openHome(page);
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("3 of 4 complete"),
     ).toBeVisible();
@@ -125,7 +137,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     await expect(page.getByRole("form", { name: "Invite member" })).toBeVisible();
     const token = await inviteMemberByEmail(page, inviteeEmail);
 
-    await openPersonalDashboard(page);
+    await openHome(page);
     const activation = page.getByRole("region", { name: "Get started" });
     await expect(activation.getByText("Invitation pending")).toBeVisible();
     await expect(activation.getByText("3 of 4 complete")).toBeVisible();
@@ -145,7 +157,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
       await inviteeContext.close();
     }
 
-    await openPersonalDashboard(page);
+    await openHome(page);
     await expect(page.getByRole("heading", { name: "Get started" })).toHaveCount(0);
   } finally {
     await context.close();

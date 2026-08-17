@@ -96,12 +96,18 @@ export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[
     ...result,
     /** The current URL (pathname + search), e.g. `/circles/my-home-c1`. */
     location: () => result.getByTestId("location").textContent ?? "",
-    navigate: (to: string) => {
+    navigate: (to: string | number) => {
       if (navigate == null) {
         throw new Error("Router navigate function unavailable.");
       }
       const currentNavigate = navigate;
-      return act(() => currentNavigate(to));
+      return act(() => {
+        if (typeof to === "number") {
+          currentNavigate(to);
+          return;
+        }
+        currentNavigate(to);
+      });
     },
   };
 }
