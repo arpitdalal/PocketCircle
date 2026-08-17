@@ -130,8 +130,13 @@ export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
     await dismissHomeScopePicker(page);
     return;
   }
-  await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
-  await page.getByRole("option", { name }).click({ force: true, timeout: 10_000 });
+  const listbox = page.getByRole("listbox");
+  const option = page.getByRole("option", { name });
+  if (!(await listbox.isVisible())) {
+    await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
+  }
+  await expect(option).toBeVisible({ timeout: 10_000 });
+  await option.click({ timeout: 10_000 });
   await expect(remove).toBeVisible({ timeout: 15_000 });
   await dismissHomeScopePicker(page);
 }

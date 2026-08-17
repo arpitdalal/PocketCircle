@@ -262,13 +262,14 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     });
 
     await openHome(page);
-    await expect(page.getByRole("button", { name: "USD", pressed: true })).toBeVisible();
+    const currency = page.getByRole("group", { name: "Currency" });
+    await expect(currency.getByRole("button", { name: "USD", pressed: true })).toBeVisible();
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
-    await page.getByRole("button", { name: "EUR" }).click();
-    await expect(page.getByRole("button", { name: "EUR", pressed: true })).toBeVisible();
+    await currency.getByRole("button", { name: "EUR", exact: true }).click();
+    await expect(currency.getByRole("button", { name: "EUR", pressed: true })).toBeVisible();
     await expect(cashFlowTotal(page, "Expenses")).toContainText("€80.00");
     await expect(cashFlowTotals(page).getByText("$35.00")).toHaveCount(0);
-    await page.getByRole("button", { name: "USD" }).click();
+    await currency.getByRole("button", { name: "USD", exact: true }).click();
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
 
     const trendRows = page.getByRole("region", { name: "Cash flow" }).locator("table tbody tr");
