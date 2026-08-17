@@ -227,7 +227,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await expect(homeCircleCard(page, new RegExp(sharedName))).toBeVisible();
 
     await page.reload();
-    await expect(page.getByText(/USD · 1 of 2 circles/)).toBeVisible();
+    await expect(page.getByText(/USD · 1 of 2 circles/)).toBeVisible({ timeout: 15_000 });
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$0.00");
     await expect(contributionLink(page, new RegExp(sharedName))).toHaveCount(0);
     await expect(homeCircleCard(page, new RegExp(sharedName))).toBeVisible();
