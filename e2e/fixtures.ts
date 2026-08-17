@@ -103,9 +103,14 @@ export function homeCircleCard(page: Page, name: string | RegExp) {
   return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
 }
 
-/** Close the Home Circles picker. The listbox overlays Cash flow; clicking the heading hangs. */
+/** Close the Home Circles picker via Base UI's internal Dismiss (chips input is outside the popup). */
 async function dismissHomeScopePicker(page: Page) {
-  await page.keyboard.press("Escape");
+  const listbox = page.getByRole("listbox");
+  if (!(await listbox.isVisible())) {
+    return;
+  }
+  await page.getByRole("button", { name: "Dismiss" }).last().click({ timeout: 5_000 });
+  await expect(listbox).toBeHidden({ timeout: 5_000 });
 }
 
 /** Toggle a Circle in the Home scope multi-select. Included Circles are chips. */
@@ -118,14 +123,14 @@ export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
   const remove = cashFlow.getByRole("button", { name: removeName });
   if (await remove.isVisible()) {
     await remove.click({ timeout: 10_000 });
-    await dismissHomeScopePicker(page);
     await expect(remove).toHaveCount(0, { timeout: 15_000 });
+    await dismissHomeScopePicker(page);
     return;
   }
   await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
   await page.getByRole("option", { name }).click({ timeout: 10_000 });
-  await dismissHomeScopePicker(page);
   await expect(remove).toBeVisible({ timeout: 15_000 });
+  await dismissHomeScopePicker(page);
 }
 
 /** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */
