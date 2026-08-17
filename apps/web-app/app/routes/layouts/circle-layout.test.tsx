@@ -63,6 +63,17 @@ afterEach(() => {
 });
 
 describe("CircleLayout shell skeleton", () => {
+  it("keeps the mobile bottom bar outside the stacked content so space-y cannot offset it", async () => {
+    configureConvex({ circle: makeCircleView() });
+    renderRouteStub(
+      routesWith(() => null),
+      ["/circles/trip-c1"],
+    );
+    expect(await screen.findByText("Dashboard stub")).toBeInTheDocument();
+    const nav = screen.getByTestId("circle-mobile-bottom-nav");
+    expect(nav.parentElement?.className ?? "").not.toContain("space-y-6");
+  });
+
   it("shows the generic skeleton while a slow tab navigation loads, keeping the chrome", async () => {
     const slow = deferred();
     configureConvex({ circle: makeCircleView() });

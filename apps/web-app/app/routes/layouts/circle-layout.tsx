@@ -83,63 +83,64 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex items-center gap-3">
-        <CircleMark mark={circle.mark} color={circle.color} className="size-11 text-base" />
-        <div className="min-w-0 flex-1">
-          <h1 className="font-display text-xl font-semibold tracking-tight">{circle.name}</h1>
-          <p className="text-xs text-muted-foreground">
-            {circle.kind === "personal" ? "Your Circle" : "Circle"} · {circle.currency}
-          </p>
+    <>
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="flex items-center gap-3">
+          <CircleMark mark={circle.mark} color={circle.color} className="size-11 text-base" />
+          <div className="min-w-0 flex-1">
+            <h1 className="font-display text-xl font-semibold tracking-tight">{circle.name}</h1>
+            <p className="text-xs text-muted-foreground">
+              {circle.kind === "personal" ? "Your Circle" : "Circle"} · {circle.currency}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {onFeedback ? null : (
+              <CircleChromeIconLink
+                to={withReturnTo(feedbackPath, origin)}
+                label={`Send feedback about ${circle.name}`}
+              >
+                <MessageSquare aria-hidden className="size-4" />
+              </CircleChromeIconLink>
+            )}
+            {showSettings ? (
+              <CircleChromeIconLink to={settingsPath} label="Circle settings">
+                <Settings aria-hidden className="size-4" />
+              </CircleChromeIconLink>
+            ) : null}
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {onFeedback ? null : (
-            <CircleChromeIconLink
-              to={withReturnTo(feedbackPath, origin)}
-              label={`Send feedback about ${circle.name}`}
+
+        <nav
+          aria-label="Circle tabs"
+          className="-mx-4 hidden gap-1 overflow-x-auto border-b border-border px-4 sm:flex"
+        >
+          {tabs.map((tab) => (
+            <NavLink
+              key={tab.to}
+              to={tab.to}
+              end={tab.end}
+              prefetch="intent"
+              className={({ isActive }) =>
+                cn(
+                  "shrink-0 border-b-2 px-3 py-2 text-sm transition-colors duration-150",
+                  isActive
+                    ? "border-primary font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+                )
+              }
             >
-              <MessageSquare aria-hidden className="size-4" />
-            </CircleChromeIconLink>
-          )}
-          {showSettings ? (
-            <CircleChromeIconLink to={settingsPath} label="Circle settings">
-              <Settings aria-hidden className="size-4" />
-            </CircleChromeIconLink>
-          ) : null}
-        </div>
+              {tab.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        {showSkeleton ? (
+          <PageSkeleton />
+        ) : (
+          <Outlet context={{ circle } satisfies CircleOutletContext} />
+        )}
       </div>
-
-      <nav
-        aria-label="Circle tabs"
-        className="-mx-4 hidden gap-1 overflow-x-auto border-b border-border px-4 sm:flex"
-      >
-        {tabs.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            end={tab.end}
-            prefetch="intent"
-            className={({ isActive }) =>
-              cn(
-                "shrink-0 border-b-2 px-3 py-2 text-sm transition-colors duration-150",
-                isActive
-                  ? "border-primary font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
-              )
-            }
-          >
-            {tab.label}
-          </NavLink>
-        ))}
-      </nav>
-
       <CircleMobileBottomNav circle={circle} />
-
-      {showSkeleton ? (
-        <PageSkeleton />
-      ) : (
-        <Outlet context={{ circle } satisfies CircleOutletContext} />
-      )}
-    </div>
+    </>
   );
 }

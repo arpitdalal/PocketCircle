@@ -11,6 +11,18 @@ import { circleNavItems, isCircleNavItemActive, PRIMARY_SLOT_COUNT } from "~/lib
 import type { Circle } from "~/lib/data.js";
 import { cn } from "~/lib/utils.js";
 
+/**
+ * Fixed mobile bar frame. Height is 4rem content + pad (max(0.75rem, safe-area)).
+ * `mt-0` defeats a parent `space-y-*` — those set margin-top on later siblings,
+ * which with `bottom: 0` lifts a fixed bar off the screen (24px gap).
+ */
+export const mobileBottomNavFrameClassName =
+  "fixed inset-x-0 bottom-0 z-30 mt-0 flex h-[var(--mobile-bottom-nav-height)] items-stretch border-t border-border bg-background/80 pb-[var(--mobile-bottom-nav-pad)] backdrop-blur-md sm:hidden";
+
+/** Padding that keeps in-flow content above the fixed bar. Pair with the frame;
+    `sm:` hides the bar so desktop keeps the shared `sm:pb-6` on `<main>`. */
+export const mobileBottomNavClearanceClassName = "pb-[var(--mobile-bottom-nav-clearance)]";
+
 function slotClass(isActive: boolean) {
   return cn(
     "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-xs transition-colors duration-150 min-w-0",
@@ -50,7 +62,7 @@ export function CircleMobileBottomNav({ circle }: { circle: Circle }) {
     <>
       <nav
         aria-label="Circle"
-        className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-stretch border-t border-border bg-background/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
+        className={mobileBottomNavFrameClassName}
         data-testid="circle-mobile-bottom-nav"
       >
         {primarySlots.map((item) => {
@@ -85,10 +97,7 @@ export function CircleMobileBottomNav({ circle }: { circle: Circle }) {
         <Dialog.Portal>
           <Dialog.Backdrop className={mobileSheetBackdropClassName} />
           <Dialog.Popup
-            className={cn(
-              mobileSheetPopupBaseClassName,
-              "pb-[max(1rem,env(safe-area-inset-bottom))]",
-            )}
+            className={cn(mobileSheetPopupBaseClassName, "pb-[max(1rem,var(--safe-area-bottom))]")}
           >
             <div className="flex items-center justify-between px-4 pt-4">
               <Dialog.Title className="text-sm font-medium text-foreground">More</Dialog.Title>
@@ -152,7 +161,7 @@ export function CircleBottomNavSkeleton() {
     <div
       aria-hidden
       data-testid="circle-bottom-nav-skeleton"
-      className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-stretch border-t border-border bg-background/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
+      className={mobileBottomNavFrameClassName}
     >
       {slots.map((slot) => (
         <div key={slot} className="flex flex-1 flex-col items-center justify-center gap-1.5 py-2">

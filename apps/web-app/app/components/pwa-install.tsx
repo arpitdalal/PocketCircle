@@ -377,7 +377,7 @@ function IosInstallInstructionsDialog({
           aria-describedby={descriptionId}
           className={cn(
             mobileSheetPopupBaseClassName,
-            "gap-4 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4",
+            "gap-4 px-4 pb-[max(1rem,var(--safe-area-bottom))] pt-4",
           )}
         >
           <div className="flex items-center justify-between gap-3">
