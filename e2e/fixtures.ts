@@ -103,6 +103,16 @@ export function homeCircleCard(page: Page, name: string | RegExp) {
   return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
 }
 
+/** Open the Circles Home scope picker and toggle one option. Options portal to body. */
+export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
+  await page
+    .getByRole("region", { name: "Cash flow" })
+    .getByRole("combobox", { name: "Circles" })
+    .click();
+  await page.getByRole("option", { name }).click();
+  await page.keyboard.press("Escape");
+}
+
 /** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */
 export async function openPersonalCircleFromHome(page: Page) {
   await page.goto("/");

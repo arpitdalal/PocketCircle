@@ -123,27 +123,31 @@ describe("Home (loaded)", () => {
     expect(screen.getByText(/CAD · 2 of 3 circles/)).toBeInTheDocument();
   });
 
-  it("shows Choose circles button", () => {
+  it("shows a Circles multi-select with included Circles as chips", () => {
     configureConvex({
       circles: MOCK_CIRCLES,
       homeSummary: makeHomeSummaryView(),
     });
     renderHome();
-    expect(screen.getByRole("button", { name: "Choose circles" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Circles" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Trip" })).toBeInTheDocument();
   });
 });
 
 describe("Home (zero included)", () => {
-  it("shows zero-included empty state with Choose circles action", () => {
+  it("shows zero-included empty state and keeps the Circles multi-select", () => {
     configureConvex({
       circles: MOCK_CIRCLES,
-      homeSummary: makeHomeSummaryView({ includedCount: 0, availableCount: 2 }),
+      homeSummary: makeHomeSummaryView({
+        includedCount: 0,
+        availableCount: 2,
+        circles: [makeScopeCircle({ id: testId("c1"), name: "Trip", included: false })],
+      }),
     });
     renderHome();
     expect(screen.getByText(/No circles included in this USD scope/)).toBeInTheDocument();
-    // The Choose circles action inside the empty state
-    const btns = screen.getAllByRole("button", { name: "Choose circles" });
-    expect(btns.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("combobox", { name: "Circles" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Trip" })).not.toBeInTheDocument();
   });
 });
 
@@ -285,8 +289,8 @@ describe("Home (ActivationChecklist on Home only)", () => {
   });
 });
 
-describe("Home (scope dialog)", () => {
-  it("opens scope dialog and shows circles grouped by currency", async () => {
+describe("Home (circle scope)", () => {
+  it("lists Circles with currency and selected state in the searchable picker", async () => {
     const user = userEvent.setup();
     configureConvex({
       circles: MOCK_CIRCLES,
@@ -304,12 +308,16 @@ describe("Home (scope dialog)", () => {
       }),
     });
     renderHome();
-    await user.click(screen.getByRole("button", { name: "Choose circles" }));
-    expect(screen.getByRole("heading", { name: "Choose circles" })).toBeInTheDocument();
-    expect(screen.getByText("USD")).toBeInTheDocument();
-    expect(screen.getByText("EUR")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Trip/)).toBeChecked();
-    expect(screen.getByLabelText(/Euro Circle/)).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Remove Trip" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Euro Circle" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    expect(screen.getByRole("option", { name: /Trip/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: /Trip/ })).toHaveTextContent("USD");
+    expect(screen.getByRole("option", { name: /Euro Circle/ })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(screen.getByRole("option", { name: /Euro Circle/ })).toHaveTextContent("EUR");
   });
 
   it("marks archived circles", async () => {
@@ -321,8 +329,33 @@ describe("Home (scope dialog)", () => {
       }),
     });
     renderHome();
-    await user.click(screen.getByRole("button", { name: "Choose circles" }));
-    expect(screen.getByText("(Archived)")).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    expect(screen.getByRole("option", { name: /Old/ })).toHaveTextContent("Archived");
+  });
+
+  it("filters Circles by name in the picker", async () => {
+    const user = userEvent.setup();
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      homeSummary: makeHomeSummaryView({
+        includedCount: 0,
+        circles: [
+          makeScopeCircle({ id: testId("c1"), name: "Trip", included: false }),
+          makeScopeCircle({
+            id: testId("c2"),
+            ref: "euro-c2",
+            name: "Euro Circle",
+            currency: "EUR",
+            included: false,
+          }),
+        ],
+      }),
+    });
+    renderHome();
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    await user.type(screen.getByRole("combobox", { name: "Circles" }), "Euro");
+    expect(screen.getByRole("option", { name: /Euro Circle/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Trip/ })).not.toBeInTheDocument();
   });
 
   it("persists an exclusion through the excludeCircle mutation", async () => {
@@ -336,8 +369,7 @@ describe("Home (scope dialog)", () => {
       }),
     });
     renderHome();
-    await user.click(screen.getByRole("button", { name: "Choose circles" }));
-    await user.click(screen.getByLabelText(/Trip/));
+    await user.click(screen.getByRole("button", { name: "Remove Trip" }));
     expect(excludeCircle).toHaveBeenCalledWith({ circleId: testId("c1") });
   });
 
@@ -352,8 +384,8 @@ describe("Home (scope dialog)", () => {
       }),
     });
     renderHome();
-    await user.click(screen.getByRole("button", { name: "Choose circles" }));
-    await user.click(screen.getByLabelText(/Trip/));
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    await user.click(await screen.findByRole("option", { name: /Trip/ }));
     expect(includeCircle).toHaveBeenCalledWith({ circleId: testId("c1") });
   });
 
@@ -367,10 +399,8 @@ describe("Home (scope dialog)", () => {
       }),
     });
     renderHome();
-    await user.click(screen.getByRole("button", { name: "Choose circles" }));
-    await user.click(screen.getByLabelText(/Trip/));
+    await user.click(screen.getByRole("button", { name: "Remove Trip" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Couldn't update Trip/);
-    await user.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.getByRole("region", { name: "Your circles" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Mock's Circle/ })).toBeInTheDocument();
   });

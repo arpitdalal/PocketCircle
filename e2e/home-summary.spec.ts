@@ -12,6 +12,7 @@ import {
   inviteMemberByEmail,
   pickFormCategory,
   test,
+  toggleHomeScopeCircle,
 } from "./fixtures.js";
 
 async function openHome(page: Page) {
@@ -217,12 +218,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
     await expect(cashFlowTotals(page).getByText("$50.00")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Choose circles" }).click();
-    const scope = page.getByRole("dialog", { name: "Choose circles" });
-    const sharedToggle = scope.getByLabel(new RegExp(sharedName));
-    await sharedToggle.click();
-    await expect(sharedToggle).not.toBeChecked();
-    await scope.getByRole("button", { name: "Close" }).click();
+    await toggleHomeScopeCircle(page, new RegExp(sharedName));
     await expect(page.getByText(/USD · 1 of 2 circles/)).toBeVisible();
     await expect(cashFlowTotal(page, "Income")).toContainText("$100.00");
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$0.00");
@@ -252,12 +248,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
       await signedInAgain.context.close();
     }
 
-    await page.getByRole("button", { name: "Choose circles" }).click();
-    const restore = page.getByRole("dialog", { name: "Choose circles" });
-    const restoreToggle = restore.getByLabel(new RegExp(sharedName));
-    await restoreToggle.click();
-    await expect(restoreToggle).toBeChecked();
-    await restore.getByRole("button", { name: "Close" }).click();
+    await toggleHomeScopeCircle(page, new RegExp(sharedName));
     await expect(page.getByText(/USD · 2 of 2 circles/)).toBeVisible();
     await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
 

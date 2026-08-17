@@ -6,14 +6,14 @@ import {
   money,
   toCurrencyCode,
 } from "@pocketcircle/domain";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { href, Link, useSearchParams } from "react-router";
 import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
 import { CircleMark } from "~/components/circle-mark.js";
 import { LoadingStatus, Skeleton } from "~/components/skeleton.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
-import { ModalDialog } from "~/components/ui/dialog.js";
+import { MultiCombobox } from "~/components/ui/multi-combobox.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import {
   type Circle,
@@ -157,7 +157,6 @@ function CashFlowSection({
   selectCurrency: (currency: string) => void;
   formatMinor: (minorUnits: number) => string;
 }) {
-  const [scopeOpen, setScopeOpen] = useState(false);
   const origin = useReturnToOrigin();
 
   return (
@@ -185,25 +184,14 @@ function CashFlowSection({
             }}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>
-            {summary.selectedCurrency} · {summary.includedCount} of {summary.availableCount} circles
-          </span>
-          <button
-            type="button"
-            className="text-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded-sm"
-            onClick={() => setScopeOpen(true)}
-          >
-            Choose circles
-          </button>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {summary.selectedCurrency} · {summary.includedCount} of {summary.availableCount} circles
+        </p>
+        <CircleScopeField circles={summary.circles} />
       </div>
 
       {summary.includedCount === 0 ? (
-        <ZeroIncludedState
-          currency={summary.selectedCurrency}
-          onChoose={() => setScopeOpen(true)}
-        />
+        <ZeroIncludedState currency={summary.selectedCurrency} />
       ) : (
         <>
           <TotalsCards totals={summary.totals} formatMinor={formatMinor} />
@@ -228,8 +216,6 @@ function CashFlowSection({
           )}
         </>
       )}
-
-      <ScopeDialog open={scopeOpen} onOpenChange={setScopeOpen} circles={summary.circles} />
     </section>
   );
 }
@@ -274,17 +260,10 @@ function CurrencyControl({
   );
 }
 
-function ZeroIncludedState({ currency, onChoose }: { currency: string; onChoose: () => void }) {
+function ZeroIncludedState({ currency }: { currency: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-6 text-center">
       <p className="text-sm text-muted-foreground">No circles included in this {currency} scope.</p>
-      <button
-        type="button"
-        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-3")}
-        onClick={onChoose}
-      >
-        Choose circles
-      </button>
     </div>
   );
 }
@@ -418,87 +397,63 @@ function RecentTransactionsSection({
   );
 }
 
-function ScopeDialog({
-  open,
-  onOpenChange,
-  circles,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  circles: HomeSummaryCircle[];
-}) {
+function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const excludeCircle = useExcludeCircle();
   const includeCircle = useIncludeCircle();
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const options = useMemo(
+    () =>
+      circles.map((circle) => ({
+        value: circle.id,
+        label: circle.name,
+        detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
+      })),
+    [circles],
+  );
+  const includedIds = useMemo(
+    () => circles.filter((circle) => circle.included).map((circle) => circle.id),
+    [circles],
+  );
 
-  // Group circles by currency
-  const grouped = new Map<string, HomeSummaryCircle[]>();
-  for (const circle of circles) {
-    const list = grouped.get(circle.currency) ?? [];
-    list.push(circle);
-    grouped.set(circle.currency, list);
-  }
-
-  const toggle = async (circle: HomeSummaryCircle) => {
+  const persist = async (nextIds: string[]) => {
+    const next = new Set(nextIds);
+    const changed = circles.filter((circle) => circle.included !== next.has(circle.id));
+    if (changed.length === 0) {
+      return;
+    }
     setError(null);
-    setPending(circle.id);
+    setPending(true);
     try {
-      if (circle.included) {
-        await excludeCircle({ circleId: circle.id });
-      } else {
-        await includeCircle({ circleId: circle.id });
+      for (const circle of changed) {
+        if (circle.included) {
+          await excludeCircle({ circleId: circle.id });
+        } else {
+          await includeCircle({ circleId: circle.id });
+        }
       }
     } catch {
-      setError(`Couldn't update ${circle.name}. Try again.`);
+      setError(`Couldn't update ${changed[0]?.name ?? "circle"}. Try again.`);
     } finally {
-      setPending(null);
+      setPending(false);
     }
   };
 
   return (
-    <ModalDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Choose circles"
-      description="Include or exclude circles from the Home cash flow report."
-    >
+    <div className="space-y-2">
+      <MultiCombobox
+        label="Circles"
+        options={options}
+        value={includedIds}
+        disabled={pending}
+        onChange={(next) => void persist(next)}
+      />
       {error ? (
-        <p role="alert" className="mb-3 text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
-      <div className="space-y-4">
-        {[...grouped.entries()].map(([currency, group]) => (
-          <div key={currency}>
-            <h4 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {currency}
-            </h4>
-            <ul className="space-y-1">
-              {group.map((circle) => (
-                <li key={circle.id} className="flex items-center gap-2">
-                  <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50">
-                    <input
-                      type="checkbox"
-                      checked={circle.included}
-                      disabled={pending === circle.id}
-                      onChange={() => void toggle(circle)}
-                      className="size-4 rounded border-border accent-primary focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <span className="text-sm">
-                      {circle.name}
-                      {circle.status === "archived" ? (
-                        <span className="ml-1 text-xs text-muted-foreground">(Archived)</span>
-                      ) : null}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </ModalDialog>
+    </div>
   );
 }
 

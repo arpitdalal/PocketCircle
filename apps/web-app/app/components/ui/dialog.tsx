@@ -7,9 +7,9 @@ import { cn } from "~/lib/utils.js";
 /**
  * Accessible modal dialog primitive built on Base UI Dialog. Provides focus trap,
  * Escape dismiss, title/description, visible focus ring, backdrop click-to-close,
- * and a close button. Reused by the scope picker, activation circle picker, and
- * any future modal surfaces. No hand-rolled focus management — Base UI handles
- * trap + restore. (GH-273 req 3)
+ * and a close button. Reused by the activation circle picker and any future
+ * modal surfaces. No hand-rolled focus management — Base UI handles trap +
+ * restore.
  */
 export function ModalDialog({
   open,
@@ -28,7 +28,7 @@ export function ModalDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-closed:opacity-0 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
-        <Dialog.Popup className="fixed inset-x-4 top-[50%] z-50 mx-auto max-h-[85vh] max-w-lg translate-y-[-50%] overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg outline-none data-closed:opacity-0 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 sm:inset-x-auto sm:w-full">
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg outline-none data-closed:opacity-0 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <Dialog.Title className="font-display text-base font-semibold tracking-tight">
