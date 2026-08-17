@@ -12,12 +12,12 @@ import type { Circle } from "~/lib/data.js";
 import { cn } from "~/lib/utils.js";
 
 /**
- * Fixed mobile bar frame. Height is 4rem content + safe-area so the home-
- * indicator padding sits *below* the labels — not inside a border-box `h-16`
- * that crushed the slots. Vars live in `app.css`.
+ * Fixed mobile bar frame. Height is 4rem content + pad (max(0.75rem, safe-area)).
+ * `mt-0` defeats a parent `space-y-*` — those set margin-top on later siblings,
+ * which with `bottom: 0` lifts a fixed bar off the screen (24px gap).
  */
 export const mobileBottomNavFrameClassName =
-  "fixed inset-x-0 bottom-0 z-30 flex h-[var(--mobile-bottom-nav-height)] items-stretch border-t border-border bg-background/80 pb-[var(--safe-area-bottom)] backdrop-blur-md sm:hidden";
+  "fixed inset-x-0 bottom-0 z-30 mt-0 flex h-[var(--mobile-bottom-nav-height)] items-stretch border-t border-border bg-background/80 pb-[var(--mobile-bottom-nav-pad)] backdrop-blur-md sm:hidden";
 
 /** Padding that keeps in-flow content above the fixed bar. Pair with the frame;
     `sm:` hides the bar so desktop keeps the shared `sm:pb-6` on `<main>`. */

@@ -40,7 +40,8 @@ describe("CircleMobileBottomNav", () => {
     // Fixed h-16 + pb-safe under border-box crushed labels into the top; height must
     // be the CSS var that includes safe-area, with padding applied separately.
     expect(nav.className).toContain("h-[var(--mobile-bottom-nav-height)]");
-    expect(nav.className).toContain("pb-[var(--safe-area-bottom)]");
+    expect(nav.className).toContain("pb-[var(--mobile-bottom-nav-pad)]");
+    expect(nav.className).toContain("mt-0");
     expect(nav.className).not.toMatch(/\bh-16\b/);
   });
 
