@@ -6,8 +6,11 @@ import {
   comparisonWindowMonths,
   currentMonth,
   DEFAULT_COMPARISON_RANGE_MONTHS,
+  DEFAULT_HOME_RANGE_MONTHS,
   defaultDateInMonth,
+  HOME_RANGE_OPTIONS,
   isComparisonRangeMonths,
+  isHomeRangeMonths,
   isValidPlainDate,
   isValidPlainMonth,
   monthOf,
@@ -142,6 +145,16 @@ describe("Comparison Range (RPT-4)", () => {
       "2025-12",
       "2026-01",
     ]);
+  });
+});
+
+describe("Home Summary range (GH-273)", () => {
+  it("reuses the Comparison Range options with a 1-month default", () => {
+    expect(HOME_RANGE_OPTIONS).toEqual(COMPARISON_RANGE_OPTIONS);
+    expect(DEFAULT_HOME_RANGE_MONTHS).toBe(1);
+    expect(isHomeRangeMonths(1)).toBe(true);
+    expect(isHomeRangeMonths(6)).toBe(true);
+    expect(isHomeRangeMonths(2)).toBe(false);
   });
 });
 

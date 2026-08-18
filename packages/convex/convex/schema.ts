@@ -136,7 +136,8 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
-    // Activation evidence: earliest Category in a Personal Circle (any type).
+    // Activation evidence backfill: earliest Category in a Personal Circle (any
+    // type). Regular-Circle history is not credited on initialize (GH-273).
     .index("by_circle_createdAt", ["circleId", "createdAt"])
     // The Category Filter's paginated reads sort on the domain `createdAt` (set
     // explicitly at create, so it can diverge from `_creationTime`) — the sort
@@ -325,22 +326,41 @@ export default defineSchema({
   // after initialization — archiving, leaving, or deleting source data cannot reopen
   // a milestone. Bootstrap inserts the empty row; existing Users get it from the
   // authenticated initializer.
+  //
+  // Generic milestone fields (transactionCreatedAt, categoryCreatedAt) replace the
+  // legacy Personal-specific names (GH-273). Legacy optional fields remain accepted
+  // during migration; rows are normalized on read/write (earliest timestamp wins,
+  // legacy cleared). New rows only write generic fields.
   userActivation: defineTable({
     userId: v.id("users"),
     initializedAt: v.number(),
     // Set after the one-shot evidence scan (bootstrap or initialize). Writers may
-    // create a row without this; the dashboard treats that as uninitialized so
-    // backfill stays off the Transaction/Category/Circle/Invitation hot path.
+    // create a row without this; Home treats that as uninitialized so backfill
+    // stays off the Transaction/Category/Circle/Invitation hot path.
     evidenceBackfilledAt: v.optional(v.number()),
-    personalTransactionCreatedAt: v.optional(v.number()),
-    personalCategoryCreatedAt: v.optional(v.number()),
+    // --- Generic milestone fields (GH-273) ---
+    transactionCreatedAt: v.optional(v.number()),
+    categoryCreatedAt: v.optional(v.number()),
     regularCircleCreatedAt: v.optional(v.number()),
     sharedMemberJoinedAt: v.optional(v.number()),
+    // --- Legacy fields (accepted during migration, cleared on normalization) ---
+    personalTransactionCreatedAt: v.optional(v.number()),
+    personalCategoryCreatedAt: v.optional(v.number()),
     dismissedAt: v.optional(v.number()),
     // Set once when the owner client observes all four milestones; prevents repeat
     // `activation_checklist_completed` analytics across reloads/tabs.
     completionEventDeliveredAt: v.optional(v.number()),
   }).index("by_user", ["userId"]),
+
+  // Home Summary per-user Circle exclusions (GH-273). One row per (userId, circleId)
+  // — absence means included. Idempotent writes; Account Deletion cleans these up.
+  homeSummaryExclusions: defineTable({
+    userId: v.id("users"),
+    circleId: v.id("circles"),
+    excludedAt: v.number(),
+  })
+    .index("by_user_circle", ["userId", "circleId"])
+    .index("by_circle", ["circleId"]),
 
   notifications: defineTable({
     userId: v.id("users"),

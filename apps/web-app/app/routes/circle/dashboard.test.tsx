@@ -460,22 +460,15 @@ describe("Dashboard drilldowns (RPT-6)", () => {
 });
 
 describe("Dashboard activation checklist", () => {
-  it("renders the checklist on a Personal Circle after the heading and before totals", () => {
+  it("does not render the checklist on a Personal Circle Dashboard (now Home-only)", () => {
     configureConvex({
       dashboard: makeDashboard(),
       activation: makeActivationChecklistView(),
     });
     renderInCircle(makeCircleView({ kind: "personal", name: "Ada's Circle" }), <CircleDashboard />);
 
-    const heading = screen.getByRole("heading", { name: "Dashboard" });
-    const checklist = screen.getByRole("heading", { name: "Get started" });
-    const totals = screen.getByText(/this month's totals/i);
-    expect(heading.compareDocumentPosition(checklist) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(checklist.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("does not render the checklist on a regular Circle Dashboard", () => {

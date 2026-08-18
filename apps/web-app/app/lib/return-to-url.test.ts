@@ -45,6 +45,14 @@ describe("parseReturnTo", () => {
       "/circles/trip-c1/transactions?month=2026-05#section",
       "/circles/trip-c1/transactions?month=2026-05#section",
     ],
+    ["honors the bare Home path", "/", "/"],
+    [
+      "honors Home with query params (currency/range state)",
+      "/?currency=CAD&range=6",
+      "/?currency=CAD&range=6",
+    ],
+    ["honors Home with a hash fragment", "/#section", "/#section"],
+    ["honors Home with query and hash", "/?currency=EUR&range=3#top", "/?currency=EUR&range=3#top"],
   ])("%s", (_name, raw, expected) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(expected);
   });

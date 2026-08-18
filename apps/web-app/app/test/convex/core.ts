@@ -9,6 +9,7 @@ import type { PaginatedPage } from "./contract.js";
 import { type DashboardState, dashboardDouble } from "./dashboard.js";
 import { type FeedbackState, feedbackDouble } from "./feedback.js";
 import { type HistoryState, historyDouble } from "./history.js";
+import { type HomeSummaryState, homeSummaryDouble } from "./home-summary.js";
 import { type InvitationsState, invitationsDouble } from "./invitations.js";
 import { type LedgerState, ledgerDouble } from "./ledger.js";
 import { type MembersState, membersDouble } from "./members.js";
@@ -28,7 +29,8 @@ export type ConvexState = CirclesState &
   NotificationsState &
   FeedbackState &
   AccountDeletionState &
-  ActivationState;
+  ActivationState &
+  HomeSummaryState;
 
 const ENTITY_DOUBLES = [
   circlesDouble,
@@ -44,6 +46,7 @@ const ENTITY_DOUBLES = [
   feedbackDouble,
   accountDeletionDouble,
   activationDouble,
+  homeSummaryDouble,
 ];
 function mergeEntityDoubles(state: ConvexState) {
   const queries: Record<string, (args: Record<string, unknown>) => unknown> = {};

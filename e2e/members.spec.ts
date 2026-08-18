@@ -5,6 +5,7 @@ import {
   establishE2ESession,
   expect,
   memberListItems,
+  openPersonalCircleFromHome,
   pickFormCategory,
   probeRemoveMember,
   seedActiveMemberOnCircle,
@@ -25,9 +26,7 @@ const E2E_PASSWORD = "e2e-Password-123";
  * (see `installE2EAuthHelper`).
  */
 test("a member views the Member List with their own identity and Owner badge", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Members");
   await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();

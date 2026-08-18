@@ -27,6 +27,7 @@ import type * as feedback from "../feedback.js";
 import type * as guard from "../guard.js";
 import type * as history from "../history.js";
 import type * as historyView from "../historyView.js";
+import type * as homeSummary from "../homeSummary.js";
 import type * as http from "../http.js";
 import type * as invitationToken from "../invitationToken.js";
 import type * as invitations from "../invitations.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   guard: typeof guard;
   history: typeof history;
   historyView: typeof historyView;
+  homeSummary: typeof homeSummary;
   http: typeof http;
   invitationToken: typeof invitationToken;
   invitations: typeof invitations;

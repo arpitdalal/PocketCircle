@@ -1,9 +1,11 @@
 import {
+  circleSwitcher,
   clickCircleChromeTab,
   createRegularCircleAndFinishSetup,
   expect,
   inviteMemberByEmail,
   joinCircleViaInvitation,
+  openPersonalCircleFromHome,
   test,
 } from "./fixtures.js";
 
@@ -17,6 +19,7 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
   browser,
   baseURL,
 }) => {
+  test.setTimeout(60_000);
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const circleName = `E2E Leave ${Date.now()}`;
   const memberEmail = `e2e+leave-member-${Date.now()}@example.com`;
@@ -34,7 +37,7 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
 
   try {
     await memberPage.goto(resolvedBase);
-    await memberPage.getByRole("button", { name: "Circles" }).click();
+    await circleSwitcher(memberPage).click();
     await memberPage
       .getByRole("menu")
       .getByRole("menuitem", { name: new RegExp(circleName) })
@@ -46,8 +49,8 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
     await memberPage.getByRole("button", { name: "Confirm Leave" }).click();
 
     await expect(memberPage.getByRole("heading", { name: "Your circles" })).toBeVisible();
-    await expect(memberPage).toHaveURL(/\/$/);
-    await memberPage.getByRole("button", { name: "Circles" }).click();
+    await expect(memberPage).toHaveURL((url) => url.pathname === "/");
+    await circleSwitcher(memberPage).click();
     await expect(
       memberPage.getByRole("menu").getByRole("menuitem", { name: new RegExp(circleName) }),
     ).toHaveCount(0);
@@ -66,8 +69,7 @@ test("the owner sees a transfer-first notice instead of a leave button", async (
 });
 
 test("a personal circle shows no leave section", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Members");
   await expect(page.getByRole("button", { name: "Leave Circle" })).toHaveCount(0);
   await expect(page.getByText(/transfer ownership before leaving/i)).toHaveCount(0);

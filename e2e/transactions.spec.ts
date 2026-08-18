@@ -6,6 +6,7 @@ import {
   createCategoryViaForm,
   expect,
   inlineCreateFormCategory,
+  openPersonalCircleFromHome,
   pickFormCategory,
   test,
 } from "./fixtures.js";
@@ -40,9 +41,7 @@ test("a member records an expense and sees it in the live list", async ({ page }
   const categoryName = `E2E Cat ${stamp}`;
   const title = `E2E Lunch ${stamp}`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   // Seed an expense Category to attach.
   await clickCircleChromeTab(page, "Categories");
@@ -73,9 +72,7 @@ test("a member inline-creates a category while recording a transaction", async (
   const categoryName = `E2E IC ${stamp}`; // ≤ 40 chars (categoryNameMax)
   const title = `E2E InlineTxn ${stamp}`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Transactions");
   await expect(page.getByRole("heading", { name: "Transactions" })).toBeVisible();
@@ -100,8 +97,7 @@ test("the expense form blocks submit and explains a missing category", async ({
   const stamp = `${Date.now()}-${testInfo.project.name}`;
   const title = `E2E NoCat ${stamp}`;
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Transactions");
   await page.getByRole("link", { name: "Add expense" }).click();
 
@@ -140,8 +136,7 @@ test("the monthly ledger totals a month and navigates between months", async ({
       ? { month: "2999-11", label: "November 2999" }
       : { month: "2999-10", label: "October 2999" };
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });
@@ -199,8 +194,7 @@ test("the month input registers a whole multi-digit year typed digit-by-digit", 
       : { value: "2997-07", label: "July 2997" };
   const [year, mm] = target.value.split("-");
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Transactions");
   await expect(page).toHaveURL(/\/transactions\?month=\d{4}-\d{2}/);
 
@@ -237,8 +231,7 @@ test("the recorder edits a transaction and changes its type", async ({ page }, t
   // tests crowd the month and pagination can push the edited row off the page.
   const month = testInfo.project.name === "mobile-chromium" ? "2995-06" : "2995-05";
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   // Seed one Category of each type to work with.
   await clickCircleChromeTab(page, "Categories");
@@ -304,8 +297,7 @@ test("a member archives and restores a transaction", async ({ page }, testInfo) 
   const title = `E2E Archive ${stamp}`;
   const month = testInfo.project.name === "mobile-chromium" ? "2996-06" : "2996-05";
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });
@@ -368,8 +360,7 @@ test("the transactions page restores month, add form, and edit link across reloa
   const title = `E2E URL ${stamp}`;
   const month = testInfo.project.name === "mobile-chromium" ? "2998-04" : "2998-03";
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });
@@ -436,8 +427,7 @@ test("the transaction detail shows audit metadata and history reflecting an edit
   const title = `E2E Detail ${stamp}`;
   const month = testInfo.project.name === "mobile-chromium" ? "2994-06" : "2994-05";
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });
@@ -506,8 +496,7 @@ test("editing from the transaction detail returns to the detail on cancel and on
   const title = `E2E Return ${stamp}`;
   const month = testInfo.project.name === "mobile-chromium" ? "2995-06" : "2995-05";
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await createCategoryViaForm(page, { name: categoryName });

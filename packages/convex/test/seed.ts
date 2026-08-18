@@ -142,6 +142,7 @@ export async function seedOwnedCircle(
     kind?: "personal" | "regular";
     archived?: boolean;
     setupCompletedAt?: number | null;
+    currency?: string;
     currencyLocked?: boolean;
     createdAt?: number;
   } = {},
@@ -155,7 +156,7 @@ export async function seedOwnedCircle(
   const circleId = await ctx.db.insert("circles", {
     name,
     kind,
-    currency: "USD",
+    currency: opts.currency ?? "USD",
     color: kind === "personal" ? PERSONAL_CIRCLE_COLOR_ID : "blue",
     mark: kind === "personal" ? "AC" : "T",
     ownerUserId: owner._id,
@@ -238,6 +239,29 @@ export interface Fixture extends Seed {
   salaryId: Id<"categories">;
 }
 
+async function reportingCategories(
+  ctx: MutationCtx,
+  circleId: Id<"circles">,
+  creatorUserId: Id<"users">,
+) {
+  const groceriesId = await makeCategory(ctx, circleId, {
+    name: "Groceries",
+    type: "expense",
+    creatorUserId,
+  });
+  const diningId = await makeCategory(ctx, circleId, {
+    name: "Dining",
+    type: "expense",
+    creatorUserId,
+  });
+  const salaryId = await makeCategory(ctx, circleId, {
+    name: "Salary",
+    type: "income",
+    creatorUserId,
+  });
+  return { groceriesId, diningId, salaryId };
+}
+
 /**
  * A Circle with the owner and a few categories of both types. Defaults to a
  * completed regular Circle because it immediately inserts Categories — incomplete
@@ -256,22 +280,47 @@ export async function seedFixture(
     archived: opts.archived,
     setupCompletedAt: opts.setupCompletedAt !== undefined ? opts.setupCompletedAt : Date.now(),
   });
-  const groceriesId = await makeCategory(ctx, seed.circleId, {
-    name: "Groceries",
-    type: "expense",
-    creatorUserId: seed.owner._id,
+  return { ...seed, ...(await reportingCategories(ctx, seed.circleId, seed.owner._id)) };
+}
+
+/** Reporting fixture for an extra Circle owned by an existing User. */
+export async function seedOwnedFixture(
+  ctx: MutationCtx,
+  owner: Doc<"users">,
+  opts: Parameters<typeof seedOwnedCircle>[2] = {},
+): Promise<Fixture> {
+  const seeded = await seedOwnedCircle(ctx, owner, {
+    setupCompletedAt: Date.now(),
+    ...opts,
   });
-  const diningId = await makeCategory(ctx, seed.circleId, {
-    name: "Dining",
-    type: "expense",
-    creatorUserId: seed.owner._id,
-  });
-  const salaryId = await makeCategory(ctx, seed.circleId, {
-    name: "Salary",
-    type: "income",
-    creatorUserId: seed.owner._id,
-  });
-  return { ...seed, groceriesId, diningId, salaryId };
+  return {
+    owner,
+    ...seeded,
+    ...(await reportingCategories(ctx, seeded.circleId, owner._id)),
+  };
+}
+
+/** Personal Circle + reporting categories, Fixture-shaped for seedTransaction. */
+export async function seedPersonalFixture(
+  ctx: MutationCtx,
+  opts: NewUserProfile & { onboarded?: boolean },
+): Promise<Fixture> {
+  const { owner, personalCircleId } = await seedPersonalCircleOwner(ctx, opts);
+  const membership = await ctx.db
+    .query("members")
+    .withIndex("by_circle_and_user", (q) =>
+      q.eq("circleId", personalCircleId).eq("userId", owner._id),
+    )
+    .unique();
+  if (!membership) {
+    throw new Error("seed failed: personal membership");
+  }
+  return {
+    owner,
+    ownerMemberId: membership._id,
+    circleId: personalCircleId,
+    ...(await reportingCategories(ctx, personalCircleId, owner._id)),
+  };
 }
 
 /**

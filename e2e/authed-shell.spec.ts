@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures.js";
+import { expect, homeCircleCard, test } from "./fixtures.js";
 
 /**
  * TRUE-E2E smoke (ADR 0019): per-worker `storageState` from `fixtures.ts` loads the
@@ -9,8 +9,7 @@ import { expect, test } from "./fixtures.js";
 test("authenticated shell renders the real Personal Circle from the backend", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  // Every freshly-bootstrapped User gets a Personal Circle (onCreateUser).
-  await expect(page.getByRole("link", { name: /Your Circle/ })).toBeVisible();
+  await expect(homeCircleCard(page, /Your Circle/)).toBeVisible();
 });
 
 test("unknown deep links fall back to the safe route (real backend)", async ({ page }) => {
@@ -22,7 +21,7 @@ test("an already-signed-in visitor to /signin is redirected into the app", async
   await page.goto("/signin");
   // The guard bounces an authenticated session to the app root rather than showing the
   // form; ProtectedLayout then renders the shell for this bootstrapped User.
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL((url) => url.pathname === "/");
   await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Continue with Google/ })).toBeHidden();
 });

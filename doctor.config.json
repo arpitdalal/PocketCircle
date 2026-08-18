@@ -31,7 +31,7 @@
         "rules": ["react-doctor/no-multi-comp", "react-doctor/only-export-components"]
       },
       {
-        "files": ["**/app/routes/circle/dashboard-comparison-chart.tsx"],
+        "files": ["**/app/components/cash-flow-trend.tsx"],
         "rules": ["react-doctor/prefer-dynamic-import"]
       },
       {

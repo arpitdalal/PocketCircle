@@ -1,14 +1,14 @@
 import { currentMonth } from "@pocketcircle/domain";
 import { CheckIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
+import { ModalDialog } from "~/components/ui/dialog.js";
 import { track } from "~/lib/analytics.js";
 import { categoryNewHref } from "~/lib/categories-filter-url.js";
 import { circlePath } from "~/lib/circle-path.js";
 import {
-  type Circle,
   type ReadyActivationChecklist,
   useActivationChecklist,
   useSkipActivationChecklist,
@@ -19,12 +19,12 @@ import { cn } from "~/lib/utils.js";
 
 const ITEMS = [
   {
-    id: "personalTransaction",
+    id: "transaction",
     title: "Record your first Transaction",
     hint: "You can create a Category while adding it.",
   },
   {
-    id: "personalCategory",
+    id: "category",
     title: "Create a Category",
   },
   {
@@ -74,11 +74,13 @@ function isComplete(
   id: (typeof ITEMS)[number]["id"],
   pendingActive: boolean,
 ) {
-  if (id === "personalTransaction") return checklist.personalTransactionComplete;
-  if (id === "personalCategory") return checklist.personalCategoryComplete;
+  if (id === "transaction") return checklist.transactionComplete;
+  if (id === "category") return checklist.categoryComplete;
   if (id === "regularCircle") return checklist.regularCircleComplete;
   return sharedMemberStateForUi(checklist, pendingActive) === "complete";
 }
+
+type PickerAction = "expense" | "income" | "category";
 
 function MemberCta({
   checklist,
@@ -117,63 +119,101 @@ function MemberCta({
       </Link>
     );
   }
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <p className="text-sm text-muted-foreground">Create a shared Circle first.</p>
-      <Link
-        to={withReturnTo("/circles/new", origin)}
-        className={buttonVariants({ variant: "outline", size: "sm" })}
-      >
-        Create circle
-      </Link>
-    </div>
-  );
+  return <p className="text-sm text-muted-foreground">Create a shared Circle first.</p>;
 }
 
 function ItemActions({
   id,
   checklist,
-  circle,
-  month,
   origin,
   pendingActive,
+  onPickCircle,
 }: {
   id: (typeof ITEMS)[number]["id"];
   checklist: ReadyActivationChecklist;
-  circle: Circle;
-  month: string;
   origin: string;
   pendingActive: boolean;
+  onPickCircle: (action: PickerAction) => void;
 }) {
   if (isComplete(checklist, id, pendingActive)) {
     return null;
   }
-  if (id === "personalTransaction") {
+  if (id === "transaction") {
+    const eligible = checklist.eligibleCircles;
+    if (eligible.length === 0) {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-muted-foreground">Create a Circle or finish setup first.</p>
+          <Link
+            to={withReturnTo("/circles/new", origin)}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Create circle
+          </Link>
+        </div>
+      );
+    }
+    const firstEligible = eligible[0];
+    if (eligible.length === 1 && firstEligible) {
+      const month = currentMonth(new Date());
+      return (
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to={withReturnTo(transactionNewHref(firstEligible, { type: "expense", month }), origin)}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Add expense
+          </Link>
+          <Link
+            to={withReturnTo(transactionNewHref(firstEligible, { type: "income", month }), origin)}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Add income
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-wrap gap-2">
-        <Link
-          to={withReturnTo(transactionNewHref(circle, { type: "expense", month }), origin)}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("expense")}>
           Add expense
-        </Link>
-        <Link
-          to={withReturnTo(transactionNewHref(circle, { type: "income", month }), origin)}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("income")}>
           Add income
-        </Link>
+        </Button>
       </div>
     );
   }
-  if (id === "personalCategory") {
+  if (id === "category") {
+    const eligible = checklist.eligibleCircles;
+    if (eligible.length === 0) {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-muted-foreground">Create a Circle or finish setup first.</p>
+          <Link
+            to={withReturnTo("/circles/new", origin)}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Create circle
+          </Link>
+        </div>
+      );
+    }
+    const firstEligible = eligible[0];
+    if (eligible.length === 1 && firstEligible) {
+      return (
+        <Link
+          to={withReturnTo(categoryNewHref(firstEligible, { type: "expense" }), origin)}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          New category
+        </Link>
+      );
+    }
     return (
-      <Link
-        to={withReturnTo(categoryNewHref(circle, { type: "expense" }), origin)}
-        className={buttonVariants({ variant: "outline", size: "sm" })}
-      >
+      <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("category")}>
         New category
-      </Link>
+      </Button>
     );
   }
   if (id === "regularCircle") {
@@ -189,18 +229,76 @@ function ItemActions({
   return <MemberCta checklist={checklist} origin={origin} pendingActive={pendingActive} />;
 }
 
-/**
- * Skippable User-level Activation Checklist (ADR 0030). Mounted only on the Personal
- * Circle Dashboard. Never a route or write gate. Skip persists then hides; it does
- * not fabricate completion.
- */
-export function ActivationChecklist({ circle }: { circle: Circle }) {
-  const origin = useReturnToOrigin();
+function CirclePickerDialog({
+  open,
+  onOpenChange,
+  action,
+  eligibleCircles,
+  origin,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  action: PickerAction;
+  eligibleCircles: ReadyActivationChecklist["eligibleCircles"];
+  origin: string;
+}) {
+  const navigate = useNavigate();
   const month = currentMonth(new Date());
+
+  const title = action === "category" ? "Choose a Circle for the category" : "Choose a Circle";
+
+  function handleSelect(circle: ReadyActivationChecklist["eligibleCircles"][number]) {
+    let target: string;
+    if (action === "expense") {
+      target = withReturnTo(transactionNewHref(circle, { type: "expense", month }), origin);
+    } else if (action === "income") {
+      target = withReturnTo(transactionNewHref(circle, { type: "income", month }), origin);
+    } else {
+      target = withReturnTo(categoryNewHref(circle, { type: "expense" }), origin);
+    }
+    onOpenChange(false);
+    navigate(target);
+  }
+
+  return (
+    <ModalDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description="Select a Circle to continue."
+    >
+      <ul className="space-y-1">
+        {eligibleCircles.map((circle) => (
+          <li key={circle.id}>
+            <button
+              type="button"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => handleSelect(circle)}
+            >
+              <span className="font-medium">{circle.name}</span>
+              <span className="ml-2 text-muted-foreground">{circle.currency}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </ModalDialog>
+  );
+}
+
+/**
+ * Skippable User-level Activation Checklist (ADR 0030, GH-273). Mounted only on Home.
+ * Never a route or write gate. Skip persists then hides; it does not fabricate
+ * completion. Transaction and Category actions open a Circle picker when multiple
+ * eligible Circles exist.
+ */
+export function ActivationChecklist() {
+  const origin = useReturnToOrigin();
   const checklist = useActivationChecklist(true);
   const skipChecklist = useSkipActivationChecklist();
   const [skipError, setSkipError] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerAction, setPickerAction] = useState<PickerAction>("expense");
   const pendingActive = usePendingInvitationActive(
     checklist?.status === "ready" ? checklist.pendingInvitationExpiresAt : null,
   );
@@ -224,86 +322,100 @@ export function ActivationChecklist({ circle }: { circle: Circle }) {
     }
   };
 
+  const handlePickCircle = (action: PickerAction) => {
+    setPickerAction(action);
+    setPickerOpen(true);
+  };
+
   return (
-    <section
-      aria-labelledby="activation-heading"
-      className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3
-            id="activation-heading"
-            className="font-display text-base font-semibold tracking-tight"
-          >
-            Get started
-          </h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {checklist.completedCount} of {checklist.total} complete
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={skipping}
-          onClick={() => void onSkip()}
-        >
-          Skip onboarding
-        </Button>
-      </div>
-
-      {skipError ? (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          Couldn’t skip onboarding. Try again.
-        </p>
-      ) : null}
-
-      <ol className="mt-4 space-y-2">
-        {ITEMS.map((item) => {
-          const complete = isComplete(checklist, item.id, pendingActive);
-          const current = checklist.firstIncomplete === item.id;
-          return (
-            <li
-              key={item.id}
-              aria-current={current ? "step" : undefined}
-              className={cn(
-                "rounded-lg border px-3 py-3",
-                complete && "border-transparent bg-muted/40 text-muted-foreground",
-                !complete && !current && "border-border bg-background",
-                current && "border-ring bg-muted/20 ring-2 ring-ring/50",
-              )}
+    <>
+      <section
+        aria-labelledby="activation-heading"
+        className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2
+              id="activation-heading"
+              className="font-display text-base font-semibold tracking-tight"
             >
-              <div className="flex items-start gap-2">
-                {complete ? (
-                  <CheckIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
-                ) : (
-                  <span
-                    aria-hidden
-                    className="mt-0.5 size-4 shrink-0 rounded-full border border-current"
-                  />
+              Get started
+            </h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {checklist.completedCount} of {checklist.total} complete
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={skipping}
+            onClick={() => void onSkip()}
+          >
+            Skip onboarding
+          </Button>
+        </div>
+
+        {skipError ? (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            Couldn't skip onboarding. Try again.
+          </p>
+        ) : null}
+
+        <ol className="mt-4 space-y-2">
+          {ITEMS.map((item) => {
+            const complete = isComplete(checklist, item.id, pendingActive);
+            const current = checklist.firstIncomplete === item.id;
+            return (
+              <li
+                key={item.id}
+                aria-current={current ? "step" : undefined}
+                className={cn(
+                  "rounded-lg border px-3 py-3",
+                  complete && "border-transparent bg-muted/40 text-muted-foreground",
+                  !complete && !current && "border-border bg-background",
+                  current && "border-ring bg-muted/20 ring-2 ring-ring/50",
                 )}
-                <div className="min-w-0 flex-1 space-y-2">
-                  <p className="text-sm font-medium text-foreground">
-                    {item.title}
-                    {complete ? <span className="sr-only">, complete</span> : null}
-                  </p>
-                  {"hint" in item && !complete ? (
-                    <p className="text-sm text-muted-foreground">{item.hint}</p>
-                  ) : null}
-                  <ItemActions
-                    id={item.id}
-                    checklist={checklist}
-                    circle={circle}
-                    month={month}
-                    origin={origin}
-                    pendingActive={pendingActive}
-                  />
+              >
+                <div className="flex items-start gap-2">
+                  {complete ? (
+                    <CheckIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className="mt-0.5 size-4 shrink-0 rounded-full border border-current"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="text-sm font-medium text-foreground">
+                      {item.title}
+                      {complete ? <span className="sr-only">, complete</span> : null}
+                    </p>
+                    {"hint" in item && !complete ? (
+                      <p className="text-sm text-muted-foreground">{item.hint}</p>
+                    ) : null}
+                    <ItemActions
+                      id={item.id}
+                      checklist={checklist}
+                      origin={origin}
+                      pendingActive={pendingActive}
+                      onPickCircle={handlePickCircle}
+                    />
+                  </div>
                 </div>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+
+      <CirclePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        action={pickerAction}
+        eligibleCircles={checklist.eligibleCircles}
+        origin={origin}
+      />
+    </>
   );
 }

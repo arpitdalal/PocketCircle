@@ -11,25 +11,48 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { MonthlyComparison } from "~/lib/data.js";
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
 
-export function DashboardComparisonChart({ comparison }: { comparison: MonthlyComparison }) {
-  const currency = toCurrencyCode(comparison.currency);
+export interface CashFlowSeriesEntry {
+  month: string;
+  incomeMinor: number;
+  expenseMinor: number;
+  netMinor: number;
+}
+
+/**
+ * Reusable accessible Cash Flow Trend chart (GH-273 req 4). Accepts a currency,
+ * chronological series, and optional caption. Renders an aria-hidden visual
+ * `ComposedChart` (bars for Income/Expense, line for Net) plus a real sr-only
+ * data table for screen readers. Animations disabled for reduced motion/no
+ * animation (isAnimationActive={false}).
+ */
+export function CashFlowTrend({
+  currency,
+  series,
+  caption,
+}: {
+  currency: string;
+  series: CashFlowSeriesEntry[];
+  caption?: string;
+}) {
+  const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
-  const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currency), locale);
+  const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);
   const compactTick = useMemo(
     () =>
       new Intl.NumberFormat(locale, {
         style: "currency",
-        currency,
+        currency: currencyCode,
         notation: "compact",
       }),
-    [locale, currency],
+    [locale, currencyCode],
   );
   const formatTick = (minorUnits: number) =>
-    compactTick.format(minorUnits / 10 ** getCurrency(currency).decimals);
+    compactTick.format(minorUnits / 10 ** getCurrency(currencyCode).decimals);
+
+  const tableCaption = caption ?? "Month-over-month Income, Expense, and Net";
 
   return (
     <>
@@ -42,7 +65,7 @@ export function DashboardComparisonChart({ comparison }: { comparison: MonthlyCo
           height="100%"
           initialDimension={{ width: 600, height: 260 }}
         >
-          <ComposedChart data={comparison.series} barGap={2}>
+          <ComposedChart data={series} barGap={2}>
             <CartesianGrid stroke="var(--border)" vertical={false} />
             <XAxis
               dataKey="month"
@@ -75,12 +98,19 @@ export function DashboardComparisonChart({ comparison }: { comparison: MonthlyCo
               }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="incomeMinor" name="Income" fill="var(--positive)" radius={[3, 3, 0, 0]} />
+            <Bar
+              dataKey="incomeMinor"
+              name="Income"
+              fill="var(--positive)"
+              radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
+            />
             <Bar
               dataKey="expenseMinor"
               name="Expense"
               fill="var(--destructive)"
               radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
             />
             <Line
               type="monotone"
@@ -89,13 +119,14 @@ export function DashboardComparisonChart({ comparison }: { comparison: MonthlyCo
               stroke="var(--primary)"
               strokeWidth={2}
               dot={{ r: 3, fill: "var(--primary)" }}
+              isAnimationActive={false}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
 
       <table className="sr-only">
-        <caption>Month-over-month Income, Expense, and Net</caption>
+        <caption>{tableCaption}</caption>
         <thead>
           <tr>
             <th scope="col">Month</th>
@@ -105,7 +136,7 @@ export function DashboardComparisonChart({ comparison }: { comparison: MonthlyCo
           </tr>
         </thead>
         <tbody>
-          {comparison.series.map((entry) => (
+          {series.map((entry) => (
             <tr key={entry.month}>
               <th scope="row">{formatMonthLabel(entry.month)}</th>
               <td>{formatMinor(entry.incomeMinor)}</td>

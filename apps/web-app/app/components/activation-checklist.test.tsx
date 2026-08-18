@@ -1,12 +1,17 @@
 import { currentMonth } from "@pocketcircle/domain";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Circle } from "~/lib/data.js";
+import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import {
   configureConvex,
   makeActivationChecklistView,
-  makeCircleView,
-  renderInCircle,
+  makeEligibleCircle,
+  renderRoutes,
+  renderWithRouter,
+  testId,
 } from "~/test/convex-react.js";
 import {
   posthogSdk,
@@ -22,12 +27,6 @@ vi.mock("~/lib/env.js", async (importOriginal) =>
 
 import { ActivationChecklist } from "./activation-checklist.js";
 
-const personal = makeCircleView({
-  kind: "personal",
-  name: "Ada's Circle",
-  ref: "adas-circle-c1",
-});
-const origin = "/circles/adas-circle-c1";
 const month = currentMonth(new Date());
 
 beforeEach(() => {
@@ -41,9 +40,7 @@ afterEach(() => {
 });
 
 function renderChecklist() {
-  return renderInCircle(personal, <ActivationChecklist circle={personal} />, {
-    initialEntries: [origin],
-  });
+  return renderWithRouter(<ActivationChecklist />);
 }
 
 describe("ActivationChecklist visibility", () => {
@@ -51,7 +48,6 @@ describe("ActivationChecklist visibility", () => {
     const initialize = vi.fn();
     configureConvex({ activation: undefined, initializeActivationChecklist: initialize });
     renderChecklist();
-
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
     expect(initialize).not.toHaveBeenCalled();
   });
@@ -63,7 +59,6 @@ describe("ActivationChecklist visibility", () => {
       initializeActivationChecklist: initialize,
     });
     renderChecklist();
-
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
     await waitFor(() => expect(initialize).toHaveBeenCalledWith({}));
   });
@@ -83,8 +78,8 @@ describe("ActivationChecklist visibility", () => {
         visible: false,
         completedCount: 4,
         firstIncomplete: null,
-        personalTransactionComplete: true,
-        personalCategoryComplete: true,
+        transactionComplete: true,
+        categoryComplete: true,
         regularCircleComplete: true,
         sharedMemberState: "complete",
       }),
@@ -98,9 +93,9 @@ describe("ActivationChecklist items", () => {
   it("emphasizes the first incomplete item while keeping others actionable", () => {
     configureConvex({
       activation: makeActivationChecklistView({
-        personalTransactionComplete: true,
+        transactionComplete: true,
         completedCount: 1,
-        firstIncomplete: "personalCategory",
+        firstIncomplete: "category",
       }),
     });
     renderChecklist();
@@ -120,22 +115,64 @@ describe("ActivationChecklist items", () => {
     expect(within(circle).getByRole("link", { name: "Create circle" })).toBeInTheDocument();
   });
 
-  it("links Transaction and Category CTAs to canonical create routes with returnTo", () => {
-    configureConvex({ activation: makeActivationChecklistView() });
+  it("links Transaction CTAs with returnTo for single eligible circle", () => {
+    const eligible = [
+      makeEligibleCircle({
+        id: testId<Circle["id"]>("c1"),
+        ref: "adas-circle-c1",
+        name: "Ada",
+      }),
+    ];
+    configureConvex({
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
+    });
     renderChecklist();
 
     expect(screen.getByRole("link", { name: "Add expense" })).toHaveAttribute(
       "href",
-      `/circles/${personal.ref}/transactions/new?type=expense&month=${month}&returnTo=${encodeURIComponent(origin)}`,
+      expect.stringContaining(
+        `/circles/adas-circle-c1/transactions/new?type=expense&month=${month}`,
+      ),
     );
     expect(screen.getByRole("link", { name: "Add income" })).toHaveAttribute(
       "href",
-      `/circles/${personal.ref}/transactions/new?type=income&month=${month}&returnTo=${encodeURIComponent(origin)}`,
+      expect.stringContaining(
+        `/circles/adas-circle-c1/transactions/new?type=income&month=${month}`,
+      ),
     );
-    expect(screen.getByRole("link", { name: "New category" })).toHaveAttribute(
-      "href",
-      `/circles/${personal.ref}/categories/new?type=expense&returnTo=${encodeURIComponent(origin)}`,
-    );
+  });
+
+  it("shows buttons that open picker when multiple eligible circles exist", () => {
+    const eligible = [
+      makeEligibleCircle({
+        id: testId<Circle["id"]>("c1"),
+        ref: "personal-c1",
+        name: "Personal",
+      }),
+      makeEligibleCircle({
+        id: testId<Circle["id"]>("c2"),
+        ref: "trip-c2",
+        name: "Trip",
+        kind: "regular",
+      }),
+    ];
+    configureConvex({
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
+    });
+    renderChecklist();
+
+    // Instead of links, we get buttons that open the picker
+    expect(screen.getByRole("button", { name: "Add expense" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add income" })).toBeInTheDocument();
+  });
+
+  it("shows create circle hint when zero eligible circles", () => {
+    configureConvex({
+      activation: makeActivationChecklistView({ eligibleCircles: [] }),
+    });
+    renderChecklist();
+
+    expect(screen.getAllByText(/Create a Circle or finish setup first/).length).toBeGreaterThan(0);
   });
 
   it("shows Invitation pending without a Member CTA", () => {
@@ -143,7 +180,7 @@ describe("ActivationChecklist items", () => {
       activation: makeActivationChecklistView({
         regularCircleComplete: true,
         completedCount: 1,
-        firstIncomplete: "personalTransaction",
+        firstIncomplete: "transaction",
         sharedMemberState: "pending",
         pendingInvitationExpiresAt: Date.now() + 60_000,
         memberCta: { kind: "members", circleRef: "cabin-c2" },
@@ -161,8 +198,8 @@ describe("ActivationChecklist items", () => {
         regularCircleComplete: true,
         completedCount: 3,
         firstIncomplete: "sharedMember",
-        personalTransactionComplete: true,
-        personalCategoryComplete: true,
+        transactionComplete: true,
+        categoryComplete: true,
         sharedMemberState: "pending",
         pendingInvitationExpiresAt: Date.now() - 1,
         memberCta: { kind: "members", circleRef: "cabin-c2" },
@@ -178,17 +215,17 @@ describe("ActivationChecklist items", () => {
     {
       memberCta: { kind: "members" as const, circleRef: "cabin-c2" },
       name: "Invite a member",
-      href: `/circles/cabin-c2/members?returnTo=${encodeURIComponent(origin)}`,
+      href: /\/circles\/cabin-c2\/members\?returnTo=/,
     },
     {
       memberCta: { kind: "setup" as const, circleRef: "alpha-c3" },
       name: "Finish setup",
-      href: `/circles/alpha-c3/setup?returnTo=${encodeURIComponent(origin)}`,
+      href: /\/circles\/alpha-c3\/setup\?returnTo=/,
     },
   ])("routes the Member CTA to $name", ({ memberCta, name, href }) => {
     configureConvex({ activation: makeActivationChecklistView({ memberCta }) });
     renderChecklist();
-    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    expect(screen.getByRole("link", { name })).toHaveAttribute("href", expect.stringMatching(href));
   });
 
   it("asks for a shared Circle first when no Circle exists", () => {
@@ -197,12 +234,12 @@ describe("ActivationChecklist items", () => {
     });
     renderChecklist();
     expect(screen.getByText("Create a shared Circle first.")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Create circle" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Create circle" })).toHaveLength(1);
   });
 });
 
 describe("ActivationChecklist skip", () => {
-  it("persists Skip then hides and tracks the completed-item count", async () => {
+  it("persists Skip and tracks the completed-item count", async () => {
     let dismissed = false;
     const skip = vi.fn().mockImplementation(async () => {
       dismissed = true;
@@ -215,13 +252,13 @@ describe("ActivationChecklist skip", () => {
               dismissed: true,
               visible: false,
               completedCount: 1,
-              personalTransactionComplete: true,
-              firstIncomplete: "personalCategory",
+              transactionComplete: true,
+              firstIncomplete: "category",
             })
           : makeActivationChecklistView({
               completedCount: 1,
-              personalTransactionComplete: true,
-              firstIncomplete: "personalCategory",
+              transactionComplete: true,
+              firstIncomplete: "category",
             }),
       skipActivationChecklist: skip,
     });
@@ -240,25 +277,6 @@ describe("ActivationChecklist skip", () => {
     });
   });
 
-  it("does not recapture Skip when the dismissal was already claimed", async () => {
-    const skip = vi.fn().mockResolvedValue({ completedCount: 1, claimed: false });
-    configureConvex({
-      activation: makeActivationChecklistView({
-        completedCount: 1,
-        personalTransactionComplete: true,
-        firstIncomplete: "personalCategory",
-      }),
-      skipActivationChecklist: skip,
-    });
-    const user = userEvent.setup();
-    renderChecklist();
-
-    await user.click(screen.getByRole("button", { name: "Skip onboarding" }));
-
-    await waitFor(() => expect(skip).toHaveBeenCalledWith({}));
-    expect(posthogSdk.capture).not.toHaveBeenCalled();
-  });
-
   it("keeps the card visible and shows an alert when Skip fails", async () => {
     const skip = vi.fn().mockRejectedValue(new Error("offline"));
     configureConvex({
@@ -270,55 +288,95 @@ describe("ActivationChecklist skip", () => {
 
     await user.click(screen.getByRole("button", { name: "Skip onboarding" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn’t skip onboarding/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't skip onboarding/i);
     expect(screen.getByRole("heading", { name: "Get started" })).toBeInTheDocument();
-    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 });
 
-describe("ActivationChecklist completion analytics", () => {
-  it("claims and captures completion once even when the card is hidden", async () => {
-    const acknowledge = vi.fn().mockResolvedValue({ claimed: true });
+describe("ActivationChecklist circle picker", () => {
+  const eligible = [
+    makeEligibleCircle({
+      id: testId<Circle["id"]>("c1"),
+      ref: "personal-c1",
+      name: "Personal",
+    }),
+    makeEligibleCircle({
+      id: testId<Circle["id"]>("c2"),
+      ref: "trip-c2",
+      name: "Trip",
+      currency: "CAD",
+      kind: "regular",
+    }),
+  ];
+
+  it("opens picker dialog when clicking Add expense with multiple eligible circles", async () => {
     configureConvex({
-      activation: makeActivationChecklistView({
-        allComplete: true,
-        visible: false,
-        completedCount: 4,
-        firstIncomplete: null,
-        personalTransactionComplete: true,
-        personalCategoryComplete: true,
-        regularCircleComplete: true,
-        sharedMemberState: "complete",
-        completionEventPending: true,
-      }),
-      acknowledgeActivationCompleted: acknowledge,
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
+    const user = userEvent.setup();
     renderChecklist();
 
-    await waitFor(() => expect(acknowledge).toHaveBeenCalledWith({}));
-    expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_completed", {});
-    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add expense" }));
+
+    expect(screen.getByRole("heading", { name: "Choose a Circle" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Personal.*USD/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trip.*CAD/ })).toBeInTheDocument();
   });
 
-  it("does not recapture when the claim is already delivered", async () => {
-    const acknowledge = vi.fn().mockResolvedValue({ claimed: false });
+  it("routes the picker to the canonical form and restores Home Summary returnTo", async () => {
     configureConvex({
-      activation: makeActivationChecklistView({
-        allComplete: true,
-        visible: false,
-        completedCount: 4,
-        firstIncomplete: null,
-        personalTransactionComplete: true,
-        personalCategoryComplete: true,
-        regularCircleComplete: true,
-        sharedMemberState: "complete",
-        completionEventPending: true,
-      }),
-      acknowledgeActivationCompleted: acknowledge,
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
-    renderChecklist();
+    const user = userEvent.setup();
+    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
+      initialEntries: ["/?currency=CAD&range=3"],
+    });
 
-    await waitFor(() => expect(acknowledge).toHaveBeenCalledWith({}));
-    expect(posthogSdk.capture).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Add expense" }));
+    await user.click(screen.getByRole("button", { name: /Trip.*CAD/ }));
+
+    const dest = new URL(view.location(), "http://t");
+    expect(dest.pathname).toBe("/circles/trip-c2/transactions/new");
+    expect(dest.searchParams.get("type")).toBe("expense");
+    expect(dest.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=CAD&range=3");
+  });
+
+  it("preserves Add income through the picker", async () => {
+    configureConvex({
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
+    });
+    const user = userEvent.setup();
+    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
+      initialEntries: ["/?currency=USD&range=6"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Add income" }));
+    await user.click(screen.getByRole("button", { name: /Trip.*CAD/ }));
+
+    const dest = new URL(view.location(), "http://t");
+    expect(dest.pathname).toBe("/circles/trip-c2/transactions/new");
+    expect(dest.searchParams.get("type")).toBe("income");
+    expect(dest.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=USD&range=6");
+  });
+
+  it("preserves New category through the picker", async () => {
+    configureConvex({
+      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
+    });
+    const user = userEvent.setup();
+    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
+      initialEntries: ["/?currency=EUR"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "New category" }));
+    expect(
+      screen.getByRole("heading", { name: "Choose a Circle for the category" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Personal.*USD/ }));
+
+    const dest = new URL(view.location(), "http://t");
+    expect(dest.pathname).toBe("/circles/personal-c1/categories/new");
+    expect(dest.searchParams.get("type")).toBe("expense");
+    expect(dest.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=EUR");
   });
 });

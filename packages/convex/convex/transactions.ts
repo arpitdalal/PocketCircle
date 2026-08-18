@@ -662,9 +662,9 @@ export const createTransaction = mutation({
       await ctx.db.patch(args.circleId, { currencyLocked: true });
     }
 
-    if (access.circle.kind === "personal") {
-      await markActivationMilestone(ctx, access.user._id, "personalTransactionCreatedAt", now);
-    }
+    // Mark activation milestone in any active setup-complete Circle (GH-273).
+    // assertSetupComplete() above already guarantees this is a setup-complete Circle.
+    await markActivationMilestone(ctx, access.user._id, "transactionCreatedAt", now);
 
     // Record the create now (ADR 0018) even though the Transaction History view is
     // TXN-4 — its view needs this row to exist. Textual values are frozen display

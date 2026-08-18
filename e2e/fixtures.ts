@@ -95,18 +95,77 @@ export async function finishCircleSetup(page: Page) {
   await expect(setupToast).toBeHidden({ timeout: 10_000 });
 }
 
+export function circleSwitcher(page: Page) {
+  return page.getByRole("button", { name: "Circles", exact: true });
+}
+
+export function homeCircleCard(page: Page, name: string | RegExp) {
+  return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
+}
+
+/**
+ * Close the Home Circles picker. Multi-select stays open after a choice; Escape
+ * dismisses. Don't wait for the listbox to unmount — Base UI can keep it in the
+ * tree (opacity-0 still counts as visible to Playwright).
+ */
+async function dismissHomeScopePicker(page: Page) {
+  const listbox = page.getByRole("listbox");
+  if (!(await listbox.isVisible())) {
+    return;
+  }
+  await page.keyboard.press("Escape");
+  if (!(await listbox.isVisible())) {
+    return;
+  }
+  await page
+    .getByRole("button", { name: "Dismiss" })
+    .first()
+    .click({ force: true, timeout: 5_000 });
+}
+
+/** Toggle a Circle in the Home scope multi-select. Included Circles are chips. */
+export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
+  const cashFlow = page.getByRole("region", { name: "Cash flow" });
+  const removeName =
+    typeof name === "string"
+      ? new RegExp(`^Remove ${escapeRegExp(name)}$`)
+      : new RegExp(`^Remove ${name.source}$`, name.flags);
+  const remove = cashFlow.getByRole("button", { name: removeName });
+  if (await remove.isVisible()) {
+    await remove.click({ timeout: 10_000 });
+    await expect(remove).toHaveCount(0, { timeout: 15_000 });
+    await dismissHomeScopePicker(page);
+    return;
+  }
+  await dismissHomeScopePicker(page);
+  await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
+  const option = page.getByRole("option", { name });
+  await expect(option).toBeVisible({ timeout: 10_000 });
+  await option.click({ timeout: 10_000 });
+  await expect(option).toHaveAttribute("aria-selected", "true");
+  await dismissHomeScopePicker(page);
+  await expect(remove).toBeVisible({ timeout: 15_000 });
+}
+
+/** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */
+export async function openPersonalCircleFromHome(page: Page) {
+  await page.goto("/");
+  await homeCircleCard(page, /Your Circle/).click();
+}
+
 /**
  * Shell → create regular Circle → mandatory setup complete → dashboard.
  * Use for specs that need an isolated Circle without polluting Personal pickers.
  */
 export async function createRegularCircleAndFinishSetup(
   page: Page,
-  { name, color }: { name: string; color?: string },
+  { name, color, currency }: { name: string; color?: string; currency?: string },
 ) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Circles" }).click();
-  await page.getByRole("menu").getByRole("menuitem", { name: "Create circle" }).click();
+  await page.goto("/circles/new");
   await page.getByLabel("Name").fill(name);
+  if (currency) {
+    await page.getByLabel("Currency").selectOption(currency);
+  }
   if (color) {
     await page.getByRole("button", { name: color }).click();
   }
@@ -341,7 +400,9 @@ const E2E_PASSWORD = "e2e-Password-123";
 
 /** USR-1: fresh sign-ups gate on `/onboarding` until Display Name is confirmed. */
 async function ensureAppShellReady(page: Page) {
-  const homeHeading = page.getByRole("heading", { name: "Your circles" });
+  // `Home` is the signed-in h1 (visible during Home Summary loading). `Your circles`
+  // is now a section heading behind getHomeSummary — waiting on it stalls shell-ready.
+  const homeHeading = page.getByRole("heading", { name: "Home", exact: true });
   const continueButton = page.getByRole("button", { name: "Continue" });
 
   const deadline = Date.now() + 30_000;

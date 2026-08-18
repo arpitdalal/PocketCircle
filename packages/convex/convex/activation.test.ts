@@ -11,8 +11,8 @@ import {
   seedOwnedCircle,
   seedPersonalCircleOwner,
 } from "../test/seed.js";
-import { api } from "./_generated/api.js";
-import type { Id } from "./_generated/dataModel.js";
+import { api, internal } from "./_generated/api.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import schema from "./schema.js";
@@ -64,6 +64,17 @@ async function activationRows(ctx: MutationCtx, userId: Id<"users">) {
     .query("userActivation")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
+}
+
+async function replaceActivationRow(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  fields: Omit<Doc<"userActivation">, "_id" | "_creationTime" | "userId">,
+) {
+  for (const row of await activationRows(ctx, userId)) {
+    await ctx.db.delete(row._id);
+  }
+  await ctx.db.insert("userActivation", { userId, ...fields });
 }
 
 async function seedOnboardedOwner(ctx: MutationCtx) {
@@ -152,12 +163,12 @@ describe("initializeActivationChecklist", () => {
       allComplete: false,
       completedCount: 0,
       total: 4,
-      personalTransactionComplete: false,
-      personalCategoryComplete: false,
+      transactionComplete: false,
+      categoryComplete: false,
       regularCircleComplete: false,
       sharedMemberState: "not_started",
       pendingInvitationExpiresAt: null,
-      firstIncomplete: "personalTransaction",
+      firstIncomplete: "transaction",
       memberCta: { kind: "create" },
       completionEventPending: false,
     });
@@ -229,8 +240,8 @@ describe("initializeActivationChecklist", () => {
       status: "ready",
       allComplete: true,
       completedCount: 4,
-      personalTransactionComplete: true,
-      personalCategoryComplete: true,
+      transactionComplete: true,
+      categoryComplete: true,
       regularCircleComplete: true,
       sharedMemberState: "complete",
       visible: false,
@@ -240,8 +251,8 @@ describe("initializeActivationChecklist", () => {
 
     await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
-      expect(row?.personalCategoryCreatedAt).toBe(categoryCreatedAt);
-      expect(row?.personalTransactionCreatedAt).toBe(txnCreatedAt);
+      expect(row?.categoryCreatedAt).toBe(categoryCreatedAt);
+      expect(row?.transactionCreatedAt).toBe(txnCreatedAt);
       expect(row?.regularCircleCreatedAt).toBe(circleCreatedAt);
       expect(row?.sharedMemberJoinedAt).toBe(inviteCreatedAt);
     });
@@ -257,7 +268,52 @@ describe("initializeActivationChecklist", () => {
     await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
       expect(row?.dismissedAt).toBe(dismissedAt);
-      expect(row?.personalCategoryCreatedAt).toBe(categoryCreatedAt);
+      expect(row?.categoryCreatedAt).toBe(categoryCreatedAt);
+    });
+  });
+
+  it("does not backfill historical regular-Circle Transactions or Categories", async () => {
+    const t = createTestConvex();
+    const owner = await t.run((ctx) =>
+      makeUser(ctx, "legacy-regular@example.com", "Legacy Regular"),
+    );
+    await t.run(async (ctx) => {
+      await seedOwnedCircle(ctx, owner, {
+        kind: "personal",
+        name: "Legacy Regular's Circle",
+      });
+      const regular = await seedOwnedCircle(ctx, owner, {
+        name: "Legacy Trip",
+        setupCompletedAt: Date.now(),
+      });
+      await makeCategory(ctx, regular.circleId, {
+        name: "Gas",
+        creatorUserId: owner._id,
+      });
+      await ctx.db.insert("transactions", {
+        circleId: regular.circleId,
+        type: "expense",
+        title: "Fuel",
+        amountMinorUnits: 4000,
+        date: "2026-01-15",
+        month: "2026-01",
+        recordedByMemberId: regular.ownerMemberId,
+        paidByMemberId: regular.ownerMemberId,
+        status: "active",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    mockCurrentUser.mockResolvedValue(owner);
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      status: "ready",
+      transactionComplete: false,
+      categoryComplete: false,
+      regularCircleComplete: true,
+      completedCount: 1,
     });
   });
 
@@ -344,8 +400,11 @@ describe("initializeActivationChecklist", () => {
       const rows = await activationRows(ctx, userId);
       expect(rows).toHaveLength(1);
       expect(rows[0]?.initializedAt).toBe(50);
-      expect(rows[0]?.personalTransactionCreatedAt).toBe(200);
-      expect(rows[0]?.personalCategoryCreatedAt).toBe(400);
+      // After normalization, legacy fields merge into generic and are cleared
+      expect(rows[0]?.transactionCreatedAt).toBe(200);
+      expect(rows[0]?.categoryCreatedAt).toBe(400);
+      expect(rows[0]?.personalTransactionCreatedAt).toBeUndefined();
+      expect(rows[0]?.personalCategoryCreatedAt).toBeUndefined();
       expect(rows[0]?.dismissedAt).toBe(800);
       expect(rows[0]?.completionEventDeliveredAt).toBe(900);
       expect(rows[0]?.evidenceBackfilledAt).toEqual(expect.any(Number));
@@ -380,8 +439,8 @@ describe("activation writers", () => {
 
     await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
-      expect(row?.personalTransactionCreatedAt).toEqual(expect.any(Number));
-      expect(row?.personalCategoryCreatedAt).toBeUndefined();
+      expect(row?.transactionCreatedAt).toEqual(expect.any(Number));
+      expect(row?.categoryCreatedAt).toBeUndefined();
       expect(row?.evidenceBackfilledAt).toBeUndefined();
     });
     expect(await t.query(api.activation.getActivationChecklist, {})).toEqual({
@@ -391,13 +450,82 @@ describe("activation writers", () => {
     await t.mutation(api.activation.initializeActivationChecklist, {});
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
       status: "ready",
-      personalTransactionComplete: true,
-      personalCategoryComplete: true,
+      transactionComplete: true,
+      categoryComplete: true,
       completedCount: 2,
     });
   });
 
-  it("marks a Personal Transaction and ignores a regular-Circle Transaction", async () => {
+  it("marks a Transaction created in a regular Circle", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    const regularId = await t.mutation(api.circles.createCircle, {
+      name: "Cabin",
+      currency: "USD",
+      color: "blue",
+      mark: "C",
+    });
+    await t.mutation(api.circles.completeCircleSetup, { circleId: regularId, answers: {} });
+    const regularCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, regularId, { name: "Gas", creatorUserId: owner._id }),
+    );
+    await t.mutation(api.transactions.createTransaction, {
+      circleId: regularId,
+      type: "expense",
+      title: "Fuel",
+      amountMinorUnits: 4000,
+      date: "2026-05-16",
+      categoryIds: [regularCategoryId],
+    });
+
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      transactionComplete: true,
+      categoryComplete: false,
+      regularCircleComplete: true,
+      completedCount: 2,
+    });
+  });
+
+  it("marks a Transaction even when Paid By is another Member", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    const regularId = await t.mutation(api.circles.createCircle, {
+      name: "Studio",
+      currency: "USD",
+      color: "blue",
+      mark: "S",
+    });
+    await t.mutation(api.circles.completeCircleSetup, { circleId: regularId, answers: {} });
+    const { otherMemberId, categoryId } = await t.run(async (ctx) => {
+      const other = await addMember(ctx, regularId, "ivy@example.com", "Ivy");
+      const catId = await makeCategory(ctx, regularId, {
+        name: "Snacks",
+        creatorUserId: owner._id,
+      });
+      return { otherMemberId: other.memberId, categoryId: catId };
+    });
+
+    await t.mutation(api.transactions.createTransaction, {
+      circleId: regularId,
+      type: "expense",
+      title: "Ivy's chips",
+      amountMinorUnits: 250,
+      date: "2026-05-15",
+      categoryIds: [categoryId],
+      paidByMemberId: otherMemberId,
+    });
+
+    expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
+      transactionComplete: true,
+      categoryComplete: false,
+    });
+  });
+
+  it("keeps Transaction complete when a later regular-Circle Transaction is recorded", async () => {
     const t = createTestConvex();
     const { owner, personalCircleId } = await t.run((ctx) => seedOnboardedOwner(ctx));
     const personalCategoryId = await t.run((ctx) =>
@@ -418,8 +546,8 @@ describe("activation writers", () => {
     });
 
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
-      personalTransactionComplete: true,
-      personalCategoryComplete: false,
+      transactionComplete: true,
+      categoryComplete: false,
       completedCount: 1,
     });
 
@@ -443,8 +571,8 @@ describe("activation writers", () => {
     });
 
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
-      personalTransactionComplete: true,
-      personalCategoryComplete: false,
+      transactionComplete: true,
+      categoryComplete: false,
       regularCircleComplete: true,
       completedCount: 2,
     });
@@ -462,7 +590,7 @@ describe("activation writers", () => {
       color: "green",
     });
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
-      personalCategoryComplete: true,
+      categoryComplete: true,
       completedCount: 1,
     });
 
@@ -479,7 +607,7 @@ describe("activation writers", () => {
 
     const afterSetup = await t.query(api.activation.getActivationChecklist, {});
     expect(afterSetup).toMatchObject({
-      personalCategoryComplete: true,
+      categoryComplete: true,
       regularCircleComplete: true,
       completedCount: 2,
     });
@@ -664,7 +792,7 @@ describe("skip and acknowledge", () => {
       dismissed: true,
       visible: false,
       completedCount: 0,
-      personalTransactionComplete: false,
+      transactionComplete: false,
     });
 
     const dismissedAt = await t.run(async (ctx) => {
@@ -703,7 +831,7 @@ describe("skip and acknowledge", () => {
     const backfilledAt = await t.run(async (ctx) => {
       const [row] = await activationRows(ctx, owner._id);
       expect(row?.evidenceBackfilledAt).toEqual(expect.any(Number));
-      expect(row?.personalCategoryCreatedAt).toEqual(expect.any(Number));
+      expect(row?.categoryCreatedAt).toEqual(expect.any(Number));
       return row?.evidenceBackfilledAt;
     });
 
@@ -852,8 +980,8 @@ describe("activation monotonicity", () => {
     );
 
     expect(await t.query(api.activation.getActivationChecklist, {})).toMatchObject({
-      personalCategoryComplete: true,
-      personalTransactionComplete: true,
+      categoryComplete: true,
+      transactionComplete: true,
       regularCircleComplete: true,
       sharedMemberState: "complete",
       allComplete: true,
@@ -873,5 +1001,136 @@ describe("activation monotonicity", () => {
       sharedMemberState: "complete",
       regularCircleComplete: true,
     });
+  });
+});
+
+describe("activation field migration", () => {
+  it("normalizes legacy fields to generic fields without data loss", async () => {
+    const t = createTestConvex();
+    const { owner, userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
+
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
+        initializedAt: 1000,
+        evidenceBackfilledAt: 2000,
+        personalTransactionCreatedAt: 3000,
+        personalCategoryCreatedAt: 4000,
+        regularCircleCreatedAt: 5000,
+        sharedMemberJoinedAt: 6000,
+        dismissedAt: 7000,
+      }),
+    );
+
+    mockCurrentUser.mockResolvedValue(owner);
+    await t.mutation(internal.activation.migrateActivationRows, {});
+
+    await t.run(async (ctx) => {
+      const [row] = await activationRows(ctx, userId);
+      expect(row?.transactionCreatedAt).toBe(3000);
+      expect(row?.categoryCreatedAt).toBe(4000);
+      expect(row?.personalTransactionCreatedAt).toBeUndefined();
+      expect(row?.personalCategoryCreatedAt).toBeUndefined();
+      expect(row?.regularCircleCreatedAt).toBe(5000);
+      expect(row?.sharedMemberJoinedAt).toBe(6000);
+      expect(row?.dismissedAt).toBe(7000);
+    });
+  });
+
+  it("merges earliest timestamp when both legacy and generic exist", async () => {
+    const t = createTestConvex();
+    const { userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
+
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
+        initializedAt: 1000,
+        evidenceBackfilledAt: 2000,
+        transactionCreatedAt: 5000,
+        personalTransactionCreatedAt: 3000,
+        categoryCreatedAt: 2000,
+        personalCategoryCreatedAt: 4000,
+      }),
+    );
+
+    await t.mutation(internal.activation.migrateActivationRows, {});
+
+    await t.run(async (ctx) => {
+      const [row] = await activationRows(ctx, userId);
+      expect(row?.transactionCreatedAt).toBe(3000);
+      expect(row?.categoryCreatedAt).toBe(2000);
+      expect(row?.personalTransactionCreatedAt).toBeUndefined();
+      expect(row?.personalCategoryCreatedAt).toBeUndefined();
+    });
+  });
+
+  it("is bounded, idempotent, and reports done", async () => {
+    const t = createTestConvex();
+    const { userId } = await t.run((ctx) => seedOnboardedOwner(ctx));
+
+    await t.run((ctx) =>
+      replaceActivationRow(ctx, userId, {
+        initializedAt: 1000,
+        personalTransactionCreatedAt: 3000,
+      }),
+    );
+
+    const result = await t.mutation(internal.activation.migrateActivationRows, {});
+    expect(result.migrated).toBeGreaterThanOrEqual(1);
+    expect(result).toHaveProperty("done");
+
+    const second = await t.mutation(internal.activation.migrateActivationRows, {});
+    expect(second.done).toBe(true);
+  });
+});
+
+describe("activation eligible Circles", () => {
+  it("sorts Personal first then creation order", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
+    await t.run(async (ctx) => {
+      await seedOwnedCircle(ctx, owner, {
+        name: "Second",
+        setupCompletedAt: Date.now(),
+        createdAt: Date.now() + 2000,
+      });
+      await seedOwnedCircle(ctx, owner, {
+        name: "First",
+        setupCompletedAt: Date.now(),
+        createdAt: Date.now() + 1000,
+      });
+    });
+
+    mockCurrentUser.mockResolvedValue(owner);
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    const result = await t.query(api.activation.getActivationChecklist, {});
+    if (result.status !== "ready") {
+      throw new Error("Expected ready status");
+    }
+    expect(result.eligibleCircles[0]?.kind).toBe("personal");
+    expect(result.eligibleCircles[1]?.name).toBe("First");
+    expect(result.eligibleCircles[2]?.name).toBe("Second");
+  });
+
+  it("excludes incomplete setup and inactive Circles", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedOnboardedOwner(ctx));
+    await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner, { name: "Incomplete", setupCompletedAt: null }),
+    );
+    await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner, {
+        name: "Archived",
+        setupCompletedAt: Date.now(),
+        archived: true,
+      }),
+    );
+
+    mockCurrentUser.mockResolvedValue(owner);
+    await t.mutation(api.activation.initializeActivationChecklist, {});
+    const result = await t.query(api.activation.getActivationChecklist, {});
+    if (result.status !== "ready") {
+      throw new Error("Expected ready status");
+    }
+    expect(result.eligibleCircles).toHaveLength(1);
+    expect(result.eligibleCircles[0]?.kind).toBe("personal");
   });
 });

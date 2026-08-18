@@ -20,20 +20,21 @@ export const MOCK_ACTIVATION: ActivationChecklist = {
   allComplete: false,
   completedCount: 0,
   total: 4,
-  personalTransactionComplete: false,
-  personalCategoryComplete: false,
+  transactionComplete: false,
+  categoryComplete: false,
   regularCircleComplete: false,
   sharedMemberState: "not_started",
   pendingInvitationExpiresAt: null,
-  firstIncomplete: "personalTransaction",
+  firstIncomplete: "transaction",
   memberCta: { kind: "create" },
   completionEventPending: false,
+  eligibleCircles: [],
 };
 
 /**
- * Personal-Circle Dashboard subscription. Skips when disabled (regular Circle) or
- * in mock mode. Existing Users with no row get the evidence initializer; completion
- * analytics are claimed once via the durable marker even after the card hides.
+ * Home Summary Activation Checklist subscription. Skip with `enabled=false` (unused
+ * on Circle Dashboards). Existing Users with no row get the evidence initializer;
+ * completion analytics are claimed once via the durable marker even after the card hides.
  */
 export function useActivationChecklist(enabled: boolean) {
   const checklist = useQuery(

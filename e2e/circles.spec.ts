@@ -1,4 +1,4 @@
-import { expect, finishCircleSetup, test } from "./fixtures.js";
+import { circleSwitcher, expect, finishCircleSetup, test } from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019): create a regular Circle through the real shell → Convex
@@ -17,7 +17,7 @@ test("a user creates a regular circle from the shell and can finish setup", asyn
   await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
 
   // Open the switcher in the app shell and start the create flow from it.
-  await page.getByRole("button", { name: "Circles" }).click();
+  await circleSwitcher(page).click();
   await page.getByRole("menu").getByRole("menuitem", { name: "Create circle" }).click();
 
   await expect(page.getByRole("heading", { name: "Create a circle" })).toBeVisible();
@@ -40,7 +40,7 @@ test("the new circle appears in the switcher and is reachable again", async ({ p
   const name = `E2E Switch ${Date.now()}`;
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Circles" }).click();
+  await circleSwitcher(page).click();
   await page.getByRole("menu").getByRole("menuitem", { name: "Create circle" }).click();
   await page.getByLabel("Name").fill(name);
   await page.getByRole("button", { name: "Create circle" }).click();
@@ -50,7 +50,7 @@ test("the new circle appears in the switcher and is reachable again", async ({ p
   await finishCircleSetup(page);
 
   // The reactive `listMyCircles` now includes it: open the switcher and select it.
-  await page.getByRole("button", { name: "Circles" }).click();
+  await circleSwitcher(page).click();
   await page
     .getByRole("menu")
     .getByRole("menuitem", { name: new RegExp(name) })

@@ -4,6 +4,7 @@ import {
   createCategoryViaForm,
   createRegularCircleAndFinishSetup,
   expect,
+  openPersonalCircleFromHome,
   test,
 } from "./fixtures.js";
 
@@ -23,9 +24,7 @@ import {
 test("a member creates a category and sees it in the live list", async ({ page }) => {
   const name = `E2E Groceries ${Date.now()}`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
 
   await clickCircleChromeTab(page, "Categories");
   await expect(page.getByRole("heading", { name: "Categories" })).toBeVisible();
@@ -50,8 +49,7 @@ test("lists income and expense together under the default All view, each type-ta
   const expenseName = `E2E All Expense ${nonce}`;
   const incomeName = `E2E All Income ${nonce}`;
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Categories");
 
   // The toggle, not a list tab, picks the type — `createCategoryViaForm` flips it.
@@ -76,8 +74,7 @@ test("lists income and expense together under the default All view, each type-ta
 test("the server rejects a duplicate name inline", async ({ page }) => {
   const name = `E2E Dupe ${Date.now()}`;
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Categories");
 
   await createCategoryViaForm(page, { name });
@@ -102,8 +99,7 @@ test("a member edits, archives, and restores a category and sees its history", a
   const name = `E2E Lifecycle ${Date.now()}`;
   const renamed = `${name} v2`;
 
-  await page.goto("/");
-  await page.getByRole("link", { name: /Your Circle/ }).click();
+  await openPersonalCircleFromHome(page);
   await clickCircleChromeTab(page, "Categories");
 
   await createCategoryViaForm(page, { name });

@@ -5,14 +5,16 @@ import type { QueryCtx } from "./_generated/server.js";
 /**
  * Circle month activity — the single home of "what one Circle-month contains" and
  * the reporting reduction derived from it (RPT-1/RPT-3, and the upcoming Search and
- * Category-analytics surfaces). The Monthly Ledger, the Dashboard, and every future
- * month-scoped report read the SAME active Transaction set for a Circle-month and
- * reduce it to the SAME Income/Expense/Net totals. Concentrating the month-range,
+ * Category-analytics surfaces). The Monthly Ledger, the Dashboard, Home Summary,
+ * and every future month-scoped report read the SAME active Transaction set for a
+ * Circle-month and reduce it to the SAME Income/Expense/Net totals. Concentrating
+ * the month-range,
  * the active-only filter, and the totals math HERE means those surfaces can never
  * drift — one cannot start counting archived Transactions, range the month
  * differently, or sum totals another way while another does it right.
  *
- * The Convex queries (`ledger.getMonthlyLedger`, `dashboard.getDashboard`) stay thin
+ * The Convex queries (`ledger.getMonthlyLedger`, `dashboard.getDashboard`,
+ * `homeSummary.getHomeSummary`) stay thin
  * adapters: they resolve Circle access (guard.ts, ADR 0015), then read and reduce
  * through this module. This module performs NO access checks — it is reached only
  * after the caller has authorized the Circle — and reads only the `transactions`
