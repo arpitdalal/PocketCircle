@@ -130,15 +130,14 @@ export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
     await dismissHomeScopePicker(page);
     return;
   }
-  const listbox = page.getByRole("listbox");
+  await dismissHomeScopePicker(page);
+  await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
   const option = page.getByRole("option", { name });
-  if (!(await listbox.isVisible())) {
-    await cashFlow.getByRole("combobox", { name: "Circles" }).click({ timeout: 10_000 });
-  }
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click({ timeout: 10_000 });
-  await expect(remove).toBeVisible({ timeout: 15_000 });
+  await expect(option).toHaveAttribute("aria-selected", "true");
   await dismissHomeScopePicker(page);
+  await expect(remove).toBeVisible({ timeout: 15_000 });
 }
 
 /** Open the worker's Personal Circle from Home navigation cards (not Cash flow rows). */

@@ -6,7 +6,7 @@ import {
   money,
   toCurrencyCode,
 } from "@pocketcircle/domain";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { href, Link, useSearchParams } from "react-router";
 import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
@@ -397,11 +397,20 @@ function RecentTransactionsSection({
   );
 }
 
+function sameIdSet(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const other = new Set(b);
+  return a.every((id) => other.has(id));
+}
+
 function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const excludeCircle = useExcludeCircle();
   const includeCircle = useIncludeCircle();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
   const options = useMemo(
     () =>
       circles.map((circle) => ({
@@ -411,17 +420,33 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
       })),
     [circles],
   );
-  const includedIds = useMemo(
+  const queryIncludedIds = useMemo(
     () => circles.filter((circle) => circle.included).map((circle) => circle.id),
     [circles],
   );
+  const [optimisticIds, setOptimisticIds] = useState<string[] | null>(null);
+  const includedIds = optimisticIds ?? queryIncludedIds;
+
+  useEffect(() => {
+    if (optimisticIds == null) {
+      return;
+    }
+    if (sameIdSet(optimisticIds, queryIncludedIds)) {
+      setOptimisticIds(null);
+    }
+  }, [optimisticIds, queryIncludedIds]);
 
   const persist = async (nextIds: string[]) => {
+    if (pendingRef.current) {
+      return;
+    }
     const next = new Set(nextIds);
     const changed = circles.filter((circle) => circle.included !== next.has(circle.id));
     if (changed.length === 0) {
       return;
     }
+    pendingRef.current = true;
+    setOptimisticIds(nextIds);
     setError(null);
     setPending(true);
     let current: HomeSummaryCircle | undefined;
@@ -435,8 +460,10 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
         }
       }
     } catch {
+      setOptimisticIds(null);
       setError(`Couldn't update ${current?.name ?? "circle"}. Try again.`);
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   };

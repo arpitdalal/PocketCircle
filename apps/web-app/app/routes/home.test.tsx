@@ -389,6 +389,29 @@ describe("Home (circle scope)", () => {
     expect(includeCircle).toHaveBeenCalledWith({ circleId: testId("c1") });
   });
 
+  it("keeps the included chip while includeCircle is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveInclude = () => {};
+    const includeCircle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveInclude = resolve;
+        }),
+    );
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      includeCircle,
+      homeSummary: makeHomeSummaryView({
+        circles: [makeScopeCircle({ id: testId("c1"), name: "Trip", included: false })],
+      }),
+    });
+    renderHome();
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    await user.click(await screen.findByRole("option", { name: /Trip/ }));
+    expect(screen.getByRole("button", { name: "Remove Trip", hidden: true })).toBeInTheDocument();
+    resolveInclude();
+  });
+
   it("surfaces a scope-update failure without changing Circle cards", async () => {
     const user = userEvent.setup();
     configureConvex({
