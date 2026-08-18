@@ -7,6 +7,8 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-08-17
+
 ### Added
 
 - After you sign in, Home now shows a Cash flow report for one currency at a
