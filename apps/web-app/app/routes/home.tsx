@@ -423,17 +423,11 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
     () => circles.filter((circle) => circle.included).map((circle) => circle.id),
     [circles],
   );
-  const [optimisticIds, setOptimisticIds] = useState<string[] | null>(null);
-  const includedIds = optimisticIds ?? queryIncludedIds;
-
-  useEffect(() => {
-    if (optimisticIds == null) {
-      return;
-    }
-    if (sameIdSet(optimisticIds, queryIncludedIds)) {
-      setOptimisticIds(null);
-    }
-  }, [optimisticIds, queryIncludedIds]);
+  const [optimistic, setOptimistic] = useState<{ next: string[]; from: string[] } | null>(null);
+  const includedIds =
+    optimistic != null && sameIdSet(optimistic.from, queryIncludedIds)
+      ? optimistic.next
+      : queryIncludedIds;
 
   const persist = async (nextIds: string[]) => {
     if (pendingRef.current) {
@@ -445,7 +439,7 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
       return;
     }
     pendingRef.current = true;
-    setOptimisticIds(nextIds);
+    setOptimistic({ next: nextIds, from: queryIncludedIds });
     setError(null);
     let current: HomeSummaryCircle | undefined;
     try {
@@ -458,7 +452,7 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
         }
       }
     } catch {
-      setOptimisticIds(null);
+      setOptimistic(null);
       setError(`Couldn't update ${current?.name ?? "circle"}. Try again.`);
     } finally {
       pendingRef.current = false;
