@@ -7,6 +7,28 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- After you sign in, Home now shows a Cash flow report for one currency at a
+  time: income, expenses, and net for the last 1, 3, 6, or 12 months, plus a
+  month-by-month trend, per-Circle contributions, and recent transactions you
+  paid. Totals count money you paid, not your share of a split. Circle cards
+  stay below. You can leave a Circle out of the report without hiding it;
+  that choice sticks across visits. Amounts in different currencies stay
+  separate.
+
+### Changed
+
+- The optional Get started checklist now lives on Home instead of your
+  Personal Circle. Recording a transaction or creating a category counts in
+  any Circle you belong to, not only Personal.
+
+### Fixed
+
+- On phones, the Circle navigation bar sat above the bottom of the screen
+  with a gap under the labels. It now sits flush and fills the iPhone home
+  indicator.
+
 ## [v0.1.0] - 2026-08-16
 
 First public beta of PocketCircle — a place for partners, families, roommates,
