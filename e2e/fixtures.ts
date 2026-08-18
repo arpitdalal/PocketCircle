@@ -129,7 +129,7 @@ export async function toggleHomeScopeCircle(page: Page, name: string | RegExp) {
   const removeName =
     typeof name === "string"
       ? new RegExp(`^Remove ${escapeRegExp(name)}$`)
-      : new RegExp(`^Remove ${name.source}$`);
+      : new RegExp(`^Remove ${name.source}$`, name.flags);
   const remove = cashFlow.getByRole("button", { name: removeName });
   if (await remove.isVisible()) {
     await remove.click({ timeout: 10_000 });

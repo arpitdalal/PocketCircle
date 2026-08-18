@@ -51,6 +51,20 @@ function makeScopeCircle(
   };
 }
 
+function deferredMutation() {
+  let resolve = () => {};
+  const fn = vi.fn(
+    () =>
+      new Promise<void>((next) => {
+        resolve = next;
+      }),
+  );
+  return {
+    fn,
+    resolve: () => resolve(),
+  };
+}
+
 describe("Home (loading)", () => {
   it("shows loading shell before circles and summary resolve", () => {
     configureConvex({ circles: undefined, homeSummary: undefined });
@@ -391,16 +405,10 @@ describe("Home (circle scope)", () => {
 
   it("keeps the included chip while includeCircle is in flight", async () => {
     const user = userEvent.setup();
-    let resolveInclude = () => {};
-    const includeCircle = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveInclude = resolve;
-        }),
-    );
+    const includeCircle = deferredMutation();
     configureConvex({
       circles: MOCK_CIRCLES,
-      includeCircle,
+      includeCircle: includeCircle.fn,
       homeSummary: makeHomeSummaryView({
         circles: [makeScopeCircle({ id: testId("c1"), name: "Trip", included: false })],
       }),
@@ -408,9 +416,38 @@ describe("Home (circle scope)", () => {
     renderHome();
     await user.click(screen.getByRole("combobox", { name: "Circles" }));
     await user.click(await screen.findByRole("option", { name: /Trip/ }));
+    expect(includeCircle.fn).toHaveBeenCalledWith({ circleId: testId("c1") });
     expect(screen.getByRole("combobox", { name: "Circles" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Remove Trip", hidden: true })).toBeInTheDocument();
-    resolveInclude();
+    includeCircle.resolve();
+  });
+
+  it("persists a later selection after an in-flight includeCircle completes", async () => {
+    const user = userEvent.setup();
+    const includeCircle = deferredMutation();
+    const excludeCircle = vi.fn().mockResolvedValue(undefined);
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      includeCircle: includeCircle.fn,
+      excludeCircle,
+      homeSummary: makeHomeSummaryView({
+        circles: [
+          makeScopeCircle({ id: testId("c1"), name: "Trip", included: false }),
+          makeScopeCircle({ id: testId("c2"), name: "Cabin", included: true }),
+        ],
+      }),
+    });
+    renderHome();
+    await user.click(screen.getByRole("combobox", { name: "Circles" }));
+    await user.click(await screen.findByRole("option", { name: /Trip/ }));
+    expect(includeCircle.fn).toHaveBeenCalledWith({ circleId: testId("c1") });
+    await user.click(screen.getByRole("button", { name: "Remove Cabin", hidden: true }));
+    expect(excludeCircle).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Remove Cabin", hidden: true }),
+    ).not.toBeInTheDocument();
+    includeCircle.resolve();
+    await waitFor(() => expect(excludeCircle).toHaveBeenCalledWith({ circleId: testId("c2") }));
   });
 
   it("surfaces a scope-update failure without changing Circle cards", async () => {

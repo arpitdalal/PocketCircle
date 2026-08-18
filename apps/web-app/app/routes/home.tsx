@@ -410,6 +410,8 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const includeCircle = useIncludeCircle();
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
+  const queuedRef = useRef<string[] | null>(null);
+  const submittedRef = useRef<string[] | null>(null);
   const options = useMemo(
     () =>
       circles.map((circle) => ({
@@ -423,39 +425,61 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
     () => circles.filter((circle) => circle.included).map((circle) => circle.id),
     [circles],
   );
-  const [optimistic, setOptimistic] = useState<{ next: string[]; from: string[] } | null>(null);
+  const circleIds = useMemo(() => new Set(circles.map((circle) => circle.id)), [circles]);
+  const [optimistic, setOptimistic] = useState<string[] | null>(null);
   const includedIds =
-    optimistic != null && sameIdSet(optimistic.from, queryIncludedIds)
-      ? optimistic.next
+    optimistic?.every((id) => circleIds.has(id)) && !sameIdSet(optimistic, queryIncludedIds)
+      ? optimistic
       : queryIncludedIds;
 
   const persist = async (nextIds: string[]) => {
     if (pendingRef.current) {
+      queuedRef.current = nextIds;
+      setOptimistic(nextIds);
+      return;
+    }
+    if (submittedRef.current?.some((id) => !circleIds.has(id))) {
+      submittedRef.current = null;
+    }
+    const baseline =
+      submittedRef.current != null && !sameIdSet(submittedRef.current, queryIncludedIds)
+        ? submittedRef.current
+        : queryIncludedIds;
+    if (sameIdSet(baseline, nextIds)) {
       return;
     }
     const next = new Set(nextIds);
-    const changed = circles.filter((circle) => circle.included !== next.has(circle.id));
+    const baselineSet = new Set(baseline);
+    const changed = circles.filter((circle) => next.has(circle.id) !== baselineSet.has(circle.id));
     if (changed.length === 0) {
       return;
     }
     pendingRef.current = true;
-    setOptimistic({ next: nextIds, from: queryIncludedIds });
+    setOptimistic(nextIds);
     setError(null);
     let current: HomeSummaryCircle | undefined;
     try {
       for (const circle of changed) {
         current = circle;
-        if (circle.included) {
-          await excludeCircle({ circleId: circle.id });
-        } else {
+        if (next.has(circle.id)) {
           await includeCircle({ circleId: circle.id });
+        } else {
+          await excludeCircle({ circleId: circle.id });
         }
       }
+      submittedRef.current = nextIds;
     } catch {
+      submittedRef.current = baseline;
       setOptimistic(null);
+      queuedRef.current = null;
       setError(`Couldn't update ${current?.name ?? "circle"}. Try again.`);
     } finally {
       pendingRef.current = false;
+      const queued = queuedRef.current;
+      queuedRef.current = null;
+      if (queued != null) {
+        await persist(queued);
+      }
     }
   };
 
