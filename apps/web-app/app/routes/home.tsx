@@ -408,7 +408,6 @@ function sameIdSet(a: string[], b: string[]) {
 function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const excludeCircle = useExcludeCircle();
   const includeCircle = useIncludeCircle();
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
   const options = useMemo(
@@ -448,7 +447,6 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
     pendingRef.current = true;
     setOptimisticIds(nextIds);
     setError(null);
-    setPending(true);
     let current: HomeSummaryCircle | undefined;
     try {
       for (const circle of changed) {
@@ -464,7 +462,6 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
       setError(`Couldn't update ${current?.name ?? "circle"}. Try again.`);
     } finally {
       pendingRef.current = false;
-      setPending(false);
     }
   };
 
@@ -474,7 +471,6 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
         label="Circles"
         options={options}
         value={includedIds}
-        disabled={pending}
         onChange={(next) => void persist(next)}
       />
       {error ? (

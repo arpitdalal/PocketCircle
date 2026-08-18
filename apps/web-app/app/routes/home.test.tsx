@@ -408,6 +408,7 @@ describe("Home (circle scope)", () => {
     renderHome();
     await user.click(screen.getByRole("combobox", { name: "Circles" }));
     await user.click(await screen.findByRole("option", { name: /Trip/ }));
+    expect(screen.getByRole("combobox", { name: "Circles" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Remove Trip", hidden: true })).toBeInTheDocument();
     resolveInclude();
   });

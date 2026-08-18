@@ -103,17 +103,24 @@ export function homeCircleCard(page: Page, name: string | RegExp) {
   return page.getByRole("region", { name: "Your circles" }).getByRole("link", { name });
 }
 
-/** Close the Home Circles picker via Escape, then force-click Dismiss if the positioner intercepts. */
+/**
+ * Close the Home Circles picker. Multi-select stays open after a choice; Escape
+ * dismisses. Don't wait for the listbox to unmount — Base UI can keep it in the
+ * tree (opacity-0 still counts as visible to Playwright).
+ */
 async function dismissHomeScopePicker(page: Page) {
   const listbox = page.getByRole("listbox");
   if (!(await listbox.isVisible())) {
     return;
   }
   await page.keyboard.press("Escape");
-  if (await listbox.isVisible()) {
-    await page.getByRole("button", { name: "Dismiss" }).last().click({ force: true, timeout: 5_000 });
+  if (!(await listbox.isVisible())) {
+    return;
   }
-  await expect(listbox).toBeHidden({ timeout: 5_000 });
+  await page
+    .getByRole("button", { name: "Dismiss" })
+    .first()
+    .click({ force: true, timeout: 5_000 });
 }
 
 /** Toggle a Circle in the Home scope multi-select. Included Circles are chips. */
