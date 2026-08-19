@@ -1,14 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 
 import type { CaptureResult } from "posthog-js";
-import { posthogEnv, posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
+import {
+  posthogSdk,
+  resetPostHogBoundary,
+  stubPosthogEnvForTests,
+} from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
   initAnalytics,
@@ -35,6 +36,10 @@ function beforeSend(event: CaptureResult) {
   }
   return before_send(event);
 }
+
+beforeEach(() => {
+  stubPosthogEnvForTests();
+});
 
 afterEach(() => {
   window.localStorage.clear();
@@ -68,7 +73,7 @@ describe("buildPostHogInitOptions", () => {
 
 describe("initAnalytics", () => {
   it("no-ops when the PostHog key is missing", () => {
-    posthogEnv.POSTHOG_KEY = undefined;
+    stubPosthogEnvForTests("");
     initAnalytics(readyUser);
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });

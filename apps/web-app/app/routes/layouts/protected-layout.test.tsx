@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import {
   configureConvex,
@@ -10,7 +10,11 @@ import {
   testId,
 } from "~/test/convex-react.js";
 import { installIntersectionObserverStub } from "~/test/intersection-observer-stub.js";
-import { posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
+import {
+  posthogSdk,
+  resetPostHogBoundary,
+  stubPosthogEnvForTests,
+} from "~/test/posthog-boundary.js";
 import { AppTestProviders, deferred, renderRouteStub } from "~/test/router-stub.js";
 
 /**
@@ -22,9 +26,6 @@ import { AppTestProviders, deferred, renderRouteStub } from "~/test/router-stub.
  */
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 
 import OnboardingRoute from "../onboarding.js";
 import ProtectedLayout from "./protected-layout.js";
@@ -48,6 +49,10 @@ function routesWith(settingsLoader: () => any) {
 }
 
 installIntersectionObserverStub();
+
+beforeEach(() => {
+  stubPosthogEnvForTests();
+});
 
 afterEach(() => {
   resetPostHogBoundary();

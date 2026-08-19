@@ -1,7 +1,10 @@
 import { vi } from "vitest";
 import { initAnalytics, resetAnalyticsStateForTests } from "~/lib/analytics.js";
 import type { SessionUser } from "~/lib/session.js";
-import { posthogEnv, resetPostHogSdkMocks } from "./posthog-mock.js";
+import { resetPostHogSdkMocks } from "./posthog-mock.js";
+
+const TEST_POSTHOG_KEY = "phc_test";
+const TEST_POSTHOG_HOST = "https://us.i.posthog.com";
 
 const defaultAnalyticsUser: SessionUser = {
   id: "analytics-test-user",
@@ -11,10 +14,15 @@ const defaultAnalyticsUser: SessionUser = {
   analyticsEnabled: true,
 };
 
+/** Stub Vite PostHog env so real `posthogKey()` / `posthogHost()` run (ADR 0006). */
+export function stubPosthogEnvForTests(key = TEST_POSTHOG_KEY) {
+  vi.stubEnv("VITE_POSTHOG_KEY", key);
+  vi.stubEnv("VITE_POSTHOG_HOST", TEST_POSTHOG_HOST);
+}
+
 /** Prime the real analytics seam for route/component tests that call track without the shell layout. */
 export function primeAnalyticsForTests(user: SessionUser = defaultAnalyticsUser) {
-  vi.stubEnv("VITE_POSTHOG_KEY", posthogEnv.POSTHOG_KEY ?? "phc_test");
-  vi.stubEnv("VITE_POSTHOG_HOST", posthogEnv.POSTHOG_HOST);
+  stubPosthogEnvForTests();
   initAnalytics(user);
 }
 
@@ -24,4 +32,4 @@ export function resetPostHogBoundary() {
   vi.unstubAllEnvs();
 }
 
-export { posthogEnv, posthogSdk } from "./posthog-mock.js";
+export { posthogSdk } from "./posthog-mock.js";

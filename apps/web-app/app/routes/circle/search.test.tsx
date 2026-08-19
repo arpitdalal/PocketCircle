@@ -29,9 +29,6 @@ vi.mock(
   async () => (await import("~/test/convex-react.js")).convexHelpersReactMock,
 );
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 
 import CircleSearch from "./search.js";
 

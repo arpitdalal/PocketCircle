@@ -25,9 +25,6 @@ const auth = vi.hoisted(() => ({
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 vi.mock("@convex-dev/better-auth/client/plugins", () => ({
   convexClient: vi.fn(),
   crossDomainClient: vi.fn(),
