@@ -1,15 +1,26 @@
 import { parseNotificationLinkPath } from "@pocketcircle/domain";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import { mutation, type QueryCtx, query } from "./_generated/server.js";
+import {
+  internalMutation,
+  type MutationCtx,
+  mutation,
+  type QueryCtx,
+  query,
+} from "./_generated/server.js";
 import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
 
 /** Badge cap — scan at most CAP+1 unread rows so the UI can render `99+`. */
 export const UNREAD_COUNT_CAP = 99;
 
-/** Unread rows shown per open / cleared per mark-all-read batch. */
+/** List page size for Unread and All (infinite scroll). */
 export const NOTIFICATION_BATCH_SIZE = 20;
+
+/** Unread rows patched per mark-all-read mutation (Convex write-budget chunk). */
+export const MARK_ALL_READ_CHUNK_SIZE = 200;
 
 const NOT_FOUND = "Notification not found";
 
@@ -127,19 +138,23 @@ async function toNotificationView(
   };
 }
 
-/** Up to {@link NOTIFICATION_BATCH_SIZE} unread notifications, newest first. */
+/** Paginated Notification Center list: Unread (`unreadOnly`) or All, newest `_creationTime` first. */
 export const listNotifications = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    unreadOnly: v.boolean(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    const rows = await ctx.db
-      .query("notifications")
-      .withIndex("by_user_and_read", (q) => q.eq("userId", user._id).eq("read", false))
-      .order("desc")
-      .take(NOTIFICATION_BATCH_SIZE);
-
+    const indexed = args.unreadOnly
+      ? ctx.db
+          .query("notifications")
+          .withIndex("by_user_and_read", (q) => q.eq("userId", user._id).eq("read", false))
+      : ctx.db.query("notifications").withIndex("by_user", (q) => q.eq("userId", user._id));
+    const result = await indexed.order("desc").paginate(args.paginationOpts);
     const linkResolver = createNotificationLinkResolver(ctx, user);
-    return Promise.all(rows.map((row) => toNotificationView(row, linkResolver)));
+    const page = await Promise.all(result.page.map((row) => toNotificationView(row, linkResolver)));
+    return { ...result, page };
   },
 });
 
@@ -176,18 +191,72 @@ export const markNotificationRead = mutation({
   },
 });
 
-/** Marks the current unread batch read (same slice as {@link listNotifications}). */
+/**
+ * Marks every notification that was unread at click time. Newer inserts (higher
+ * `_creationTime` than the watermark) stay unread. Chunks of
+ * {@link MARK_ALL_READ_CHUNK_SIZE} continue via {@link continueMarkAllRead}.
+ */
 export const markAllRead = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
-    const unread = await ctx.db
+    const newestUnread = await ctx.db
       .query("notifications")
       .withIndex("by_user_and_read", (q) => q.eq("userId", user._id).eq("read", false))
       .order("desc")
-      .take(NOTIFICATION_BATCH_SIZE);
-    for (const row of unread) {
-      await ctx.db.patch(row._id, { read: true });
+      .take(1);
+    const watermark = newestUnread[0];
+    if (!watermark) {
+      return;
     }
+    await drainMarkAllReadAndContinue(ctx, user._id, watermark._creationTime);
   },
 });
+
+/** Scheduler continuation for {@link markAllRead}. No end-user auth. */
+export const continueMarkAllRead = internalMutation({
+  args: {
+    userId: v.id("users"),
+    createdBefore: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      return;
+    }
+    await drainMarkAllReadAndContinue(ctx, args.userId, args.createdBefore);
+  },
+});
+
+async function drainMarkAllReadChunk(ctx: MutationCtx, userId: Id<"users">, createdBefore: number) {
+  const unread = await ctx.db
+    .query("notifications")
+    .withIndex("by_user_and_read", (q) => q.eq("userId", userId).eq("read", false))
+    .order("asc")
+    .take(MARK_ALL_READ_CHUNK_SIZE);
+
+  let patched = 0;
+  for (const row of unread) {
+    if (row._creationTime > createdBefore) {
+      break;
+    }
+    await ctx.db.patch(row._id, { read: true });
+    patched += 1;
+  }
+  return patched;
+}
+
+async function drainMarkAllReadAndContinue(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  createdBefore: number,
+) {
+  const patched = await drainMarkAllReadChunk(ctx, userId, createdBefore);
+  if (patched !== MARK_ALL_READ_CHUNK_SIZE) {
+    return;
+  }
+  await ctx.scheduler.runAfter(0, internal.notifications.continueMarkAllRead, {
+    userId,
+    createdBefore,
+  });
+}

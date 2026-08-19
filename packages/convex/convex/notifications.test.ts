@@ -1,11 +1,12 @@
 import { buildCategoryNotificationLink, buildRef } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addMember, seedFixture, seedTransaction } from "../test/seed.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
+import { addMember, firstPage, seedFixture, seedTransaction } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import * as guard from "./guard.js";
-import { NOTIFICATION_BATCH_SIZE } from "./notifications.js";
+import { MARK_ALL_READ_CHUNK_SIZE, NOTIFICATION_BATCH_SIZE } from "./notifications.js";
 import schema from "./schema.js";
 
 const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
@@ -25,6 +26,14 @@ const modules = import.meta.glob("./**/*.ts");
 beforeEach(() => {
   mockCurrentUser.mockReset();
 });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function listArgs(unreadOnly: boolean, size = NOTIFICATION_BATCH_SIZE) {
+  return { unreadOnly, ...firstPage(size) };
+}
 
 async function insertNotification(
   ctx: Parameters<Parameters<ReturnType<typeof convexTest>["run"]>[0]>[0],
@@ -82,8 +91,64 @@ describe("notifications", () => {
       });
     });
 
-    const page = await t.query(api.notifications.listNotifications, {});
-    expect(page.map((n) => n.title)).toEqual(["Newer unread", "Older unread"]);
+    const unread = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(unread.page.map((n) => n.title)).toEqual(["Newer unread", "Older unread"]);
+    expect(unread.page.every((n) => n.read === false)).toBe(true);
+
+    const all = await t.query(api.notifications.listNotifications, listArgs(false));
+    expect(all.page.map((n) => n.title)).toEqual(["Already read", "Newer unread", "Older unread"]);
+  });
+
+  it("lists All by _creationTime newest-first, not createdAt", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: f.owner._id,
+        title: "Inserted first",
+        createdAt: 9000,
+      });
+      await insertNotification(ctx, {
+        userId: f.owner._id,
+        title: "Inserted second",
+        createdAt: 1000,
+      });
+    });
+
+    const unread = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(unread.page.map((n) => n.title)).toEqual(["Inserted second", "Inserted first"]);
+  });
+
+  it("paginates Unread and All at the list page size", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 3; i++) {
+        await insertNotification(ctx, {
+          userId: f.owner._id,
+          title: `Unread ${i}`,
+          createdAt: i,
+        });
+      }
+      await insertNotification(ctx, {
+        userId: f.owner._id,
+        title: "Read row",
+        read: true,
+        createdAt: 99,
+      });
+    });
+
+    const unread = await t.query(api.notifications.listNotifications, listArgs(true, 2));
+    expect(unread.page.map((n) => n.title)).toEqual(["Unread 2", "Unread 1"]);
+    expect(unread.isDone).toBe(false);
+
+    const all = await t.query(api.notifications.listNotifications, listArgs(false, 2));
+    expect(all.page.map((n) => n.title)).toEqual(["Read row", "Unread 2"]);
+    expect(all.isDone).toBe(false);
   });
 
   it("marks one notification read and updates the unread count", async () => {
@@ -126,7 +191,7 @@ describe("notifications", () => {
     });
   });
 
-  it("markAllRead marks only the current unread batch", async () => {
+  it("markAllRead marks every unread for the current User", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));
     mockCurrentUser.mockResolvedValue(f.owner);
@@ -153,12 +218,12 @@ describe("notifications", () => {
     });
   });
 
-  it("markAllRead leaves unread rows beyond the batch limit", async () => {
+  it("markAllRead drains unread beyond one chunk via the scheduler", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));
     mockCurrentUser.mockResolvedValue(f.owner);
 
-    const totalUnread = NOTIFICATION_BATCH_SIZE + 5;
+    const totalUnread = MARK_ALL_READ_CHUNK_SIZE + 5;
     await t.run(async (ctx) => {
       for (let i = 0; i < totalUnread; i++) {
         await insertNotification(ctx, {
@@ -169,21 +234,67 @@ describe("notifications", () => {
       }
     });
 
-    await t.mutation(api.notifications.markAllRead, {});
+    await mutateAndDrain(t, () => t.mutation(api.notifications.markAllRead, {}));
 
     expect(await t.query(api.notifications.getUnreadCount, {})).toEqual({
-      count: 5,
+      count: 0,
       hasMore: false,
     });
-    const visible = await t.query(api.notifications.listNotifications, {});
-    expect(visible).toHaveLength(5);
-    expect(visible.map((n) => n.title)).toEqual([
-      "Unread 4",
-      "Unread 3",
-      "Unread 2",
-      "Unread 1",
-      "Unread 0",
-    ]);
+    const leftover = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(leftover.page).toEqual([]);
+  });
+
+  it("markAllRead does not mark unread inserted after the click-time watermark", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const { user: member } = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "member@example.com", "Member"),
+    );
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    const totalUnread = MARK_ALL_READ_CHUNK_SIZE + 5;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < totalUnread; i++) {
+        await insertNotification(ctx, {
+          userId: f.owner._id,
+          title: `Pre-click ${i}`,
+          createdAt: i,
+        });
+      }
+      await insertNotification(ctx, {
+        userId: member._id,
+        title: "Other user unread",
+        createdAt: 50_000,
+      });
+    });
+
+    await t.mutation(api.notifications.markAllRead, {});
+
+    const postClickId = await t.run(async (ctx) =>
+      insertNotification(ctx, {
+        userId: f.owner._id,
+        title: "Post-click",
+        createdAt: 99_000,
+      }),
+    );
+
+    await drainScheduledFunctions(t);
+
+    expect(await t.query(api.notifications.getUnreadCount, {})).toEqual({
+      count: 1,
+      hasMore: false,
+    });
+    const leftover = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(leftover.page.map((n) => n.title)).toEqual(["Post-click"]);
+    await t.run(async (ctx) => {
+      const postClick = await ctx.db.get(postClickId);
+      expect(postClick?.read).toBe(false);
+      const other = await ctx.db
+        .query("notifications")
+        .withIndex("by_user", (q) => q.eq("userId", member._id))
+        .collect();
+      expect(other).toEqual([expect.objectContaining({ title: "Other user unread", read: false })]);
+    });
   });
 
   it("rejects marking another User's notification", async () => {
@@ -223,7 +334,7 @@ describe("notifications", () => {
     });
 
     const accessSpy = vi.spyOn(guard, "resolveCircleAccessForUser");
-    await t.query(api.notifications.listNotifications, {});
+    await t.query(api.notifications.listNotifications, listArgs(true));
     expect(accessSpy).toHaveBeenCalledTimes(1);
     accessSpy.mockRestore();
   });
@@ -282,7 +393,7 @@ describe("notification link resolution", () => {
       });
     });
 
-    const page = await t.query(api.notifications.listNotifications, {});
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
     const byTitle = Object.fromEntries(page.map((n) => [n.title, n.link]));
     expect(byTitle.Circle).toBe(`/circles/${circleRef}`);
     expect(byTitle.Transaction).toBe(`/circles/${circleRef}/transactions/${txnRef}`);
@@ -307,14 +418,14 @@ describe("notification link resolution", () => {
       }),
     );
 
-    let page = await t.query(api.notifications.listNotifications, {});
+    let { page } = await t.query(api.notifications.listNotifications, listArgs(true));
     expect(page[0]?.link).toBe(`/circles/${circleRef}`);
 
     await t.run(async (ctx) => {
       await ctx.db.patch(memberId, { status: "removed", removedAt: Date.now() });
     });
 
-    page = await t.query(api.notifications.listNotifications, {});
+    ({ page } = await t.query(api.notifications.listNotifications, listArgs(true)));
     expect(page[0]?.link).toBeUndefined();
 
     await t.run(async (ctx) => {
@@ -341,7 +452,7 @@ describe("notification link resolution", () => {
       });
     });
 
-    const page = await t.query(api.notifications.listNotifications, {});
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
     expect(page[0]?.link).toBe(`/circles/${circleRef}/transactions/${txnRef}`);
   });
 
@@ -365,7 +476,7 @@ describe("notification link resolution", () => {
       });
     });
 
-    const page = await t.query(api.notifications.listNotifications, {});
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
     expect(page[0]?.link).toBeUndefined();
   });
 
@@ -386,7 +497,7 @@ describe("notification link resolution", () => {
       });
     });
 
-    const page = await t.query(api.notifications.listNotifications, {});
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
     const byTitle = Object.fromEntries(page.map((n) => [n.title, n.link]));
     expect(byTitle["Bad link"]).toBeUndefined();
     expect(byTitle["No link"]).toBeUndefined();

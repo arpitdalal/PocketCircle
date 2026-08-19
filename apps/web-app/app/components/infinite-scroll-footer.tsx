@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { type RefObject, useRef } from "react";
 import type { PaginationStatus } from "~/lib/data.js";
 import { useInfiniteScroll } from "~/lib/use-infinite-scroll.js";
 import { cn } from "~/lib/utils.js";
@@ -16,15 +16,18 @@ export function InfiniteScrollFooter({
   loadingCopy,
   listAriaLabel,
   sentinelTestId,
+  rootRef,
 }: {
   status: PaginationStatus;
   loadMore: () => void;
   loadingCopy: string;
   listAriaLabel: string;
   sentinelTestId: string;
+  /** Scroll container for the observer. Omit to use the viewport (Categories/Transactions). */
+  rootRef?: RefObject<HTMLElement | null>;
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
-  useInfiniteScroll(sentinelRef, status, loadMore);
+  useInfiniteScroll(sentinelRef, status, loadMore, rootRef ? { rootRef } : undefined);
 
   return (
     <>
