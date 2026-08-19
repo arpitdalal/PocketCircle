@@ -7,7 +7,7 @@ import {
   isSensitiveOutgoingPropertyKey,
   sanitizeAnalyticsProps,
 } from "./analytics-events.js";
-import { POSTHOG_HOST, POSTHOG_KEY } from "./env.js";
+import { posthogHost, posthogKey } from "./env.js";
 import type { SessionUser } from "./session.js";
 
 const isBrowser = typeof window !== "undefined";
@@ -66,7 +66,8 @@ function cookieNames() {
 }
 
 function clearRetiredPostHogBrowserStorage() {
-  if (!POSTHOG_KEY || !isBrowser) {
+  const key = posthogKey();
+  if (!key || !isBrowser) {
     return;
   }
   try {
@@ -74,15 +75,15 @@ function clearRetiredPostHogBrowserStorage() {
       if (!storage) {
         continue;
       }
-      for (const key of retiredPostHogStorageKeys(storageKeys(storage), POSTHOG_KEY)) {
-        storage.removeItem(key);
+      for (const keyName of retiredPostHogStorageKeys(storageKeys(storage), key)) {
+        storage.removeItem(keyName);
       }
     }
   } catch {
     // Storage may be blocked or unavailable.
   }
   try {
-    for (const name of retiredPostHogStorageKeys(cookieNames(), POSTHOG_KEY)) {
+    for (const name of retiredPostHogStorageKeys(cookieNames(), key)) {
       // biome-ignore lint/suspicious/noDocumentCookie: expire leftover PostHog cookies the old persistence wrote
       document.cookie = `${name}=; Max-Age=0; path=/`;
     }
@@ -136,7 +137,7 @@ function applyCaptureEnabled(enabled: boolean) {
 
 export function buildPostHogInitOptions() {
   return {
-    api_host: POSTHOG_HOST,
+    api_host: posthogHost(),
     disable_session_recording: true,
     autocapture: false,
     capture_pageview: false,
@@ -152,7 +153,8 @@ export function buildPostHogInitOptions() {
 }
 
 export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">) {
-  if (!POSTHOG_KEY || !isBrowser) {
+  const key = posthogKey();
+  if (!key || !isBrowser) {
     return;
   }
 
@@ -176,7 +178,7 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
   }
 
   if (!clientInitialized) {
-    posthog.init(POSTHOG_KEY, buildPostHogInitOptions());
+    posthog.init(key, buildPostHogInitOptions());
     posthog.stopSessionRecording();
     clientInitialized = true;
   }
@@ -186,7 +188,7 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
 }
 
 export function setAnalyticsEnabled(enabled: boolean) {
-  if (!POSTHOG_KEY || !isBrowser) {
+  if (!posthogKey() || !isBrowser) {
     return;
   }
   pendingEnabled = enabled;
@@ -195,7 +197,7 @@ export function setAnalyticsEnabled(enabled: boolean) {
 
 /** Restore capture from the persisted preference without keeping the optimistic override. */
 export function revertPendingAnalyticsEnabled(enabled: boolean) {
-  if (!POSTHOG_KEY || !isBrowser) {
+  if (!posthogKey() || !isBrowser) {
     return;
   }
   pendingEnabled = null;
@@ -203,7 +205,7 @@ export function revertPendingAnalyticsEnabled(enabled: boolean) {
 }
 
 export function teardownAnalytics() {
-  if (!POSTHOG_KEY || !isBrowser) {
+  if (!posthogKey() || !isBrowser) {
     return;
   }
   stopCaptureAndResetIdentity();
@@ -214,7 +216,7 @@ export function teardownAnalytics() {
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {
-  if (!POSTHOG_KEY || !isBrowser || !clientInitialized || !captureEnabled) {
+  if (!posthogKey() || !isBrowser || !clientInitialized || !captureEnabled) {
     return;
   }
   if (!isAnalyticsEvent(event)) {

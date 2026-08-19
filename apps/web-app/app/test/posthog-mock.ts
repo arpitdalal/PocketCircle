@@ -13,8 +13,8 @@ export const posthogModuleMock = {
   default: posthogSdk,
 };
 
-export const posthogEnv = {
-  POSTHOG_KEY: "phc_test" as string | undefined,
+export const posthogEnv: { POSTHOG_KEY: string | undefined; POSTHOG_HOST: string } = {
+  POSTHOG_KEY: "phc_test",
   POSTHOG_HOST: "https://us.i.posthog.com",
 };
 
@@ -22,10 +22,10 @@ export async function createPosthogEnvMock(importOriginal: <T>() => Promise<T>) 
   const actual = await importOriginal<typeof import("../lib/env.js")>();
   return {
     ...actual,
-    get POSTHOG_KEY() {
+    posthogKey() {
       return posthogEnv.POSTHOG_KEY;
     },
-    get POSTHOG_HOST() {
+    posthogHost() {
       return posthogEnv.POSTHOG_HOST;
     },
   };

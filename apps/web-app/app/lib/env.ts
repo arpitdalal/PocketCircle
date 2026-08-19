@@ -24,9 +24,19 @@ function optionalEnvString(value: string | undefined) {
 /** Sentry DSN for client error monitoring (ADR 0012). Unset locally → init no-ops. */
 export const SENTRY_DSN = optionalEnvString(import.meta.env.VITE_SENTRY_DSN);
 
-/** PostHog project key (ADR 0013). Unset locally → product analytics no-op. */
-export const POSTHOG_KEY = optionalEnvString(import.meta.env.VITE_POSTHOG_KEY);
+/**
+ * PostHog key/host are read at call time (bracket access so Vite does not freeze
+ * them at transform). Optional vendor config: unset → analytics no-op. Tests stub
+ * `VITE_POSTHOG_*` instead of mocking this module (ADR 0006).
+ */
+export function posthogKey() {
+  // Bracket access: Vite statically replaces `import.meta.env.VITE_*` at transform
+  // time, which would freeze an empty key in tests. ADR 0006: stub env, don't mock this module.
+  // biome-ignore lint/complexity/useLiteralKeys: must not be a static VITE_ property access
+  return optionalEnvString(import.meta.env["VITE_POSTHOG_KEY"]);
+}
 
-/** PostHog ingest host. Defaults to PostHog cloud when unset. */
-export const POSTHOG_HOST =
-  optionalEnvString(import.meta.env.VITE_POSTHOG_HOST) ?? "https://us.i.posthog.com";
+export function posthogHost() {
+  // biome-ignore lint/complexity/useLiteralKeys: must not be a static VITE_ property access
+  return optionalEnvString(import.meta.env["VITE_POSTHOG_HOST"]) ?? "https://us.i.posthog.com";
+}
