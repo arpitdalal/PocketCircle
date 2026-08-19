@@ -24,6 +24,11 @@ export default defineConfig({
     // (ERR_CONNECTION_REFUSED). Pinning the host to 127.0.0.1 matches SITE_URL.
     host: "127.0.0.1",
     port: 5173,
+    // CHANGELOG.md lives at the monorepo root (same as envDir). Vite's workspace
+    // root detection is not always enough for `?raw` in tests and the dev server.
+    fs: {
+      allow: ["../.."],
+    },
   },
   optimizeDeps: {
     // React Router's SPA entry is a virtual module the dep scanner can't crawl

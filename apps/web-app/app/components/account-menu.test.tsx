@@ -52,7 +52,22 @@ describe("AccountMenu", () => {
     expect(await screen.findByText("settings-screen")).toBeInTheDocument();
   });
 
-  it("orders Settings, Send feedback, then Sign out when install is unavailable", async () => {
+  it("navigates What's new to /whats-new", async () => {
+    const u = userEvent.setup();
+    const view = renderRoutes(
+      <>
+        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
+        <Route path="/whats-new" element={<div>whats-new-screen</div>} />
+      </>,
+      { initialEntries: ["/"] },
+    );
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: "What's new" }));
+    expect(view.location()).toBe("/whats-new");
+    expect(await screen.findByText("whats-new-screen")).toBeInTheDocument();
+  });
+
+  it("orders Settings, What's new, Send feedback, then Sign out when install is unavailable", async () => {
     const u = userEvent.setup();
     renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
       initialEntries: ["/"],
@@ -60,6 +75,7 @@ describe("AccountMenu", () => {
     await openAccountMenu(u);
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
+      "What's new",
       "Send feedback",
       "Sign out",
     ]);

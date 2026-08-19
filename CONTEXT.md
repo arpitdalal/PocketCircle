@@ -256,6 +256,10 @@ _Avoid_: Support Ticket
 The released app version and build identifier shown in Settings and included in **Feedback** when available.
 _Avoid_: Release Notes
 
+**What's New**:
+The in-app formatted changelog page for released versions. Distinct from **App Version** and from Feature Announcements.
+_Avoid_: Release Notes, Changelog popup
+
 ## Example Dialogue
 
 **Product**: "A person creates a Circle and invites the people they budget with."

@@ -19,6 +19,11 @@ export default defineProject({
   resolve: {
     tsconfigPaths: true,
   },
+  server: {
+    fs: {
+      allow: ["../.."],
+    },
+  },
   test: {
     name: "web-app",
     environment: "jsdom",

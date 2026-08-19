@@ -24,9 +24,15 @@ function optionalEnvString(value: string | undefined) {
 /** Sentry DSN for client error monitoring (ADR 0012). Unset locally → init no-ops. */
 export const SENTRY_DSN = optionalEnvString(import.meta.env.VITE_SENTRY_DSN);
 
-/** PostHog project key (ADR 0013). Unset locally → product analytics no-op. */
-export const POSTHOG_KEY = optionalEnvString(import.meta.env.VITE_POSTHOG_KEY);
+/**
+ * PostHog key/host are read at call time so tests can `vi.stubEnv` without
+ * mocking this module (ADR 0006). Static `import.meta.env.VITE_*` access lets
+ * Vite inline the values in production. Unset → analytics no-op.
+ */
+export function posthogKey() {
+  return optionalEnvString(import.meta.env.VITE_POSTHOG_KEY);
+}
 
-/** PostHog ingest host. Defaults to PostHog cloud when unset. */
-export const POSTHOG_HOST =
-  optionalEnvString(import.meta.env.VITE_POSTHOG_HOST) ?? "https://us.i.posthog.com";
+export function posthogHost() {
+  return optionalEnvString(import.meta.env.VITE_POSTHOG_HOST) ?? "https://us.i.posthog.com";
+}

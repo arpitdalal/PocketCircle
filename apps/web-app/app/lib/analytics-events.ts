@@ -89,6 +89,7 @@ export type AnalyticsEventMap = {
   feedback_submitted: { type: AnalyticsFeedbackType };
   activation_checklist_skipped: { completedCount: number };
   activation_checklist_completed: Record<string, never>;
+  whats_new_opened: { latestVersion: string };
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -121,6 +122,7 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   feedback_submitted: new Set(["type"]),
   activation_checklist_skipped: new Set(["completedCount"]),
   activation_checklist_completed: new Set(),
+  whats_new_opened: new Set(["latestVersion"]),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,6 +187,12 @@ function isActivationCompletedCount(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3;
 }
 
+const RELEASED_CHANGELOG_VERSION = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+function isReleasedChangelogVersion(value: unknown) {
+  return typeof value === "string" && RELEASED_CHANGELOG_VERSION.test(value);
+}
+
 function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
   if (value === undefined) {
     return false;
@@ -230,6 +238,8 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
       return key === "completedCount" && isActivationCompletedCount(value);
     case "activation_checklist_completed":
       return false;
+    case "whats_new_opened":
+      return key === "latestVersion" && isReleasedChangelogVersion(value);
     default:
       return false;
   }
@@ -335,6 +345,12 @@ function isActivationChecklistCompletedPayload(
   return Object.keys(value).length === 0;
 }
 
+function isWhatsNewOpenedPayload(
+  value: Record<string, unknown>,
+): value is AnalyticsEventMap["whats_new_opened"] {
+  return isReleasedChangelogVersion(value.latestVersion) && Object.keys(value).length === 1;
+}
+
 function toValidatedPayload(
   event: "circle_created",
   sanitized: Record<string, unknown>,
@@ -376,6 +392,10 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["activation_checklist_completed"] | null;
 function toValidatedPayload(
+  event: "whats_new_opened",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["whats_new_opened"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -401,6 +421,8 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
       return isActivationChecklistSkippedPayload(sanitized) ? sanitized : null;
     case "activation_checklist_completed":
       return isActivationChecklistCompletedPayload(sanitized) ? sanitized : null;
+    case "whats_new_opened":
+      return isWhatsNewOpenedPayload(sanitized) ? sanitized : null;
     default:
       return null;
   }

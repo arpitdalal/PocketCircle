@@ -1,14 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 
 import type { CaptureResult } from "posthog-js";
-import { posthogEnv, posthogSdk, resetPostHogBoundary } from "~/test/posthog-boundary.js";
+import {
+  posthogSdk,
+  resetPostHogBoundary,
+  stubPosthogEnvForTests,
+} from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
   initAnalytics,
@@ -35,6 +36,10 @@ function beforeSend(event: CaptureResult) {
   }
   return before_send(event);
 }
+
+beforeEach(() => {
+  stubPosthogEnvForTests();
+});
 
 afterEach(() => {
   window.localStorage.clear();
@@ -68,7 +73,7 @@ describe("buildPostHogInitOptions", () => {
 
 describe("initAnalytics", () => {
   it("no-ops when the PostHog key is missing", () => {
-    posthogEnv.POSTHOG_KEY = undefined;
+    stubPosthogEnvForTests("");
     initAnalytics(readyUser);
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
@@ -387,6 +392,28 @@ describe("track", () => {
     });
     track("activation_checklist_completed", {});
     expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_completed", {});
+  });
+
+  it("captures whats_new_opened with allowlisted latestVersion only", () => {
+    initAnalytics(readyUser);
+
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "v0.2.0" })).toEqual({
+      latestVersion: "v0.2.0",
+    });
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "0.2.0" })).toBeNull();
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "local-dev" })).toBeNull();
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "v01.0.0" })).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("whats_new_opened", {
+        latestVersion: "v0.2.0",
+        ...{ email: "ada@example.com", id: "user-1" },
+      }),
+    ).toEqual({ latestVersion: "v0.2.0" });
+
+    track("whats_new_opened", { latestVersion: "v0.2.0" });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("whats_new_opened", {
+      latestVersion: "v0.2.0",
+    });
   });
 
   it("does not throw when PostHog capture rejects", () => {

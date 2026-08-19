@@ -25,9 +25,6 @@ const auth = vi.hoisted(() => ({
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
-vi.mock("~/lib/env.js", async (importOriginal) =>
-  (await import("~/test/posthog-mock.js")).createPosthogEnvMock(importOriginal),
-);
 vi.mock("@convex-dev/better-auth/client/plugins", () => ({
   convexClient: vi.fn(),
   crossDomainClient: vi.fn(),
@@ -293,14 +290,18 @@ describe("Settings product-analytics preference", () => {
 });
 
 describe("Settings app version", () => {
-  it("renders the build-injected app version", async () => {
+  it("renders the build-injected app version as a link to What's new", async () => {
     configureConvex({
       currentUser: makeCurrentUserView(),
       setAnalyticsEnabled: vi.fn(),
     });
     renderSettings();
 
-    expect(await screen.findByText(`App version ${__APP_VERSION__}`)).toBeInTheDocument();
+    const versionLink = await screen.findByRole("link", {
+      name: `App version ${__APP_VERSION__}`,
+    });
+    expect(versionLink).toHaveTextContent(`App version ${__APP_VERSION__}`);
+    expect(versionLink).toHaveAttribute("href", "/whats-new");
   });
 });
 

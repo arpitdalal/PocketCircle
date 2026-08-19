@@ -30,6 +30,7 @@ export default [
     index("routes/home.tsx"),
     route("onboarding", "routes/onboarding.tsx"),
     route("settings", "routes/settings.tsx"),
+    route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
 
     // Circle-scoped routes. The Circle guard resolves/canonicalizes/guards the

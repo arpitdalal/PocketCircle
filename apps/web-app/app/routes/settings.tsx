@@ -57,7 +57,11 @@ export default function Settings() {
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium text-muted-foreground">About</h2>
-        <p className="text-sm text-muted-foreground">App version {__APP_VERSION__}</p>
+        <p className="text-sm text-muted-foreground">
+          <Link to="/whats-new" className="underline-offset-4 hover:underline">
+            App version {__APP_VERSION__}
+          </Link>
+        </p>
       </section>
 
       <section className="space-y-4">
