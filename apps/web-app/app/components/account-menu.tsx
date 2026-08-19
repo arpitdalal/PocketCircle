@@ -16,7 +16,7 @@ const menuItemClass =
 
 /**
  * Header account control: avatar trigger opens a Base UI `Menu` with identity,
- * Settings, conditional Install PocketCircle (#262), Send feedback, and optional
+ * Settings, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
  * Sign out (ADR 0019 / issue #124). Send feedback is always the global route;
  * Circle-scoped origins only carry `returnTo` so Back can restore them. Circle
  * chrome owns contextual Feedback.
@@ -75,6 +75,13 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               render={<Link to="/settings" prefetch="intent" />}
             >
               Settings
+            </Menu.LinkItem>
+            <Menu.LinkItem
+              className={menuItemClass}
+              closeOnClick
+              render={<Link to="/whats-new" prefetch="intent" />}
+            >
+              What's new
             </Menu.LinkItem>
             {installAvailable ? (
               <Menu.Item className={menuItemClass} closeOnClick onClick={() => install()}>

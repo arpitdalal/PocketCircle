@@ -183,6 +183,7 @@ describe("PWA install via AccountMenu", () => {
     ).not.toBeInTheDocument();
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
+      "What's new",
       "Send feedback",
       "Sign out",
     ]);
@@ -267,7 +268,7 @@ describe("PWA install via AccountMenu", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows Install between Settings and Send feedback while available", async () => {
+  it("shows Install between What's new and Send feedback while available", async () => {
     const u = userEvent.setup();
     renderInstallChrome();
     dispatchBeforeInstallPrompt();
@@ -276,6 +277,7 @@ describe("PWA install via AccountMenu", () => {
     await openAccountMenu(u);
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
+      "What's new",
       "Install PocketCircle",
       "Send feedback",
       "Sign out",

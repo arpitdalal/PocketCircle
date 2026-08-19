@@ -389,6 +389,28 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_completed", {});
   });
 
+  it("captures whats_new_opened with allowlisted latestVersion only", () => {
+    initAnalytics(readyUser);
+
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "v0.2.0" })).toEqual({
+      latestVersion: "v0.2.0",
+    });
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "0.2.0" })).toBeNull();
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "local-dev" })).toBeNull();
+    expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "v01.0.0" })).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("whats_new_opened", {
+        latestVersion: "v0.2.0",
+        ...{ email: "ada@example.com", id: "user-1" },
+      }),
+    ).toEqual({ latestVersion: "v0.2.0" });
+
+    track("whats_new_opened", { latestVersion: "v0.2.0" });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("whats_new_opened", {
+      latestVersion: "v0.2.0",
+    });
+  });
+
   it("does not throw when PostHog capture rejects", () => {
     initAnalytics(readyUser);
     posthogSdk.capture.mockImplementation(() => {
