@@ -27,7 +27,7 @@ export function InfiniteScrollFooter({
   rootRef?: RefObject<HTMLElement | null>;
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
-  useInfiniteScroll(sentinelRef, status, loadMore, rootRef ? { rootRef } : undefined);
+  useInfiniteScroll(sentinelRef, status, loadMore, rootRef);
 
   return (
     <>

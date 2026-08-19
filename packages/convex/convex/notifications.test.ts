@@ -35,8 +35,10 @@ function listArgs(unreadOnly: boolean, size = NOTIFICATION_BATCH_SIZE) {
   return { unreadOnly, ...firstPage(size) };
 }
 
+type TestDbCtx = Parameters<Parameters<ReturnType<typeof convexTest>["run"]>[0]>[0];
+
 async function insertNotification(
-  ctx: Parameters<Parameters<ReturnType<typeof convexTest>["run"]>[0]>[0],
+  ctx: TestDbCtx,
   opts: {
     userId: Id<"users">;
     type?: string;
@@ -56,6 +58,21 @@ async function insertNotification(
     read: opts.read ?? false,
     createdAt: opts.createdAt ?? Date.now(),
   });
+}
+
+async function insertUnreadBatch(
+  ctx: TestDbCtx,
+  userId: Id<"users">,
+  count: number,
+  titlePrefix: string,
+) {
+  for (let i = 0; i < count; i++) {
+    await insertNotification(ctx, {
+      userId,
+      title: `${titlePrefix} ${i}`,
+      createdAt: i,
+    });
+  }
 }
 
 describe("notifications", () => {
@@ -112,13 +129,23 @@ describe("notifications", () => {
       });
       await insertNotification(ctx, {
         userId: f.owner._id,
-        title: "Inserted second",
+        title: "Inserted second (read)",
+        read: true,
+        createdAt: 5000,
+      });
+      await insertNotification(ctx, {
+        userId: f.owner._id,
+        title: "Inserted third",
         createdAt: 1000,
       });
     });
 
-    const unread = await t.query(api.notifications.listNotifications, listArgs(true));
-    expect(unread.page.map((n) => n.title)).toEqual(["Inserted second", "Inserted first"]);
+    const all = await t.query(api.notifications.listNotifications, listArgs(false));
+    expect(all.page.map((n) => n.title)).toEqual([
+      "Inserted third",
+      "Inserted second (read)",
+      "Inserted first",
+    ]);
   });
 
   it("paginates Unread and All at the list page size", async () => {
@@ -225,13 +252,7 @@ describe("notifications", () => {
 
     const totalUnread = MARK_ALL_READ_CHUNK_SIZE + 5;
     await t.run(async (ctx) => {
-      for (let i = 0; i < totalUnread; i++) {
-        await insertNotification(ctx, {
-          userId: f.owner._id,
-          title: `Unread ${i}`,
-          createdAt: i,
-        });
-      }
+      await insertUnreadBatch(ctx, f.owner._id, totalUnread, "Unread");
     });
 
     await mutateAndDrain(t, () => t.mutation(api.notifications.markAllRead, {}));
@@ -254,13 +275,7 @@ describe("notifications", () => {
 
     const totalUnread = MARK_ALL_READ_CHUNK_SIZE + 5;
     await t.run(async (ctx) => {
-      for (let i = 0; i < totalUnread; i++) {
-        await insertNotification(ctx, {
-          userId: f.owner._id,
-          title: `Pre-click ${i}`,
-          createdAt: i,
-        });
-      }
+      await insertUnreadBatch(ctx, f.owner._id, totalUnread, "Pre-click");
       await insertNotification(ctx, {
         userId: member._id,
         title: "Other user unread",

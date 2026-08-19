@@ -23,11 +23,10 @@ export function useInfiniteScroll(
   sentinelRef: RefObject<HTMLElement | null>,
   status: PaginationStatus,
   loadMore: () => void,
-  options?: { rootRef?: RefObject<HTMLElement | null> },
+  rootRef?: RefObject<HTMLElement | null>,
 ) {
   const statusRef = useRef(status);
   const loadMoreRef = useRef(loadMore);
-  const rootRef = options?.rootRef;
 
   useEffect(() => {
     statusRef.current = status;

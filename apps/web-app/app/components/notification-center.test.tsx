@@ -1,5 +1,5 @@
 import { api } from "@pocketcircle/convex";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { Route } from "react-router";
@@ -103,6 +103,35 @@ describe("NotificationCenter", () => {
     expect(screen.getByRole("menuitem", { name: /Already seen/ })).not.toHaveAccessibleName(
       /unread/i,
     );
+    expect(
+      screen.getByRole("menuitem", { name: /Still pending/ }).querySelector(".bg-primary"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: /Already seen/ }).querySelector(".bg-primary"),
+    ).toBeNull();
+  });
+
+  it("keeps All selected after the menu is closed and reopened", async () => {
+    configureConvex({
+      notifications: [...MOCK_NOTIFICATIONS],
+      unreadCount: { count: 1, hasMore: false },
+    });
+    const user = userEvent.setup();
+    renderCenter();
+
+    await openNotifications(user);
+    expect(await screen.findByText("Paid By updated")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("Removed from Circle")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+    });
+    await openNotifications(user);
+
+    expect(await screen.findByText("Removed from Circle")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("marks an unread item read when clicked", async () => {

@@ -47,11 +47,10 @@ function NotificationRow({
   const unread = !notification.read;
   const content = (
     <span className="flex items-start gap-2">
-      {unread ? (
-        <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
-      ) : (
-        <span aria-hidden className="mt-1.5 size-1.5 shrink-0" />
-      )}
+      <span
+        aria-hidden
+        className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", unread && "bg-primary")}
+      />
       <span className="flex min-w-0 flex-col gap-0.5">
         {unread ? <span className="sr-only">Unread{"\u00a0"}</span> : null}
         <span className={unread ? "font-medium text-foreground" : undefined}>
