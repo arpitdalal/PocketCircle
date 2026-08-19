@@ -1,27 +1,53 @@
 import { api } from "@pocketcircle/convex";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
 import { MOCK_NOTIFICATIONS } from "../fixtures.js";
+import type { PaginationStatus } from "./transactions.js";
 
-/** How many unread notifications the center shows and clears per batch. */
+/** How many notifications the center loads per page (initial + each infinite-scroll page). */
 export const NOTIFICATION_BATCH_SIZE = 20;
 
 /**
  * One notification view row, derived from `listNotifications` so the client
  * contract cannot drift from the backend (ADR 0003).
  */
-export type Notification = FunctionReturnType<typeof api.notifications.listNotifications>[number];
+export type Notification = FunctionReturnType<
+  typeof api.notifications.listNotifications
+>["page"][number];
 
 export type UnreadCount = FunctionReturnType<typeof api.notifications.getUnreadCount>;
 
-/** Unread notifications for the current batch (newest first, max {@link NOTIFICATION_BATCH_SIZE}). */
-export function useNotifications() {
-  const live = useQuery(api.notifications.listNotifications, MOCKS ? "skip" : {});
-  if (MOCKS) {
-    return MOCK_NOTIFICATIONS.filter((n) => !n.read);
+export interface PaginatedNotifications {
+  notifications: Notification[];
+  status: PaginationStatus;
+  /** Loads the next page; a no-op unless `status` is "CanLoadMore". */
+  loadMore: () => void;
+}
+
+function mockNotifications(unreadOnly: boolean) {
+  return unreadOnly ? MOCK_NOTIFICATIONS.filter((n) => !n.read) : MOCK_NOTIFICATIONS;
+}
+
+/** Paginated Notification Center list. Skip while the menu is closed (`enabled`). */
+export function useNotifications(unreadOnly: boolean, enabled: boolean): PaginatedNotifications {
+  const paginated = usePaginatedQuery(
+    api.notifications.listNotifications,
+    MOCKS || !enabled ? "skip" : { unreadOnly },
+    { initialNumItems: NOTIFICATION_BATCH_SIZE },
+  );
+  if (MOCKS || !enabled) {
+    return {
+      notifications: MOCKS && enabled ? mockNotifications(unreadOnly) : [],
+      status: "Exhausted",
+      loadMore: () => {},
+    };
   }
-  return live;
+  return {
+    notifications: paginated.results,
+    status: paginated.status,
+    loadMore: () => paginated.loadMore(NOTIFICATION_BATCH_SIZE),
+  };
 }
 
 /** Unread count for the header badge (`99+` when capped). */

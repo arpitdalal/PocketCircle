@@ -1,12 +1,14 @@
 import { api } from "@pocketcircle/convex";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
-import type { Notification, UnreadCount } from "~/lib/data.js";
+import type { Notification, PaginationStatus, UnreadCount } from "~/lib/data.js";
 import type { EntityDouble } from "./contract.js";
 import { testId } from "./ids.js";
 
 export interface NotificationsState {
   notifications?: Notification[];
+  notificationsStatus?: PaginationStatus;
+  notificationsLoadMore?: () => void;
   unreadCount?: UnreadCount;
   markNotificationRead?: Mock;
   markAllRead?: Mock;
@@ -15,6 +17,8 @@ export interface NotificationsState {
 export function notificationsDouble(state: NotificationsState): EntityDouble {
   const {
     notifications = [],
+    notificationsStatus = "Exhausted",
+    notificationsLoadMore = () => {},
     unreadCount = { count: 0, hasMore: false },
     markNotificationRead,
     markAllRead,
@@ -22,7 +26,13 @@ export function notificationsDouble(state: NotificationsState): EntityDouble {
   return {
     queries: {
       [getFunctionName(api.notifications.getUnreadCount)]: () => unreadCount,
-      [getFunctionName(api.notifications.listNotifications)]: () => notifications,
+    },
+    paginatedQueries: {
+      [getFunctionName(api.notifications.listNotifications)]: (args) => ({
+        results: args.unreadOnly === true ? notifications.filter((n) => !n.read) : notifications,
+        status: notificationsStatus,
+        loadMore: notificationsLoadMore,
+      }),
     },
     mutations: {
       [getFunctionName(api.notifications.markNotificationRead)]: markNotificationRead,

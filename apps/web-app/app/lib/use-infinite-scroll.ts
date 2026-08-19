@@ -12,16 +12,18 @@ import type { PaginationStatus } from "~/lib/data.js";
  *    ref writes break under concurrent React. The pin effect must run before the observer effect
  *    so refs are current within any commit.
  * 2. The sentinel only mounts while `status === "CanLoadMore"`, and the observer effect is keyed
- *    on `[status, sentinelRef]` — observer lifetime matches the sentinel; unmount/remount through
+ *    on `[status, sentinelRef, rootRef]` — observer lifetime matches the sentinel; unmount/remount through
  *    `LoadingMore → CanLoadMore` re-arms so consecutive pages load while the user sits at the bottom.
  * 3. Double guard: the callback checks `statusRef.current === "CanLoadMore"`, and the paginated
  *    `loadMore` is a no-op unless `CanLoadMore` (backstop for the race between `loadMore()` and re-render).
- * 4. `rootMargin: "0px 0px 200px 0px"` prefetches the next page before the user hits the exact bottom.
+ * 4. Viewport observers use `rootMargin: "0px 0px 200px 0px"`. A tray `rootRef` uses a smaller
+ *    `48px` bottom margin so prefetch stays inside the dropdown scroller.
  */
 export function useInfiniteScroll(
   sentinelRef: RefObject<HTMLElement | null>,
   status: PaginationStatus,
   loadMore: () => void,
+  rootRef?: RefObject<HTMLElement | null>,
 ) {
   const statusRef = useRef(status);
   const loadMoreRef = useRef(loadMore);
@@ -39,6 +41,10 @@ export function useInfiniteScroll(
     if (!node) {
       return;
     }
+    const root = rootRef?.current ?? null;
+    if (rootRef && !root) {
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -52,9 +58,13 @@ export function useInfiniteScroll(
           return;
         }
       },
-      { root: null, rootMargin: "0px 0px 200px 0px", threshold: 0 },
+      {
+        root,
+        rootMargin: rootRef ? "0px 0px 48px 0px" : "0px 0px 200px 0px",
+        threshold: 0,
+      },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [status, sentinelRef]);
+  }, [status, sentinelRef, rootRef]);
 }

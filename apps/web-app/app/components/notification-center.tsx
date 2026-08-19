@@ -1,9 +1,11 @@
 import { Menu } from "@base-ui/react/menu";
 import { Bell } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
+import { InfiniteScrollFooter } from "~/components/infinite-scroll-footer.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
+import { Segmented } from "~/components/ui/segmented.js";
 import {
   type Notification,
   useMarkAllRead,
@@ -13,6 +15,13 @@ import {
 } from "~/lib/data/notifications.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
 import { cn } from "~/lib/utils.js";
+
+const FILTER_OPTIONS = [
+  { label: "Unread", value: "unread" },
+  { label: "All", value: "all" },
+] as const;
+
+type NotificationFilter = (typeof FILTER_OPTIONS)[number]["value"];
 
 const menuItemClass =
   "flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-3 py-2 text-left text-sm text-foreground outline-none select-none data-disabled:cursor-default data-disabled:opacity-70 data-highlighted:bg-muted/60";
@@ -35,20 +44,28 @@ function NotificationRow({
   onMarkRead: (id: Notification["id"]) => void;
 }) {
   const timestamp = formatAuditTimestamp(notification.createdAt);
+  const unread = !notification.read;
   const content = (
-    <>
-      <span className={cn("font-medium", !notification.read && "text-foreground")}>
-        {notification.title}
+    <span className="flex items-start gap-2">
+      <span
+        aria-hidden
+        className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", unread && "bg-primary")}
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        {unread ? <span className="sr-only">Unread{"\u00a0"}</span> : null}
+        <span className={unread ? "font-medium text-foreground" : undefined}>
+          {notification.title}
+        </span>
+        {notification.body ? (
+          <span className="text-xs text-muted-foreground">{notification.body}</span>
+        ) : null}
+        <span className="text-xs text-muted-foreground">{timestamp}</span>
       </span>
-      {notification.body ? (
-        <span className="text-xs text-muted-foreground">{notification.body}</span>
-      ) : null}
-      <span className="text-xs text-muted-foreground">{timestamp}</span>
-    </>
+    </span>
   );
 
   const handleActivate = () => {
-    if (!notification.read) {
+    if (unread) {
       void onMarkRead(notification.id);
     }
   };
@@ -73,11 +90,15 @@ function NotificationRow({
 }
 
 /**
- * App-wide Notification Center (NTF-1): bell trigger, capped unread badge, and a
- * dropdown list with access-resolved links (text-only when `link` is absent).
+ * App-wide Notification Center: bell trigger, capped unread badge, Unread | All
+ * filter, infinite-scroll tray, and mark-all-read of the click-time unread set.
  */
 export function NotificationCenter() {
-  const notifications = useNotifications() ?? [];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [filter, setFilter] = useState<NotificationFilter>("unread");
+  const listRef = useRef<HTMLUListElement>(null);
+  const unreadOnly = filter === "unread";
+  const { notifications, status, loadMore } = useNotifications(unreadOnly, menuOpen);
   const unread = useUnreadCount();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllRead();
@@ -85,7 +106,8 @@ export function NotificationCenter() {
 
   const unreadCount = unread?.count ?? 0;
   const showBadge = unreadCount > 0 || unread?.hasMore;
-  const showMarkAllRead = notifications.length > 0;
+  const showMarkAllRead = unreadCount > 0 || unread?.hasMore === true;
+  const showEmpty = status !== "LoadingFirstPage" && notifications.length === 0;
 
   const handleMarkRead = async (notificationId: Notification["id"]) => {
     try {
@@ -108,7 +130,7 @@ export function NotificationCenter() {
   };
 
   return (
-    <Menu.Root modal={false}>
+    <Menu.Root modal={false} onOpenChange={setMenuOpen}>
       <Menu.Trigger
         aria-label="Notifications"
         className={cn(
@@ -134,13 +156,20 @@ export function NotificationCenter() {
               "flex max-h-[min(24rem,70dvh)] w-[min(22rem,calc(100vw-2rem))] origin-(--transform-origin) animate-pop-in flex-col rounded-lg border border-border bg-popover text-popover-foreground shadow-xl outline-none",
             )}
           >
-            <div className="border-b border-border px-3 py-2">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
               <p className="text-sm font-medium">Notifications</p>
+              <Segmented
+                compact
+                label="Notification filter"
+                value={filter}
+                options={[...FILTER_OPTIONS]}
+                onChange={setFilter}
+              />
             </div>
-            <ul className="overflow-y-auto py-1">
-              {notifications.length === 0 ? (
+            <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+              {showEmpty ? (
                 <li className="list-none px-3 py-6 text-center text-sm text-muted-foreground">
-                  You're all caught up
+                  {unreadOnly ? "You're all caught up" : "No notifications"}
                 </li>
               ) : (
                 notifications.map((notification) => (
@@ -149,6 +178,16 @@ export function NotificationCenter() {
                   </li>
                 ))
               )}
+              <li className="list-none">
+                <InfiniteScrollFooter
+                  status={status}
+                  loadMore={loadMore}
+                  loadingCopy="Loading more notifications…"
+                  listAriaLabel="Notification list"
+                  sentinelTestId="notifications-infinite-scroll-sentinel"
+                  rootRef={listRef}
+                />
+              </li>
             </ul>
             {showMarkAllRead ? (
               <div className="border-t border-border px-3 py-2">
