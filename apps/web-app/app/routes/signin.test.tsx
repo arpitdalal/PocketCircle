@@ -2,7 +2,6 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import {
   configureConvex,
   convexReactMock,
@@ -10,6 +9,10 @@ import {
   renderRoutes,
   renderWithRouter,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -38,12 +41,12 @@ import SignIn from "./signin.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 describe("SignIn", () => {
@@ -148,7 +151,7 @@ describe("SignIn", () => {
   });
 
   it("shows a masked hint and alternate control when storage has a valid email", () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+    seedLastUsedGoogleEmail("alice@gmail.com");
 
     renderWithRouter(<SignIn />);
 
@@ -158,7 +161,7 @@ describe("SignIn", () => {
   });
 
   it("passes loginHint from storage on primary sign-in", async () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+    seedLastUsedGoogleEmail("alice@gmail.com");
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
     const user = userEvent.setup();
 
@@ -173,7 +176,7 @@ describe("SignIn", () => {
   });
 
   it("omits loginHint when using a different account", async () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+    seedLastUsedGoogleEmail("alice@gmail.com");
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
     const user = userEvent.setup();
 

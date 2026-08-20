@@ -9,6 +9,10 @@ import {
   makeCurrentUserView,
   renderRoutes,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   deleteUser: vi.fn(),
@@ -37,12 +41,12 @@ beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
   auth.deleteUser.mockReset();
   auth.social.mockReset();
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 function renderVerify(token: string | null = "del-token") {
@@ -75,7 +79,7 @@ describe("Delete account verify", () => {
   });
 
   it("passes stored loginHint when signing in to verify deletion", async () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "ada@gmail.com");
+    seedLastUsedGoogleEmail("ada@gmail.com");
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
     const user = userEvent.setup();
     renderVerify("return-token");
@@ -92,7 +96,7 @@ describe("Delete account verify", () => {
     auth.deleteUser.mockResolvedValue({ data: {}, error: null });
     configureConvex({ currentUser: makeCurrentUserView() });
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "ada@gmail.com");
+    seedLastUsedGoogleEmail("ada@gmail.com");
 
     const view = renderVerify("once-token");
 
@@ -139,7 +143,7 @@ describe("Delete account complete", () => {
   });
 
   it("clears last-used Google email on mount", () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "ada@gmail.com");
+    seedLastUsedGoogleEmail("ada@gmail.com");
 
     renderRoutes(<Route path="/delete-account/complete" element={<DeleteAccountComplete />} />, {
       initialEntries: ["/delete-account/complete"],

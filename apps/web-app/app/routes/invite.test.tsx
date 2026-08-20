@@ -5,13 +5,16 @@ import { ConvexError } from "convex/values";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_INVITATION_PREVIEW } from "~/lib/fixtures.js";
-import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import {
   configureConvex,
   convexReactMock,
   makeCurrentUserView,
   renderRoutes,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -39,12 +42,12 @@ const preview = MOCK_INVITATION_PREVIEW;
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  window.localStorage.clear();
+  clearLastUsedGoogleEmailStorage();
 });
 
 function renderInvite(
@@ -166,7 +169,7 @@ describe("Invite landing", () => {
   });
 
   it("does not show last-used hint when storage is seeded", () => {
-    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "other@gmail.com");
+    seedLastUsedGoogleEmail("other@gmail.com");
 
     renderInvite();
 

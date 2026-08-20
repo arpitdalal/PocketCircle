@@ -8,11 +8,11 @@ export function isGoogleAccountEmail(value: string) {
 }
 
 export function maskGoogleAccountEmail(email: string) {
-  const atIndex = email.indexOf("@");
-  if (atIndex <= 0) {
+  if (!isGoogleAccountEmail(email)) {
     return null;
   }
 
+  const atIndex = email.indexOf("@");
   const local = email.slice(0, atIndex).trim();
   const domain = email.slice(atIndex + 1).trim();
   if (!local || !domain) {

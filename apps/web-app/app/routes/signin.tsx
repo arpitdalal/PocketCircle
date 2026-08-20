@@ -1,9 +1,9 @@
 import { LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
-import { signInWithGoogle } from "~/lib/auth-client.js";
+import { type SignInWithGoogleOptions, signInWithGoogle } from "~/lib/auth-client.js";
 import { getLastUsedGoogleEmail, maskGoogleAccountEmail } from "~/lib/last-used-google-email.js";
 import { useAppSession } from "~/lib/session.js";
 
@@ -33,11 +33,15 @@ export default function SignIn() {
 function SignInForm() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const storedEmail = getLastUsedGoogleEmail();
-  const maskedEmail = storedEmail ? maskGoogleAccountEmail(storedEmail) : null;
+  const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
   const showLastUsedHint = maskedEmail !== null;
 
-  const startGoogleSignIn = async (options: { loginHint?: string } = {}) => {
+  useEffect(() => {
+    const stored = getLastUsedGoogleEmail();
+    setMaskedEmail(stored ? maskGoogleAccountEmail(stored) : null);
+  }, []);
+
+  const startGoogleSignIn = async (options: SignInWithGoogleOptions = {}) => {
     if (isSigningIn) {
       return;
     }
@@ -93,7 +97,7 @@ function SignInForm() {
             <button
               type="button"
               disabled={isSigningIn}
-              className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
               onClick={handleDifferentAccountSignIn}
             >
               Use a different account

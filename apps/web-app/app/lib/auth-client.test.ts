@@ -27,9 +27,15 @@ import {
   signInWithGoogle,
   signOut,
 } from "./auth-client.js";
+import {
+  clearLastUsedGoogleEmail,
+  getLastUsedGoogleEmail,
+  setLastUsedGoogleEmail,
+} from "./last-used-google-email.js";
 
 afterEach(() => {
   vi.clearAllMocks();
+  clearLastUsedGoogleEmail();
 });
 
 describe("signInWithGoogle", () => {
@@ -70,6 +76,15 @@ describe("signOut", () => {
 
     await expect(signOut()).resolves.toBeUndefined();
     expect(auth.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear the last-used Google email hint", async () => {
+    setLastUsedGoogleEmail("ada@gmail.com");
+    auth.signOut.mockResolvedValue({ data: { success: true }, error: null });
+
+    await signOut();
+
+    expect(getLastUsedGoogleEmail()).toBe("ada@gmail.com");
   });
 
   // Better Auth surfaces failures as a resolved `{ error }` object, not a rejection;
