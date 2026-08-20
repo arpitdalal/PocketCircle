@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** Repo easing token from `app.css` — strong ease-out for UI transitions. */
 export const EASE_OUT_QUART = "cubic-bezier(0.165, 0.84, 0.44, 1)";
@@ -40,6 +40,12 @@ function readPrefersReducedMotion() {
   return window.matchMedia(REDUCED_MOTION_QUERY).matches;
 }
 
+type ScopeMotionPrev = {
+  scopeKey: string;
+  valueKey: string;
+  armed: boolean;
+};
+
 /**
  * Whether this render should run ADR 0032 motion for a value update.
  *
@@ -49,44 +55,47 @@ function readPrefersReducedMotion() {
  * - `always`: animate every `valueKey` change after mount (Dashboard
  *   current-month totals may refresh from live queries — ADR 0032).
  *
- * Uses adjust-state-during-render (ADR 0025), not a render-time ref mirror.
+ * Derives `animated` from the previous committed keys during render, then syncs
+ * that snapshot in an Effect so the pulse is not lost to adjust-state retries.
  */
 export function useScopeChangeMotion(
   scopeKey: string,
   valueKey: string,
   mode: "scope" | "always" = "scope",
 ) {
-  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- tracked previous scope/value IS read during render to arm one motion frame (ADR 0032); same adjust-state-during-render pattern as useValueChange.
-  const [tracked, setTracked] = useState(() => ({ scopeKey, valueKey, armed: false }));
+  const [prev, setPrev] = useState(
+    () => ({ scopeKey, valueKey, armed: false }) satisfies ScopeMotionPrev,
+  );
 
+  let animated = false;
   if (mode === "always") {
-    if (!Object.is(valueKey, tracked.valueKey) || !Object.is(scopeKey, tracked.scopeKey)) {
-      setTracked({ scopeKey, valueKey, armed: false });
-      return true;
-    }
-    return false;
+    animated = !Object.is(valueKey, prev.valueKey) || !Object.is(scopeKey, prev.scopeKey);
+  } else if (!Object.is(scopeKey, prev.scopeKey)) {
+    animated = !Object.is(valueKey, prev.valueKey);
+  } else if (prev.armed && !Object.is(valueKey, prev.valueKey)) {
+    animated = true;
   }
 
-  if (!Object.is(scopeKey, tracked.scopeKey)) {
-    if (!Object.is(valueKey, tracked.valueKey)) {
-      setTracked({ scopeKey, valueKey, armed: false });
-      return true;
-    }
-    setTracked({ scopeKey, valueKey, armed: true });
-    return false;
-  }
+  useEffect(() => {
+    setPrev((p) => {
+      if (mode === "always") {
+        if (Object.is(scopeKey, p.scopeKey) && Object.is(valueKey, p.valueKey)) return p;
+        return { scopeKey, valueKey, armed: false };
+      }
+      if (!Object.is(scopeKey, p.scopeKey)) {
+        if (!Object.is(valueKey, p.valueKey)) {
+          return { scopeKey, valueKey, armed: false };
+        }
+        return { scopeKey, valueKey, armed: true };
+      }
+      if (!Object.is(valueKey, p.valueKey)) {
+        return { scopeKey, valueKey, armed: false };
+      }
+      return p;
+    });
+  }, [scopeKey, valueKey, mode]);
 
-  if (tracked.armed && !Object.is(valueKey, tracked.valueKey)) {
-    setTracked({ scopeKey, valueKey, armed: false });
-    return true;
-  }
-
-  if (!Object.is(valueKey, tracked.valueKey)) {
-    setTracked({ scopeKey, valueKey, armed: false });
-    return false;
-  }
-
-  return false;
+  return animated;
 }
 
 /** Stable fingerprint for cash-flow chart series (scope-motion value key). */
