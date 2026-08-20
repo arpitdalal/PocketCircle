@@ -44,6 +44,18 @@ describe("signInWithGoogle", () => {
     });
   });
 
+  it("forwards loginHint when provided", async () => {
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+
+    await signInWithGoogle("/after-auth", { loginHint: "a@b.com" });
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/after-auth",
+      loginHint: "a@b.com",
+    });
+  });
+
   it("throws if Better Auth resolves with an error object", async () => {
     const error = { message: "Invalid origin" };
     auth.social.mockResolvedValue({ data: null, error });

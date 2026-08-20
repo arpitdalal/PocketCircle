@@ -1,7 +1,13 @@
+import { useEffect } from "react";
 import { Link } from "react-router";
+import { clearLastUsedGoogleEmail } from "~/lib/last-used-google-email.js";
 
 /** Public confirmation that Account Deletion finished (USR-3). */
 export default function DeleteAccountComplete() {
+  useEffect(() => {
+    clearLastUsedGoogleEmail();
+  }, []);
+
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
       <h1 className="font-display text-2xl font-semibold tracking-tight">Account deleted</h1>

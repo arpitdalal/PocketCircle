@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import {
   configureConvex,
   convexReactMock,
@@ -37,10 +38,12 @@ import SignIn from "./signin.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  window.localStorage.clear();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 describe("SignIn", () => {
@@ -133,5 +136,53 @@ describe("SignIn", () => {
 
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Continue with Google" })).not.toBeInTheDocument();
+  });
+
+  it("shows no hint or alternate control when storage is empty", () => {
+    renderWithRouter(<SignIn />);
+
+    expect(screen.queryByText(/You used/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Use a different account" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a masked hint and alternate control when storage has a valid email", () => {
+    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+
+    renderWithRouter(<SignIn />);
+
+    expect(screen.getByText("a***@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText(/You used/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use a different account" })).toBeInTheDocument();
+  });
+
+  it("passes loginHint from storage on primary sign-in", async () => {
+    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderWithRouter(<SignIn />);
+    await user.click(screen.getByRole("button", { name: "Continue with Google" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/",
+      loginHint: "alice@gmail.com",
+    });
+  });
+
+  it("omits loginHint when using a different account", async () => {
+    window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "alice@gmail.com");
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderWithRouter(<SignIn />);
+    await user.click(screen.getByRole("button", { name: "Use a different account" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/",
+    });
   });
 });

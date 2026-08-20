@@ -4,6 +4,7 @@ import { Link, Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
 import { signInWithGoogle } from "~/lib/auth-client.js";
+import { getLastUsedGoogleEmail, maskGoogleAccountEmail } from "~/lib/last-used-google-email.js";
 import { useAppSession } from "~/lib/session.js";
 
 /**
@@ -32,8 +33,11 @@ export default function SignIn() {
 function SignInForm() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const storedEmail = getLastUsedGoogleEmail();
+  const maskedEmail = storedEmail ? maskGoogleAccountEmail(storedEmail) : null;
+  const showLastUsedHint = maskedEmail !== null;
 
-  const handleGoogleSignIn = async () => {
+  const startGoogleSignIn = async (options: { loginHint?: string } = {}) => {
     if (isSigningIn) {
       return;
     }
@@ -42,12 +46,21 @@ function SignInForm() {
     setIsSigningIn(true);
 
     try {
-      await signInWithGoogle("/");
+      await signInWithGoogle("/", options);
     } catch {
       setError("Couldn't start Google sign-in. Try again.");
     } finally {
       setIsSigningIn(false);
     }
+  };
+
+  const handlePrimarySignIn = () => {
+    const hint = getLastUsedGoogleEmail();
+    void startGoogleSignIn(hint ? { loginHint: hint } : {});
+  };
+
+  const handleDifferentAccountSignIn = () => {
+    void startGoogleSignIn();
   };
 
   return (
@@ -60,16 +73,35 @@ function SignInForm() {
         </div>
       </div>
 
-      <Button
-        size="lg"
-        className="w-full"
-        disabled={isSigningIn}
-        aria-busy={isSigningIn}
-        onClick={() => void handleGoogleSignIn()}
-      >
-        {isSigningIn ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : null}
-        {isSigningIn ? "Signing in..." : "Continue with Google"}
-      </Button>
+      <div className="space-y-3">
+        <Button
+          size="lg"
+          className="w-full"
+          disabled={isSigningIn}
+          aria-busy={isSigningIn}
+          onClick={handlePrimarySignIn}
+        >
+          {isSigningIn ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : null}
+          {isSigningIn ? "Signing in..." : "Continue with Google"}
+        </Button>
+
+        {showLastUsedHint ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              You used <span className="font-medium text-foreground">{maskedEmail}</span> last time.
+            </p>
+            <button
+              type="button"
+              disabled={isSigningIn}
+              className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              onClick={handleDifferentAccountSignIn}
+            >
+              Use a different account
+            </button>
+          </>
+        ) : null}
+      </div>
+
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
