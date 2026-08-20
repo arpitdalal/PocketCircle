@@ -11,6 +11,7 @@ import {
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
+import { MonthScopeTotalsCards } from "~/components/month-scope-totals-cards.js";
 import { LoadingStatus, RowsSkeleton, Skeleton } from "~/components/skeleton.js";
 import {
   canonicalDashboardParams,
@@ -21,7 +22,6 @@ import {
   type CategoryAnalytics,
   type Circle,
   type Dashboard,
-  type DashboardTotals,
   type MonthlyComparison,
   type Transaction,
   useCategoryAnalytics,
@@ -95,7 +95,11 @@ export default function CircleDashboard() {
       />
       <h2 className="font-display text-lg font-semibold tracking-tight">Dashboard</h2>
 
-      <DashboardTotalsCards dashboard={dashboard} fallbackCurrency={circle.currency} />
+      <MonthScopeTotalsCards
+        legend="This month's totals"
+        currency={toCurrencyCode(dashboard?.currency ?? circle.currency)}
+        totals={dashboard?.totals}
+      />
       <MonthlyComparisonSection
         comparison={comparison}
         rangeMonths={selection.range}
@@ -110,58 +114,6 @@ export default function CircleDashboard() {
       />
       <RecentTransactions dashboard={dashboard} circle={circle} />
     </div>
-  );
-}
-
-/**
- * The current month's Income / Expense / Net cards. Totals are minor units summed
- * server-side and formatted ONCE here in the Circle Currency (ADR 0009) — never summed
- * from formatted strings. `dashboard` is `undefined` while loading (placeholders shown)
- * and `null` only for an inaccessible Circle (the guard ejects before this renders);
- * the currency falls back to the Circle's until the Dashboard resolves.
- */
-function DashboardTotalsCards({
-  dashboard,
-  fallbackCurrency,
-}: {
-  dashboard: Dashboard | null | undefined;
-  fallbackCurrency: string;
-}) {
-  const currency = toCurrencyCode(dashboard?.currency ?? fallbackCurrency);
-  const totals: DashboardTotals | undefined = dashboard?.totals;
-  const stats: { label: string; amount: number | undefined; tone: string }[] = [
-    { label: "Income", amount: totals?.incomeMinor, tone: "text-positive" },
-    { label: "Expenses", amount: totals?.expenseMinor, tone: "text-foreground" },
-    {
-      label: "Net",
-      amount: totals?.netMinor,
-      tone: (totals?.netMinor ?? 0) >= 0 ? "text-positive" : "text-destructive",
-    },
-  ];
-
-  return (
-    <fieldset aria-busy={totals === undefined}>
-      <legend className="sr-only">This month's totals</legend>
-      <dl className="grid grid-cols-3 gap-3">
-        {stats.map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <dt className="text-xs text-muted-foreground">{stat.label}</dt>
-            <dd
-              className={cn(
-                "mt-1 font-display text-lg font-semibold tabular-nums sm:text-2xl",
-                stat.tone,
-              )}
-            >
-              {stat.amount === undefined ? (
-                <Skeleton className="mt-1 h-6 w-20" />
-              ) : (
-                formatMoney(money(stat.amount, currency), viewerLocale())
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </fieldset>
   );
 }
 

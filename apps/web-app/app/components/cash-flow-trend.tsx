@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { SCOPE_CHART_ANIMATION_MS, usePrefersReducedMotion } from "~/lib/motion.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -25,8 +26,8 @@ export interface CashFlowSeriesEntry {
  * Reusable accessible Cash Flow Trend chart (GH-273 req 4). Accepts a currency,
  * chronological series, and optional caption. Renders an aria-hidden visual
  * `ComposedChart` (bars for Income/Expense, line for Net) plus a real sr-only
- * data table for screen readers. Animations disabled for reduced motion/no
- * animation (isAnimationActive={false}).
+ * data table for screen readers. Fast scope-change animation (~200ms, ADR 0032);
+ * disabled when the user prefers reduced motion.
  */
 export function CashFlowTrend({
   currency,
@@ -37,6 +38,8 @@ export function CashFlowTrend({
   series: CashFlowSeriesEntry[];
   caption?: string;
 }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const chartAnimationActive = !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
   const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);
@@ -103,14 +106,18 @@ export function CashFlowTrend({
               name="Income"
               fill="var(--positive)"
               radius={[3, 3, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
             <Bar
               dataKey="expenseMinor"
               name="Expense"
               fill="var(--destructive)"
               radius={[3, 3, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
             <Line
               type="monotone"
@@ -119,7 +126,9 @@ export function CashFlowTrend({
               stroke="var(--primary)"
               strokeWidth={2}
               dot={{ r: 3, fill: "var(--primary)" }}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
           </ComposedChart>
         </ResponsiveContainer>

@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { installReducedMotionPreference } from "~/test/match-media.js";
 import { CashFlowTrend } from "./cash-flow-trend.js";
 
 describe("CashFlowTrend", () => {
@@ -36,5 +37,11 @@ describe("CashFlowTrend", () => {
     const { container } = render(<CashFlowTrend currency="USD" series={series} />);
     const chartDiv = container.querySelector("[aria-hidden='true']");
     expect(chartDiv).toBeInTheDocument();
+  });
+
+  it("renders when the user prefers reduced motion", () => {
+    installReducedMotionPreference(true);
+    render(<CashFlowTrend currency="USD" series={series} />);
+    expect(screen.getByRole("table")).toBeInTheDocument();
   });
 });

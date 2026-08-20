@@ -1,8 +1,6 @@
 import {
   addMonths,
-  formatMoney,
   isValidPlainMonth,
-  money,
   type PlainMonth,
   type TransactionType,
   toCurrencyCode,
@@ -10,7 +8,7 @@ import {
 import { SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { Skeleton } from "~/components/skeleton.js";
+import { MonthScopeTotalsCards } from "~/components/month-scope-totals-cards.js";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
@@ -22,14 +20,12 @@ import { track } from "~/lib/analytics.js";
 import { ledgerFilterAnalyticsProps } from "~/lib/analytics-props.js";
 import { circlePath } from "~/lib/circle-path.js";
 import {
-  type MonthlySummary,
   useLedgerFilterOptions,
   useLedgerTransactionFilter,
   useMonthlySummary,
 } from "~/lib/data.js";
 import { formatMonthLabel } from "~/lib/datetime.js";
 import { transactionNewHref, withQuery } from "~/lib/ledger-url.js";
-import { viewerLocale } from "~/lib/locale.js";
 import { historicalMemberStatusDetail } from "~/lib/member-status-label.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import {
@@ -40,7 +36,6 @@ import {
   type LedgerFilters,
   readLedgerFilters,
 } from "~/lib/transaction-filter-url.js";
-import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
 export default function CircleTransactions() {
@@ -206,7 +201,11 @@ export default function CircleTransactions() {
         </Button>
       </div>
 
-      <MonthlyTotals summary={summary} fallbackCurrency={circle.currency} label="Monthly totals" />
+      <MonthScopeTotalsCards
+        legend="Monthly totals"
+        currency={toCurrencyCode(summary?.currency ?? circle.currency)}
+        totals={summary?.totals}
+      />
 
       {!writable ? (
         <p className="rounded-lg border border-border bg-card p-3 shadow-sm text-sm text-muted-foreground">
@@ -421,53 +420,6 @@ function MonthNavigator({
       >
         ›
       </Button>
-    </fieldset>
-  );
-}
-
-function MonthlyTotals({
-  summary,
-  fallbackCurrency,
-  label,
-}: {
-  summary: MonthlySummary | null | undefined;
-  fallbackCurrency: string;
-  label: string;
-}) {
-  const currency = toCurrencyCode(summary?.currency ?? fallbackCurrency);
-  const totals = summary?.totals;
-  const stats = [
-    { label: "Income", amount: totals?.incomeMinor, tone: "text-positive" },
-    { label: "Expenses", amount: totals?.expenseMinor, tone: "text-foreground" },
-    {
-      label: "Net",
-      amount: totals?.netMinor,
-      tone: (totals?.netMinor ?? 0) >= 0 ? "text-positive" : "text-destructive",
-    },
-  ];
-
-  return (
-    <fieldset aria-busy={totals === undefined}>
-      <legend className="sr-only">{label}</legend>
-      <dl className="grid grid-cols-3 gap-3">
-        {stats.map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <dt className="text-xs text-muted-foreground">{stat.label}</dt>
-            <dd
-              className={cn(
-                "mt-1 font-display text-lg font-semibold tabular-nums sm:text-2xl",
-                stat.tone,
-              )}
-            >
-              {stat.amount === undefined ? (
-                <Skeleton className="mt-1 h-6 w-20" />
-              ) : (
-                formatMoney(money(stat.amount, currency), viewerLocale())
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
     </fieldset>
   );
 }

@@ -11,6 +11,7 @@ import { href, Link, useSearchParams } from "react-router";
 import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
 import { CircleMark } from "~/components/circle-mark.js";
+import { HomeCashFlowTotalsCards } from "~/components/home-cash-flow-totals-cards.js";
 import { LoadingStatus, Skeleton } from "~/components/skeleton.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { MultiCombobox } from "~/components/ui/multi-combobox.js";
@@ -158,6 +159,7 @@ function CashFlowSection({
   formatMinor: (minorUnits: number) => string;
 }) {
   const origin = useReturnToOrigin();
+  const currencyCode = toCurrencyCode(summary.selectedCurrency);
 
   return (
     <section aria-labelledby="cash-flow-heading" className="space-y-4">
@@ -194,7 +196,7 @@ function CashFlowSection({
         <ZeroIncludedState currency={summary.selectedCurrency} />
       ) : (
         <>
-          <TotalsCards totals={summary.totals} formatMinor={formatMinor} />
+          <HomeCashFlowTotalsCards currency={currencyCode} totals={summary.totals} />
           <CashFlowTrend
             currency={summary.selectedCurrency}
             series={summary.series}
@@ -265,54 +267,6 @@ function ZeroIncludedState({ currency }: { currency: string }) {
     <div className="rounded-xl border border-border bg-card p-6 text-center">
       <p className="text-sm text-muted-foreground">No circles included in this {currency} scope.</p>
     </div>
-  );
-}
-
-function TotalsCards({
-  totals,
-  formatMinor,
-}: {
-  totals: HomeSummary["totals"];
-  formatMinor: (v: number) => string;
-}) {
-  return (
-    <fieldset>
-      <legend className="sr-only">Cash flow totals</legend>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TotalCard label="Income" amount={formatMinor(totals.incomeMinor)} variant="positive" />
-        <TotalCard
-          label="Expenses"
-          amount={formatMinor(totals.expenseMinor)}
-          variant="destructive"
-        />
-        <TotalCard label="Net cash flow" amount={formatMinor(totals.netMinor)} variant="primary" />
-      </div>
-    </fieldset>
-  );
-}
-
-function TotalCard({
-  label,
-  amount,
-  variant,
-}: {
-  label: string;
-  amount: string;
-  variant: "positive" | "destructive" | "primary";
-}) {
-  const colorClass =
-    variant === "positive"
-      ? "text-positive"
-      : variant === "destructive"
-        ? "text-destructive"
-        : "text-primary";
-  return (
-    <fieldset className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm">
-      <legend className="float-left w-full p-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </legend>
-      <p className={cn("clear-both mt-1 text-lg font-semibold", colorClass)}>{amount}</p>
-    </fieldset>
   );
 }
 
