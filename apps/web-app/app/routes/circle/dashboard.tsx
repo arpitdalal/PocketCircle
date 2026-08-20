@@ -69,7 +69,7 @@ export default function CircleDashboard() {
   }, [selection, searchParams, setSearchParams]);
 
   const dashboard = useDashboard(circle.id, { month });
-  const comparison = useMonthlyComparison(circle.id, {
+  const { comparison, isPending: comparisonPending } = useMonthlyComparison(circle.id, {
     endMonth: month,
     rangeMonths: selection.range,
   });
@@ -88,9 +88,7 @@ export default function CircleDashboard() {
           recent widgets carry only presentational placeholders, so a screen reader
           hears "Loading…" once rather than once per widget (issue #121). */}
       <LoadingStatus
-        loading={
-          dashboard === undefined || comparison === undefined || categoryAnalytics === undefined
-        }
+        loading={dashboard === undefined || comparison === undefined || categoryAnalytics === undefined}
         label="Loading dashboard…"
       />
       <h2 className="font-display text-lg font-semibold tracking-tight">Dashboard</h2>
@@ -102,6 +100,7 @@ export default function CircleDashboard() {
       />
       <MonthlyComparisonSection
         comparison={comparison}
+        comparisonPending={comparisonPending}
         rangeMonths={selection.range}
         onRangeChange={(range) => select({ ...selection, range })}
       />
@@ -132,15 +131,21 @@ export default function CircleDashboard() {
  */
 function MonthlyComparisonSection({
   comparison,
+  comparisonPending,
   rangeMonths,
   onRangeChange,
 }: {
   comparison: MonthlyComparison | null | undefined;
+  comparisonPending: boolean;
   rangeMonths: ComparisonRangeMonths;
   onRangeChange: (rangeMonths: ComparisonRangeMonths) => void;
 }) {
   return (
-    <section className="space-y-3" aria-labelledby="dashboard-comparison-heading">
+    <section
+      className="space-y-3"
+      aria-labelledby="dashboard-comparison-heading"
+      aria-busy={comparisonPending || comparison === undefined}
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 id="dashboard-comparison-heading" className="text-sm font-semibold text-foreground">
           Month-over-month

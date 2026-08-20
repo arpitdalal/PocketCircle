@@ -13,7 +13,7 @@ export type MatchMediaFakeHandle = {
  * `matches` reads and `change` listener subscriptions (used by
  * `usePrefersReducedMotion`'s `useSyncExternalStore` wiring).
  */
-export function installMatchMediaFake(initial: Record<string, boolean>): MatchMediaFakeHandle {
+export function installMatchMediaFake(initial: Record<string, boolean>) {
   const state = { ...initial };
   const listeners = new Map<string, Set<() => void>>();
 
@@ -59,7 +59,7 @@ export function installMatchMediaFake(initial: Record<string, boolean>): MatchMe
 
   return {
     matchMedia,
-    setQueryMatches(query, matches) {
+    setQueryMatches(query: string, matches: boolean) {
       if ((state[query] ?? false) === matches) {
         return;
       }

@@ -1,17 +1,17 @@
 /**
  * Headline totals use NumberFlow (`AnimatedMoney`). Digit strips live in open
  * shadow DOM, so parent `textContent` / `getByText` are not the formatted
- * amount — assert the light-DOM img name instead.
+ * amount — assert the light-DOM `data-money` contract (and its sr-only text).
  */
-type RoleQueries = {
-  getByRole: (role: "img", options: { name: string }) => HTMLElement;
-  queryByRole: (role: "img", options: { name: string }) => HTMLElement | null;
+type MoneyQueries = {
+  getByText: (text: string, options?: { selector?: string }) => HTMLElement;
+  queryByText: (text: string, options?: { selector?: string }) => HTMLElement | null;
 };
 
-export function getHeadlineMoney(scope: RoleQueries, amount: string) {
-  return scope.getByRole("img", { name: amount });
+export function getHeadlineMoney(scope: MoneyQueries, amount: string) {
+  return scope.getByText(amount, { selector: "[data-money]" });
 }
 
-export function queryHeadlineMoney(scope: RoleQueries, amount: string) {
-  return scope.queryByRole("img", { name: amount });
+export function queryHeadlineMoney(scope: MoneyQueries, amount: string) {
+  return scope.queryByText(amount, { selector: "[data-money]" });
 }

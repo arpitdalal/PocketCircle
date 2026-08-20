@@ -599,6 +599,27 @@ describe("Home (URL state)", () => {
     await waitFor(() => expect(view.location()).toBe("/?currency=EUR"));
   });
 
+  it("keeps the pending currency when Range changes before the currency query resolves", async () => {
+    const user = userEvent.setup();
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      homeSummary: (args) => {
+        if (args.currency === "EUR") return undefined;
+        return makeHomeSummaryView({
+          selectedCurrency: "USD",
+          availableCurrencies: ["USD", "EUR"],
+          range: 1,
+          totals: { incomeMinor: 99900, expenseMinor: 100, netMinor: 99800 },
+        });
+      },
+    });
+    const view = setupHome("?currency=USD");
+    await user.click(screen.getByRole("button", { name: "EUR" }));
+    await waitFor(() => expect(view.location()).toBe("/?currency=EUR"));
+    await user.click(screen.getByRole("button", { name: "3 mo" }));
+    await waitFor(() => expect(view.location()).toBe("/?currency=EUR&range=3"));
+  });
+
   it("uses an accessible Currency select past four Currencies", async () => {
     const user = userEvent.setup();
     const currencies = ["AUD", "CAD", "EUR", "GBP", "USD"];

@@ -19,10 +19,13 @@ export function MonthScopeTotalsCards({
   legend,
   currency,
   totals,
+  busy = false,
 }: {
   legend: string;
   currency: CurrencyCode;
   totals: ScopeTotalsMinor | undefined;
+  /** True while a retained previous total is shown across a scope reload (ADR 0032). */
+  busy?: boolean;
 }) {
   const stats = [
     { label: "Income", amount: totals?.incomeMinor, tone: "text-positive" },
@@ -35,7 +38,7 @@ export function MonthScopeTotalsCards({
   ] as const;
 
   return (
-    <fieldset aria-busy={totals === undefined}>
+    <fieldset aria-busy={busy || totals === undefined}>
       <legend className="sr-only">{legend}</legend>
       <NumberFlowGroup>
         <dl className="grid grid-cols-3 gap-3">

@@ -41,15 +41,39 @@ describe("CashFlowTrend", () => {
     expect(chartDiv).toBeInTheDocument();
   });
 
-  it("enables chart animation when reduced motion is off", () => {
+  it("keeps chart animation off on the initial series paint", () => {
     media.reducedMotion(false);
     const { container } = render(<CashFlowTrend currency="USD" series={series} />);
+    expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
+  });
+
+  it("enables chart animation after a later series change when reduced motion is off", () => {
+    media.reducedMotion(false);
+    const { container, rerender } = render(<CashFlowTrend currency="USD" series={series} />);
+    rerender(
+      <CashFlowTrend
+        currency="USD"
+        series={[
+          ...series,
+          { month: "2026-09", incomeMinor: 130000, expenseMinor: 90000, netMinor: 40000 },
+        ]}
+      />,
+    );
     expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
   });
 
   it("disables chart animation when the user prefers reduced motion", () => {
     media.reducedMotion(true);
-    const { container } = render(<CashFlowTrend currency="USD" series={series} />);
+    const { container, rerender } = render(<CashFlowTrend currency="USD" series={series} />);
+    rerender(
+      <CashFlowTrend
+        currency="USD"
+        series={[
+          ...series,
+          { month: "2026-09", incomeMinor: 130000, expenseMinor: 90000, netMinor: 40000 },
+        ]}
+      />,
+    );
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
   });
 });

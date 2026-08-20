@@ -85,7 +85,13 @@ export default function Home() {
 
   const selectRange = (range: HomeRangeMonths) => {
     setSearchParams(
-      canonicalHomeSummaryParams({ currency: summary.selectedCurrency, range }, searchParams),
+      canonicalHomeSummaryParams(
+        {
+          currency: selection.currency ?? summary.selectedCurrency,
+          range,
+        },
+        searchParams,
+      ),
       { replace: false },
     );
   };

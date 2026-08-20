@@ -17,28 +17,32 @@ export function retainDefinedQueryResult<T>(result: T | undefined, previous: T |
  * adjust-state-during-render pattern (not a ref) so the retained value is a
  * render input — required by react-hooks/refs and ADR 0025.
  *
- * Syncs the snapshot only when the loading gap opens/closes (`undefined` ↔
- * defined), not on every defined identity change. Convex (and our test doubles)
- * may allocate a new result object each render while args are unchanged;
- * treating that as a state update would infinite-loop.
+ * - Syncs `retained` whenever a defined result's identity changes (live updates),
+ *   and when leaving the `undefined` gap. Convex keeps referential stability
+ *   until data changes; our test `useQuery` double mirrors that.
+ * - `resetKey` clears the bridge (e.g. `circleId`) so a reused route never shows
+ *   the previous Circle's totals/series under the new chrome.
  */
-export function useRetainedQueryResult<T>(result: T | undefined) {
+export function useRetainedQueryResult<T>(
+  result: T | undefined,
+  options?: { resetKey?: unknown },
+) {
+  const resetKey = options?.resetKey;
   // Box writes in `() => value` so a function-valued T is stored as data.
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- retained previous result IS read during render to bridge Convex arg-change `undefined` (ADR 0032); same adjust-state-during-render pattern as useValueChange.
   const [retained, setRetained] = useState(() => result);
-  const [wasLoading, setWasLoading] = useState(() => result === undefined);
-  const loading = result === undefined;
+  const [prevResetKey, setPrevResetKey] = useState(() => resetKey);
 
-  if (loading !== wasLoading) {
-    setWasLoading(() => loading);
-    if (result !== undefined) {
-      setRetained(() => result);
-    }
+  if (!Object.is(resetKey, prevResetKey)) {
+    setPrevResetKey(() => resetKey);
+    setRetained(() => result);
+  } else if (result !== undefined && !Object.is(result, retained)) {
+    setRetained(() => result);
   }
 
   return {
     value: retainDefinedQueryResult(result, retained),
-    isPending: loading && retained !== undefined,
+    isPending: result === undefined && retained !== undefined,
   };
 }
 
@@ -47,12 +51,14 @@ export function useRetainedQueryResult<T>(result: T | undefined) {
  * next subscription is still loading. Pattern from
  * https://stack.convex.dev/help-my-app-is-overreacting (state, not ref).
  *
- * Still `undefined` on the very first load (no prior result).
+ * Still `undefined` on the very first load (no prior result). Pass `resetKey`
+ * (e.g. Circle id) to drop the bridge when identity should not carry over.
  */
 export function useStableQuery<Query extends FunctionReference<"query">>(
   query: Query,
-  ...args: OptionalRestArgsOrSkip<Query>
+  args: OptionalRestArgsOrSkip<Query>[0],
+  options?: { resetKey?: unknown },
 ) {
-  const result = useQuery(query, ...args);
-  return useRetainedQueryResult(result).value;
+  const result = useQuery(query, args);
+  return useRetainedQueryResult(result, options);
 }

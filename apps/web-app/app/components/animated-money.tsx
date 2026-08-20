@@ -8,9 +8,9 @@ import { EASE_OUT_QUART, SCOPE_MONEY_OPACITY_MS, SCOPE_MONEY_SPIN_MS } from "~/l
  * units; NumberFlow receives major-unit `value` + Intl format options.
  *
  * NumberFlow keeps digit strips in open shadow DOM for spin animation, so parent
- * `textContent` is not the formatted amount. The light-DOM `aria-label` /
- * `data-money` contract (and NumberFlow's own ElementInternals label) is the
- * readable value for AT and tests.
+ * `textContent` is not the formatted amount. A visually-hidden text node carries
+ * the amount for AT; `data-money` is the test/E2E contract. The animated visual
+ * is `aria-hidden` so it is not announced as an image.
  */
 export function AnimatedMoney({
   minorUnits,
@@ -31,18 +31,17 @@ export function AnimatedMoney({
   const formatted = new Intl.NumberFormat(locales, format).format(value);
 
   return (
-    <NumberFlow
-      value={value}
-      locales={locales}
-      format={format}
-      // Light-DOM contract: NumberFlow's digit strips live in open shadow DOM, so
-      // parent textContent is not the amount. Pin role + label for AT/jsdom/E2E.
-      role="img"
-      aria-label={formatted}
-      data-money={formatted}
-      spinTiming={{ duration: SCOPE_MONEY_SPIN_MS, easing: EASE_OUT_QUART }}
-      opacityTiming={{ duration: SCOPE_MONEY_OPACITY_MS, easing: "ease-out" }}
-      respectMotionPreference
-    />
+    <span data-money={formatted}>
+      <span className="sr-only">{formatted}</span>
+      <NumberFlow
+        value={value}
+        locales={locales}
+        format={format}
+        aria-hidden
+        spinTiming={{ duration: SCOPE_MONEY_SPIN_MS, easing: EASE_OUT_QUART }}
+        opacityTiming={{ duration: SCOPE_MONEY_OPACITY_MS, easing: "ease-out" }}
+        respectMotionPreference
+      />
+    </span>
   );
 }

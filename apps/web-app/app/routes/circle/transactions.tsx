@@ -66,7 +66,9 @@ export default function CircleTransactions() {
     filters.month,
     panelOpen ? draft.type : filters.type,
   );
-  const summary = useMonthlySummary(circle.id, filters.month);
+  const summaryView = useMonthlySummary(circle.id, filters.month);
+  const summary = summaryView.summary;
+  const summaryPending = summaryView.isPending;
   // One query owns the list. It serves the unfiltered default (status=all, whole month)
   // as well as any narrowing filters — there is no active-only base-list shortcut, so the
   // default view can include archived rows (distinguished in the row, not hidden).
@@ -205,6 +207,7 @@ export default function CircleTransactions() {
         legend="Monthly totals"
         currency={toCurrencyCode(summary?.currency ?? circle.currency)}
         totals={summary?.totals}
+        busy={summaryPending}
       />
 
       {!writable ? (

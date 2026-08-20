@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { retainDefinedQueryResult, useRetainedQueryResult } from "./use-stable-query.js";
 
@@ -26,24 +26,39 @@ describe("retainDefinedQueryResult", () => {
 });
 
 describe("useRetainedQueryResult", () => {
-  it("keeps the previous value across an undefined gap without looping on new identities", () => {
+  it("keeps the previous value across an undefined gap and tracks live updates", () => {
     type Row = { incomeMinor: number };
     let row: Row | undefined = { incomeMinor: 100 };
     const { result, rerender } = renderHook(() => useRetainedQueryResult(row));
     expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: false });
 
-    // Fresh object each time while defined — must not infinite-loop.
-    row = { incomeMinor: 100 };
+    row = { incomeMinor: 150 };
     rerender();
-    expect(result.current.value).toEqual({ incomeMinor: 100 });
-    expect(result.current.isPending).toBe(false);
+    expect(result.current).toEqual({ value: { incomeMinor: 150 }, isPending: false });
 
     row = undefined;
     rerender();
-    expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: true });
+    expect(result.current).toEqual({ value: { incomeMinor: 150 }, isPending: true });
 
     row = { incomeMinor: 200 };
     rerender();
     expect(result.current).toEqual({ value: { incomeMinor: 200 }, isPending: false });
+  });
+
+  it("clears the retained bridge when resetKey changes", () => {
+    type Row = { incomeMinor: number };
+    let row: Row | undefined = { incomeMinor: 100 };
+    let resetKey = "circle-a";
+    const { result, rerender } = renderHook(() =>
+      useRetainedQueryResult(row, { resetKey }),
+    );
+    expect(result.current.value).toEqual({ incomeMinor: 100 });
+
+    row = undefined;
+    resetKey = "circle-b";
+    act(() => {
+      rerender();
+    });
+    expect(result.current).toEqual({ value: undefined, isPending: false });
   });
 });

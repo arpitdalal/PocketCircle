@@ -1,4 +1,5 @@
 import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
+import { useEffect, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -38,7 +39,22 @@ export function CashFlowTrend({
   caption?: string;
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const chartAnimationActive = !prefersReducedMotion;
+  // First resolved series: no decorative draw-in. Later `series` updates (scope
+  // transitions via useStableQuery) enable the fast Recharts transition (ADR 0032).
+  const isFirstSeriesEffect = useRef(true);
+  const [allowScopeAnimation, setAllowScopeAnimation] = useState(false);
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      setAllowScopeAnimation(false);
+      return;
+    }
+    if (isFirstSeriesEffect.current) {
+      isFirstSeriesEffect.current = false;
+      return;
+    }
+    setAllowScopeAnimation(true);
+  }, [series, prefersReducedMotion]);
+  const chartAnimationActive = allowScopeAnimation && !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
   const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);

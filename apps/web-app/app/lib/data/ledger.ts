@@ -51,9 +51,17 @@ export type MonthlyTotals = MonthlySummary["totals"];
 
 export function useMonthlySummary(circleId: Circle["id"], month: PlainMonth) {
   // Stable across month arg changes so MonthScopeTotalsCards / NumberFlow stay
-  // mounted and can bridge the ledger month change (ADR 0032).
-  const queried = useStableQuery(api.ledger.getMonthlyLedger, MOCKS ? "skip" : { circleId, month });
-  return MOCKS ? MOCK_MONTHLY_SUMMARY : queried;
+  // mounted and can bridge the ledger month change (ADR 0032). Reset on Circle
+  // change so a reused route never bridges another Circle's totals.
+  const retained = useStableQuery(
+    api.ledger.getMonthlyLedger,
+    MOCKS ? "skip" : { circleId, month },
+    { resetKey: circleId },
+  );
+  if (MOCKS) {
+    return { summary: MOCK_MONTHLY_SUMMARY, isPending: false };
+  }
+  return { summary: retained.value, isPending: retained.isPending };
 }
 
 /**
@@ -74,10 +82,11 @@ export function useMonthlyLedger(
   month: PlainMonth,
   options?: { status?: TransactionStatus },
 ) {
-  const queried = useMonthlySummary(circleId, month);
+  const { summary: queried, isPending: summaryPending } = useMonthlySummary(circleId, month);
   const transactions = useTransactions(circleId, month, { status: options?.status ?? "active" });
   return {
     summary: MOCKS ? MOCK_MONTHLY_SUMMARY : queried,
+    summaryPending: MOCKS ? false : summaryPending,
     transactions,
   };
 }

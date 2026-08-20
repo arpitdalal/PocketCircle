@@ -120,13 +120,31 @@ export function configureConvex(state: ConvexState = {}) {
 
   convexReactMock.useConvex.mockImplementation(() => ({ query: convexQuery }));
 
+  // Mirror Convex client referential stability: same args + deep-equal payload ⇒
+  // same object identity. Unstable identities break adjust-state-during-render
+  // retention (infinite setState loops) and don't match production.
+  const queryResultCache = new Map<string, unknown>();
+
   convexReactMock.useQuery.mockImplementation(
     (fn: FunctionReference<"query">, args: Record<string, unknown> | "skip") => {
       if (args === "skip") return undefined;
       const name = getFunctionName(fn);
       const handler = merged.queries[name];
-      if (handler) return handler(args);
-      return undefined;
+      if (!handler) return undefined;
+      const next = handler(args);
+      const key = `${name}:${JSON.stringify(args)}`;
+      if (next === undefined) {
+        queryResultCache.delete(key);
+        return undefined;
+      }
+      if (queryResultCache.has(key)) {
+        const previous = queryResultCache.get(key);
+        if (JSON.stringify(previous) === JSON.stringify(next)) {
+          return previous;
+        }
+      }
+      queryResultCache.set(key, next);
+      return next;
     },
   );
 
