@@ -28,21 +28,22 @@ describe("retainDefinedQueryResult", () => {
 describe("useRetainedQueryResult", () => {
   it("keeps the previous value across an undefined gap without looping on new identities", () => {
     type Row = { incomeMinor: number };
-    type Props = { row: Row | undefined };
-    const { result, rerender } = renderHook(({ row }: Props) => useRetainedQueryResult(row), {
-      initialProps: { row: { incomeMinor: 100 } } satisfies Props,
-    });
+    let row: Row | undefined = { incomeMinor: 100 };
+    const { result, rerender } = renderHook(() => useRetainedQueryResult(row));
     expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: false });
 
     // Fresh object each time while defined — must not infinite-loop.
-    rerender({ row: { incomeMinor: 100 } });
+    row = { incomeMinor: 100 };
+    rerender();
     expect(result.current.value).toEqual({ incomeMinor: 100 });
     expect(result.current.isPending).toBe(false);
 
-    rerender({ row: undefined });
+    row = undefined;
+    rerender();
     expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: true });
 
-    rerender({ row: { incomeMinor: 200 } });
+    row = { incomeMinor: 200 };
+    rerender();
     expect(result.current).toEqual({ value: { incomeMinor: 200 }, isPending: false });
   });
 });
