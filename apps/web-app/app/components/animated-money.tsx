@@ -25,6 +25,7 @@ export function AnimatedMoney({
   currency,
   motionKey,
   motion = "scope",
+  pending = false,
 }: {
   minorUnits: number;
   currency: CurrencyCode;
@@ -32,6 +33,8 @@ export function AnimatedMoney({
   motionKey: string;
   /** `always` = Dashboard live refresh; default `scope` = control-driven only. */
   motion?: "scope" | "always";
+  /** True while retained totals bridge a scope reload (`useStableQuery` / Home). */
+  pending?: boolean;
 }) {
   const { decimals } = getCurrency(currency);
   const value = minorUnits / 10 ** decimals;
@@ -43,7 +46,12 @@ export function AnimatedMoney({
     maximumFractionDigits: decimals,
   };
   const formatted = new Intl.NumberFormat(locales, format).format(value);
-  const animated = useScopeChangeMotion(motionKey, `${currency}:${minorUnits}`, motion);
+  const animated = useScopeChangeMotion(
+    motionKey,
+    `${currency}:${minorUnits}`,
+    motion,
+    pending,
+  );
 
   return (
     <span data-money={formatted}>

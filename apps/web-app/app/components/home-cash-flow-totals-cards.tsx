@@ -30,6 +30,7 @@ export function HomeCashFlowTotalsCards({
             currency={currency}
             variant="positive"
             motionKey={motionKey}
+            pending={busy}
           />
           <HomeCashFlowTotalCard
             label="Expenses"
@@ -37,6 +38,7 @@ export function HomeCashFlowTotalsCards({
             currency={currency}
             variant="destructive"
             motionKey={motionKey}
+            pending={busy}
           />
           <HomeCashFlowTotalCard
             label="Net cash flow"
@@ -44,6 +46,7 @@ export function HomeCashFlowTotalsCards({
             currency={currency}
             variant="primary"
             motionKey={motionKey}
+            pending={busy}
           />
         </div>
       </NumberFlowGroup>
@@ -57,12 +60,14 @@ function HomeCashFlowTotalCard({
   currency,
   variant,
   motionKey,
+  pending,
 }: {
   label: string;
   minorUnits: number;
   currency: CurrencyCode;
   variant: "positive" | "destructive" | "primary";
   motionKey: string;
+  pending: boolean;
 }) {
   const colorClass =
     variant === "positive"
@@ -76,7 +81,12 @@ function HomeCashFlowTotalCard({
         {label}
       </legend>
       <p className={cn("clear-both mt-1 text-lg font-semibold tabular-nums", colorClass)}>
-        <AnimatedMoney minorUnits={minorUnits} currency={currency} motionKey={motionKey} />
+        <AnimatedMoney
+          minorUnits={minorUnits}
+          currency={currency}
+          motionKey={motionKey}
+          pending={pending}
+        />
       </p>
     </fieldset>
   );

@@ -194,6 +194,7 @@ function MonthlyComparisonSection({
           currency={comparison.currency}
           series={comparison.series}
           scopeKey={`comparison:${rangeMonths}`}
+          pending={comparisonPending}
           caption="Month-over-month Income, Expense, and Net"
         />
       )}

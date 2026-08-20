@@ -56,19 +56,24 @@ type ScopeMotionState = {
  * Whether this render should run ADR 0032 motion for a value update.
  *
  * - `scope`: animate only when `valueKey` changes after `scopeKey` changed
- *   (currency/range/month/comparison controls). Live refreshes with the same
+ *   while a retained query is still pending. Live refreshes with the same
  *   scope snap without digit/chart motion.
  * - `always`: animate every `valueKey` change after mount (Dashboard
  *   current-month totals may refresh from live queries — ADR 0032).
  *
- * `animate` stays true until a later transition explicitly clears it (arm-only
- * scope change or non-eligible live update). NumberFlow/Recharts only move when
- * their value props change, so a sticky flag after a pulse is harmless.
+ * Pass `pending` from `useStableQuery` / Home retention so an armed scope is
+ * disarmed when the new query settles with an unchanged fingerprint (e.g. two
+ * empty ledger months) — otherwise the next live update would falsely animate.
+ *
+ * `animate` stays true until a later transition explicitly clears it. NumberFlow
+ * / Recharts only move when their value props change, so a sticky flag after a
+ * pulse is harmless.
  */
 export function useScopeChangeMotion(
   scopeKey: string,
   valueKey: string,
   mode: "scope" | "always" = "scope",
+  pending = false,
 ) {
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- tracked previous scope/value IS read during render to arm one motion frame (ADR 0032); same adjust-state-during-render pattern as useValueChange.
   const [tracked, setTracked] = useState<ScopeMotionState>(() => ({
@@ -85,11 +90,15 @@ export function useScopeChangeMotion(
   } else if (!Object.is(scopeKey, tracked.scopeKey)) {
     if (!Object.is(valueKey, tracked.valueKey)) {
       setTracked({ scopeKey, valueKey, armed: false, animate: true });
-    } else {
+    } else if (pending) {
       setTracked({ scopeKey, valueKey, armed: true, animate: false });
+    } else {
+      setTracked({ scopeKey, valueKey, armed: false, animate: false });
     }
   } else if (tracked.armed && !Object.is(valueKey, tracked.valueKey)) {
     setTracked({ scopeKey, valueKey, armed: false, animate: true });
+  } else if (tracked.armed && !pending) {
+    setTracked({ scopeKey, valueKey, armed: false, animate: false });
   } else if (!Object.is(valueKey, tracked.valueKey)) {
     setTracked({ scopeKey, valueKey, armed: false, animate: false });
   }

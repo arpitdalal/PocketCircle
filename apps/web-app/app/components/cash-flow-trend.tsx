@@ -39,15 +39,23 @@ export function CashFlowTrend({
   series,
   scopeKey,
   caption,
+  pending = false,
 }: {
   currency: string;
   series: CashFlowSeriesEntry[];
   /** Reporting-scope identity (Home currency/range/inclusion, Dashboard range). */
   scopeKey: string;
   caption?: string;
+  /** True while retained series bridges a scope reload (ADR 0032). */
+  pending?: boolean;
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const scopeMotion = useScopeChangeMotion(scopeKey, cashFlowSeriesMotionKey(series));
+  const scopeMotion = useScopeChangeMotion(
+    scopeKey,
+    cashFlowSeriesMotionKey(series),
+    "scope",
+    pending,
+  );
   const chartAnimationActive = scopeMotion && !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();

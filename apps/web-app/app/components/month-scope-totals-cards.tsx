@@ -63,6 +63,7 @@ export function MonthScopeTotalsCards({
                     currency={currency}
                     motionKey={motionKey}
                     motion={motion}
+                    pending={busy}
                   />
                 )}
               </dd>

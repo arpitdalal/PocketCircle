@@ -231,6 +231,7 @@ function CashFlowSection({
             currency={summary.selectedCurrency}
             series={summary.series}
             scopeKey={motionKey}
+            pending={isPending}
             caption={`Cash flow trend for ${summary.selectedCurrency}`}
           />
           {summary.contributions.length > 0 ? (

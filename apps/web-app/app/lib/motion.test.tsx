@@ -39,28 +39,47 @@ describe("usePrefersReducedMotion", () => {
 describe("useScopeChangeMotion", () => {
   it("stays false on mount and on live value updates with the same scope", () => {
     const { result, rerender } = renderHook(
-      ({ scopeKey, valueKey }) => useScopeChangeMotion(scopeKey, valueKey),
-      { initialProps: { scopeKey: "USD:1", valueKey: "100:50:50" } },
+      ({ scopeKey, valueKey, pending }) =>
+        useScopeChangeMotion(scopeKey, valueKey, "scope", pending),
+      { initialProps: { scopeKey: "USD:1", valueKey: "100:50:50", pending: false } },
     );
     expect(result.current).toBe(false);
 
-    rerender({ scopeKey: "USD:1", valueKey: "200:50:150" });
+    rerender({ scopeKey: "USD:1", valueKey: "200:50:150", pending: false });
     expect(result.current).toBe(false);
   });
 
-  it("animates when values arrive after a scope change", () => {
+  it("animates when values arrive after a pending scope change", () => {
     const { result, rerender } = renderHook(
-      ({ scopeKey, valueKey }) => useScopeChangeMotion(scopeKey, valueKey),
-      { initialProps: { scopeKey: "USD:1", valueKey: "100:50:50" } },
+      ({ scopeKey, valueKey, pending }) =>
+        useScopeChangeMotion(scopeKey, valueKey, "scope", pending),
+      { initialProps: { scopeKey: "USD:1", valueKey: "100:50:50", pending: false } },
     );
 
-    rerender({ scopeKey: "EUR:1", valueKey: "100:50:50" });
+    rerender({ scopeKey: "EUR:1", valueKey: "100:50:50", pending: true });
     expect(result.current).toBe(false);
 
-    rerender({ scopeKey: "EUR:1", valueKey: "80:40:40" });
+    rerender({ scopeKey: "EUR:1", valueKey: "80:40:40", pending: false });
     expect(result.current).toBe(true);
 
-    rerender({ scopeKey: "EUR:1", valueKey: "90:40:50" });
+    rerender({ scopeKey: "EUR:1", valueKey: "90:40:50", pending: false });
+    expect(result.current).toBe(false);
+  });
+
+  it("disarms when a pending scope settles with an unchanged fingerprint", () => {
+    const { result, rerender } = renderHook(
+      ({ scopeKey, valueKey, pending }) =>
+        useScopeChangeMotion(scopeKey, valueKey, "scope", pending),
+      { initialProps: { scopeKey: "ledger:2026-01", valueKey: "0:0:0", pending: false } },
+    );
+
+    rerender({ scopeKey: "ledger:2026-02", valueKey: "0:0:0", pending: true });
+    expect(result.current).toBe(false);
+
+    rerender({ scopeKey: "ledger:2026-02", valueKey: "0:0:0", pending: false });
+    expect(result.current).toBe(false);
+
+    rerender({ scopeKey: "ledger:2026-02", valueKey: "10:0:10", pending: false });
     expect(result.current).toBe(false);
   });
 

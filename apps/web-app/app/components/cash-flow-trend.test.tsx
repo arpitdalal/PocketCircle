@@ -76,9 +76,11 @@ describe("CashFlowTrend", () => {
     const { container, rerender } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" />);
+    rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" pending />);
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
-    rerender(<CashFlowTrend currency="USD" scopeKey="range:3" series={series.slice(0, 1)} />);
+    rerender(
+      <CashFlowTrend currency="USD" scopeKey="range:3" series={series.slice(0, 1)} pending={false} />,
+    );
     expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
   });
 
@@ -87,8 +89,10 @@ describe("CashFlowTrend", () => {
     const { container, rerender } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" />);
-    rerender(<CashFlowTrend currency="USD" scopeKey="range:3" series={series.slice(0, 1)} />);
+    rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" pending />);
+    rerender(
+      <CashFlowTrend currency="USD" scopeKey="range:3" series={series.slice(0, 1)} pending={false} />,
+    );
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
   });
 });
