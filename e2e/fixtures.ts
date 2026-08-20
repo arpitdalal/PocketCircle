@@ -537,4 +537,21 @@ export const test = base.extend<object, { workerStorageState: string }>({
   ],
 });
 
+/**
+ * Headline totals use NumberFlow (`AnimatedMoney`). Digit strips live in open
+ * shadow DOM, so parent `toContainText` sees `$0123456789…` — assert the
+ * light-DOM `data-money` contract (accessible amount is `.sr-only` text; we do
+ * not use `role="img"`).
+ *
+ * A scope can contain multiple matching amounts (e.g. empty month → three `$0.00`
+ * cards); presence asserts the first match is visible.
+ */
+export function headlineMoney(scope: Locator, amount: string) {
+  return scope.locator(`[data-money=${JSON.stringify(amount)}]`);
+}
+
+export async function expectHeadlineMoney(scope: Locator, amount: string) {
+  await expect(headlineMoney(scope, amount).first()).toBeVisible();
+}
+
 export { expect };

@@ -6,11 +6,12 @@ import {
   money,
   toCurrencyCode,
 } from "@pocketcircle/domain";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { href, Link, useSearchParams } from "react-router";
 import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
 import { CircleMark } from "~/components/circle-mark.js";
+import { HomeCashFlowTotalsCards } from "~/components/home-cash-flow-totals-cards.js";
 import { LoadingStatus, Skeleton } from "~/components/skeleton.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { MultiCombobox } from "~/components/ui/multi-combobox.js";
@@ -49,15 +50,17 @@ export default function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selection = readHomeSummarySelection(searchParams);
 
-  const summary = useHomeSummary({
+  const { summary, isPending } = useHomeSummary({
     currency: selection.currency,
     range: selection.range,
   });
 
   // Canonicalize URL when backend resolves a different currency/range than requested.
+  // Skip while `isPending` — stable previous summary must not overwrite the user's
+  // in-flight currency/range URL (ADR 0032 + home URL ownership).
   // react-doctor-disable-next-line react-doctor/no-event-handler -- URL canonicalization on backend response
   useEffect(() => {
-    if (!summary) return;
+    if (!summary || isPending) return;
     const effectiveCurrency = summary.selectedCurrency;
     const effectiveRange = summary.range;
     if (effectiveCurrency !== selection.currency || effectiveRange !== selection.range) {
@@ -69,7 +72,7 @@ export default function Home() {
         { replace: true },
       );
     }
-  }, [summary, selection.currency, selection.range, searchParams, setSearchParams]);
+  }, [summary, isPending, selection.currency, selection.range, searchParams, setSearchParams]);
 
   if (circles === undefined || summary === undefined) {
     return <HomeLoading />;
@@ -82,7 +85,13 @@ export default function Home() {
 
   const selectRange = (range: HomeRangeMonths) => {
     setSearchParams(
-      canonicalHomeSummaryParams({ currency: summary.selectedCurrency, range }, searchParams),
+      canonicalHomeSummaryParams(
+        {
+          currency: selection.currency ?? summary.selectedCurrency,
+          range,
+        },
+        searchParams,
+      ),
       { replace: false },
     );
   };
@@ -110,9 +119,12 @@ export default function Home() {
 
       <CashFlowSection
         summary={summary}
+        selectedCurrency={selection.currency ?? summary.selectedCurrency}
+        selectedRange={selection.range ?? summary.range}
         selectRange={selectRange}
         selectCurrency={selectCurrency}
         formatMinor={formatMinor}
+        isPending={isPending}
       />
 
       <YourCirclesSection active={active} archived={archived} />
@@ -148,19 +160,34 @@ function HomeLoading() {
 
 function CashFlowSection({
   summary,
+  selectedCurrency,
+  selectedRange,
   selectRange,
   selectCurrency,
   formatMinor,
+  isPending,
 }: {
   summary: HomeSummary;
+  /** URL-optimistic currency while the next summary loads. */
+  selectedCurrency: string;
+  selectedRange: HomeRangeMonths;
   selectRange: (range: HomeRangeMonths) => void;
   selectCurrency: (currency: string) => void;
   formatMinor: (minorUnits: number) => string;
+  isPending: boolean;
 }) {
   const origin = useReturnToOrigin();
+  const currencyCode = toCurrencyCode(summary.selectedCurrency);
+  const includedIds = summary.circles
+    .filter((circle) => circle.included)
+    .map((circle) => circle.id)
+    .sort()
+    .join(",");
+  const motionKey = `${selectedCurrency}:${selectedRange}:${includedIds}`;
 
   return (
-    <section aria-labelledby="cash-flow-heading" className="space-y-4">
+    <section aria-labelledby="cash-flow-heading" aria-busy={isPending} className="space-y-4">
+      <LoadingStatus loading={isPending} label="Updating cash flow…" />
       <div className="space-y-2">
         <h2 id="cash-flow-heading" className="font-display text-lg font-semibold tracking-tight">
           Cash flow
@@ -168,12 +195,12 @@ function CashFlowSection({
         <div className="flex flex-wrap items-center gap-3">
           <CurrencyControl
             currencies={summary.availableCurrencies}
-            selected={summary.selectedCurrency}
+            selected={selectedCurrency}
             onSelect={selectCurrency}
           />
           <Segmented
             label="Range"
-            value={String(summary.range)}
+            value={String(selectedRange)}
             options={RANGE_OPTIONS.map((o) => ({
               label: o.label,
               value: String(o.value),
@@ -194,10 +221,17 @@ function CashFlowSection({
         <ZeroIncludedState currency={summary.selectedCurrency} />
       ) : (
         <>
-          <TotalsCards totals={summary.totals} formatMinor={formatMinor} />
+          <HomeCashFlowTotalsCards
+            currency={currencyCode}
+            totals={summary.totals}
+            motionKey={motionKey}
+            busy={isPending}
+          />
           <CashFlowTrend
             currency={summary.selectedCurrency}
             series={summary.series}
+            scopeKey={motionKey}
+            pending={isPending}
             caption={`Cash flow trend for ${summary.selectedCurrency}`}
           />
           {summary.contributions.length > 0 ? (
@@ -265,54 +299,6 @@ function ZeroIncludedState({ currency }: { currency: string }) {
     <div className="rounded-xl border border-border bg-card p-6 text-center">
       <p className="text-sm text-muted-foreground">No circles included in this {currency} scope.</p>
     </div>
-  );
-}
-
-function TotalsCards({
-  totals,
-  formatMinor,
-}: {
-  totals: HomeSummary["totals"];
-  formatMinor: (v: number) => string;
-}) {
-  return (
-    <fieldset>
-      <legend className="sr-only">Cash flow totals</legend>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TotalCard label="Income" amount={formatMinor(totals.incomeMinor)} variant="positive" />
-        <TotalCard
-          label="Expenses"
-          amount={formatMinor(totals.expenseMinor)}
-          variant="destructive"
-        />
-        <TotalCard label="Net cash flow" amount={formatMinor(totals.netMinor)} variant="primary" />
-      </div>
-    </fieldset>
-  );
-}
-
-function TotalCard({
-  label,
-  amount,
-  variant,
-}: {
-  label: string;
-  amount: string;
-  variant: "positive" | "destructive" | "primary";
-}) {
-  const colorClass =
-    variant === "positive"
-      ? "text-positive"
-      : variant === "destructive"
-        ? "text-destructive"
-        : "text-primary";
-  return (
-    <fieldset className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm">
-      <legend className="float-left w-full p-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </legend>
-      <p className={cn("clear-both mt-1 text-lg font-semibold", colorClass)}>{amount}</p>
-    </fieldset>
   );
 }
 
@@ -412,20 +398,13 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const pendingRef = useRef(false);
   const queuedRef = useRef<string[] | null>(null);
   const submittedRef = useRef<string[] | null>(null);
-  const options = useMemo(
-    () =>
-      circles.map((circle) => ({
-        value: circle.id,
-        label: circle.name,
-        detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
-      })),
-    [circles],
-  );
-  const queryIncludedIds = useMemo(
-    () => circles.filter((circle) => circle.included).map((circle) => circle.id),
-    [circles],
-  );
-  const circleIds = useMemo(() => new Set(circles.map((circle) => circle.id)), [circles]);
+  const options = circles.map((circle) => ({
+    value: circle.id,
+    label: circle.name,
+    detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
+  }));
+  const queryIncludedIds = circles.filter((circle) => circle.included).map((circle) => circle.id);
+  const circleIds = new Set(circles.map((circle) => circle.id));
   const [optimistic, setOptimistic] = useState<string[] | null>(null);
   const includedIds =
     optimistic?.every((id) => circleIds.has(id)) && !sameIdSet(optimistic, queryIncludedIds)

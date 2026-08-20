@@ -5,6 +5,7 @@
  * `usePwaInstall` or the provider.
  */
 import { vi } from "vitest";
+import { installMatchMediaFake as installMatchMediaQueries } from "./match-media.js";
 
 type NavigatorInstallProps = {
   userAgent?: string;
@@ -20,23 +21,11 @@ const DEFAULT_DESKTOP = {
   maxTouchPoints: 0,
 } as const;
 
+/** Standalone display-mode fake — shared matchMedia helper (ADR 0006). */
 export function installMatchMediaFake(matchesStandalone: boolean) {
-  const matchMedia = vi.fn((query: string) => ({
-    matches: query.includes("display-mode: standalone") ? matchesStandalone : false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }));
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    writable: true,
-    value: matchMedia,
-  });
-  return matchMedia;
+  return installMatchMediaQueries({
+    "(display-mode: standalone)": matchesStandalone,
+  }).matchMedia;
 }
 
 export function setNavigatorInstallProps(props: NavigatorInstallProps = {}) {

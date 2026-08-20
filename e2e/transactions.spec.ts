@@ -5,6 +5,7 @@ import {
   clickCircleChromeTab,
   createCategoryViaForm,
   expect,
+  expectHeadlineMoney,
   inlineCreateFormCategory,
   openPersonalCircleFromHome,
   pickFormCategory,
@@ -148,7 +149,7 @@ test("the monthly ledger totals a month and navigates between months", async ({
   await selectMonth(page, ledger.month);
   await expect(page.getByText(`No transactions in ${ledger.label}.`)).toBeVisible();
   const totals = page.getByRole("group", { name: "Monthly totals" });
-  await expect(totals).toContainText("$0.00");
+  await expectHeadlineMoney(totals, "$0.00");
 
   // Record an expense into the selected month.
   await page.getByRole("link", { name: "Add expense" }).click();
@@ -161,19 +162,19 @@ test("the monthly ledger totals a month and navigates between months", async ({
   // The row appears and the month's totals reflect exactly this one expense: a -$12.50 Net.
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
-  await expect(totals).toContainText("-$12.50");
+  await expectHeadlineMoney(totals, "-$12.50");
 
   // Jump to a far-past month no spec ever writes to: zero totals, empty list (totals are
   // per-month, not global).
   await selectMonth(page, "2000-06");
   await expect(page.getByText("No transactions in June 2000.")).toBeVisible();
   await expect(row).toHaveCount(0);
-  await expect(totals).toContainText("$0.00");
+  await expectHeadlineMoney(totals, "$0.00");
 
   // Navigate back and the expense + its total are there again.
   await selectMonth(page, ledger.month);
   await expect(row).toBeVisible();
-  await expect(totals).toContainText("-$12.50");
+  await expectHeadlineMoney(totals, "-$12.50");
 });
 
 /**

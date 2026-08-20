@@ -219,7 +219,8 @@ describe("CircleTransactions", () => {
       }),
     );
     expect(screen.getByText("Rent payment")).toBeInTheDocument();
-    expect(screen.getAllByText(/\$125\.00/)).toHaveLength(2);
+    // Expense + Net both contain `$125.00`; assert the accessible totals stay put.
+    expect(screen.getAllByText(/\$125\.00/, { selector: ".sr-only" })).toHaveLength(2);
   });
 
   it("applies a category filter from the combobox to the URL", async () => {

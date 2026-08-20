@@ -1,5 +1,4 @@
 import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -13,6 +12,12 @@ import {
 } from "recharts";
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
+import {
+  cashFlowSeriesMotionKey,
+  SCOPE_CHART_ANIMATION_MS,
+  usePrefersReducedMotion,
+  useScopeChangeMotion,
+} from "~/lib/motion.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -25,30 +30,41 @@ export interface CashFlowSeriesEntry {
  * Reusable accessible Cash Flow Trend chart (GH-273 req 4). Accepts a currency,
  * chronological series, and optional caption. Renders an aria-hidden visual
  * `ComposedChart` (bars for Income/Expense, line for Net) plus a real sr-only
- * data table for screen readers. Animations disabled for reduced motion/no
- * animation (isAnimationActive={false}).
+ * data table for screen readers. Fast scope-change animation (~200ms, ADR 0032);
+ * disabled when the user prefers reduced motion. `scopeKey` must change only when
+ * reporting controls change — not on live series refreshes.
  */
 export function CashFlowTrend({
   currency,
   series,
+  scopeKey,
   caption,
+  pending = false,
 }: {
   currency: string;
   series: CashFlowSeriesEntry[];
+  /** Reporting-scope identity (Home currency/range/inclusion, Dashboard range). */
+  scopeKey: string;
   caption?: string;
+  /** True while retained series bridges a scope reload (ADR 0032). */
+  pending?: boolean;
 }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const scopeMotion = useScopeChangeMotion(
+    scopeKey,
+    cashFlowSeriesMotionKey(series),
+    "scope",
+    pending,
+  );
+  const chartAnimationActive = scopeMotion && !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
   const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);
-  const compactTick = useMemo(
-    () =>
-      new Intl.NumberFormat(locale, {
-        style: "currency",
-        currency: currencyCode,
-        notation: "compact",
-      }),
-    [locale, currencyCode],
-  );
+  const compactTick = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: currencyCode,
+    notation: "compact",
+  });
   const formatTick = (minorUnits: number) =>
     compactTick.format(minorUnits / 10 ** getCurrency(currencyCode).decimals);
 
@@ -58,6 +74,7 @@ export function CashFlowTrend({
     <>
       <div
         aria-hidden="true"
+        data-chart-animation-active={String(chartAnimationActive)}
         className="h-72 rounded-xl border border-border bg-card p-3 shadow-sm"
       >
         <ResponsiveContainer
@@ -103,14 +120,18 @@ export function CashFlowTrend({
               name="Income"
               fill="var(--positive)"
               radius={[3, 3, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
             <Bar
               dataKey="expenseMinor"
               name="Expense"
               fill="var(--destructive)"
               radius={[3, 3, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
             <Line
               type="monotone"
@@ -119,7 +140,9 @@ export function CashFlowTrend({
               stroke="var(--primary)"
               strokeWidth={2}
               dot={{ r: 3, fill: "var(--primary)" }}
-              isAnimationActive={false}
+              isAnimationActive={chartAnimationActive}
+              animationDuration={SCOPE_CHART_ANIMATION_MS}
+              animationEasing="ease-out"
             />
           </ComposedChart>
         </ResponsiveContainer>

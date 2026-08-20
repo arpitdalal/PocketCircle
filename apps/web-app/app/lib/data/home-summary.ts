@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
 import { MOCK_CIRCLES } from "../fixtures.js";
+import { useRetainedQueryResult } from "../use-stable-query.js";
 
 /**
  * The Home Summary view contract, derived from the Convex function's return type
@@ -54,10 +55,24 @@ const MOCK_HOME_SUMMARY: HomeSummary = {
   ],
 };
 
+export type HomeSummaryView = {
+  /** Last defined summary — kept across currency/range arg changes (ADR 0032). */
+  summary: HomeSummary | undefined;
+  /**
+   * True while args changed and the live query is still loading. Callers must not
+   * URL-canonicalize from `summary` while pending — that would rewrite the user's
+   * in-flight currency/range selection back to the stale summary.
+   */
+  isPending: boolean;
+};
+
 /**
  * The Home Summary (GH-273): currency-scoped, multi-Circle aggregate with
- * exclusions. `undefined` while loading. Mock mode returns fixtures and skips
- * the backend (ADR 0006).
+ * exclusions. Mock mode returns fixtures and skips the backend (ADR 0006).
+ *
+ * Keeps the previous summary while currency/range args reload so NumberFlow /
+ * Recharts stay mounted (ADR 0032). Exposes `isPending` so URL canonicalization
+ * only runs on a fresh result.
  */
 export function useHomeSummary(options?: { currency?: string; range?: HomeRangeMonths }) {
   const queried = useQuery(
@@ -69,7 +84,12 @@ export function useHomeSummary(options?: { currency?: string; range?: HomeRangeM
           ...(options?.range ? { range: options.range } : {}),
         },
   );
-  return MOCKS ? MOCK_HOME_SUMMARY : queried;
+  const retained = useRetainedQueryResult(queried);
+
+  if (MOCKS) {
+    return { summary: MOCK_HOME_SUMMARY, isPending: false } satisfies HomeSummaryView;
+  }
+  return { summary: retained.value, isPending: retained.isPending } satisfies HomeSummaryView;
 }
 
 /** Exclude a Circle from the Home Summary scope. */

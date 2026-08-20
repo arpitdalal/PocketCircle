@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
 import { MOCK_CATEGORY_ANALYTICS, MOCK_DASHBOARD, mockMonthlyComparison } from "../fixtures.js";
+import { useStableQuery } from "../use-stable-query.js";
 import type { Circle } from "./circles.js";
 
 /**
@@ -61,7 +62,9 @@ export function useMonthlyComparison(
     rangeMonths: ComparisonRangeMonths;
   },
 ) {
-  const queried = useQuery(
+  // Stable across Comparison Range changes so CashFlowTrend stays mounted and
+  // can run the fast Recharts transition (ADR 0032). Reset on Circle change.
+  const retained = useStableQuery(
     api.dashboard.getMonthlyComparison,
     MOCKS
       ? "skip"
@@ -70,8 +73,15 @@ export function useMonthlyComparison(
           endMonth: options.endMonth,
           rangeMonths: options.rangeMonths,
         },
+    { resetKey: circleId },
   );
-  return MOCKS ? mockMonthlyComparison(options.endMonth, options.rangeMonths) : queried;
+  if (MOCKS) {
+    return {
+      comparison: mockMonthlyComparison(options.endMonth, options.rangeMonths),
+      isPending: false,
+    };
+  }
+  return { comparison: retained.value, isPending: retained.isPending };
 }
 
 /**
