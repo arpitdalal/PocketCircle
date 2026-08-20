@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Link, Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
@@ -26,6 +26,11 @@ export default function SignIn() {
   return <SignInForm />;
 }
 
+function readMaskedLastUsedEmail() {
+  const stored = getLastUsedGoogleEmail();
+  return stored ? maskGoogleAccountEmail(stored) : null;
+}
+
 /**
  * Sign-in wrap (ADR 0014): conspicuous copy ties account creation to the Terms
  * and Privacy Policy, with no separate checkbox. Google is the only provider.
@@ -33,13 +38,12 @@ export default function SignIn() {
 function SignInForm() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
+  const maskedEmail = useSyncExternalStore(
+    () => () => {},
+    readMaskedLastUsedEmail,
+    () => null,
+  );
   const showLastUsedHint = maskedEmail !== null;
-
-  useEffect(() => {
-    const stored = getLastUsedGoogleEmail();
-    setMaskedEmail(stored ? maskGoogleAccountEmail(stored) : null);
-  }, []);
 
   const startGoogleSignIn = async (options: SignInWithGoogleOptions = {}) => {
     if (isSigningIn) {
