@@ -46,12 +46,7 @@ export function AnimatedMoney({
     maximumFractionDigits: decimals,
   };
   const formatted = new Intl.NumberFormat(locales, format).format(value);
-  const animated = useScopeChangeMotion(
-    motionKey,
-    `${currency}:${minorUnits}`,
-    motion,
-    pending,
-  );
+  const animated = useScopeChangeMotion(motionKey, `${currency}:${minorUnits}`, motion, pending);
 
   return (
     <span data-money={formatted}>
