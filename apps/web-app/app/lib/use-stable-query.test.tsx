@@ -28,9 +28,10 @@ describe("retainDefinedQueryResult", () => {
 describe("useRetainedQueryResult", () => {
   it("keeps the previous value across an undefined gap without looping on new identities", () => {
     type Row = { incomeMinor: number };
+    const initial: Row | undefined = { incomeMinor: 100 };
     const { result, rerender } = renderHook(
       ({ row }: { row: Row | undefined }) => useRetainedQueryResult(row),
-      { initialProps: { row: { incomeMinor: 100 } as Row | undefined } },
+      { initialProps: { row: initial } },
     );
     expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: false });
 

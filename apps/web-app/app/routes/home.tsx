@@ -6,7 +6,7 @@ import {
   money,
   toCurrencyCode,
 } from "@pocketcircle/domain";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { href, Link, useSearchParams } from "react-router";
 import { ActivationChecklist } from "~/components/activation-checklist.js";
 import { CashFlowTrend } from "~/components/cash-flow-trend.js";
@@ -375,20 +375,13 @@ function CircleScopeField({ circles }: { circles: HomeSummaryCircle[] }) {
   const pendingRef = useRef(false);
   const queuedRef = useRef<string[] | null>(null);
   const submittedRef = useRef<string[] | null>(null);
-  const options = useMemo(
-    () =>
-      circles.map((circle) => ({
-        value: circle.id,
-        label: circle.name,
-        detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
-      })),
-    [circles],
-  );
-  const queryIncludedIds = useMemo(
-    () => circles.filter((circle) => circle.included).map((circle) => circle.id),
-    [circles],
-  );
-  const circleIds = useMemo(() => new Set(circles.map((circle) => circle.id)), [circles]);
+  const options = circles.map((circle) => ({
+    value: circle.id,
+    label: circle.name,
+    detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
+  }));
+  const queryIncludedIds = circles.filter((circle) => circle.included).map((circle) => circle.id);
+  const circleIds = new Set(circles.map((circle) => circle.id));
   const [optimistic, setOptimistic] = useState<string[] | null>(null);
   const includedIds =
     optimistic?.every((id) => circleIds.has(id)) && !sameIdSet(optimistic, queryIncludedIds)

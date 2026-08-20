@@ -1,5 +1,4 @@
 import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -43,15 +42,11 @@ export function CashFlowTrend({
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
   const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);
-  const compactTick = useMemo(
-    () =>
-      new Intl.NumberFormat(locale, {
-        style: "currency",
-        currency: currencyCode,
-        notation: "compact",
-      }),
-    [locale, currencyCode],
-  );
+  const compactTick = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: currencyCode,
+    notation: "compact",
+  });
   const formatTick = (minorUnits: number) =>
     compactTick.format(minorUnits / 10 ** getCurrency(currencyCode).decimals);
 
