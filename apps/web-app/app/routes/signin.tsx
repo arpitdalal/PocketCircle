@@ -4,7 +4,11 @@ import { Link, Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
 import { type SignInWithGoogleOptions, signInWithGoogle } from "~/lib/auth-client.js";
-import { getLastUsedGoogleEmail, maskGoogleAccountEmail } from "~/lib/last-used-google-email.js";
+import {
+  getLastUsedGoogleEmail,
+  getMaskedLastUsedGoogleEmail,
+  subscribeLastUsedGoogleEmail,
+} from "~/lib/last-used-google-email.js";
 import { useAppSession } from "~/lib/session.js";
 
 /**
@@ -26,11 +30,6 @@ export default function SignIn() {
   return <SignInForm />;
 }
 
-function readMaskedLastUsedEmail() {
-  const stored = getLastUsedGoogleEmail();
-  return stored ? maskGoogleAccountEmail(stored) : null;
-}
-
 /**
  * Sign-in wrap (ADR 0014): conspicuous copy ties account creation to the Terms
  * and Privacy Policy, with no separate checkbox. Google is the only provider.
@@ -39,8 +38,8 @@ function SignInForm() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const maskedEmail = useSyncExternalStore(
-    () => () => {},
-    readMaskedLastUsedEmail,
+    subscribeLastUsedGoogleEmail,
+    getMaskedLastUsedGoogleEmail,
     () => null,
   );
   const showLastUsedHint = maskedEmail !== null;

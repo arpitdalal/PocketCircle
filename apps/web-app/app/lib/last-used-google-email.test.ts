@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { simulateCrossTabLastUsedGoogleEmailClear } from "~/test/last-used-google-email.js";
 import {
   clearLastUsedGoogleEmail,
   getLastUsedGoogleEmail,
+  getMaskedLastUsedGoogleEmail,
   LAST_USED_GOOGLE_EMAIL_STORAGE_KEY,
   maskGoogleAccountEmail,
   setLastUsedGoogleEmail,
+  subscribeLastUsedGoogleEmail,
 } from "./last-used-google-email.js";
 
 beforeEach(() => {
@@ -47,5 +50,30 @@ describe("last-used Google email storage", () => {
     window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "bad-value");
     expect(getLastUsedGoogleEmail()).toBeNull();
     expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("subscribeLastUsedGoogleEmail", () => {
+  it("notifies subscribers when storage is cleared in another tab", () => {
+    setLastUsedGoogleEmail("alice@gmail.com");
+    const listener = vi.fn();
+    const unsubscribe = subscribeLastUsedGoogleEmail(listener);
+
+    simulateCrossTabLastUsedGoogleEmailClear("alice@gmail.com");
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(getMaskedLastUsedGoogleEmail()).toBeNull();
+    unsubscribe();
+  });
+
+  it("notifies subscribers on same-tab clear", () => {
+    setLastUsedGoogleEmail("alice@gmail.com");
+    const listener = vi.fn();
+    const unsubscribe = subscribeLastUsedGoogleEmail(listener);
+
+    clearLastUsedGoogleEmail();
+
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
   });
 });

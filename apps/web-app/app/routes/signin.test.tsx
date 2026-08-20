@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
 import {
   clearLastUsedGoogleEmailStorage,
   seedLastUsedGoogleEmail,
+  simulateCrossTabLastUsedGoogleEmailClear,
 } from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
@@ -187,5 +188,21 @@ describe("SignIn", () => {
       provider: "google",
       callbackURL: "/",
     });
+  });
+
+  it("drops the hint when another tab clears last-used storage", async () => {
+    seedLastUsedGoogleEmail("alice@gmail.com");
+
+    renderWithRouter(<SignIn />);
+    expect(screen.getByText("a***@gmail.com")).toBeInTheDocument();
+
+    simulateCrossTabLastUsedGoogleEmailClear("alice@gmail.com");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/You used/i)).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Use a different account" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -9,7 +9,7 @@ Help a returning User remember which **Google Account Email** they used. The tic
 ## PocketCircle baseline
 
 - V1 is Google-only Better Auth (ADR 0002). Identity is Google `sub`; **Google Account Email** stays live-synced and is what Invitation acceptance matches (ADR 0024, glossary).
-- `/signin` is a custom "Continue with Google" button. It calls `authClient.signIn.social({ provider: "google", callbackURL })` with no `login_hint` and no `prompt`. See [`signin.tsx`](../../apps/web-app/app/routes/signin.tsx) and [`auth-client.ts`](../../apps/web-app/app/lib/auth-client.js).
+- `/signin` is a custom "Continue with Google" button. It calls `authClient.signIn.social({ provider: "google", callbackURL })` with no `login_hint` and no `prompt`. See [`signin.tsx`](../../apps/web-app/app/routes/signin.tsx) and [`auth-client.ts`](../../apps/web-app/app/lib/auth-client.ts).
 - Invitation landing already shows the invited address in full and then signs in with the same unhinted Google flow. See [`invite.tsx`](../../apps/web-app/app/routes/invite.tsx).
 - Failed Invitation Link attempts must not reveal whether an email belongs to a User (ADR 0015 / PRD). Unauthenticated lookups of "does this email have an account?" are out.
 - Better Auth is pinned at `1.6.16`. In this version, `signIn.social` accepts **`loginHint`** but not call-time **`additionalParams`** (that lands in a later release). Use provider-level `prompt: "select_account"` in `packages/convex/convex/auth.ts`. [Better Auth Google](https://better-auth.com/docs/authentication/google)

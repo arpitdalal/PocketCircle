@@ -2,6 +2,13 @@
 export const LAST_USED_GOOGLE_EMAIL_STORAGE_KEY = "pocketcircle.lastUsedGoogleEmail";
 
 const GOOGLE_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const sameTabListeners = new Set<() => void>();
+
+function emitLastUsedGoogleEmailChange() {
+  for (const listener of sameTabListeners) {
+    listener();
+  }
+}
 
 export function isGoogleAccountEmail(value: string) {
   return GOOGLE_ACCOUNT_EMAIL_PATTERN.test(value);
@@ -38,12 +45,39 @@ export function getLastUsedGoogleEmail() {
   return stored;
 }
 
+export function getMaskedLastUsedGoogleEmail() {
+  const stored = getLastUsedGoogleEmail();
+  return stored ? maskGoogleAccountEmail(stored) : null;
+}
+
+/** Notifies React subscribers on same-tab writes and cross-tab storage events. */
+export function subscribeLastUsedGoogleEmail(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === LAST_USED_GOOGLE_EMAIL_STORAGE_KEY || event.key === null) {
+      onStoreChange();
+    }
+  };
+
+  window.addEventListener("storage", onStorage);
+  sameTabListeners.add(onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    sameTabListeners.delete(onStoreChange);
+  };
+}
+
 export function setLastUsedGoogleEmail(email: string) {
   if (typeof window === "undefined" || !isGoogleAccountEmail(email)) {
     return;
   }
 
   window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, email);
+  emitLastUsedGoogleEmailChange();
 }
 
 export function clearLastUsedGoogleEmail() {
@@ -52,4 +86,5 @@ export function clearLastUsedGoogleEmail() {
   }
 
   window.localStorage.removeItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY);
+  emitLastUsedGoogleEmailChange();
 }
