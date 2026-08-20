@@ -1,10 +1,11 @@
 import { api } from "@pocketcircle/convex";
 import type { HomeRangeMonths } from "@pocketcircle/domain";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { useRef } from "react";
 import { MOCKS } from "../env.js";
 import { MOCK_CIRCLES } from "../fixtures.js";
-import { useStableQuery } from "../use-stable-query.js";
+import { retainDefinedQueryResult } from "../use-stable-query.js";
 
 /**
  * The Home Summary view contract, derived from the Convex function's return type
@@ -55,17 +56,27 @@ const MOCK_HOME_SUMMARY: HomeSummary = {
   ],
 };
 
+export type HomeSummaryView = {
+  /** Last defined summary — kept across currency/range arg changes (ADR 0032). */
+  summary: HomeSummary | undefined;
+  /**
+   * True while args changed and the live query is still loading. Callers must not
+   * URL-canonicalize from `summary` while pending — that would rewrite the user's
+   * in-flight currency/range selection back to the stale summary.
+   */
+  isPending: boolean;
+};
+
 /**
  * The Home Summary (GH-273): currency-scoped, multi-Circle aggregate with
- * exclusions. `undefined` while loading. Mock mode returns fixtures and skips
- * the backend (ADR 0006).
+ * exclusions. Mock mode returns fixtures and skips the backend (ADR 0006).
  *
- * Uses {@link useStableQuery} so currency/range arg changes keep the previous
- * summary mounted — NumberFlow / Recharts need a continuous tree to bridge the
- * scope change (ADR 0032).
+ * Keeps the previous summary while currency/range args reload so NumberFlow /
+ * Recharts stay mounted (ADR 0032). Exposes `isPending` so URL canonicalization
+ * only runs on a fresh result.
  */
 export function useHomeSummary(options?: { currency?: string; range?: HomeRangeMonths }) {
-  const queried = useStableQuery(
+  const queried = useQuery(
     api.homeSummary.getHomeSummary,
     MOCKS
       ? "skip"
@@ -74,7 +85,14 @@ export function useHomeSummary(options?: { currency?: string; range?: HomeRangeM
           ...(options?.range ? { range: options.range } : {}),
         },
   );
-  return MOCKS ? MOCK_HOME_SUMMARY : queried;
+  const stored = useRef(queried);
+  const isPending = queried === undefined && stored.current !== undefined;
+  stored.current = retainDefinedQueryResult(queried, stored.current);
+
+  if (MOCKS) {
+    return { summary: MOCK_HOME_SUMMARY, isPending: false } satisfies HomeSummaryView;
+  }
+  return { summary: stored.current, isPending } satisfies HomeSummaryView;
 }
 
 /** Exclude a Circle from the Home Summary scope. */

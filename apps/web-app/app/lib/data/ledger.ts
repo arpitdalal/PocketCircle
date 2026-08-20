@@ -52,10 +52,7 @@ export type MonthlyTotals = MonthlySummary["totals"];
 export function useMonthlySummary(circleId: Circle["id"], month: PlainMonth) {
   // Stable across month arg changes so MonthScopeTotalsCards / NumberFlow stay
   // mounted and can bridge the ledger month change (ADR 0032).
-  const queried = useStableQuery(
-    api.ledger.getMonthlyLedger,
-    MOCKS ? "skip" : { circleId, month },
-  );
+  const queried = useStableQuery(api.ledger.getMonthlyLedger, MOCKS ? "skip" : { circleId, month });
   return MOCKS ? MOCK_MONTHLY_SUMMARY : queried;
 }
 

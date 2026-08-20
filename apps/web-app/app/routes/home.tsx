@@ -50,15 +50,17 @@ export default function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selection = readHomeSummarySelection(searchParams);
 
-  const summary = useHomeSummary({
+  const { summary, isPending } = useHomeSummary({
     currency: selection.currency,
     range: selection.range,
   });
 
   // Canonicalize URL when backend resolves a different currency/range than requested.
+  // Skip while `isPending` — stable previous summary must not overwrite the user's
+  // in-flight currency/range URL (ADR 0032 + home URL ownership).
   // react-doctor-disable-next-line react-doctor/no-event-handler -- URL canonicalization on backend response
   useEffect(() => {
-    if (!summary) return;
+    if (!summary || isPending) return;
     const effectiveCurrency = summary.selectedCurrency;
     const effectiveRange = summary.range;
     if (effectiveCurrency !== selection.currency || effectiveRange !== selection.range) {
@@ -70,7 +72,7 @@ export default function Home() {
         { replace: true },
       );
     }
-  }, [summary, selection.currency, selection.range, searchParams, setSearchParams]);
+  }, [summary, isPending, selection.currency, selection.range, searchParams, setSearchParams]);
 
   if (circles === undefined || summary === undefined) {
     return <HomeLoading />;
@@ -111,6 +113,8 @@ export default function Home() {
 
       <CashFlowSection
         summary={summary}
+        selectedCurrency={selection.currency ?? summary.selectedCurrency}
+        selectedRange={selection.range ?? summary.range}
         selectRange={selectRange}
         selectCurrency={selectCurrency}
         formatMinor={formatMinor}
@@ -149,11 +153,16 @@ function HomeLoading() {
 
 function CashFlowSection({
   summary,
+  selectedCurrency,
+  selectedRange,
   selectRange,
   selectCurrency,
   formatMinor,
 }: {
   summary: HomeSummary;
+  /** URL-optimistic currency while the next summary loads. */
+  selectedCurrency: string;
+  selectedRange: HomeRangeMonths;
   selectRange: (range: HomeRangeMonths) => void;
   selectCurrency: (currency: string) => void;
   formatMinor: (minorUnits: number) => string;
@@ -170,12 +179,12 @@ function CashFlowSection({
         <div className="flex flex-wrap items-center gap-3">
           <CurrencyControl
             currencies={summary.availableCurrencies}
-            selected={summary.selectedCurrency}
+            selected={selectedCurrency}
             onSelect={selectCurrency}
           />
           <Segmented
             label="Range"
-            value={String(summary.range)}
+            value={String(selectedRange)}
             options={RANGE_OPTIONS.map((o) => ({
               label: o.label,
               value: String(o.value),

@@ -1,5 +1,5 @@
-import { useQuery, type OptionalRestArgsOrSkip } from "convex/react";
-import type { FunctionReference, FunctionReturnType } from "convex/server";
+import { type OptionalRestArgsOrSkip, useQuery } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import { useRef } from "react";
 
 /**
