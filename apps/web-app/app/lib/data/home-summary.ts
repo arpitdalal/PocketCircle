@@ -2,10 +2,9 @@ import { api } from "@pocketcircle/convex";
 import type { HomeRangeMonths } from "@pocketcircle/domain";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useRef } from "react";
 import { MOCKS } from "../env.js";
 import { MOCK_CIRCLES } from "../fixtures.js";
-import { retainDefinedQueryResult } from "../use-stable-query.js";
+import { useRetainedQueryResult } from "../use-stable-query.js";
 
 /**
  * The Home Summary view contract, derived from the Convex function's return type
@@ -85,14 +84,12 @@ export function useHomeSummary(options?: { currency?: string; range?: HomeRangeM
           ...(options?.range ? { range: options.range } : {}),
         },
   );
-  const stored = useRef(queried);
-  const isPending = queried === undefined && stored.current !== undefined;
-  stored.current = retainDefinedQueryResult(queried, stored.current);
+  const retained = useRetainedQueryResult(queried);
 
   if (MOCKS) {
     return { summary: MOCK_HOME_SUMMARY, isPending: false } satisfies HomeSummaryView;
   }
-  return { summary: stored.current, isPending } satisfies HomeSummaryView;
+  return { summary: retained.value, isPending: retained.isPending } satisfies HomeSummaryView;
 }
 
 /** Exclude a Circle from the Home Summary scope. */

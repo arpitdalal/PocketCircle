@@ -572,6 +572,33 @@ describe("Home (URL state)", () => {
     expect(queryHeadlineMoney(screen, "$999.00")).not.toBeInTheDocument();
   });
 
+  it("does not canonicalize from a stale summary while the next currency is loading", async () => {
+    const user = userEvent.setup();
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      homeSummary: (args) => {
+        // EUR never resolves — models the Convex arg-change `undefined` gap.
+        if (args.currency === "EUR") return undefined;
+        return makeHomeSummaryView({
+          selectedCurrency: "USD",
+          availableCurrencies: ["USD", "EUR"],
+          totals: { incomeMinor: 99900, expenseMinor: 100, netMinor: 99800 },
+        });
+      },
+    });
+    const view = setupHome("?currency=USD");
+    expect(getHeadlineMoney(cashFlowTotals(), "$999.00")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "EUR" }));
+    await waitFor(() => {
+      expect(view.location()).toBe("/?currency=EUR");
+      expect(screen.getByRole("button", { name: "EUR", pressed: true })).toBeInTheDocument();
+    });
+    // Stale USD totals stay mounted; URL must not be rewritten back to USD.
+    expect(getHeadlineMoney(cashFlowTotals(), "$999.00")).toBeInTheDocument();
+    await waitFor(() => expect(view.location()).toBe("/?currency=EUR"));
+  });
+
   it("uses an accessible Currency select past four Currencies", async () => {
     const user = userEvent.setup();
     const currencies = ["AUD", "CAD", "EUR", "GBP", "USD"];
