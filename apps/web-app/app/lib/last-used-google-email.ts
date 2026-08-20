@@ -26,7 +26,16 @@ export function maskGoogleAccountEmail(email: string) {
     return null;
   }
 
-  return `${local[0]}***@${domain}`;
+  let maskedLocal: string;
+  if (local.length <= 2) {
+    maskedLocal = `${local}***`;
+  } else if (local.length === 3) {
+    maskedLocal = `${local.slice(0, 2)}***`;
+  } else {
+    maskedLocal = `${local.slice(0, 2)}***${local.slice(-1)}`;
+  }
+
+  return `${maskedLocal}@${domain}`;
 }
 
 export function getLastUsedGoogleEmail() {

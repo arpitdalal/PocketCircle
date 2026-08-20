@@ -156,7 +156,7 @@ describe("SignIn", () => {
 
     renderWithRouter(<SignIn />);
 
-    expect(screen.getByText("a***@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("al***e@gmail.com")).toBeInTheDocument();
     expect(screen.getByText(/You used/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use a different account" })).toBeInTheDocument();
   });
@@ -194,7 +194,7 @@ describe("SignIn", () => {
     seedLastUsedGoogleEmail("alice@gmail.com");
 
     renderWithRouter(<SignIn />);
-    expect(screen.getByText("a***@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("al***e@gmail.com")).toBeInTheDocument();
 
     simulateCrossTabLastUsedGoogleEmailClear("alice@gmail.com");
 

@@ -20,8 +20,12 @@ afterEach(() => {
 
 describe("maskGoogleAccountEmail", () => {
   it.each([
-    ["alice@gmail.com", "a***@gmail.com"],
-    ["bob@company.co.uk", "b***@company.co.uk"],
+    ["a@gmail.com", "a***@gmail.com"],
+    ["ab@gmail.com", "ab***@gmail.com"],
+    ["abc@gmail.com", "ab***@gmail.com"],
+    ["alice@gmail.com", "al***e@gmail.com"],
+    ["arpitdalalm@gmail.com", "ar***m@gmail.com"],
+    ["bob@company.co.uk", "bo***@company.co.uk"],
   ])("masks %s as %s", (email, masked) => {
     expect(maskGoogleAccountEmail(email)).toBe(masked);
   });
