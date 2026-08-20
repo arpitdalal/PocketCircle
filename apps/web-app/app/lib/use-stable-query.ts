@@ -23,10 +23,7 @@ export function retainDefinedQueryResult<T>(result: T | undefined, previous: T |
  * - `resetKey` clears the bridge (e.g. `circleId`) so a reused route never shows
  *   the previous Circle's totals/series under the new chrome.
  */
-export function useRetainedQueryResult<T>(
-  result: T | undefined,
-  options?: { resetKey?: unknown },
-) {
+export function useRetainedQueryResult<T>(result: T | undefined, options?: { resetKey?: unknown }) {
   const resetKey = options?.resetKey;
   // Box writes in `() => value` so a function-valued T is stored as data.
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- retained previous result IS read during render to bridge Convex arg-change `undefined` (ADR 0032); same adjust-state-during-render pattern as useValueChange.

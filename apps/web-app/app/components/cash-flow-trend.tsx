@@ -1,5 +1,5 @@
 import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -14,6 +14,7 @@ import {
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { SCOPE_CHART_ANIMATION_MS, usePrefersReducedMotion } from "~/lib/motion.js";
+import { useValueChange } from "~/lib/use-value-change.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -39,21 +40,19 @@ export function CashFlowTrend({
   caption?: string;
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  // First resolved series: no decorative draw-in. Later `series` updates (scope
-  // transitions via useStableQuery) enable the fast Recharts transition (ADR 0032).
-  const isFirstSeriesEffect = useRef(true);
+  // First paint: no decorative draw-in. Later series identity changes (scope
+  // transitions) enable the fast Recharts transition (ADR 0032).
   const [allowScopeAnimation, setAllowScopeAnimation] = useState(false);
-  useEffect(() => {
-    if (prefersReducedMotion) {
+  useValueChange(series, () => {
+    if (!prefersReducedMotion) {
+      setAllowScopeAnimation(true);
+    }
+  });
+  useValueChange(prefersReducedMotion, (reduced) => {
+    if (reduced) {
       setAllowScopeAnimation(false);
-      return;
     }
-    if (isFirstSeriesEffect.current) {
-      isFirstSeriesEffect.current = false;
-      return;
-    }
-    setAllowScopeAnimation(true);
-  }, [series, prefersReducedMotion]);
+  });
   const chartAnimationActive = allowScopeAnimation && !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();

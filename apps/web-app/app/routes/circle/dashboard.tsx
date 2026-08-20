@@ -88,7 +88,9 @@ export default function CircleDashboard() {
           recent widgets carry only presentational placeholders, so a screen reader
           hears "Loading…" once rather than once per widget (issue #121). */}
       <LoadingStatus
-        loading={dashboard === undefined || comparison === undefined || categoryAnalytics === undefined}
+        loading={
+          dashboard === undefined || comparison === undefined || categoryAnalytics === undefined
+        }
         label="Loading dashboard…"
       />
       <h2 className="font-display text-lg font-semibold tracking-tight">Dashboard</h2>

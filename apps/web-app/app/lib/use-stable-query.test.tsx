@@ -49,9 +49,7 @@ describe("useRetainedQueryResult", () => {
     type Row = { incomeMinor: number };
     let row: Row | undefined = { incomeMinor: 100 };
     let resetKey = "circle-a";
-    const { result, rerender } = renderHook(() =>
-      useRetainedQueryResult(row, { resetKey }),
-    );
+    const { result, rerender } = renderHook(() => useRetainedQueryResult(row, { resetKey }));
     expect(result.current.value).toEqual({ incomeMinor: 100 });
 
     row = undefined;
