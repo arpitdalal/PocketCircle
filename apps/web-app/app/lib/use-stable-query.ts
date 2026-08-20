@@ -16,17 +16,29 @@ export function retainDefinedQueryResult<T>(result: T | undefined, previous: T |
  * Keeps the last defined query result across arg-change loads. Uses React's
  * adjust-state-during-render pattern (not a ref) so the retained value is a
  * render input — required by react-hooks/refs and ADR 0025.
+ *
+ * Syncs the snapshot only when the loading gap opens/closes (`undefined` ↔
+ * defined), not on every defined identity change. Convex (and our test doubles)
+ * may allocate a new result object each render while args are unchanged;
+ * treating that as a state update would infinite-loop.
  */
 export function useRetainedQueryResult<T>(result: T | undefined) {
   // Box writes in `() => value` so a function-valued T is stored as data.
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- retained previous result IS read during render to bridge Convex arg-change `undefined` (ADR 0032); same adjust-state-during-render pattern as useValueChange.
-  const [previous, setPrevious] = useState(() => result);
-  if (result !== undefined && !Object.is(result, previous)) {
-    setPrevious(() => result);
+  const [retained, setRetained] = useState(() => result);
+  const [wasLoading, setWasLoading] = useState(() => result === undefined);
+  const loading = result === undefined;
+
+  if (loading !== wasLoading) {
+    setWasLoading(() => loading);
+    if (result !== undefined) {
+      setRetained(() => result);
+    }
   }
+
   return {
-    value: retainDefinedQueryResult(result, previous),
-    isPending: result === undefined && previous !== undefined,
+    value: retainDefinedQueryResult(result, retained),
+    isPending: loading && retained !== undefined,
   };
 }
 

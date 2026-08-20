@@ -1,5 +1,6 @@
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { retainDefinedQueryResult } from "./use-stable-query.js";
+import { retainDefinedQueryResult, useRetainedQueryResult } from "./use-stable-query.js";
 
 describe("retainDefinedQueryResult", () => {
   it("returns undefined when there is no prior result and the query is still loading", () => {
@@ -21,5 +22,27 @@ describe("retainDefinedQueryResult", () => {
   it("stores null (inaccessible) rather than treating it as loading", () => {
     expect(retainDefinedQueryResult(null, { incomeMinor: 100 })).toBeNull();
     expect(retainDefinedQueryResult(undefined, null)).toBeNull();
+  });
+});
+
+describe("useRetainedQueryResult", () => {
+  it("keeps the previous value across an undefined gap without looping on new identities", () => {
+    type Row = { incomeMinor: number };
+    const { result, rerender } = renderHook(
+      ({ row }: { row: Row | undefined }) => useRetainedQueryResult(row),
+      { initialProps: { row: { incomeMinor: 100 } as Row | undefined } },
+    );
+    expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: false });
+
+    // Fresh object each time while defined — must not infinite-loop.
+    rerender({ row: { incomeMinor: 100 } });
+    expect(result.current.value).toEqual({ incomeMinor: 100 });
+    expect(result.current.isPending).toBe(false);
+
+    rerender({ row: undefined });
+    expect(result.current).toEqual({ value: { incomeMinor: 100 }, isPending: true });
+
+    rerender({ row: { incomeMinor: 200 } });
+    expect(result.current).toEqual({ value: { incomeMinor: 200 }, isPending: false });
   });
 });
