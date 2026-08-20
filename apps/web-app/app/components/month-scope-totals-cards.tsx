@@ -13,17 +13,21 @@ export type ScopeTotalsMinor = {
 
 /**
  * Three-card Income / Expenses / Net grid for a single month scope (Dashboard,
- * Monthly Ledger). Digits animate together on month change via NumberFlowGroup (ADR 0032).
+ * Monthly Ledger). Digits animate together via NumberFlowGroup (ADR 0032).
  */
 export function MonthScopeTotalsCards({
   legend,
   currency,
   totals,
+  motionKey,
+  motion = "scope",
   busy = false,
 }: {
   legend: string;
   currency: CurrencyCode;
   totals: ScopeTotalsMinor | undefined;
+  motionKey: string;
+  motion?: "scope" | "always";
   /** True while a retained previous total is shown across a scope reload (ADR 0032). */
   busy?: boolean;
 }) {
@@ -54,7 +58,12 @@ export function MonthScopeTotalsCards({
                 {stat.amount === undefined ? (
                   <Skeleton className="mt-1 h-6 w-20" />
                 ) : (
-                  <AnimatedMoney minorUnits={stat.amount} currency={currency} />
+                  <AnimatedMoney
+                    minorUnits={stat.amount}
+                    currency={currency}
+                    motionKey={motionKey}
+                    motion={motion}
+                  />
                 )}
               </dd>
             </div>

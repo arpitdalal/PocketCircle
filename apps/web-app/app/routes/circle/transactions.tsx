@@ -207,6 +207,7 @@ export default function CircleTransactions() {
         legend="Monthly totals"
         currency={toCurrencyCode(summary?.currency ?? circle.currency)}
         totals={summary?.totals}
+        motionKey={`ledger:${filters.month}`}
         busy={summaryPending}
       />
 

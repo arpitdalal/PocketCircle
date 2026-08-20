@@ -22,13 +22,13 @@ vi.mock("@number-flow/react", () => ({
 
 describe("AnimatedMoney", () => {
   it("formats minor units as currency in the viewer locale", () => {
-    render(<AnimatedMoney minorUnits={500_000} currency="USD" />);
+    render(<AnimatedMoney minorUnits={500_000} currency="USD" motionKey="test" />);
     expect(screen.getByText("$5,000.00", { selector: ".sr-only" })).toBeInTheDocument();
     expect(document.querySelector('[data-money="$5,000.00"]')).toBeInTheDocument();
   });
 
   it("formats negative net amounts", () => {
-    render(<AnimatedMoney minorUnits={-4_200} currency="USD" />);
+    render(<AnimatedMoney minorUnits={-4_200} currency="USD" motionKey="test" />);
     expect(screen.getByText("-$42.00", { selector: ".sr-only" })).toBeInTheDocument();
   });
 });

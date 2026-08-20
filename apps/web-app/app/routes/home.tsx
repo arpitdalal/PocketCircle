@@ -124,6 +124,7 @@ export default function Home() {
         selectRange={selectRange}
         selectCurrency={selectCurrency}
         formatMinor={formatMinor}
+        isPending={isPending}
       />
 
       <YourCirclesSection active={active} archived={archived} />
@@ -164,6 +165,7 @@ function CashFlowSection({
   selectRange,
   selectCurrency,
   formatMinor,
+  isPending,
 }: {
   summary: HomeSummary;
   /** URL-optimistic currency while the next summary loads. */
@@ -172,12 +174,20 @@ function CashFlowSection({
   selectRange: (range: HomeRangeMonths) => void;
   selectCurrency: (currency: string) => void;
   formatMinor: (minorUnits: number) => string;
+  isPending: boolean;
 }) {
   const origin = useReturnToOrigin();
   const currencyCode = toCurrencyCode(summary.selectedCurrency);
+  const includedIds = summary.circles
+    .filter((circle) => circle.included)
+    .map((circle) => circle.id)
+    .sort()
+    .join(",");
+  const motionKey = `${selectedCurrency}:${selectedRange}:${includedIds}`;
 
   return (
-    <section aria-labelledby="cash-flow-heading" className="space-y-4">
+    <section aria-labelledby="cash-flow-heading" aria-busy={isPending} className="space-y-4">
+      <LoadingStatus loading={isPending} label="Updating cash flow…" />
       <div className="space-y-2">
         <h2 id="cash-flow-heading" className="font-display text-lg font-semibold tracking-tight">
           Cash flow
@@ -211,10 +221,16 @@ function CashFlowSection({
         <ZeroIncludedState currency={summary.selectedCurrency} />
       ) : (
         <>
-          <HomeCashFlowTotalsCards currency={currencyCode} totals={summary.totals} />
+          <HomeCashFlowTotalsCards
+            currency={currencyCode}
+            totals={summary.totals}
+            motionKey={motionKey}
+            busy={isPending}
+          />
           <CashFlowTrend
             currency={summary.selectedCurrency}
             series={summary.series}
+            scopeKey={motionKey}
             caption={`Cash flow trend for ${summary.selectedCurrency}`}
           />
           {summary.contributions.length > 0 ? (

@@ -29,7 +29,9 @@ Gate Recharts with `usePrefersReducedMotion()` from `~/lib/motion.ts` — not `@
 
 Home Summary keeps the previous result while currency/range args reload and exposes `isPending` so URL canonicalization only runs on a fresh query (otherwise a stale summary rewrites the user's in-flight selection). Monthly Ledger and Dashboard comparison use `useStableQuery` (`~/lib/use-stable-query.ts`) for the same continuous-tree reason. Plain `useQuery` returns `undefined` between args and would unmount NumberFlow / Recharts, killing the bridge.
 
-**Cash flow chart** (`apps/web-app/app/components/cash-flow-trend.tsx`): used on Home Summary and Dashboard month-over-month comparison. Enable fast animation here only — not other hypothetical chart surfaces.
+Motion is gated by `useScopeChangeMotion` (`~/lib/motion.ts`): callers pass a **reporting-scope key** (currency/range/inclusion, ledger month, comparison range) plus a value fingerprint. Digit/chart animation runs only when values change after that scope key changes — not on live Convex refreshes with the same scope. Dashboard current-month totals use mode `always` so live month refreshes still animate (ADR above).
+
+**Cash flow chart** (`apps/web-app/app/components/cash-flow-trend.tsx`): used on Home Summary and Dashboard month-over-month comparison. Requires an explicit `scopeKey` from the route; enable fast animation here only — not other hypothetical chart surfaces.
 
 Grouping: wrap the three totals on a given surface in `NumberFlowGroup` when all three update in the same render (currency/range/month change) so digit transitions stay synchronized.
 

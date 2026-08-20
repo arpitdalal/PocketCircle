@@ -11,12 +11,16 @@ import { cn } from "~/lib/utils.js";
 export function HomeCashFlowTotalsCards({
   currency,
   totals,
+  motionKey,
+  busy = false,
 }: {
   currency: CurrencyCode;
   totals: ScopeTotalsMinor;
+  motionKey: string;
+  busy?: boolean;
 }) {
   return (
-    <fieldset>
+    <fieldset aria-busy={busy}>
       <legend className="sr-only">Cash flow totals</legend>
       <NumberFlowGroup>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -25,18 +29,21 @@ export function HomeCashFlowTotalsCards({
             minorUnits={totals.incomeMinor}
             currency={currency}
             variant="positive"
+            motionKey={motionKey}
           />
           <HomeCashFlowTotalCard
             label="Expenses"
             minorUnits={totals.expenseMinor}
             currency={currency}
             variant="destructive"
+            motionKey={motionKey}
           />
           <HomeCashFlowTotalCard
             label="Net cash flow"
             minorUnits={totals.netMinor}
             currency={currency}
             variant="primary"
+            motionKey={motionKey}
           />
         </div>
       </NumberFlowGroup>
@@ -49,11 +56,13 @@ function HomeCashFlowTotalCard({
   minorUnits,
   currency,
   variant,
+  motionKey,
 }: {
   label: string;
   minorUnits: number;
   currency: CurrencyCode;
   variant: "positive" | "destructive" | "primary";
+  motionKey: string;
 }) {
   const colorClass =
     variant === "positive"
@@ -67,7 +76,7 @@ function HomeCashFlowTotalCard({
         {label}
       </legend>
       <p className={cn("clear-both mt-1 text-lg font-semibold tabular-nums", colorClass)}>
-        <AnimatedMoney minorUnits={minorUnits} currency={currency} />
+        <AnimatedMoney minorUnits={minorUnits} currency={currency} motionKey={motionKey} />
       </p>
     </fieldset>
   );

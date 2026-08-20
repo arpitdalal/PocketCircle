@@ -1,5 +1,4 @@
 import { formatMoney, getCurrency, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -13,8 +12,12 @@ import {
 } from "recharts";
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
-import { SCOPE_CHART_ANIMATION_MS, usePrefersReducedMotion } from "~/lib/motion.js";
-import { useValueChange } from "~/lib/use-value-change.js";
+import {
+  cashFlowSeriesMotionKey,
+  SCOPE_CHART_ANIMATION_MS,
+  usePrefersReducedMotion,
+  useScopeChangeMotion,
+} from "~/lib/motion.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -28,32 +31,24 @@ export interface CashFlowSeriesEntry {
  * chronological series, and optional caption. Renders an aria-hidden visual
  * `ComposedChart` (bars for Income/Expense, line for Net) plus a real sr-only
  * data table for screen readers. Fast scope-change animation (~200ms, ADR 0032);
- * disabled when the user prefers reduced motion.
+ * disabled when the user prefers reduced motion. `scopeKey` must change only when
+ * reporting controls change — not on live series refreshes.
  */
 export function CashFlowTrend({
   currency,
   series,
+  scopeKey,
   caption,
 }: {
   currency: string;
   series: CashFlowSeriesEntry[];
+  /** Reporting-scope identity (Home currency/range/inclusion, Dashboard range). */
+  scopeKey: string;
   caption?: string;
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  // First paint: no decorative draw-in. Later series identity changes (scope
-  // transitions) enable the fast Recharts transition (ADR 0032).
-  const [allowScopeAnimation, setAllowScopeAnimation] = useState(false);
-  useValueChange(series, () => {
-    if (!prefersReducedMotion) {
-      setAllowScopeAnimation(true);
-    }
-  });
-  useValueChange(prefersReducedMotion, (reduced) => {
-    if (reduced) {
-      setAllowScopeAnimation(false);
-    }
-  });
-  const chartAnimationActive = allowScopeAnimation && !prefersReducedMotion;
+  const scopeMotion = useScopeChangeMotion(scopeKey, cashFlowSeriesMotionKey(series));
+  const chartAnimationActive = scopeMotion && !prefersReducedMotion;
   const currencyCode = toCurrencyCode(currency);
   const locale = viewerLocale();
   const formatMinor = (minorUnits: number) => formatMoney(money(minorUnits, currencyCode), locale);

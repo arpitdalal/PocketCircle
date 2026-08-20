@@ -99,6 +99,8 @@ export default function CircleDashboard() {
         legend="This month's totals"
         currency={toCurrencyCode(dashboard?.currency ?? circle.currency)}
         totals={dashboard?.totals}
+        motionKey={`dashboard:${month}`}
+        motion="always"
       />
       <MonthlyComparisonSection
         comparison={comparison}
@@ -191,6 +193,7 @@ function MonthlyComparisonSection({
         <CashFlowTrend
           currency={comparison.currency}
           series={comparison.series}
+          scopeKey={`comparison:${rangeMonths}`}
           caption="Month-over-month Income, Expense, and Net"
         />
       )}

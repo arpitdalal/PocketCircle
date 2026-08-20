@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 /** Repo easing token from `app.css` — strong ease-out for UI transitions. */
 export const EASE_OUT_QUART = "cubic-bezier(0.165, 0.84, 0.44, 1)";
@@ -38,4 +38,76 @@ function readPrefersReducedMotion() {
     return false;
   }
   return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
+/**
+ * Whether this render should run ADR 0032 motion for a value update.
+ *
+ * - `scope`: animate only when `valueKey` changes after `scopeKey` changed
+ *   (currency/range/month/comparison controls). Live refreshes with the same
+ *   scope snap without digit/chart motion.
+ * - `always`: animate every `valueKey` change after mount (Dashboard
+ *   current-month totals may refresh from live queries — ADR 0032).
+ *
+ * Uses adjust-state-during-render (ADR 0025), not a render-time ref mirror.
+ */
+export function useScopeChangeMotion(
+  scopeKey: string,
+  valueKey: string,
+  mode: "scope" | "always" = "scope",
+) {
+  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- tracked previous scope/value IS read during render to arm one motion frame (ADR 0032); same adjust-state-during-render pattern as useValueChange.
+  const [tracked, setTracked] = useState(() => ({ scopeKey, valueKey, armed: false }));
+
+  if (mode === "always") {
+    if (!Object.is(valueKey, tracked.valueKey) || !Object.is(scopeKey, tracked.scopeKey)) {
+      setTracked({ scopeKey, valueKey, armed: false });
+      return true;
+    }
+    return false;
+  }
+
+  if (!Object.is(scopeKey, tracked.scopeKey)) {
+    if (!Object.is(valueKey, tracked.valueKey)) {
+      setTracked({ scopeKey, valueKey, armed: false });
+      return true;
+    }
+    setTracked({ scopeKey, valueKey, armed: true });
+    return false;
+  }
+
+  if (tracked.armed && !Object.is(valueKey, tracked.valueKey)) {
+    setTracked({ scopeKey, valueKey, armed: false });
+    return true;
+  }
+
+  if (!Object.is(valueKey, tracked.valueKey)) {
+    setTracked({ scopeKey, valueKey, armed: false });
+    return false;
+  }
+
+  return false;
+}
+
+/** Stable fingerprint for cash-flow chart series (scope-motion value key). */
+export function cashFlowSeriesMotionKey(
+  series: ReadonlyArray<{
+    month: string;
+    incomeMinor: number;
+    expenseMinor: number;
+    netMinor: number;
+  }>,
+) {
+  return series
+    .map((row) => `${row.month}:${row.incomeMinor}:${row.expenseMinor}:${row.netMinor}`)
+    .join("|");
+}
+
+/** Stable fingerprint for Income/Expense/Net totals. */
+export function scopeTotalsMotionKey(totals: {
+  incomeMinor: number;
+  expenseMinor: number;
+  netMinor: number;
+}) {
+  return `${totals.incomeMinor}:${totals.expenseMinor}:${totals.netMinor}`;
 }
