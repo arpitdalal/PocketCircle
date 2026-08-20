@@ -15,8 +15,16 @@ export const authClient = createAuthClient({
   plugins: [convexClient(), crossDomainClient()],
 });
 
-export async function signInWithGoogle(callbackURL = "/") {
-  const result = await authClient.signIn.social({ provider: "google", callbackURL });
+export type SignInWithGoogleOptions = {
+  loginHint?: string;
+};
+
+export async function signInWithGoogle(callbackURL = "/", options: SignInWithGoogleOptions = {}) {
+  const result = await authClient.signIn.social({
+    provider: "google",
+    callbackURL,
+    ...(options.loginHint ? { loginHint: options.loginHint } : {}),
+  });
 
   if (result.error) {
     throw result.error;

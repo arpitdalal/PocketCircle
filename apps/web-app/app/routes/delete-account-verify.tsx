@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { SkeletonRegion } from "~/components/skeleton.js";
 import { Button } from "~/components/ui/button.js";
 import { confirmAccountDeletion, signInWithGoogle } from "~/lib/auth-client.js";
+import { clearLastUsedGoogleEmail, getLastUsedGoogleEmail } from "~/lib/last-used-google-email.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import { useAppSession } from "~/lib/session.js";
 
@@ -38,6 +39,7 @@ export default function DeleteAccountVerify() {
     setConfirming(true);
     void confirmAccountDeletion(token)
       .then(async () => {
+        clearLastUsedGoogleEmail();
         await navigate("/delete-account/complete", { replace: true });
       })
       .catch((caught: unknown) => {
@@ -53,7 +55,8 @@ export default function DeleteAccountVerify() {
     setSignInError(null);
     setSigningIn(true);
     try {
-      await signInWithGoogle(verifyPath);
+      const hint = getLastUsedGoogleEmail();
+      await signInWithGoogle(verifyPath, hint ? { loginHint: hint } : {});
     } catch {
       setSignInError("Couldn't start Google sign-in. Try again.");
     } finally {

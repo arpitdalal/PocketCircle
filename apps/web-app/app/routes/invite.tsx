@@ -94,7 +94,7 @@ function InvitePreview({
     setSignInError(null);
     setSigningIn(true);
     try {
-      await signInWithGoogle(invitePath);
+      await signInWithGoogle(invitePath, { loginHint: preview.invitedEmail });
     } catch {
       setSignInError("Couldn't start Google sign-in. Try again.");
     } finally {

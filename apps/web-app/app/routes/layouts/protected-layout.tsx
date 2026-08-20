@@ -13,6 +13,7 @@ import { Splash } from "~/components/splash.js";
 import { initAnalytics, teardownAnalytics } from "~/lib/analytics.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
 import { MOCKS } from "~/lib/env.js";
+import { setLastUsedGoogleEmail } from "~/lib/last-used-google-email.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import { coversShellNavigation, usePendingRouteSkeleton } from "~/lib/route-skeleton.js";
 import { useAppSession } from "~/lib/session.js";
@@ -50,6 +51,7 @@ export default function ProtectedLayout() {
     session.state === "ready" && session.user.onboardingComplete ? session.user : undefined;
   const analyticsUserId = analyticsSession?.id;
   const analyticsEnabled = analyticsSession?.analyticsEnabled;
+  const readyUserEmail = session.state === "ready" ? session.user.email : undefined;
 
   useEffect(() => {
     if (analyticsUserId === undefined || analyticsEnabled === undefined) {
@@ -58,6 +60,13 @@ export default function ProtectedLayout() {
     }
     initAnalytics({ id: analyticsUserId, analyticsEnabled });
   }, [analyticsUserId, analyticsEnabled]);
+
+  useEffect(() => {
+    if (MOCKS || readyUserEmail === undefined) {
+      return;
+    }
+    setLastUsedGoogleEmail(readyUserEmail);
+  }, [readyUserEmail]);
 
   if (session.state === "loading") {
     return <Splash />;

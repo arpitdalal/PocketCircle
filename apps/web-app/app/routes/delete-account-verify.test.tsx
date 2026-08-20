@@ -2,12 +2,17 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import {
   configureConvex,
   convexReactMock,
   makeCurrentUserView,
   renderRoutes,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   deleteUser: vi.fn(),
@@ -36,10 +41,12 @@ beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
   auth.deleteUser.mockReset();
   auth.social.mockReset();
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  clearLastUsedGoogleEmailStorage();
 });
 
 function renderVerify(token: string | null = "del-token") {
@@ -71,10 +78,25 @@ describe("Delete account verify", () => {
     expect(auth.deleteUser).not.toHaveBeenCalled();
   });
 
+  it("passes stored loginHint when signing in to verify deletion", async () => {
+    seedLastUsedGoogleEmail("ada@gmail.com");
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+    renderVerify("return-token");
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/delete-account/verify?token=return-token",
+      loginHint: "ada@gmail.com",
+    });
+  });
+
   it("submits the token once when signed in and routes to completion", async () => {
     auth.deleteUser.mockResolvedValue({ data: {}, error: null });
     configureConvex({ currentUser: makeCurrentUserView() });
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+    seedLastUsedGoogleEmail("ada@gmail.com");
 
     const view = renderVerify("once-token");
 
@@ -84,6 +106,7 @@ describe("Delete account verify", () => {
     expect(auth.deleteUser).toHaveBeenCalledOnce();
     expect(await screen.findByText(/Account deleted/i)).toBeInTheDocument();
     expect(view.location()).toBe("/delete-account/complete");
+    expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
   });
 
   it("shows a generic error for missing tokens without calling delete", () => {
@@ -117,5 +140,15 @@ describe("Delete account complete", () => {
       "href",
       "/signin",
     );
+  });
+
+  it("clears last-used Google email on mount", () => {
+    seedLastUsedGoogleEmail("ada@gmail.com");
+
+    renderRoutes(<Route path="/delete-account/complete" element={<DeleteAccountComplete />} />, {
+      initialEntries: ["/delete-account/complete"],
+    });
+
+    expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
   });
 });

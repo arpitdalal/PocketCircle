@@ -11,6 +11,10 @@ import {
   makeCurrentUserView,
   renderRoutes,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -38,10 +42,12 @@ const preview = MOCK_INVITATION_PREVIEW;
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  clearLastUsedGoogleEmailStorage();
 });
 
 function renderInvite(
@@ -146,5 +152,30 @@ describe("Invite landing", () => {
       MUTATION_ERRORS.inviteInvalid.message,
     );
     expect(screen.getByRole("button", { name: "Accept invitation" })).toBeEnabled();
+  });
+
+  it("passes invitedEmail as loginHint when signing in to accept", async () => {
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderInvite();
+    await user.click(screen.getByRole("button", { name: "Sign in to accept" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/invite/test-token",
+      loginHint: preview.invitedEmail,
+    });
+  });
+
+  it("does not show last-used hint when storage is seeded", () => {
+    seedLastUsedGoogleEmail("other@gmail.com");
+
+    renderInvite();
+
+    expect(screen.queryByText(/You used/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Use a different account" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import {
   configureConvex,
@@ -10,6 +11,7 @@ import {
   testId,
 } from "~/test/convex-react.js";
 import { installIntersectionObserverStub } from "~/test/intersection-observer-stub.js";
+import { clearLastUsedGoogleEmailStorage } from "~/test/last-used-google-email.js";
 import {
   posthogSdk,
   resetPostHogBoundary,
@@ -52,11 +54,13 @@ installIntersectionObserverStub();
 
 beforeEach(() => {
   stubPosthogEnvForTests();
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   resetPostHogBoundary();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+  clearLastUsedGoogleEmailStorage();
 });
 
 function ready() {
@@ -505,5 +509,42 @@ describe("ProtectedLayout onboarding gate", () => {
       expect(posthogSdk.reset).toHaveBeenCalledWith(true);
     });
     expect(posthogSdk.init).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ProtectedLayout last-used Google email", () => {
+  it("persists the ready User email to device-local storage", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView({ email: "ada@gmail.com" }),
+      circles: [],
+    });
+    renderRouteStub(
+      routesWith(() => Promise.resolve(null)),
+      ["/"],
+    );
+
+    await screen.findByText("Go to settings");
+    await waitFor(() => {
+      expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBe("ada@gmail.com");
+    });
+  });
+
+  it("does not persist during bootstrap when getCurrentUser is null", async () => {
+    configureConvex({ currentUser: null, circles: [] });
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ path: "onboarding", Component: OnboardingRoute }],
+        },
+      ],
+      ["/onboarding"],
+    );
+
+    await screen.findByText("Setting up your account…");
+    expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
   });
 });

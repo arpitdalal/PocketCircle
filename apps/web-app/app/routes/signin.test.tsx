@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,11 @@ import {
   renderRoutes,
   renderWithRouter,
 } from "~/test/convex-react.js";
+import {
+  clearLastUsedGoogleEmailStorage,
+  seedLastUsedGoogleEmail,
+  simulateCrossTabLastUsedGoogleEmailClear,
+} from "~/test/last-used-google-email.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -37,10 +42,12 @@ import SignIn from "./signin.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  clearLastUsedGoogleEmailStorage();
 });
 
 describe("SignIn", () => {
@@ -133,5 +140,69 @@ describe("SignIn", () => {
 
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Continue with Google" })).not.toBeInTheDocument();
+  });
+
+  it("shows no hint or alternate control when storage is empty", () => {
+    renderWithRouter(<SignIn />);
+
+    expect(screen.queryByText(/You used/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Use a different account" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a masked hint and alternate control when storage has a valid email", () => {
+    seedLastUsedGoogleEmail("alice@gmail.com");
+
+    renderWithRouter(<SignIn />);
+
+    expect(screen.getByText("al***e@gmail.com")).toBeInTheDocument();
+    expect(screen.getByText(/You used/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use a different account" })).toBeInTheDocument();
+  });
+
+  it("passes loginHint from storage on primary sign-in", async () => {
+    seedLastUsedGoogleEmail("alice@gmail.com");
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderWithRouter(<SignIn />);
+    await user.click(screen.getByRole("button", { name: "Continue with Google" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/",
+      loginHint: "alice@gmail.com",
+    });
+  });
+
+  it("omits loginHint when using a different account", async () => {
+    seedLastUsedGoogleEmail("alice@gmail.com");
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderWithRouter(<SignIn />);
+    await user.click(screen.getByRole("button", { name: "Use a different account" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/",
+    });
+  });
+
+  it("drops the hint when another tab clears last-used storage", async () => {
+    seedLastUsedGoogleEmail("alice@gmail.com");
+
+    renderWithRouter(<SignIn />);
+    expect(screen.getByText("al***e@gmail.com")).toBeInTheDocument();
+
+    simulateCrossTabLastUsedGoogleEmailClear("alice@gmail.com");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/You used/i)).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Use a different account" }),
+    ).not.toBeInTheDocument();
   });
 });

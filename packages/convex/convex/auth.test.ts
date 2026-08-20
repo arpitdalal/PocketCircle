@@ -40,6 +40,20 @@ describe("createAuth", () => {
     });
   });
 
+  it("sets select_account on the Google provider when credentials are configured", async () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-test-secret-test-secret");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+    const t = convexTest(schema, modules);
+
+    await t.run(async (ctx) => {
+      const auth = createAuth(ctx);
+      const context = await auth.$context;
+      expect(context.options.socialProviders?.google?.prompt).toBe("select_account");
+    });
+  });
+
   it("enables verified Account Deletion and stashes the mapped verification token", async () => {
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-test-secret-test-secret");
     vi.stubEnv("GOOGLE_CLIENT_ID", "");
