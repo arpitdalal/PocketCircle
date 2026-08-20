@@ -27,6 +27,8 @@ Money values remain integer **minor units** end-to-end (ADR 0009). NumberFlow re
 
 Gate Recharts with `usePrefersReducedMotion()` from `~/lib/motion.ts` — not `@number-flow/react`'s export, which reads a module-level `MediaQueryList` that is null under jsdom/SSR and throws on `.matches`. NumberFlow digits still honor motion via `respectMotionPreference`. Chart SVG stays `aria-hidden`; sr-only table stays static.
 
+Home Summary, Monthly Ledger, and Dashboard comparison queries that feed these surfaces use `useStableQuery` (`~/lib/use-stable-query.ts`) so a currency/range/month arg change keeps the previous result until the next load finishes. Plain `useQuery` returns `undefined` between args and would unmount NumberFlow / Recharts, killing the bridge.
+
 **Cash flow chart** (`apps/web-app/app/components/cash-flow-trend.tsx`): used on Home Summary and Dashboard month-over-month comparison. Enable fast animation here only — not other hypothetical chart surfaces.
 
 Grouping: wrap the three totals on a given surface in `NumberFlowGroup` when all three update in the same render (currency/range/month change) so digit transitions stay synchronized.

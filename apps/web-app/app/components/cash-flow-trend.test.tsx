@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { installReducedMotionPreference, type MatchMediaFakeHandle } from "~/test/match-media.js";
+import { describe, expect, it } from "vitest";
+import { createMatchMediaFakeController } from "~/test/match-media.js";
 import { CashFlowTrend } from "./cash-flow-trend.js";
 
 describe("CashFlowTrend", () => {
@@ -9,12 +9,7 @@ describe("CashFlowTrend", () => {
     { month: "2026-08", incomeMinor: 120000, expenseMinor: 85000, netMinor: 35000 },
   ];
 
-  let media: MatchMediaFakeHandle | undefined;
-
-  afterEach(() => {
-    media?.restore();
-    media = undefined;
-  });
+  const media = createMatchMediaFakeController();
 
   it("renders the sr-only data table with correct structure", () => {
     render(<CashFlowTrend currency="USD" series={series} />);
@@ -47,13 +42,13 @@ describe("CashFlowTrend", () => {
   });
 
   it("enables chart animation when reduced motion is off", () => {
-    media = installReducedMotionPreference(false);
+    media.reducedMotion(false);
     const { container } = render(<CashFlowTrend currency="USD" series={series} />);
     expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
   });
 
   it("disables chart animation when the user prefers reduced motion", () => {
-    media = installReducedMotionPreference(true);
+    media.reducedMotion(true);
     const { container } = render(<CashFlowTrend currency="USD" series={series} />);
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
   });

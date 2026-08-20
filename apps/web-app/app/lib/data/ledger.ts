@@ -18,6 +18,7 @@ import {
   MOCK_MONTHLY_SUMMARY,
   mockFilterTransactions,
 } from "../fixtures.js";
+import { useStableQuery } from "../use-stable-query.js";
 import type { Circle } from "./circles.js";
 import {
   type PaginatedTransactions,
@@ -49,7 +50,12 @@ export type MonthlySummary = NonNullable<FunctionReturnType<typeof api.ledger.ge
 export type MonthlyTotals = MonthlySummary["totals"];
 
 export function useMonthlySummary(circleId: Circle["id"], month: PlainMonth) {
-  const queried = useQuery(api.ledger.getMonthlyLedger, MOCKS ? "skip" : { circleId, month });
+  // Stable across month arg changes so MonthScopeTotalsCards / NumberFlow stay
+  // mounted and can bridge the ledger month change (ADR 0032).
+  const queried = useStableQuery(
+    api.ledger.getMonthlyLedger,
+    MOCKS ? "skip" : { circleId, month },
+  );
   return MOCKS ? MOCK_MONTHLY_SUMMARY : queried;
 }
 

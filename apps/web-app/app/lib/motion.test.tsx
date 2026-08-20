@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { installReducedMotionPreference, type MatchMediaFakeHandle } from "~/test/match-media.js";
+import { describe, expect, it } from "vitest";
+import { createMatchMediaFakeController } from "~/test/match-media.js";
 import { usePrefersReducedMotion } from "./motion.js";
 
 function Probe() {
@@ -9,31 +9,26 @@ function Probe() {
 }
 
 describe("usePrefersReducedMotion", () => {
-  let media: MatchMediaFakeHandle | undefined;
-
-  afterEach(() => {
-    media?.restore();
-    media = undefined;
-  });
+  const media = createMatchMediaFakeController();
 
   it("returns false when the user has not requested reduced motion", () => {
-    media = installReducedMotionPreference(false);
+    media.reducedMotion(false);
     render(<Probe />);
     expect(screen.getByTestId("prefers-reduced-motion")).toHaveTextContent("false");
   });
 
   it("returns true when matchMedia reports reduced motion", () => {
-    media = installReducedMotionPreference(true);
+    media.reducedMotion(true);
     render(<Probe />);
     expect(screen.getByTestId("prefers-reduced-motion")).toHaveTextContent("true");
   });
 
   it("updates when the reduced-motion preference changes", async () => {
-    media = installReducedMotionPreference(false);
+    const handle = media.reducedMotion(false);
     render(<Probe />);
     expect(screen.getByTestId("prefers-reduced-motion")).toHaveTextContent("false");
 
-    media.setQueryMatches("(prefers-reduced-motion: reduce)", true);
+    handle.setQueryMatches("(prefers-reduced-motion: reduce)", true);
 
     await waitFor(() => {
       expect(screen.getByTestId("prefers-reduced-motion")).toHaveTextContent("true");

@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 export type MatchMediaFakeHandle = {
   matchMedia: ReturnType<typeof vi.fn>;
@@ -80,4 +80,23 @@ export function installMatchMediaFake(initial: Record<string, boolean>): MatchMe
 
 export function installReducedMotionPreference(prefersReducedMotion: boolean) {
   return installMatchMediaFake({ "(prefers-reduced-motion: reduce)": prefersReducedMotion });
+}
+
+/**
+ * Shared lifecycle for files that install matchMedia fakes — one `afterEach`
+ * restore so each suite doesn't redefine the same teardown (ADR 0006).
+ */
+export function createMatchMediaFakeController() {
+  let media: MatchMediaFakeHandle | undefined;
+  afterEach(() => {
+    media?.restore();
+    media = undefined;
+  });
+  return {
+    reducedMotion(prefersReducedMotion: boolean) {
+      media?.restore();
+      media = installReducedMotionPreference(prefersReducedMotion);
+      return media;
+    },
+  };
 }

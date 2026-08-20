@@ -1,9 +1,10 @@
 import { api } from "@pocketcircle/convex";
 import type { HomeRangeMonths } from "@pocketcircle/domain";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
 import { MOCK_CIRCLES } from "../fixtures.js";
+import { useStableQuery } from "../use-stable-query.js";
 
 /**
  * The Home Summary view contract, derived from the Convex function's return type
@@ -58,9 +59,13 @@ const MOCK_HOME_SUMMARY: HomeSummary = {
  * The Home Summary (GH-273): currency-scoped, multi-Circle aggregate with
  * exclusions. `undefined` while loading. Mock mode returns fixtures and skips
  * the backend (ADR 0006).
+ *
+ * Uses {@link useStableQuery} so currency/range arg changes keep the previous
+ * summary mounted — NumberFlow / Recharts need a continuous tree to bridge the
+ * scope change (ADR 0032).
  */
 export function useHomeSummary(options?: { currency?: string; range?: HomeRangeMonths }) {
-  const queried = useQuery(
+  const queried = useStableQuery(
     api.homeSummary.getHomeSummary,
     MOCKS
       ? "skip"
