@@ -71,15 +71,12 @@ export function useScopeChangeMotion(
   mode: "scope" | "always" = "scope",
 ) {
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- tracked previous scope/value IS read during render to arm one motion frame (ADR 0032); same adjust-state-during-render pattern as useValueChange.
-  const [tracked, setTracked] = useState(
-    () =>
-      ({
-        scopeKey,
-        valueKey,
-        armed: false,
-        animate: false,
-      }) satisfies ScopeMotionState,
-  );
+  const [tracked, setTracked] = useState<ScopeMotionState>(() => ({
+    scopeKey,
+    valueKey,
+    armed: false,
+    animate: false,
+  }));
 
   if (mode === "always") {
     if (!Object.is(valueKey, tracked.valueKey) || !Object.is(scopeKey, tracked.scopeKey)) {
