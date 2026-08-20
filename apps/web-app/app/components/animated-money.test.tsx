@@ -8,12 +8,25 @@ vi.mock("@number-flow/react", () => ({
     value,
     format,
     locales,
+    "aria-label": ariaLabel,
+    "data-money": dataMoney,
+    role,
   }: {
     value: number;
     format: Intl.NumberFormatOptions;
     locales: string;
+    "aria-label"?: string;
+    "data-money"?: string;
+    role?: string;
   }) => (
-    <span data-testid="number-flow">{new Intl.NumberFormat(locales, format).format(value)}</span>
+    <span
+      role={role}
+      aria-label={ariaLabel}
+      data-money={dataMoney}
+      data-testid="number-flow"
+    >
+      {new Intl.NumberFormat(locales, format).format(value)}
+    </span>
   ),
   NumberFlowGroup: ({ children }: { children: ReactNode }) => children,
 }));
@@ -21,11 +34,13 @@ vi.mock("@number-flow/react", () => ({
 describe("AnimatedMoney", () => {
   it("formats minor units as currency in the viewer locale", () => {
     render(<AnimatedMoney minorUnits={500_000} currency="USD" />);
-    expect(screen.getByTestId("number-flow")).toHaveTextContent("$5,000.00");
+    expect(screen.getByRole("img", { name: "$5,000.00" })).toBeInTheDocument();
+    expect(screen.getByTestId("number-flow")).toHaveAttribute("data-money", "$5,000.00");
   });
 
   it("formats negative net amounts", () => {
     render(<AnimatedMoney minorUnits={-4_200} currency="USD" />);
-    expect(screen.getByTestId("number-flow")).toHaveTextContent("-$42.00");
+    expect(screen.getByRole("img", { name: "-$42.00" })).toBeInTheDocument();
+    expect(screen.getByTestId("number-flow")).toHaveAttribute("data-money", "-$42.00");
   });
 });

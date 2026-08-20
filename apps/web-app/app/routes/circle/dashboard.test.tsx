@@ -19,6 +19,7 @@ import {
   renderInCircle,
   testId,
 } from "~/test/convex-react.js";
+import { getHeadlineMoney } from "~/test/money.js";
 
 /**
  * Behavior test for the Dashboard route (jsdom). Doubles ONLY Convex's reactive client
@@ -50,9 +51,9 @@ describe("Dashboard totals", () => {
     configureConvex({ dashboard: makeDashboard() });
     renderInCircle(makeCircleView(), <CircleDashboard />);
 
-    expect(screen.getByText("$5,000.00")).toBeInTheDocument(); // income
-    expect(screen.getByText("$87.50")).toBeInTheDocument(); // expenses
-    expect(screen.getByText("$4,912.50")).toBeInTheDocument(); // net
+    expect(getHeadlineMoney(screen, "$5,000.00")).toBeInTheDocument(); // income
+    expect(getHeadlineMoney(screen, "$87.50")).toBeInTheDocument(); // expenses
+    expect(getHeadlineMoney(screen, "$4,912.50")).toBeInTheDocument(); // net
   });
 
   it("formats money in the viewer locale, disambiguating USD for a non-US viewer", () => {
@@ -63,8 +64,8 @@ describe("Dashboard totals", () => {
     configureConvex({ dashboard: makeDashboard() });
     renderInCircle(makeCircleView(), <CircleDashboard />);
 
-    expect(screen.getByText("US$5,000.00")).toBeInTheDocument(); // income
-    expect(screen.getByText("US$87.50")).toBeInTheDocument(); // expenses
+    expect(getHeadlineMoney(screen, "US$5,000.00")).toBeInTheDocument(); // income
+    expect(getHeadlineMoney(screen, "US$87.50")).toBeInTheDocument(); // expenses
   });
 
   it("shows skeletons while the dashboard loads", () => {

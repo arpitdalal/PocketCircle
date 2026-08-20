@@ -6,7 +6,9 @@ import {
   createRegularCircleAndFinishSetup,
   establishE2ESession,
   expect,
+  expectHeadlineMoney,
   finishCircleSetup,
+  headlineMoney,
   homeCircleCard,
   inlineCreateFormCategory,
   inviteMemberByEmail,
@@ -165,9 +167,9 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
 
     await openHome(page);
     const cashFlow = page.getByRole("region", { name: "Cash flow" });
-    await expect(cashFlowTotal(page, "Income")).toContainText("$100.00");
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$25.00");
-    await expect(cashFlowTotal(page, "Net cash flow")).toContainText("$75.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Income"), "$100.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$25.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Net cash flow"), "$75.00");
     await expect(cashFlow.getByRole("link", { name: /Shared spend/ })).toBeVisible();
     await expect(contributionLink(page, new RegExp(sharedName))).toBeVisible();
     await expect(homeCircleCard(page, new RegExp(sharedName))).toBeVisible();
@@ -201,8 +203,8 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     }
 
     await openHome(page);
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
-    await expect(cashFlowTotal(page, "Net cash flow")).toContainText("$65.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$35.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Net cash flow"), "$65.00");
 
     await homeCircleCard(page, new RegExp(sharedName)).click();
     await clickCircleChromeTab(page, "Transactions");
@@ -215,20 +217,20 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     });
 
     await openHome(page);
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
-    await expect(cashFlowTotals(page).getByText("$50.00")).toHaveCount(0);
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$35.00");
+    await expect(headlineMoney(cashFlowTotals(page), "$50.00")).toHaveCount(0);
 
     await toggleHomeScopeCircle(page, new RegExp(sharedName));
     await expect(page.getByText(/USD · 1 of 2 circles/)).toBeVisible();
-    await expect(cashFlowTotal(page, "Income")).toContainText("$100.00");
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$0.00");
-    await expect(cashFlowTotal(page, "Net cash flow")).toContainText("$100.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Income"), "$100.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$0.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Net cash flow"), "$100.00");
     await expect(contributionLink(page, new RegExp(sharedName))).toHaveCount(0);
     await expect(homeCircleCard(page, new RegExp(sharedName))).toBeVisible();
 
     await page.reload();
     await expect(page.getByText(/USD · 1 of 2 circles/)).toBeVisible({ timeout: 15_000 });
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$0.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$0.00");
     await expect(contributionLink(page, new RegExp(sharedName))).toHaveCount(0);
     await expect(homeCircleCard(page, new RegExp(sharedName))).toBeVisible();
 
@@ -241,7 +243,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     try {
       await openHome(signedInAgain.page);
       await expect(signedInAgain.page.getByText(/USD · 1 of 2 circles/)).toBeVisible();
-      await expect(cashFlowTotal(signedInAgain.page, "Expenses")).toContainText("$0.00");
+      await expectHeadlineMoney(cashFlowTotal(signedInAgain.page, "Expenses"), "$0.00");
       await expect(contributionLink(signedInAgain.page, new RegExp(sharedName))).toHaveCount(0);
       await expect(homeCircleCard(signedInAgain.page, new RegExp(sharedName))).toBeVisible();
     } finally {
@@ -250,7 +252,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
 
     await toggleHomeScopeCircle(page, new RegExp(sharedName));
     await expect(page.getByText(/USD · 2 of 2 circles/)).toBeVisible();
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$35.00");
 
     await createRegularCircleAndFinishSetup(page, { name: euroName, currency: "EUR" });
     await clickCircleChromeTab(page, "Transactions");
@@ -264,19 +266,19 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await openHome(page);
     const currency = page.getByRole("group", { name: "Currency" });
     await expect(currency.getByRole("button", { name: "USD", pressed: true })).toBeVisible();
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$35.00");
     await currency.getByRole("button", { name: "EUR", exact: true }).click();
     await expect(currency.getByRole("button", { name: "EUR", pressed: true })).toBeVisible();
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("€80.00");
-    await expect(cashFlowTotals(page).getByText("$35.00")).toHaveCount(0);
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "€80.00");
+    await expect(headlineMoney(cashFlowTotals(page), "$35.00")).toHaveCount(0);
     await currency.getByRole("button", { name: "USD", exact: true }).click();
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$35.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$35.00");
 
     const trendRows = page.getByRole("region", { name: "Cash flow" }).locator("table tbody tr");
     await expect(trendRows).toHaveCount(1);
     await page.getByRole("button", { name: "3 mo" }).click();
     await expect(trendRows).toHaveCount(3);
-    await expect(cashFlowTotal(page, "Expenses")).toContainText("$42.00");
+    await expectHeadlineMoney(cashFlowTotal(page, "Expenses"), "$42.00");
 
     const homeUrl = new URL(page.url());
     expect(homeUrl.searchParams.get("currency")).toBe("USD");

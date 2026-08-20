@@ -15,6 +15,7 @@ import {
   renderWithRouter,
   testId,
 } from "~/test/convex-react.js";
+import { getHeadlineMoney, queryHeadlineMoney } from "~/test/money.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -113,14 +114,12 @@ describe("Home (loaded)", () => {
     });
     renderHome();
     const totals = cashFlowTotals();
+    expect(getHeadlineMoney(within(totals.getByRole("group", { name: "Income" })), "$5,000.00")).toBeInTheDocument();
     expect(
-      within(totals.getByRole("group", { name: "Income" })).getByText("$5,000.00"),
+      getHeadlineMoney(within(totals.getByRole("group", { name: "Expenses" })), "$3,000.00"),
     ).toBeInTheDocument();
     expect(
-      within(totals.getByRole("group", { name: "Expenses" })).getByText("$3,000.00"),
-    ).toBeInTheDocument();
-    expect(
-      within(totals.getByRole("group", { name: "Net cash flow" })).getByText("$2,000.00"),
+      getHeadlineMoney(within(totals.getByRole("group", { name: "Net cash flow" })), "$2,000.00"),
     ).toBeInTheDocument();
   });
 
@@ -493,7 +492,7 @@ describe("Home (URL state)", () => {
     setupHome("?currency=CAD&range=3");
     expect(screen.getByRole("button", { name: "CAD", pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "3 mo", pressed: true })).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("-CA$42.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "-CA$42.00")).toBeInTheDocument();
   });
 
   it("writes range to the URL, drops it at the default, and walks Back/Forward", async () => {
@@ -522,25 +521,25 @@ describe("Home (URL state)", () => {
             }),
     });
     const view = setupHome("?currency=USD");
-    expect(cashFlowTotals().getByText("$500.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$400.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$500.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$400.00")).toBeInTheDocument();
     expect(screen.getAllByRole("row")).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "3 mo" }));
     await waitFor(() => expect(view.location()).toBe("/?currency=USD&range=3"));
-    expect(cashFlowTotals().getByText("$800.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$700.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$800.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$700.00")).toBeInTheDocument();
     expect(screen.getAllByRole("row")).toHaveLength(4);
 
     await view.navigate(-1);
     await waitFor(() => expect(view.location()).toBe("/?currency=USD"));
-    expect(cashFlowTotals().getByText("$500.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$400.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$500.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$400.00")).toBeInTheDocument();
 
     await view.navigate(1);
     await waitFor(() => expect(view.location()).toBe("/?currency=USD&range=3"));
-    expect(cashFlowTotals().getByText("$800.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$700.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$800.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$700.00")).toBeInTheDocument();
   });
 
   it("switches Currency without combining totals", async () => {
@@ -562,13 +561,13 @@ describe("Home (URL state)", () => {
             }),
     });
     const view = setupHome("?currency=USD");
-    expect(cashFlowTotals().getByText("$999.00")).toBeInTheDocument();
-    expect(screen.queryByText("€1.11")).not.toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$999.00")).toBeInTheDocument();
+    expect(queryHeadlineMoney(screen, "€1.11")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "EUR" }));
     await waitFor(() => expect(view.location()).toBe("/?currency=EUR"));
-    expect(cashFlowTotals().getByText("€1.11")).toBeInTheDocument();
-    expect(screen.queryByText("$999.00")).not.toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "€1.11")).toBeInTheDocument();
+    expect(queryHeadlineMoney(screen, "$999.00")).not.toBeInTheDocument();
   });
 
   it("uses an accessible Currency select past four Currencies", async () => {
@@ -590,14 +589,14 @@ describe("Home (URL state)", () => {
     const select = screen.getByRole("combobox", { name: "Currency" });
     expect(select).toHaveValue("USD");
     expect(screen.queryByRole("button", { name: "USD" })).not.toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$11.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("$9.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$11.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "$9.00")).toBeInTheDocument();
 
     await user.selectOptions(select, "GBP");
     await waitFor(() => expect(view.location()).toBe("/?currency=GBP"));
-    expect(cashFlowTotals().getByText("£33.00")).toBeInTheDocument();
-    expect(cashFlowTotals().getByText("£29.00")).toBeInTheDocument();
-    expect(cashFlowTotals().queryByText("$11.00")).not.toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "£33.00")).toBeInTheDocument();
+    expect(getHeadlineMoney(cashFlowTotals(), "£29.00")).toBeInTheDocument();
+    expect(queryHeadlineMoney(cashFlowTotals(), "$11.00")).not.toBeInTheDocument();
   });
 
   it("canonicalizes an invalid range and preserves foreign params", async () => {
