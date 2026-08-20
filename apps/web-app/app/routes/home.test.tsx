@@ -114,7 +114,9 @@ describe("Home (loaded)", () => {
     });
     renderHome();
     const totals = cashFlowTotals();
-    expect(getHeadlineMoney(within(totals.getByRole("group", { name: "Income" })), "$5,000.00")).toBeInTheDocument();
+    expect(
+      getHeadlineMoney(within(totals.getByRole("group", { name: "Income" })), "$5,000.00"),
+    ).toBeInTheDocument();
     expect(
       getHeadlineMoney(within(totals.getByRole("group", { name: "Expenses" })), "$3,000.00"),
     ).toBeInTheDocument();

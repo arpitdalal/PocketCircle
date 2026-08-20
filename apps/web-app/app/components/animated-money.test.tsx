@@ -10,21 +10,14 @@ vi.mock("@number-flow/react", () => ({
     locales,
     "aria-label": ariaLabel,
     "data-money": dataMoney,
-    role,
   }: {
     value: number;
     format: Intl.NumberFormatOptions;
     locales: string;
     "aria-label"?: string;
     "data-money"?: string;
-    role?: string;
   }) => (
-    <span
-      role={role}
-      aria-label={ariaLabel}
-      data-money={dataMoney}
-      data-testid="number-flow"
-    >
+    <span role="img" aria-label={ariaLabel} data-money={dataMoney} data-testid="number-flow">
       {new Intl.NumberFormat(locales, format).format(value)}
     </span>
   ),
