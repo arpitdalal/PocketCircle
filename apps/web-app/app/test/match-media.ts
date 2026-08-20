@@ -1,23 +1,81 @@
 import { vi } from "vitest";
 
-/** Installs a configurable `window.matchMedia` fake for motion/a11y tests. */
-export function installMatchMediaFake(queries: Record<string, boolean>) {
-  const matchMedia = vi.fn((query: string) => ({
-    matches: queries[query] ?? false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }));
+export type MatchMediaFakeHandle = {
+  matchMedia: ReturnType<typeof vi.fn>;
+  /** Update a query's match state and notify subscribed listeners. */
+  setQueryMatches: (query: string, matches: boolean) => void;
+  /** Restore the prior `window.matchMedia` implementation. */
+  restore: () => void;
+};
+
+/**
+ * Configurable `window.matchMedia` fake for motion/a11y tests. Supports live
+ * `matches` reads and `change` listener subscriptions (used by
+ * `usePrefersReducedMotion`'s `useSyncExternalStore` wiring).
+ */
+export function installMatchMediaFake(initial: Record<string, boolean>): MatchMediaFakeHandle {
+  const state = { ...initial };
+  const listeners = new Map<string, Set<() => void>>();
+
+  const matchMedia = vi.fn((query: string) => {
+    let queryListeners = listeners.get(query);
+    if (!queryListeners) {
+      queryListeners = new Set();
+      listeners.set(query, queryListeners);
+    }
+
+    return {
+      get matches() {
+        return state[query] ?? false;
+      },
+      media: query,
+      onchange: null,
+      addListener: (listener: () => void) => {
+        queryListeners.add(listener);
+      },
+      removeListener: (listener: () => void) => {
+        queryListeners.delete(listener);
+      },
+      addEventListener: (type: string, listener: () => void) => {
+        if (type === "change") {
+          queryListeners.add(listener);
+        }
+      },
+      removeEventListener: (type: string, listener: () => void) => {
+        if (type === "change") {
+          queryListeners.delete(listener);
+        }
+      },
+      dispatchEvent: vi.fn(),
+    };
+  });
+
+  const previous = window.matchMedia;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
     value: matchMedia,
   });
-  return matchMedia;
+
+  return {
+    matchMedia,
+    setQueryMatches(query, matches) {
+      if ((state[query] ?? false) === matches) {
+        return;
+      }
+      state[query] = matches;
+      for (const listener of listeners.get(query) ?? []) {
+        listener();
+      }
+    },
+    restore() {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: previous,
+      });
+    },
+  };
 }
 
 export function installReducedMotionPreference(prefersReducedMotion: boolean) {

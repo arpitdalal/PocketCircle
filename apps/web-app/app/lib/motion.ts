@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /** Repo easing token from `app.css` — strong ease-out for UI transitions. */
 export const EASE_OUT_QUART = "cubic-bezier(0.165, 0.84, 0.44, 1)";
@@ -16,22 +16,21 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
  * `@number-flow/react` exports its own hook, but it reads a module-level
  * `MediaQueryList` captured at import time — null under jsdom/SSR and then
  * `.matches` throws. NumberFlow digits still honor motion via `respectMotionPreference`.
+ *
+ * Uses `useSyncExternalStore` so SSR and hydration start from `false` until the
+ * client reads the real media query.
  */
 export function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(readPrefersReducedMotion);
+  return useSyncExternalStore(subscribeToReducedMotion, readPrefersReducedMotion, () => false);
+}
 
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      return;
-    }
-    const media = window.matchMedia(REDUCED_MOTION_QUERY);
-    const sync = () => setPrefersReducedMotion(media.matches);
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
-
-  return prefersReducedMotion;
+function subscribeToReducedMotion(onStoreChange: () => void) {
+  if (typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  const media = window.matchMedia(REDUCED_MOTION_QUERY);
+  media.addEventListener("change", onStoreChange);
+  return () => media.removeEventListener("change", onStoreChange);
 }
 
 function readPrefersReducedMotion() {

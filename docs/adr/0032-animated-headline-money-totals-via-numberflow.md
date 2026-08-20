@@ -8,11 +8,11 @@ This applies only to **read-only summary surfaces** recomputed for a new scope. 
 
 **Home Summary** (ADR 0031): the three Cash flow total cards (`Income`, `Expenses`, `Net cash flow`) animate when currency, comparison range, or Circle inclusion changes. Per-Circle contribution amounts, recent Transaction rows, and the sr-only chart table stay static `formatMoney` strings.
 
-**Circle Dashboard** (CONTEXT **Dashboard**): the current-month totals grid animates when the selected month changes or the Dashboard query refreshes with new totals for the same month.
+**Circle Dashboard** (CONTEXT **Dashboard**): the **current-month** totals grid (`MonthScopeTotalsCards`) animates when live Dashboard data refreshes (new transactions in the viewer's current month) or when the comparison-range control changes the chart below. Dashboard totals do not offer month navigation — that belongs to the **Monthly Ledger** (see route docstring: month navigation is RPT-4 comparison, not headline totals).
 
-**Monthly Ledger** (CONTEXT **Monthly Ledger**): the month totals grid (`Monthly totals` legend) animates when the User changes the selected ledger month. Ledger **Filters** do not change these totals (only the Transaction list narrows); do not tie animation to filter Apply.
+**Monthly Ledger** (CONTEXT **Monthly Ledger**): the month totals grid (`MonthScopeTotalsCards`, legend `Monthly totals`) animates when the User changes the selected ledger month. Ledger **Filters** do not change these totals (only the Transaction list narrows); do not tie animation to filter Apply.
 
-`DashboardTotalsCards` (`dashboard.tsx`) and `MonthlyTotals` (`transactions.tsx`) share the same shape (three cards, skeleton while loading, minor-unit amounts). Implementation should extract one shared totals component with NumberFlow inside rather than duplicating wiring.
+**Home Summary** uses `HomeCashFlowTotalsCards` (fieldset-card layout). **Dashboard** and **Monthly Ledger** share `MonthScopeTotalsCards` (definition-list layout). Both wire `AnimatedMoney` + `NumberFlowGroup` rather than duplicating NumberFlow formatting.
 
 Money values remain integer **minor units** end-to-end (ADR 0009). NumberFlow receives **major-unit numbers** derived at the UI boundary (`minorUnits / 10 ** decimals`) plus `Intl.NumberFormat` options and `viewerLocale()` (ADR 0021). Do not pass pre-formatted strings from `formatMoney()` into NumberFlow.
 

@@ -61,6 +61,7 @@ export function CashFlowTrend({
     <>
       <div
         aria-hidden="true"
+        data-chart-animation-active={String(chartAnimationActive)}
         className="h-72 rounded-xl border border-border bg-card p-3 shadow-sm"
       >
         <ResponsiveContainer
