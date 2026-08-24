@@ -10,9 +10,9 @@ import { TYPE_LABEL } from "./transaction-form-constants.js";
  * Picking the other Type never applies immediately: the section first asks
  * (an inline `alertdialog` with focus moved to the confirm button), and only an
  * explicit confirm reports {@link onTypeChangeConfirmed} — Cancel discards the
- * request and restores focus flow without touching the form. WHAT a confirmed
- * change does (clear Categories, swap the Category read) is the host adapter's
- * decision, normally `controller.applyTypeChange`.
+ * request without touching the form. WHAT a confirmed change does lives with the
+ * body's caller: `TransactionFormBody` defaults it to `controller.applyTypeChange`,
+ * and a route adapter may override it with its own decision.
  */
 export function TransactionFormTypeEditSection({
   activeType,
