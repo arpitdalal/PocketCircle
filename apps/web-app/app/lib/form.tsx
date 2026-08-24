@@ -187,11 +187,12 @@ function SelectField({
 function SubmitRow({
   isEdit,
   activeTypeLabel,
-  onClose,
+  onCancel,
 }: {
   isEdit: boolean;
   activeTypeLabel: string;
-  onClose: () => void;
+  /** What Cancel means to the host — navigation stays outside the form kit. */
+  onCancel: () => void;
 }) {
   const form = useFormContext();
   const isSubmitting = useStore(form.store, (s: AnyFormState) => s.isSubmitting);
@@ -204,7 +205,7 @@ function SubmitRow({
             ? "Save changes"
             : `Add ${activeTypeLabel.toLowerCase()}`}
       </Button>
-      <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+      <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
         Cancel
       </Button>
     </div>

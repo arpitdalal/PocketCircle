@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";
-import { TransactionForm } from "~/components/transaction-form/index.js";
+import { TransactionFormBody } from "~/components/transaction-form/transaction-form-body.js";
+import { useTransactionForm } from "~/components/transaction-form/use-transaction-form.js";
 import { circlePath } from "~/lib/circle-path.js";
+import type { Circle, Transaction } from "~/lib/data.js";
 import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import { useResolvedTransaction } from "~/lib/use-resolved-transaction.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
@@ -17,16 +19,22 @@ import { useCircle } from "~/routes/layouts/circle-layout.js";
  * unavailable-link fallback to the Circle's Transactions route — the selected month
  * preserved.
  *
- * This route never reads the edit URL's `month`: an edit has no month of its own (its date
- * comes from the saved Transaction). Where close (cancel or successful save), the bad-link
- * fallback, and the archived redirect all land is the validated `returnTo` origin (issue
- * #123): the exact URL the editor was opened FROM (the detail page, a filtered ledger, a
- * search result), or — when `returnTo` is absent / malformed / out-of-scope — the Circle's
- * ledger. The detail page's Edit link sets `returnTo` to its own URL, so Detail → Edit →
- * close lands back on Detail; a ledger row's Edit link sets the filtered ledger URL. An
- * archived Circle stays accessible and read-only, so an edit link there does not eject
- * through the unavailable path — it lands back on that same `returnTo` (the write surface is
- * closed). Reload re-fetches the latest server values; unsaved draft fields are not persisted.
+ * This route is a ROUTE ADAPTER (issue #297): it owns URL state (`returnTo`), target
+ * resolution (initialization timing), the read-only-Circle guard, and navigation, then
+ * hands the shared {@link useTransactionForm} controller + {@link TransactionFormBody}
+ * the resolved Transaction as its edit intent. It defines no fields of its own; the
+ * Type Change confirmation's apply decision routes through `controller.applyTypeChange`.
+ *
+ * Where close (cancel or successful save), the bad-link fallback, and the archived
+ * redirect all land is the validated `returnTo` origin (issue #123): the exact URL the
+ * editor was opened FROM (the detail page, a filtered ledger, a search result), or — when
+ * `returnTo` is absent / malformed / out-of-scope — the Circle's ledger. The detail
+ * page's Edit link sets `returnTo` to its own URL, so Detail → Edit → close lands back
+ * on Detail; a ledger row's Edit link sets the filtered ledger URL. An archived Circle
+ * stays accessible and read-only, so an edit link there does not eject through the
+ * unavailable path — it lands back on that same `returnTo` (the write surface is
+ * closed). Reload re-fetches the latest server values; unsaved draft fields are not
+ * persisted.
  */
 export default function TransactionEdit() {
   const circle = useCircle();
@@ -78,15 +86,42 @@ export default function TransactionEdit() {
   }
 
   return (
-    // Keyed by the resolved Transaction id so navigating edit→edit between two targets
-    // that resolve without a loading gap (e.g. Back/Forward to a cached one) REMOUNTS
-    // the form instead of reusing it with the previous Transaction's TanStack defaults
-    // and type state — the same id-keying the inline ledger form used.
-    <TransactionForm
+    <TransactionEditForm
+      // Keyed by the resolved Transaction id so navigating edit→edit between two targets
+      // that resolve without a loading gap (e.g. Back/Forward to a cached one) REMOUNTS
+      // the form instead of reusing it with the previous Transaction's TanStack defaults
+      // and type state — the shared controller initializes once per mount from its inputs.
       key={resolution.value.id}
       circle={circle}
-      mode={{ kind: "edit", transaction: resolution.value }}
+      transaction={resolution.value}
       onClose={close}
+    />
+  );
+}
+
+/** The edit-side adapter wiring: shared controller + shared body, no field tree here.
+ * The completion result (the updated Transaction id) needs no URL of its own — THIS
+ * route's contract is its historical one — close to the validated `returnTo` origin. */
+function TransactionEditForm({
+  circle,
+  transaction,
+  onClose,
+}: {
+  circle: Circle;
+  transaction: Transaction;
+  onClose: () => void;
+}) {
+  const controller = useTransactionForm({
+    kind: "edit",
+    circle,
+    transaction,
+    onComplete: () => onClose(),
+  });
+  return (
+    <TransactionFormBody
+      controller={controller}
+      onCancel={onClose}
+      onTypeChangeConfirmed={controller.applyTypeChange}
     />
   );
 }

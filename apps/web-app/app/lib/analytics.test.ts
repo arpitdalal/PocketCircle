@@ -352,6 +352,87 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("circle_created", { currency: "EUR" });
   });
 
+  it("captures transaction_added only with the full coarse payload incl. surface and method", () => {
+    initAnalytics(readyUser);
+
+    const circleScopedManual = {
+      type: "expense",
+      paidBySelf: true,
+      categoryCount: 2,
+      surface: "circle_scoped",
+      method: "manual",
+    } as const;
+    expect(sanitizeAnalyticsProps("transaction_added", circleScopedManual)).toEqual(
+      circleScopedManual,
+    );
+    track("transaction_added", circleScopedManual);
+    expect(posthogSdk.capture).toHaveBeenLastCalledWith("transaction_added", circleScopedManual);
+
+    const globalDuplicate = {
+      type: "income",
+      paidBySelf: false,
+      categoryCount: 0,
+      surface: "global",
+      method: "duplicate",
+    } as const;
+    expect(sanitizeAnalyticsProps("transaction_added", globalDuplicate)).toEqual(globalDuplicate);
+  });
+
+  it("drops transaction_added with an unknown surface or method", () => {
+    initAnalytics(readyUser);
+
+    track("transaction_added", {
+      type: "expense",
+      paidBySelf: true,
+      categoryCount: 1,
+      // @ts-expect-error intentional unsupported surface for runtime guard test
+      surface: "home",
+      method: "manual",
+    });
+    track("transaction_added", {
+      type: "expense",
+      paidBySelf: true,
+      categoryCount: 1,
+      surface: "global",
+      // @ts-expect-error intentional unsupported method for runtime guard test
+      method: "import",
+    });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
+  it("drops transaction_added missing required surface or method, and strips financial content", () => {
+    const coarse = { type: "expense", paidBySelf: true, categoryCount: 1 } as const;
+
+    expect(
+      sanitizeAnalyticsProps(
+        "transaction_added",
+        // @ts-expect-error intentionally missing required surface
+        { ...coarse, method: "manual" },
+      ),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps(
+        "transaction_added",
+        // @ts-expect-error intentionally missing required method
+        { ...coarse, surface: "circle_scoped" },
+      ),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("transaction_added", {
+        ...coarse,
+        surface: "circle_scoped",
+        method: "manual",
+        ...{ title: "Weekly shop", amountMinorUnits: 1250, transactionId: "t1", url: "/x" },
+      }),
+    ).toEqual({
+      type: "expense",
+      paidBySelf: true,
+      categoryCount: 1,
+      surface: "circle_scoped",
+      method: "manual",
+    });
+  });
+
   it("captures activation skip with completedCount 0–3 and empty completion payload", () => {
     initAnalytics(readyUser);
 

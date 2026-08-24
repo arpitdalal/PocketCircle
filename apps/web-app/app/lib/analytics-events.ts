@@ -10,6 +10,12 @@ export type AnalyticsLifecycleStatus = LifecycleFilter;
 
 export type AnalyticsCategorySource = "standalone" | "transaction_inline";
 
+/** Which page surface a Transaction was added from — never a Circle or Transaction identity. */
+export type AnalyticsTransactionSurface = "circle_scoped" | "global";
+
+/** How the added Transaction was authored — manual entry or duplication of an existing one. */
+export type AnalyticsTransactionMethod = "manual" | "duplicate";
+
 export type AnalyticsExportResult = "downloaded" | "too_many" | "inaccessible" | "failed";
 
 export type AnalyticsFeedbackType = FeedbackType;
@@ -54,6 +60,8 @@ export type AnalyticsEventMap = {
     type: AnalyticsTransactionType;
     paidBySelf: boolean;
     categoryCount: number;
+    surface: AnalyticsTransactionSurface;
+    method: AnalyticsTransactionMethod;
   };
   category_created: {
     type: AnalyticsCategoryType;
@@ -96,7 +104,7 @@ export type AnalyticsEvent = keyof AnalyticsEventMap;
 
 const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   circle_created: new Set(["currency"]),
-  transaction_added: new Set(["type", "paidBySelf", "categoryCount"]),
+  transaction_added: new Set(["type", "paidBySelf", "categoryCount", "surface", "method"]),
   category_created: new Set(["type", "source"]),
   ledger_filter_applied: new Set([
     "type",
@@ -165,6 +173,14 @@ function isAnalyticsCategorySource(value: unknown): value is AnalyticsCategorySo
   return value === "standalone" || value === "transaction_inline";
 }
 
+function isAnalyticsTransactionSurface(value: unknown): value is AnalyticsTransactionSurface {
+  return value === "circle_scoped" || value === "global";
+}
+
+function isAnalyticsTransactionMethod(value: unknown): value is AnalyticsTransactionMethod {
+  return value === "manual" || value === "duplicate";
+}
+
 function isAnalyticsExportResult(value: unknown): value is AnalyticsExportResult {
   return (
     value === "downloaded" || value === "too_many" || value === "inaccessible" || value === "failed"
@@ -204,6 +220,8 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
       if (key === "type") return isAnalyticsTransactionType(value);
       if (key === "paidBySelf") return typeof value === "boolean";
       if (key === "categoryCount") return isNonNegativeInteger(value);
+      if (key === "surface") return isAnalyticsTransactionSurface(value);
+      if (key === "method") return isAnalyticsTransactionMethod(value);
       return false;
     case "category_created":
       if (key === "type") return isAnalyticsCategoryType(value);
@@ -262,7 +280,9 @@ function isTransactionAddedPayload(
     isAnalyticsTransactionType(value.type) &&
     typeof value.paidBySelf === "boolean" &&
     isNonNegativeInteger(value.categoryCount) &&
-    Object.keys(value).length === 3
+    isAnalyticsTransactionSurface(value.surface) &&
+    isAnalyticsTransactionMethod(value.method) &&
+    Object.keys(value).length === 5
   );
 }
 

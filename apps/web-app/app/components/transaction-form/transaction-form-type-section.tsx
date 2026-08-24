@@ -1,25 +1,44 @@
 import { TRANSACTION_TYPES, type TransactionType } from "@pocketcircle/domain";
-import type { RefObject } from "react";
+import { useRef, useState } from "react";
 import { Button } from "~/components/ui/button.js";
 import { FieldLegend, FieldSet } from "~/components/ui/field.js";
 import { cn } from "~/lib/utils.js";
 import { TYPE_LABEL } from "./transaction-form-constants.js";
 
+/**
+ * The edit form's Type control and its Type-Change confirmation (PRD 29, 30).
+ * Picking the other Type never applies immediately: the section first asks
+ * (an inline `alertdialog` with focus moved to the confirm button), and only an
+ * explicit confirm reports {@link onTypeChangeConfirmed} — Cancel discards the
+ * request and restores focus flow without touching the form. WHAT a confirmed
+ * change does (clear Categories, swap the Category read) is the host adapter's
+ * decision, normally `controller.applyTypeChange`.
+ */
 export function TransactionFormTypeEditSection({
   activeType,
-  pendingType,
-  confirmTypeRef,
-  requestType,
-  confirmTypeChange,
-  onCancelPendingType,
+  onTypeChangeConfirmed,
 }: {
   activeType: TransactionType;
-  pendingType: TransactionType | null;
-  confirmTypeRef: RefObject<HTMLButtonElement | null>;
-  requestType: (next: TransactionType) => void;
-  confirmTypeChange: () => void;
-  onCancelPendingType: () => void;
+  onTypeChangeConfirmed: (next: TransactionType) => void;
 }) {
+  const [pendingType, setPendingType] = useState<TransactionType | null>(null);
+  const confirmTypeRef = useRef<HTMLButtonElement>(null);
+
+  const requestType = (next: TransactionType) => {
+    if (next === activeType) {
+      return;
+    }
+    setPendingType(next);
+    queueMicrotask(() => confirmTypeRef.current?.focus());
+  };
+  const confirmTypeChange = () => {
+    if (!pendingType) {
+      return;
+    }
+    onTypeChangeConfirmed(pendingType);
+    setPendingType(null);
+  };
+
   return (
     <FieldSet>
       <FieldLegend>Type</FieldLegend>
@@ -63,7 +82,7 @@ export function TransactionFormTypeEditSection({
             <Button ref={confirmTypeRef} type="button" onClick={confirmTypeChange}>
               Change type
             </Button>
-            <Button type="button" variant="outline" onClick={onCancelPendingType}>
+            <Button type="button" variant="outline" onClick={() => setPendingType(null)}>
               Cancel
             </Button>
           </div>

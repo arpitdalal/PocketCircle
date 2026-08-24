@@ -25,40 +25,65 @@ import {
   primeAnalyticsForTests,
   resetPostHogBoundary,
 } from "~/test/posthog-boundary.js";
+import { TransactionFormBody } from "./transaction-form-body.js";
+import {
+  type TransactionFormResult,
+  type UseTransactionFormInputs,
+  useTransactionForm,
+} from "./use-transaction-form.js";
 
 /**
- * Behavior test for the shared Transaction form (jsdom). The ONLY doubled thing is
- * Convex's reactive client (via the shared helper); the real `~/lib/data.js` hooks,
- * the real TanStack Form wiring, and the real field/validation/Type-Change logic run.
- * The form is mounted DIRECTLY (no route) because it is the reusable unit both the
- * inline create (Monthly Ledger) and the edit object route render — testing it here
- * once keeps the route tests about routing, not about field rules (ADR 0006/0020).
+ * Behavior test for the SHARED Transaction form — the real `useTransactionForm`
+ * controller wired to the real `TransactionFormBody` exactly as a route adapter
+ * wires them (jsdom). The ONLY doubled things are Convex's reactive client and
+ * PostHog at their vendor boundaries; the real `~/lib/data.js` hooks, the real
+ * domain schemas, and the real TanStack Form wiring run. The form is mounted
+ * DIRECTLY (no route) because it is the reusable unit every route renders — testing
+ * it here once keeps the route tests about routing, not about field rules
+ * (ADR 0006/0020).
  */
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
-import { TransactionForm, type TransactionFormMode } from "./index.js";
+/** Mirrors the route adapters' wiring: controller → body, with Cancel and the approved
+ * Type Change routed through adapter callbacks. Nothing here is route-specific. */
+function TransactionFormHarness({
+  onCancel,
+  ...inputs
+}: UseTransactionFormInputs & { onCancel: () => void }) {
+  const controller = useTransactionForm(inputs);
+  return (
+    <TransactionFormBody
+      controller={controller}
+      onCancel={onCancel}
+      onTypeChangeConfirmed={controller.applyTypeChange}
+    />
+  );
+}
 
 const createTransaction = vi.fn();
 const updateTransaction = vi.fn();
 const createCategory = vi.fn();
 
-/** What the helper accepts for a create: the real create mode minus `selectedMonth`, which
- * `renderForm` injects (defaulting to the current month) so a test needn't repeat it; the
- * edit variant is passed through unchanged. */
-type FormModeInput =
-  | Omit<Extract<TransactionFormMode, { kind: "create" }>, "selectedMonth">
-  | Extract<TransactionFormMode, { kind: "edit" }>;
+/** Omit over a union, keeping the create/edit variants distinct. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-function renderForm(
-  mode: FormModeInput,
-  opts: {
-    circle?: Partial<Circle>;
-    categories?: Category[] | null;
-    members?: Member[] | null;
-    selectedMonth?: string;
-  } = {},
-) {
+/** Harness inputs minus the Circle and completion callback the render helper supplies. */
+type HarnessInputs = DistributiveOmit<UseTransactionFormInputs, "circle" | "onComplete">;
+
+interface RenderFormOpts {
+  circle?: Partial<Circle>;
+  categories?: Category[] | null;
+  members?: Member[] | null;
+  selectedMonth?: string;
+}
+
+/**
+ * Renders one harness instance and returns both completion spies. `onComplete`
+ * receives the controller's {@link TransactionFormResult}; `onCancel` is what
+ * Cancel means (a successful save NEVER calls it, and vice versa).
+ */
+function renderForm(inputs: HarnessInputs, opts: RenderFormOpts = {}) {
   const circle = makeCircleView(opts.circle);
   createTransaction.mockReset();
   createTransaction.mockResolvedValue("new-id");
@@ -73,18 +98,53 @@ function renderForm(
     updateTransaction,
     createCategory,
   });
-  const onClose = vi.fn();
-  // Default the selected month to the current one so a create's date defaults to today
-  // (the common record-as-you-go case); tests that care about back-dating pass a month.
-  const month = opts.selectedMonth ?? currentMonth(new Date());
-  const realMode: TransactionFormMode =
-    mode.kind === "create" ? { ...mode, selectedMonth: month } : mode;
-  const ui = () => <TransactionForm circle={circle} mode={realMode} onClose={onClose} />;
+  const onComplete = vi.fn<(result: TransactionFormResult) => void>();
+  const onCancel = vi.fn();
+  const ui = () => (
+    <TransactionFormHarness
+      {...inputs}
+      circle={circle}
+      onComplete={onComplete}
+      onCancel={onCancel}
+    />
+  );
   const result = render(ui());
-  return { onClose, circle, ...result, rerenderForm: () => result.rerender(ui()) };
+  return { circle, onComplete, onCancel, ...result, rerenderForm: () => result.rerender(ui()) };
 }
 
-const createExpense: FormModeInput = { kind: "create", type: "expense" };
+type CreateInputs = Omit<
+  Extract<UseTransactionFormInputs, { kind: "create" }>,
+  "kind" | "circle" | "analytics" | "selectedMonth" | "onComplete"
+>;
+
+/** A create harness with the Circle injected; tests state only what differs. */
+function renderCreate(inputs: CreateInputs, opts: RenderFormOpts = {}) {
+  return renderForm(
+    {
+      kind: "create",
+      // Default the selected month to the current one so a create's date defaults to
+      // today (the common record-as-you-go case); tests that care about back-dating
+      // pass a month.
+      selectedMonth: opts.selectedMonth ?? currentMonth(new Date()),
+      analytics: { surface: "circle_scoped", method: "manual" },
+      ...inputs,
+    },
+    opts,
+  );
+}
+
+type EditInputs = Omit<
+  Extract<UseTransactionFormInputs, { kind: "edit" }>,
+  "circle" | "onComplete"
+>;
+
+/** An edit harness prefilled from a fixture Transaction; tests state only what differs. */
+function renderEdit(transaction: Partial<Transaction>, opts: RenderFormOpts = {}) {
+  return renderForm(
+    { kind: "edit", transaction: makeTransactionView(transaction) } satisfies EditInputs,
+    opts,
+  );
+}
 
 beforeEach(() => {
   primeAnalyticsForTests();
@@ -98,12 +158,15 @@ afterEach(() => {
 describe("TransactionForm — create", () => {
   it("scopes categories to the form's type", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [
-        makeCategoryView({ name: "Groceries", type: "expense" }),
-        makeCategoryView({ id: testId<Category["id"]>("i1"), name: "Salary", type: "income" }),
-      ],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [
+          makeCategoryView({ name: "Groceries", type: "expense" }),
+          makeCategoryView({ id: testId<Category["id"]>("i1"), name: "Salary", type: "income" }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.click(within(form).getByRole("combobox", { name: "Categories" }));
     expect(await screen.findByRole("option", { name: "Groceries" })).toBeInTheDocument();
@@ -113,16 +176,19 @@ describe("TransactionForm — create", () => {
 
   it("filters category options by search query", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [
-        makeCategoryView({ name: "Groceries", type: "expense" }),
-        makeCategoryView({
-          id: testId<Category["id"]>("cat-gas"),
-          name: "Gas",
-          type: "expense",
-        }),
-      ],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [
+          makeCategoryView({ name: "Groceries", type: "expense" }),
+          makeCategoryView({
+            id: testId<Category["id"]>("cat-gas"),
+            name: "Gas",
+            type: "expense",
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     const categoryCombo = within(form).getByRole("combobox", { name: "Categories" });
     await user.click(categoryCombo);
@@ -136,11 +202,14 @@ describe("TransactionForm — create", () => {
     await user.keyboard("{Escape}");
   });
 
-  it("submits a new expense with parsed minor units and the default Paid By", async () => {
+  it("submits a new expense with parsed minor units and the default Paid By, and completes with the created result", async () => {
     const user = userEvent.setup();
-    const { onClose } = renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    const { onComplete, onCancel } = renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText("Title"), "Weekly shop");
     await user.type(within(form).getByLabelText(/Amount/), "12.5");
@@ -161,16 +230,35 @@ describe("TransactionForm — create", () => {
       type: "expense",
       paidBySelf: true,
       categoryCount: 1,
+      surface: "circle_scoped",
+      method: "manual",
     });
-    expect(onClose).toHaveBeenCalled(); // a successful save closes the form
+    // The controller's completion exposes the new id + submitted values for the route.
+    expect(onComplete).toHaveBeenCalledWith({
+      kind: "created",
+      transactionId: "new-id",
+      submitted: {
+        type: "expense",
+        title: "Weekly shop",
+        note: undefined,
+        amountMinorUnits: 1250,
+        date: toPlainDate(new Date()),
+        categoryIds: ["cat-groceries"],
+        paidByMemberId: undefined,
+      },
+    });
+    expect(onCancel).not.toHaveBeenCalled(); // a save is never a Cancel
   });
 
   it("defaults the date into the selected (non-current) month", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-      selectedMonth: "2026-03",
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+        selectedMonth: "2026-03",
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     expect(within(form).getByLabelText("Date")).toHaveValue("2026-03-01");
 
@@ -183,17 +271,20 @@ describe("TransactionForm — create", () => {
 
   it("sends the selected Paid By Member id when changed away from Me", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-      members: [
-        makeMemberView(),
-        makeMemberView({
-          id: testId<Member["id"]>("mem-alex"),
-          displayName: "Alex",
-          isSelf: false,
-        }),
-      ],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+        members: [
+          makeMemberView(),
+          makeMemberView({
+            id: testId<Member["id"]>("mem-alex"),
+            displayName: "Alex",
+            isSelf: false,
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText("Title"), "Dinner");
     await user.type(within(form).getByLabelText(/Amount/), "20");
@@ -212,10 +303,13 @@ describe("TransactionForm — create", () => {
       makeMemberView(),
       makeMemberView({ id: testId<Member["id"]>("mem-y"), displayName: "Yuki", isSelf: false }),
     ];
-    const { rerenderForm } = renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-      members,
-    });
+    const { rerenderForm } = renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+        members,
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText("Title"), "Dinner");
     await user.type(within(form).getByLabelText(/Amount/), "20");
@@ -232,9 +326,12 @@ describe("TransactionForm — create", () => {
 
   it("reveals required errors on submit and does not create when fields are empty", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.click(within(form).getByRole("button", { name: "Add expense" }));
 
@@ -246,9 +343,12 @@ describe("TransactionForm — create", () => {
 
   it("shows a field error on blur once a field is edited and invalid", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText(/Amount/), "0");
     await user.tab();
@@ -257,9 +357,12 @@ describe("TransactionForm — create", () => {
 
   it("stays quiet when a required field is focused and blurred without typing", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.click(within(form).getByLabelText("Title"));
     await user.tab();
@@ -268,9 +371,12 @@ describe("TransactionForm — create", () => {
 
   it("stays quiet when Amount is focused and blurred without typing (no dirty blur normalize)", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.click(within(form).getByLabelText(/Amount/));
     await user.tab();
@@ -282,7 +388,7 @@ describe("TransactionForm — create", () => {
     const cats: Category[] = [
       makeCategoryView({ id: testId<Category["id"]>("cat-x"), name: "Snacks", type: "expense" }),
     ];
-    const { rerenderForm } = renderForm(createExpense, { categories: cats });
+    const { rerenderForm } = renderCreate({ type: "expense" }, { categories: cats });
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText("Title"), "Movie night");
     await user.type(within(form).getByLabelText(/Amount/), "10");
@@ -308,9 +414,12 @@ describe("TransactionForm — create", () => {
   it("surfaces a generic error and reports the failure when the create fails", async () => {
     const user = userEvent.setup();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    const { onComplete } = renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     createTransaction.mockRejectedValueOnce(new Error("Network down"));
 
     const form = screen.getByRole("form", { name: /add expense/i });
@@ -322,6 +431,7 @@ describe("TransactionForm — create", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Couldn't save the transaction/i);
     expect(alert).not.toHaveTextContent(/Network down/);
+    expect(onComplete).not.toHaveBeenCalled(); // a failed save never completes
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -329,7 +439,7 @@ describe("TransactionForm — create", () => {
   it("inline-creates a category from zero active categories and auto-selects it", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-snacks");
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockResolvedValueOnce(newId);
     const form = screen.getByRole("form", { name: /add expense/i });
     await inlineCreateTransactionFormCategory(user, form, "Snacks");
@@ -350,7 +460,7 @@ describe("TransactionForm — create", () => {
   it("inline-creates a category, auto-selects it, and submits with the new id", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-snacks");
-    const { onClose } = renderForm(createExpense, { categories: [] });
+    const { onComplete } = renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockResolvedValueOnce(newId);
     const form = screen.getByRole("form", { name: /add expense/i });
     await user.type(within(form).getByLabelText("Title"), "Movie night");
@@ -367,14 +477,17 @@ describe("TransactionForm — create", () => {
     expect(createTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ categoryIds: [newId] }),
     );
-    expect(onClose).toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalled();
   });
 
   it("hides inline-create when the typed name matches an active category", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
     await user.click(combo);
@@ -386,16 +499,19 @@ describe("TransactionForm — create", () => {
 
   it("shows a reserved-name message for an archived category name without creating", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, {
-      categories: [
-        makeCategoryView({
-          id: testId<Category["id"]>("cat-old"),
-          name: "OldCat",
-          type: "expense",
-          status: "archived",
-        }),
-      ],
-    });
+    renderCreate(
+      { type: "expense" },
+      {
+        categories: [
+          makeCategoryView({
+            id: testId<Category["id"]>("cat-old"),
+            name: "OldCat",
+            type: "expense",
+            status: "archived",
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
     await user.click(combo);
@@ -411,7 +527,7 @@ describe("TransactionForm — create", () => {
 
   it("surfaces a friendly inline error when createCategory rejects with a duplicate name", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockRejectedValueOnce(
       new ConvexError(mutationErrorData(MUTATION_ERRORS.categoryNameDuplicate)),
     );
@@ -427,7 +543,7 @@ describe("TransactionForm — create", () => {
   it("surfaces a generic inline error when createCategory rejects for another reason", async () => {
     const user = userEvent.setup();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockRejectedValueOnce(
       new ConvexError(mutationErrorData(MUTATION_ERRORS.circleArchived)),
     );
@@ -442,7 +558,7 @@ describe("TransactionForm — create", () => {
   it("clears the category search input after a successful inline create", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-rent");
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockResolvedValueOnce(newId);
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
@@ -457,7 +573,7 @@ describe("TransactionForm — create", () => {
 
   it("keeps the category search text when inline create fails", async () => {
     const user = userEvent.setup();
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockRejectedValueOnce(
       new ConvexError(mutationErrorData(MUTATION_ERRORS.categoryNameDuplicate)),
     );
@@ -477,7 +593,7 @@ describe("TransactionForm — create", () => {
   it("creates a category from the keyboard-highlighted create option", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-rent");
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockResolvedValueOnce(newId);
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
@@ -498,7 +614,7 @@ describe("TransactionForm — create", () => {
   it("lets you re-select an inline-created category after removing its chip", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-snacks");
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockResolvedValueOnce(newId);
     const form = screen.getByRole("form", { name: /add expense/i });
     await inlineCreateTransactionFormCategory(user, form, "Snacks");
@@ -516,7 +632,7 @@ describe("TransactionForm — create", () => {
     const createPromise = new Promise<Category["id"]>((resolve) => {
       resolveCreate = resolve;
     });
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     createCategory.mockReturnValueOnce(createPromise);
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
@@ -532,20 +648,28 @@ describe("TransactionForm — create", () => {
   });
 
   it("shows the category combobox when none exist for the type", () => {
-    renderForm(createExpense, { categories: [] });
+    renderCreate({ type: "expense" }, { categories: [] });
     expect(screen.getByRole("combobox", { name: "Categories" })).toBeInTheDocument();
     expect(screen.queryByText(/Create one first/)).not.toBeInTheDocument();
+  });
+
+  it("calls Cancel — never the completion — when the user cancels an untouched form", async () => {
+    const user = userEvent.setup();
+    const { onCancel, onComplete } = renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });
 
 describe("TransactionForm — edit (TXN-2)", () => {
-  const editMode = (over: Partial<Transaction> = {}): FormModeInput => ({
-    kind: "edit",
-    transaction: makeTransactionView(over),
-  });
-
   it("prefills from the saved Transaction", () => {
-    renderForm(editMode({ title: "Weekly shop", amountMinorUnits: 1250, date: "2026-05-15" }));
+    renderEdit({ title: "Weekly shop", amountMinorUnits: 1250, date: "2026-05-15" });
     const form = screen.getByRole("form", { name: /edit transaction/i });
     expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
     expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
@@ -553,9 +677,9 @@ describe("TransactionForm — edit (TXN-2)", () => {
     expect(within(form).getByRole("button", { name: /Remove Groceries/ })).toBeInTheDocument();
   });
 
-  it("saves edited fields through updateTransaction and closes", async () => {
+  it("saves edited fields through updateTransaction and completes with the updated id", async () => {
     const user = userEvent.setup();
-    const { onClose } = renderForm(editMode({ title: "Weekly shop", amountMinorUnits: 1250 }));
+    const { onComplete, onCancel } = renderEdit({ title: "Weekly shop", amountMinorUnits: 1250 });
     const form = screen.getByRole("form", { name: /edit transaction/i });
     await user.clear(within(form).getByLabelText("Title"));
     await user.type(within(form).getByLabelText("Title"), "Big shop");
@@ -571,21 +695,33 @@ describe("TransactionForm — edit (TXN-2)", () => {
       categoryIds: ["cat-groceries"],
       paidByMemberId: "mem-you",
     });
-    expect(onClose).toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledWith({ kind: "updated", transactionId: "t1" });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("calls Cancel — never the completion — when the user cancels an edit", async () => {
+    const user = userEvent.setup();
+    const { onCancel, onComplete } = renderEdit({ title: "Weekly shop" });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
   it("confirms a type change, clears categories, and saves the new type + categories", async () => {
     const user = userEvent.setup();
-    renderForm(editMode({ title: "Weekly shop" }), {
-      categories: [
-        makeCategoryView({ name: "Groceries", type: "expense" }),
-        makeCategoryView({
-          id: testId<Category["id"]>("cat-salary"),
-          name: "Salary",
-          type: "income",
-        }),
-      ],
-    });
+    renderEdit(
+      { title: "Weekly shop" },
+      {
+        categories: [
+          makeCategoryView({ name: "Groceries", type: "expense" }),
+          makeCategoryView({
+            id: testId<Category["id"]>("cat-salary"),
+            name: "Salary",
+            type: "income",
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /edit transaction/i });
 
     await user.click(within(form).getByRole("button", { name: "Income" }));
@@ -617,16 +753,19 @@ describe("TransactionForm — edit (TXN-2)", () => {
   it("inline-creates a category with the new type after a type change", async () => {
     const user = userEvent.setup();
     const newId = testId<Category["id"]>("cat-bonus");
-    renderForm(editMode({ title: "Weekly shop" }), {
-      categories: [
-        makeCategoryView({ name: "Groceries", type: "expense" }),
-        makeCategoryView({
-          id: testId<Category["id"]>("cat-salary"),
-          name: "Salary",
-          type: "income",
-        }),
-      ],
-    });
+    renderEdit(
+      { title: "Weekly shop" },
+      {
+        categories: [
+          makeCategoryView({ name: "Groceries", type: "expense" }),
+          makeCategoryView({
+            id: testId<Category["id"]>("cat-salary"),
+            name: "Salary",
+            type: "income",
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /edit transaction/i });
 
     await user.click(within(form).getByRole("button", { name: "Income" }));
@@ -647,16 +786,19 @@ describe("TransactionForm — edit (TXN-2)", () => {
 
   it("blocks saving until the cleared categories are re-picked after a type change", async () => {
     const user = userEvent.setup();
-    renderForm(editMode({ title: "Weekly shop" }), {
-      categories: [
-        makeCategoryView({ name: "Groceries", type: "expense" }),
-        makeCategoryView({
-          id: testId<Category["id"]>("cat-salary"),
-          name: "Salary",
-          type: "income",
-        }),
-      ],
-    });
+    renderEdit(
+      { title: "Weekly shop" },
+      {
+        categories: [
+          makeCategoryView({ name: "Groceries", type: "expense" }),
+          makeCategoryView({
+            id: testId<Category["id"]>("cat-salary"),
+            name: "Salary",
+            type: "income",
+          }),
+        ],
+      },
+    );
     const form = screen.getByRole("form", { name: /edit transaction/i });
     await user.click(within(form).getByRole("button", { name: "Income" }));
     await user.click(
@@ -670,11 +812,11 @@ describe("TransactionForm — edit (TXN-2)", () => {
 
   it("keeps an already-attached archived category on save without blocking", async () => {
     const user = userEvent.setup();
-    renderForm(
-      editMode({
+    renderEdit(
+      {
         title: "Weekly shop",
         categories: [{ id: testId<Category["id"]>("cat-arch"), name: "OldCat", color: "green" }],
-      }),
+      },
       {
         categories: [
           makeCategoryView({
@@ -708,7 +850,7 @@ describe("TransactionForm — edit (TXN-2)", () => {
         type: "expense",
       }),
     ];
-    const { rerenderForm } = renderForm(editMode({ title: "Weekly shop" }), { categories: cats });
+    const { rerenderForm } = renderEdit({ title: "Weekly shop" }, { categories: cats });
     const form = screen.getByRole("form", { name: /edit transaction/i });
     await pickTransactionFormCategory(user, form, "Snacks");
 
@@ -727,11 +869,11 @@ describe("TransactionForm — edit (TXN-2)", () => {
   });
 
   it("shows a Removed Member's existing Paid By as a selectable option", () => {
-    renderForm(
-      editMode({
+    renderEdit(
+      {
         title: "Weekly shop",
         paidBy: { id: testId<Member["id"]>("mem-rex"), displayName: "Rex", image: undefined },
-      }),
+      },
       { members: [makeMemberView()] },
     );
     const form = screen.getByRole("form", { name: /edit transaction/i });
@@ -744,7 +886,7 @@ describe("TransactionForm — edit (TXN-2)", () => {
       makeMemberView(),
       makeMemberView({ id: testId<Member["id"]>("mem-y"), displayName: "Yuki", isSelf: false }),
     ];
-    const { rerenderForm } = renderForm(editMode({ title: "Weekly shop" }), { members });
+    const { rerenderForm } = renderEdit({ title: "Weekly shop" }, { members });
     const form = screen.getByRole("form", { name: /edit transaction/i });
     await user.selectOptions(within(form).getByLabelText("Paid by"), "mem-y");
 
@@ -758,11 +900,11 @@ describe("TransactionForm — edit (TXN-2)", () => {
 
   it("still saves a no-op when keeping a now-removed current Paid By", async () => {
     const user = userEvent.setup();
-    renderForm(
-      editMode({
+    renderEdit(
+      {
         title: "Weekly shop",
         paidBy: { id: testId<Member["id"]>("mem-rex"), displayName: "Rex", image: undefined },
-      }),
+      },
       { members: [makeMemberView()] },
     );
     const form = screen.getByRole("form", { name: /edit transaction/i });
@@ -779,7 +921,7 @@ describe("TransactionForm — edit (TXN-2)", () => {
   it("surfaces a generic error and reports the failure when the edit fails", async () => {
     const user = userEvent.setup();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    renderForm(editMode({ title: "Weekly shop" }));
+    const { onComplete } = renderEdit({ title: "Weekly shop" });
     updateTransaction.mockRejectedValueOnce(new Error("Network down"));
 
     const form = screen.getByRole("form", { name: /edit transaction/i });
@@ -790,7 +932,22 @@ describe("TransactionForm — edit (TXN-2)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Couldn't save the transaction/i);
     expect(alert).not.toHaveTextContent(/Network down/);
+    expect(onComplete).not.toHaveBeenCalled(); // a failed save never completes
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it("never emits transaction_added from an edit save", async () => {
+    const user = userEvent.setup();
+    renderEdit({ title: "Weekly shop" });
+    const form = screen.getByRole("form", { name: /edit transaction/i });
+    await user.clear(within(form).getByLabelText("Title"));
+    await user.type(within(form).getByLabelText("Title"), "Edited");
+    await user.click(within(form).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(updateTransaction).toHaveBeenCalledWith(expect.objectContaining({ title: "Edited" })),
+    );
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith("transaction_added", expect.anything());
   });
 });

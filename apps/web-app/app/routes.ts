@@ -49,7 +49,8 @@ export default [
         // Create Transaction (issue #96). A STATIC `new` segment that outranks the dynamic
         // `transactions/:transactionRef` below, so it never collides with a Transaction ref
         // (canonical `slug-id` refs are never the literal "new" — ADR 0016), the same
-        // reasoning as `circles/new`. Reuses `TransactionForm` in create mode.
+        // reasoning as `circles/new`. A route adapter over the shared Transaction form
+        // controller + body (issue #297).
         route("transactions/new", "routes/circle/transaction-new.tsx"),
         route("search", "routes/circle/search.tsx"),
         // The Transaction DETAIL object route (ADR 0016/0017) — the REFERENCE object
