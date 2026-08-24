@@ -32,6 +32,8 @@ export default [
     route("settings", "routes/settings.tsx"),
     route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
+    // THROWAWAY PROTOTYPE: Global Add Transaction interaction (issue 289).
+    route("transactions/new", "routes/prototype/global-transaction-new.tsx"),
 
     // Circle-scoped routes. The Circle guard resolves/canonicalizes/guards the
     // Circle and provides it to children via Outlet context; object routes

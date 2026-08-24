@@ -47,6 +47,7 @@ const CURRENCY_SEGMENTED_MAX = 4;
 /** Home: the User's currency-scoped Cash Flow summary + Circle cards. */
 export default function Home() {
   const circles = useMyCircles();
+  const origin = useReturnToOrigin();
   const [searchParams, setSearchParams] = useSearchParams();
   const selection = readHomeSummarySelection(searchParams);
 
@@ -107,12 +108,20 @@ export default function Home() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Home</h1>
-        <Link
-          to={href("/circles/new")}
-          className={buttonVariants({ variant: "default", size: "default" })}
-        >
-          Create circle
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to={withReturnTo("/transactions/new?type=expense", origin)}
+            className={buttonVariants({ variant: "default", size: "default" })}
+          >
+            Add transaction
+          </Link>
+          <Link
+            to={href("/circles/new")}
+            className={buttonVariants({ variant: "outline", size: "default" })}
+          >
+            Create circle
+          </Link>
+        </div>
       </div>
 
       <ActivationChecklist />
