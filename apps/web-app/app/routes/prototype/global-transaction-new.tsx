@@ -10,7 +10,7 @@ import {
   LoaderCircle,
   Plus,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   PrototypeSwitcher,
@@ -336,6 +336,27 @@ export function VariantB(props: FormProps) {
 
 export function VariantC(props: FormProps) {
   const ready = Boolean(props.circle);
+  const detailsRef = useRef<HTMLDivElement>(null);
+  const previousCircleId = useRef(props.circleId);
+
+  useEffect(() => {
+    const circleChanged = previousCircleId.current !== props.circleId;
+    previousCircleId.current = props.circleId;
+    if (!circleChanged || !props.circleId) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const details = detailsRef.current;
+      if (!details) return;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      details.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      const title = details.querySelector<HTMLInputElement>('input[name="title"]');
+      title?.focus({ preventScroll: true });
+      title?.select();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [props.circleId]);
+
   return (
     <main className="mx-auto max-w-2xl space-y-5 pb-40">
       <PageHeading subtitle="Start with the destination. The form follows." />
@@ -352,7 +373,7 @@ export function VariantC(props: FormProps) {
             <TypeField {...props} />
           </div>
         </div>
-        <div className={cn("p-5", !ready && "bg-muted/30")}>
+        <div ref={detailsRef} className={cn("scroll-mt-6 p-5", !ready && "bg-muted/30")}>
           <div className="mb-4 flex items-center gap-3">
             <span
               className={cn(
@@ -489,6 +510,7 @@ function TransactionFieldBody(props: FormProps) {
       <label className="grid gap-1.5 text-sm font-medium">
         Title
         <input
+          name="title"
           value={props.title}
           onChange={(event) => props.setTitle(event.target.value)}
           placeholder="e.g. Weekly shop"
