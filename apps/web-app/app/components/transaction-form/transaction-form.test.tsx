@@ -45,20 +45,15 @@ import {
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
-/** Mirrors the route adapters' wiring: controller → body, with Cancel and the approved
- * Type Change routed through adapter callbacks. Nothing here is route-specific. */
+/** Mirrors the route adapters' wiring: controller → body with Cancel routed through
+ * the adapter callback and an approved Type Change applying via the body's default.
+ * Nothing here is route-specific. */
 function TransactionFormHarness({
   onCancel,
   ...inputs
 }: UseTransactionFormInputs & { onCancel: () => void }) {
   const controller = useTransactionForm(inputs);
-  return (
-    <TransactionFormBody
-      controller={controller}
-      onCancel={onCancel}
-      onTypeChangeConfirmed={controller.applyTypeChange}
-    />
-  );
+  return <TransactionFormBody controller={controller} onCancel={onCancel} />;
 }
 
 const createTransaction = vi.fn();

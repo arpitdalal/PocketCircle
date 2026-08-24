@@ -260,6 +260,14 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     setInlineCreatedCategories([]);
   };
 
+  /** Records a just-created Category so it stays selectable before the reactive read
+   * catches up, deduplicated against what that read already returns. */
+  const addInlineCreatedCategory = (category: Category) => {
+    setInlineCreatedCategories((prev) =>
+      prev.some((row) => row.id === category.id) ? prev : [...prev, category],
+    );
+  };
+
   return {
     circle,
     form,
@@ -273,7 +281,7 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     categoryById,
     alreadyAttached,
     activeCategories,
-    setInlineCreatedCategories,
+    addInlineCreatedCategory,
   };
 }
 

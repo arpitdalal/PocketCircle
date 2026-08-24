@@ -117,11 +117,5 @@ function TransactionNewForm({
     analytics: { surface: "circle_scoped", method: "manual" },
     onComplete: () => onClose(),
   });
-  return (
-    <TransactionFormBody
-      controller={controller}
-      onCancel={onClose}
-      onTypeChangeConfirmed={controller.applyTypeChange}
-    />
-  );
+  return <TransactionFormBody controller={controller} onCancel={onClose} />;
 }

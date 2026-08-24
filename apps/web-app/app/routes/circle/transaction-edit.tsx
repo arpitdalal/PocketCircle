@@ -117,11 +117,5 @@ function TransactionEditForm({
     transaction,
     onComplete: () => onClose(),
   });
-  return (
-    <TransactionFormBody
-      controller={controller}
-      onCancel={onClose}
-      onTypeChangeConfirmed={controller.applyTypeChange}
-    />
-  );
+  return <TransactionFormBody controller={controller} onCancel={onClose} />;
 }

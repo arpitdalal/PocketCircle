@@ -18,22 +18,22 @@ import type { TransactionFormController } from "./use-transaction-form.js";
  * It is a pure renderer of {@link TransactionFormController} state: no data reads,
  * no mutations, no analytics, and never any navigation.
  *
- * Two decisions stay with the hosting route adapter and arrive as callbacks:
- * `onCancel` (what Cancel means — the route's close/navigation) and
- * `onTypeChangeConfirmed` (what an approved Type Change does — normally
- * `controller.applyTypeChange`). Everything else about the fields is owned here,
- * so no route ever defines a second Transaction field tree.
+ * `onCancel` is what Cancel means to the hosting route adapter — the route's close
+ * navigation. An approved Type Change applies through the controller's own
+ * `applyTypeChange` unless the adapter overrides `onTypeChangeConfirmed` with a
+ * different decision. Everything else about the fields is owned here, so no route
+ * ever defines a second Transaction field tree.
  */
 export function TransactionFormBody({
   controller,
   onCancel,
-  onTypeChangeConfirmed,
+  onTypeChangeConfirmed = controller.applyTypeChange,
 }: {
   controller: TransactionFormController;
   /** Invoked when the user activates Cancel — never by a successful save. */
   onCancel: () => void;
   /** Invoked after the user CONFIRMS a Type Change on an edit form. */
-  onTypeChangeConfirmed: (next: TransactionType) => void;
+  onTypeChangeConfirmed?: (next: TransactionType) => void;
 }) {
   const {
     circle,
@@ -47,7 +47,7 @@ export function TransactionFormBody({
     categoryById,
     alreadyAttached,
     activeCategories,
-    setInlineCreatedCategories,
+    addInlineCreatedCategory,
   } = controller;
 
   return (
@@ -112,11 +112,7 @@ export function TransactionFormBody({
             alreadyAttached={alreadyAttached}
             activeCategories={activeCategories}
             activeType={activeType}
-            onInlineCreatedCategory={(category) => {
-              setInlineCreatedCategories((prev) =>
-                prev.some((row) => row.id === category.id) ? prev : [...prev, category],
-              );
-            }}
+            onInlineCreatedCategory={addInlineCreatedCategory}
           />
 
           <form.AppField name="paidByMemberId">
