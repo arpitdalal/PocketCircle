@@ -24,6 +24,17 @@ export async function openHome(page: Page, pathAndSearch = "/?currency=USD&range
   await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
 }
 
+/**
+ * Local YYYY-MM-DD for E2E assertions (mirrors domain `toPlainDate`). Kept here so
+ * Playwright specs never import workspace packages the E2E runner cannot resolve.
+ */
+export function localPlainDate(date = new Date()) {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 /** `installE2EAuthHelper` runs from entry.client after hydration — wait before any in-page API bridge call. */
 export async function waitForScE2E(page: Page) {
   await page.waitForFunction(() => "__scE2E" in globalThis, { timeout: 30_000 });
