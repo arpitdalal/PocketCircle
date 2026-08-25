@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Category, Circle, Member, Transaction } from "~/lib/data.js";
 import {
   configureConvex,
+  deferredValue,
   inlineCreateTransactionFormCategory,
   makeCategoryView,
   makeCircleView,
@@ -623,12 +624,9 @@ describe("TransactionForm — create", () => {
 
   it("disables the category combobox while inline create is in flight", async () => {
     const user = userEvent.setup();
-    let resolveCreate: (id: Category["id"]) => void = () => {};
-    const createPromise = new Promise<Category["id"]>((resolve) => {
-      resolveCreate = resolve;
-    });
+    const pending = deferredValue<Category["id"]>();
     renderCreate({ type: "expense" }, { categories: [] });
-    createCategory.mockReturnValueOnce(createPromise);
+    createCategory.mockReturnValueOnce(pending.promise);
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
     await user.click(combo);
@@ -637,24 +635,21 @@ describe("TransactionForm — create", () => {
 
     expect(combo).toBeDisabled();
 
-    resolveCreate(testId<Category["id"]>("cat-snacks"));
+    pending.resolve(testId<Category["id"]>("cat-snacks"));
     await waitFor(() => expect(combo).not.toBeDisabled());
     await user.keyboard("{Escape}");
   });
 
   it("blocks confirming a Type change while inline Category create is in flight", async () => {
     const user = userEvent.setup();
-    let resolveCreate: (id: Category["id"]) => void = () => {};
-    const createPromise = new Promise<Category["id"]>((resolve) => {
-      resolveCreate = resolve;
-    });
+    const pending = deferredValue<Category["id"]>();
     renderEdit(
       { title: "Weekly shop" },
       {
         categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
       },
     );
-    createCategory.mockReturnValueOnce(createPromise);
+    createCategory.mockReturnValueOnce(pending.promise);
     const form = screen.getByRole("form", { name: /edit transaction/i });
 
     await user.click(within(form).getByRole("button", { name: "Income" }));
@@ -668,7 +663,7 @@ describe("TransactionForm — create", () => {
     expect(within(dialog).getByRole("button", { name: "Change type" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
 
-    resolveCreate(testId<Category["id"]>("cat-pending"));
+    pending.resolve(testId<Category["id"]>("cat-pending"));
     await waitFor(() =>
       expect(within(dialog).getByRole("button", { name: "Change type" })).toBeEnabled(),
     );

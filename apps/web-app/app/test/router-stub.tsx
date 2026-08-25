@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { AppTestProviders } from "~/test/app-test-providers.js";
+import { deferredValue } from "~/test/deferred.js";
 
 /**
  * The "stub + deferred loader" seam for driving the router's PENDING navigation state
@@ -25,11 +26,8 @@ type StubRoutes = Parameters<typeof createRoutesStub>[0];
  * in prod; only the observable it manufactures is.
  */
 export function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<null>((res) => {
-    resolve = () => res(null);
-  });
-  return { promise, resolve };
+  const { promise, resolve } = deferredValue<null>();
+  return { promise, resolve: () => resolve(null) };
 }
 
 export { AppTestProviders } from "~/test/app-test-providers.js";

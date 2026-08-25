@@ -11,6 +11,8 @@ import { GLOBAL_ADD_PATH } from "~/lib/global-add-url.js";
 import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import {
   configureConvex,
+  deferredMutationFn,
+  deferredValue,
   makeCategoryView,
   makeCircleView,
   makeMemberView,
@@ -756,16 +758,10 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
 describe("TransactionsNew — submission", () => {
   it("freezes Circle and Type controls while inline Category create is in flight", async () => {
     const user = userEvent.setup();
-    let resolveCreate!: (id: string) => void;
-    const createCategory = vi.fn(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveCreate = resolve;
-        }),
-    );
+    const createCategory = deferredMutationFn<string>();
     createTransaction.mockReset();
     createTransaction.mockResolvedValue("new-txn");
-    configureConvex({ ...baseState(), createCategory });
+    configureConvex({ ...baseState(), createCategory: createCategory.fn });
     renderRoutes(ROUTES, {
       initialEntries: [
         `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}`,
@@ -779,11 +775,11 @@ describe("TransactionsNew — submission", () => {
     await user.type(combo, "Pending Cat");
     await user.click(await screen.findByRole("option", { name: 'Create "Pending Cat"' }));
 
-    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+    await waitFor(() => expect(createCategory.fn).toHaveBeenCalled());
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Income" })).toBeDisabled();
 
-    resolveCreate(testId("cat-pending"));
+    createCategory.resolve(testId("cat-pending"));
     await within(form).findByRole("button", { name: /Remove Pending Cat/ });
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Income" })).toBeEnabled();
@@ -791,16 +787,10 @@ describe("TransactionsNew — submission", () => {
 
   it("pins URL Type while inline Category create is in flight so history cannot remount it", async () => {
     const user = userEvent.setup();
-    let resolveCreate!: (id: string) => void;
-    const createCategory = vi.fn(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveCreate = resolve;
-        }),
-    );
+    const createCategory = deferredMutationFn<string>();
     createTransaction.mockReset();
     createTransaction.mockResolvedValue("new-txn");
-    configureConvex({ ...baseState(), createCategory });
+    configureConvex({ ...baseState(), createCategory: createCategory.fn });
     const view = renderRoutes(ROUTES, {
       initialEntries: [
         `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}`,
@@ -813,7 +803,7 @@ describe("TransactionsNew — submission", () => {
     await user.click(combo);
     await user.type(combo, "Pending Cat");
     await user.click(await screen.findByRole("option", { name: 'Create "Pending Cat"' }));
-    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+    await waitFor(() => expect(createCategory.fn).toHaveBeenCalled());
 
     // History/URL Type change must be pinned back while create is in flight.
     view.navigate(`${GLOBAL_ADD_PATH}?type=income&circle=${encodeURIComponent(CIRCLE_A.ref)}`);
@@ -824,7 +814,7 @@ describe("TransactionsNew — submission", () => {
     );
     expect(screen.getByRole("form", { name: /add expense/i })).toBeInTheDocument();
 
-    resolveCreate(testId("cat-pending"));
+    createCategory.resolve(testId("cat-pending"));
     expect(
       await within(form).findByRole("button", { name: /Remove Pending Cat/ }),
     ).toBeInTheDocument();
@@ -853,15 +843,10 @@ describe("TransactionsNew — submission", () => {
 
   it("freezes Circle and Type controls while createTransaction is in flight", async () => {
     const user = userEvent.setup();
-    let resolveCreate!: (id: string) => void;
+    const pending = deferredValue<string>();
     // setup() resets the mock — override AFTER so the pending promise sticks.
     setup();
-    createTransaction.mockImplementation(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveCreate = resolve;
-        }),
-    );
+    createTransaction.mockImplementation(() => pending.promise);
     const form = await screen.findByRole("form");
     await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
     await user.type(within(form).getByLabelText("Title"), "In flight");
@@ -873,7 +858,7 @@ describe("TransactionsNew — submission", () => {
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Income" })).toBeDisabled();
 
-    resolveCreate("new-txn");
+    pending.resolve("new-txn");
     await screen.findByText("detail");
   });
 

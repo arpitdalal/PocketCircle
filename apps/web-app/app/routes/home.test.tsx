@@ -7,6 +7,7 @@ import { MOCK_CIRCLES } from "~/lib/fixtures.js";
 import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import {
   configureConvex,
+  deferredMutationFn,
   makeActivationChecklistView,
   makeCircleView,
   makeHomeSummaryRecent,
@@ -49,20 +50,6 @@ function makeScopeCircle(
     status: "active",
     included: true,
     ...over,
-  };
-}
-
-function deferredMutation() {
-  let resolve = () => {};
-  const fn = vi.fn(
-    () =>
-      new Promise<void>((next) => {
-        resolve = next;
-      }),
-  );
-  return {
-    fn,
-    resolve: () => resolve(),
   };
 }
 
@@ -434,7 +421,7 @@ describe("Home (circle scope)", () => {
 
   it("keeps the included chip while includeCircle is in flight", async () => {
     const user = userEvent.setup();
-    const includeCircle = deferredMutation();
+    const includeCircle = deferredMutationFn<void>();
     configureConvex({
       circles: MOCK_CIRCLES,
       includeCircle: includeCircle.fn,
@@ -453,7 +440,7 @@ describe("Home (circle scope)", () => {
 
   it("persists a later selection after an in-flight includeCircle completes", async () => {
     const user = userEvent.setup();
-    const includeCircle = deferredMutation();
+    const includeCircle = deferredMutationFn<void>();
     const excludeCircle = vi.fn().mockResolvedValue(undefined);
     configureConvex({
       circles: MOCK_CIRCLES,
