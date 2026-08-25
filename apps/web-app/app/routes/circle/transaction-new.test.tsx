@@ -2,7 +2,8 @@ import { currentMonth, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
-import { Route } from "react-router";
+import type { ReactNode } from "react";
+import { Route, useNavigate } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Circle } from "~/lib/data.js";
 import {
@@ -17,11 +18,12 @@ import {
 
 /**
  * Behavior test for the new-Transaction OBJECT route (jsdom, issue #96). Doubles ONLY
- * Convex's reactive client and runs the REAL route + REAL `TransactionForm` (create mode) +
- * REAL `~/lib/data.js` hooks under a REAL router, so the create page's own concerns — the
- * `type`/`month` params, the `returnTo` lifecycle, and the archived/invalid-`type` guards —
- * are exercised exactly as in the app. The field-level rules are covered in
- * `transaction-form.test.tsx`; here we assert the route, not the fields.
+ * Convex's reactive client and runs the REAL route + REAL shared Transaction form
+ * (create mode) + REAL `~/lib/data.js` hooks under a REAL router, so the create page's
+ * own concerns — the `type`/`month` params, the `returnTo` lifecycle, and the
+ * archived/invalid-`type` guards — are exercised exactly as in the app. The field-level
+ * rules are covered in `transaction-form.test.tsx`; here we assert the route, not the
+ * fields.
  */
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -45,7 +47,7 @@ const ROUTES = (
   </>
 );
 
-function setup(opts: { circle?: Partial<Circle>; url?: string } = {}) {
+function setup(opts: { circle?: Partial<Circle>; url?: string; chrome?: ReactNode } = {}) {
   const circle = makeCircleView(opts.circle);
   createTransaction.mockReset();
   createTransaction.mockResolvedValue("new-id");
@@ -58,7 +60,14 @@ function setup(opts: { circle?: Partial<Circle>; url?: string } = {}) {
     opts.url ?? `/circles/${REF}/transactions/new?type=expense&month=2026-05&returnTo=${LEDGER}`;
   return renderCircleRoutes(circle, ROUTES, {
     initialEntries: [url],
-    chrome: circleLayoutHeadingChrome(circle),
+    chrome: (
+      <>
+        {circleLayoutHeadingChrome(circle)}
+        {/* Always-mounted extra chrome (e.g. a nav control) survives route changes so a
+            test can drive an in-route URL change without unmounting the route. */}
+        {opts.chrome}
+      </>
+    ),
   });
 }
 
@@ -114,6 +123,39 @@ describe("TransactionNew — render", () => {
     expect(createTransaction.mock.calls[0]?.[0]?.date).toMatch(
       new RegExp(`^${currentMonth(new Date())}-`),
     );
+  });
+});
+
+describe("TransactionNew — month change without a loading gap", () => {
+  /** A nav control rendered as always-mounted chrome so clicking it changes the create
+   * URL WITHOUT unmounting the route — the Back/Forward-between-CTAs case. */
+  function GoTo({ to }: { to: string }) {
+    const navigate = useNavigate();
+    return (
+      <button type="button" onClick={() => navigate(to)}>
+        go
+      </button>
+    );
+  }
+
+  it("remounts the form so a navigated-to month never keeps the previous month's date", async () => {
+    const user = userEvent.setup();
+    // Same `type`, different `month`: only a key covering BOTH URL-owned inputs
+    // remounts the form, re-seeding its Date default from the new month.
+    setup({
+      url: `/circles/${REF}/transactions/new?type=expense&month=2026-05&returnTo=${LEDGER}`,
+      chrome: <GoTo to={`/circles/${REF}/transactions/new?type=expense&month=2026-06`} />,
+    });
+    const form = () => screen.getByRole("form", { name: /add expense/i });
+    // Touch the form first (typed-and-blurred Title): a kept-mounted form stops
+    // re-seeding from changed defaults once touched, so without the full-input key the
+    // May date would silently survive under the June URL.
+    await user.type(within(form()).getByLabelText("Title"), "Draft");
+    await user.tab();
+    expect(within(form()).getByLabelText("Date")).toHaveValue("2026-05-01");
+
+    await user.click(screen.getByRole("button", { name: "go" }));
+    await waitFor(() => expect(within(form()).getByLabelText("Date")).toHaveValue("2026-06-01"));
   });
 });
 

@@ -82,10 +82,11 @@ export default function TransactionNew() {
 
   return (
     <TransactionNewForm
-      // Keyed by type so navigating expense↔income (e.g. Back/Forward between the two
-      // CTAs) REMOUNTS the form rather than reusing the previous type's field state —
-      // the shared controller initializes once per mount from its inputs.
-      key={`create-${type}`}
+      // Keyed by EVERY URL-owned create input — type AND month — so navigating between
+      // create URLs (e.g. Back/Forward between two ledger CTAs) REMOUNTS the form rather
+      // than reusing the previous context's field state: the shared controller
+      // initializes its defaults (including the month-seeded Date) once per mount.
+      key={`create-${type}-${month}`}
       circle={circle}
       type={type}
       selectedMonth={month}
