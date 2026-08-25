@@ -119,13 +119,13 @@ export default function TransactionsNew() {
   );
 
   // Ref bridge so the shared controller's submit-failure escape hatch can call
-  // the destination-invalidation contract declared later in this render — the
-  // callback only runs after a failed mutation, never during this render.
+  // the destination-invalidation contract — assigned in an effect (not during
+  // render) for the React Compiler refs rule.
   const invalidateDestinationRef = useRef<() => void>(() => {});
   /** Blocks render-phase settlement from re-applying a Circle while an
-   * invalidation's URL rewrite is still in flight (submit-time: the mock list
-   * may still show the Circle as eligible even though the mutation rejected it). */
-  const invalidatingRef = useRef(false);
+   * invalidation's URL rewrite is still in flight (submit-time: the list may
+   * still show the Circle as eligible even though the mutation rejected it). */
+  const [invalidating, setInvalidating] = useState(false);
   // Destination-edge cursor — declared early so invalidateDestination and the
   // edge effect share one bookkeeping cell.
   const lastEdgeRef = useRef<{ id: string | null; currency: string | null } | null>(null);
@@ -215,11 +215,11 @@ export default function TransactionsNew() {
         : null;
 
   if (!pendingConfirmKind && requestedResolvable && requestedId !== appliedId) {
-    if (invalidatingRef.current) {
+    if (invalidating) {
       // Wait for the URL to drop the rejected Circle; do not re-apply it from a
       // still-eligible listMyCircles row after submit-time destination rejection.
       if (requestedId === null) {
-        invalidatingRef.current = false;
+        setInvalidating(false);
       }
     } else {
       setAppliedId(requestedId);
@@ -251,7 +251,7 @@ export default function TransactionsNew() {
 
   // --- Transition appliers (executed on edges by the effects below) --------
   const invalidateDestination = useCallback(() => {
-    invalidatingRef.current = true;
+    setInvalidating(true);
     controller.clearScopedValues();
     controller.markResetWarnings(
       transactionResetFields("circle_unavailable"),
@@ -262,7 +262,10 @@ export default function TransactionsNew() {
     lastEdgeRef.current = { id: null, currency: null };
     navigateWithoutCircle(returnUrl);
   }, [controller, show, navigateWithoutCircle, returnUrl]);
-  invalidateDestinationRef.current = invalidateDestination;
+
+  useEffect(() => {
+    invalidateDestinationRef.current = invalidateDestination;
+  }, [invalidateDestination]);
 
   // --- Effects: external-system synchronization only -----------------------
 
