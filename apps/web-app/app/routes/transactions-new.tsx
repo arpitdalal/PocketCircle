@@ -419,9 +419,18 @@ export default function TransactionsNew() {
     }
     const settled = eligibleCircles.find((circle) => circle.id === appliedId);
     if (!settled) {
-      // No eligible rollback target. invalidateDestination already cleared
-      // appliedId and is rewriting the URL; do not fire the restore toast on
-      // top of the unavailable/reset message.
+      if (invalidating) {
+        // invalidateDestination already cleared appliedId and is rewriting the
+        // URL; do not fire restore/unavailable feedback on top of that contract.
+        return;
+      }
+      // everSelected with no eligible rollback (e.g. after removal, then
+      // Back/Forward to an unavailable Circle): strip the stale param and show
+      // the same generic unavailable feedback as an initial bad deep link.
+      if (requestedId !== null || urlState.circleId !== null) {
+        navigateWithoutCircle(urlState.returnTo);
+      }
+      showUnavailable("circle");
       return;
     }
     // Genuine failed switch away from a still-eligible selection.
@@ -442,6 +451,7 @@ export default function TransactionsNew() {
     appliedId,
     eligibleCircles,
     everSelected,
+    invalidating,
     urlState.hadUnparseableCircle,
     urlState.circleId,
     urlState.returnTo,
@@ -557,7 +567,7 @@ export default function TransactionsNew() {
               <select
                 id="global-add-circle"
                 value={appliedId ?? ""}
-                disabled={controller.destinationTransitionLocked}
+                disabled={controller.destinationControlsLocked}
                 onChange={(event) => {
                   const id = event.target.value || null;
                   const match = id === null ? undefined : eligibleCircles.find((c) => c.id === id);
@@ -578,7 +588,7 @@ export default function TransactionsNew() {
             label="Type"
             value={urlState.type}
             options={TYPE_OPTIONS}
-            disabled={controller.destinationTransitionLocked}
+            disabled={controller.destinationControlsLocked}
             onChange={(next) =>
               navigateTo(next, urlState.circleRefParam ?? undefined, urlState.returnTo)
             }

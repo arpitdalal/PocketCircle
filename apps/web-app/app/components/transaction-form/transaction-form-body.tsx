@@ -58,7 +58,7 @@ export function TransactionFormBody({
     activeCategories,
     addInlineCreatedCategory,
     destinationReady,
-    destinationTransitionLocked,
+    destinationControlsLocked,
     setDestinationTransitionLocked,
     resetWarnings,
     clearResetWarning,
@@ -90,7 +90,7 @@ export function TransactionFormBody({
           <TransactionFormTypeEditSection
             activeType={activeType}
             onTypeChangeConfirmed={onTypeChangeConfirmed}
-            disabled={destinationTransitionLocked}
+            disabled={destinationControlsLocked}
           />
         ) : null}
 

@@ -9,6 +9,7 @@ import {
   type TransactionType,
   toMutationArgs,
 } from "@pocketcircle/domain";
+import { useStore } from "@tanstack/react-form";
 import { useMemo, useState } from "react";
 import { track } from "~/lib/analytics.js";
 import type {
@@ -325,6 +326,10 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   /** True while inline Category create is in flight — hosts must freeze destination
    * / Type transitions so a late completion cannot attach to the wrong draft. */
   const [destinationTransitionLocked, setDestinationTransitionLocked] = useState(false);
+  const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
+  /** Freeze Circle/Type for any in-flight write that must finish against the
+   * destination that started it (inline create OR transaction save). */
+  const destinationControlsLocked = destinationTransitionLocked || isSubmitting;
 
   const clearScopedValues = () => {
     const values = form.store.state.values;
@@ -406,7 +411,7 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     activeCategories,
     addInlineCreatedCategory,
     destinationReady: circle != null,
-    destinationTransitionLocked,
+    destinationControlsLocked,
     setDestinationTransitionLocked,
     clearScopedValues,
     clearAmount,

@@ -547,6 +547,32 @@ describe("TransactionsNew — browser navigation", () => {
       ),
     );
   });
+
+  it("strips an unavailable Circle after removal when there is no rollback target", async () => {
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    });
+    await screen.findByRole("form");
+
+    // Clear the destination (voluntary removal) so everSelected stays true with
+    // appliedId null — then request a ghost Circle with no eligible rollback.
+    view.navigate(`${GLOBAL_ADD_PATH}?type=expense&returnTo=${encodeURIComponent(HOME_ORIGIN)}`);
+    await waitFor(() =>
+      expect(view.location()).toBe(
+        `${GLOBAL_ADD_PATH}?type=expense&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+      ),
+    );
+    view.navigate(
+      `${GLOBAL_ADD_PATH}?type=expense&circle=ghost-zz&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    );
+
+    expect(await screen.findByText("This circle isn't available.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(view.location()).toBe(
+        `${GLOBAL_ADD_PATH}?type=expense&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+      ),
+    );
+  });
 });
 
 describe("TransactionsNew — reactive invalidation and resets", () => {
@@ -719,6 +745,32 @@ describe("TransactionsNew — submission", () => {
     await within(form).findByRole("button", { name: /Remove Pending Cat/ });
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Income" })).toBeEnabled();
+  });
+
+  it("freezes Circle and Type controls while createTransaction is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (id: string) => void;
+    // setup() resets the mock — override AFTER so the pending promise sticks.
+    setup();
+    createTransaction.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText("Title"), "In flight");
+    await user.type(within(form).getByLabelText(/Amount/), "4");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalled());
+    expect(screen.getByRole("combobox", { name: "Circle" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Income" })).toBeDisabled();
+
+    resolveCreate("new-txn");
+    await screen.findByText("detail");
   });
 
   it("keeps an ordinary failure inline with the draft preserved", async () => {
