@@ -279,3 +279,77 @@ describe("TransactionDetail — edit affordance (courtesy nav, server enforces)"
     expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
   });
 });
+
+describe("TransactionDetail — Duplicate action (issue #299)", () => {
+  it("offers Duplicate beside Edit for an editable active Transaction", () => {
+    const ledger = `/circles/${REF}/transactions?month=2026-05`;
+    setup({
+      transactionDetail: makeTransactionDetailView({
+        ref: "weekly-shop-t1",
+        title: "Weekly shop",
+        type: "expense",
+        canEditFields: true,
+      }),
+      url: `/circles/${REF}/transactions/weekly-shop-t1?returnTo=${encodeURIComponent(ledger)}`,
+    });
+    const duplicate = screen.getByRole("link", { name: "Duplicate Weekly shop" });
+    const edit = screen.getByRole("link", { name: "Edit Weekly shop" });
+    expect(duplicate.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const href = new URL(duplicate.getAttribute("href") ?? "", "http://t");
+    expect(href.pathname).toBe("/transactions/new");
+    expect(href.searchParams.get("type")).toBe("expense");
+    expect(href.searchParams.get("circle")).toBe(REF);
+    expect(href.searchParams.get("sourceCircle")).toBe(REF);
+    expect(href.searchParams.get("sourceTransaction")).toBe("weekly-shop-t1");
+    expect(href.searchParams.get("returnTo")).toBe(
+      withReturnTo(`/circles/${REF}/transactions/weekly-shop-t1`, ledger),
+    );
+  });
+
+  it("keeps Duplicate when Edit is hidden (non-recorder)", () => {
+    setup({
+      transactionDetail: makeTransactionDetailView({
+        ref: "weekly-shop-t1",
+        title: "Weekly shop",
+        canEditFields: false,
+      }),
+    });
+    expect(screen.getByRole("link", { name: "Duplicate Weekly shop" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Duplicate for an Archived Transaction", () => {
+    setup({
+      transactionDetail: makeTransactionDetailView({
+        ref: "weekly-shop-t1",
+        title: "Weekly shop",
+        status: "archived",
+        canEditFields: true,
+      }),
+    });
+    expect(screen.getByRole("link", { name: "Duplicate Weekly shop" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Duplicate in an Archived Circle without a destination Circle param", () => {
+    setup({
+      circle: { status: "archived", setupComplete: true },
+      transactionDetail: makeTransactionDetailView({
+        ref: "weekly-shop-t1",
+        title: "Weekly shop",
+        type: "income",
+        canEditFields: true,
+      }),
+    });
+    const href = new URL(
+      screen.getByRole("link", { name: "Duplicate Weekly shop" }).getAttribute("href") ?? "",
+      "http://t",
+    );
+    expect(href.searchParams.get("type")).toBe("income");
+    expect(href.searchParams.get("circle")).toBeNull();
+    expect(href.searchParams.get("sourceCircle")).toBe(REF);
+    expect(href.searchParams.get("sourceTransaction")).toBe("weekly-shop-t1");
+    expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
+  });
+});

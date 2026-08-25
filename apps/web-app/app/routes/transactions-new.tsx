@@ -1,16 +1,19 @@
 import { buildRef, currentMonth, type TransactionType } from "@pocketcircle/domain";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";
 import {
   TransactionFormBody,
   type TransactionFormResult,
 } from "~/components/transaction-form/index.js";
+import { ARCHIVED_SOURCE_NO_DESTINATION_EXPLANATION } from "~/components/transaction-form/transaction-form-resets.js";
 import { useTransactionForm } from "~/components/transaction-form/use-transaction-form.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { ModalDialog } from "~/components/ui/dialog.js";
 import { Segmented } from "~/components/ui/segmented.js";
-import { type Circle, useMyCircles } from "~/lib/data.js";
+import type { AnalyticsTransactionMethod } from "~/lib/analytics-events.js";
+import { type Circle, useMyCircles, useTransactionDetail } from "~/lib/data.js";
+import { deriveDuplicatePrefill } from "~/lib/global-add-duplicate.js";
 import {
   classifySubmitDestinationFailure,
   destinationInvalidation,
@@ -23,13 +26,12 @@ import {
   canonicalGlobalAddUrl,
   parseGlobalAddParams,
   readGlobalAddParams,
+  recoverOriginFromSourceDetailReturn,
+  sourceRefsForRewrite,
 } from "~/lib/global-add-url.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { withReturnTo } from "~/lib/return-to-url.js";
 import { useSnackbar } from "~/lib/snackbar.js";
-
-/** Aggregate-safe analytics context for every ordinary Global Add create (#298). */
-const GLOBAL_ADD_ANALYTICS = { surface: "global", method: "manual" } as const;
 
 const TYPE_OPTIONS: { label: string; value: TransactionType }[] = [
   { label: "Expense", value: "expense" },
@@ -37,18 +39,17 @@ const TYPE_OPTIONS: { label: string; value: TransactionType }[] = [
 ];
 
 /**
- * Global Add — the protected top-level `/transactions/new` route (issue #298).
- * An ordinary Transaction can start anywhere: Home's persistent action and the
- * Activation Checklist land here with their exact origin as `returnTo`, pick
- * Circle + Type in Step 1, then fill the SHARED Transaction form (Step 2). The
- * Circle-scoped create route keeps its fixed Circle and navigation contract;
- * only this page owns global URL state (issue #290).
+ * Global Add — the protected top-level `/transactions/new` route (issues #298/
+ * #299). Ordinary Global Add starts from Home or the Activation Checklist;
+ * Duplicate opens the same page with initialization-only `sourceCircle` /
+ * `sourceTransaction` params. There is no separate Duplicate page or form mode.
  *
- * URL ownership: `type`, `circle`, and `returnTo` live in the query,
- * canonicalized with replace navigation. Draft fields live ONLY in form
- * memory; the form mounts once per page visit and never remounts on URL
+ * URL ownership: `type`, `circle`, optional source pair, and `returnTo` live in
+ * the query, canonicalized with replace navigation. Draft fields live ONLY in
+ * form memory; the form mounts once per page visit and never remounts on URL
  * changes — portable values survive, scoped values reset per the decided
- * contract.
+ * contract. Source params remain so reload can initialize again; after one-time
+ * prefill they are not a live relationship.
  *
  * Reconciliation model (React Compiler-friendly): the URL is the REQUEST.
  * `appliedId` is what the form currently uses, settled during render — the
@@ -72,6 +73,10 @@ export default function TransactionsNew() {
     [searchParams],
   );
   const returnUrl = urlState.returnTo;
+  const sourceRewrite = useMemo(
+    () => sourceRefsForRewrite(urlState.sourcePair),
+    [urlState.sourcePair],
+  );
   const eligibleCircles = useMemo(() => (circles ?? []).filter(isEligibleDestination), [circles]);
 
   // --- Session state -------------------------------------------------------
@@ -87,6 +92,16 @@ export default function TransactionsNew() {
   const [confirmed, setConfirmed] = useState<{ key: string; draft: string } | null>(null);
   /** Leaving via Cancel/success so the Splash covers the navigation. */
   const [closing, setClosing] = useState<"cancel" | "success" | null>(null);
+  /** Successful one-time Duplicate prefill this visit (reload restarts). */
+  const [appliedPrefill, setAppliedPrefill] = useState<{
+    archivedSourceWithoutDestination: boolean;
+    values: ReturnType<typeof deriveDuplicatePrefill>["values"];
+    warnings: ReturnType<typeof deriveDuplicatePrefill>["warnings"];
+  } | null>(null);
+  /** Analytics method — `duplicate` only after successful source initialization. */
+  const [analyticsMethod, setAnalyticsMethod] = useState<AnalyticsTransactionMethod>("manual");
+  /** Unavailable-source recovery already ran (prevents re-entry loops). */
+  const [sourceRecovered, setSourceRecovered] = useState(false);
 
   const appliedCircle: Circle | null =
     circles !== undefined && appliedId !== null
@@ -94,9 +109,22 @@ export default function TransactionsNew() {
       : null;
   const appliedEligible = appliedCircle !== null && isEligibleDestination(appliedCircle);
 
+  // Source Circle via Circle Visibility (`listMyCircles`) before getTransaction.
+  const sourcePair = urlState.sourcePair;
+  const sourceCircle =
+    sourcePair.kind === "candidate" && circles !== undefined
+      ? (circles.find((circle) => circle.id === sourcePair.sourceCircleId) ?? null)
+      : undefined;
+  const sourceTransaction = useTransactionDetail(
+    sourcePair.kind === "candidate" && sourceCircle ? sourceCircle.id : undefined,
+    sourcePair.kind === "candidate" && sourceCircle ? sourcePair.sourceTransactionId : undefined,
+  );
+
   // Success opens the new canonical Circle-scoped Transaction Detail with THIS
   // page's validated origin as its return state — REPLACING the dead create
   // URL so browser Back restores the original origin exactly (issue #290).
+  // Duplicate's origin is the source Detail; its Back still reaches the prior
+  // Ledger / Search / Dashboard / Home (issue #299).
   const completeCreation = useCallback(
     (result: TransactionFormResult) => {
       if (!appliedCircle || result.kind !== "created") {
@@ -136,7 +164,7 @@ export default function TransactionsNew() {
     kind: "create",
     type: urlState.type,
     selectedMonth: currentMonth(new Date()),
-    analytics: GLOBAL_ADD_ANALYTICS,
+    analytics: { surface: "global", method: analyticsMethod },
     circle: appliedEligible ? appliedCircle : null,
     onComplete: completeCreation,
     // Submit-time twin of the reactive edges below: Circle loss uses the full
@@ -257,22 +285,76 @@ export default function TransactionsNew() {
   // and only the truly-unselected visit sees the explanation placeholder.
   const showBody = everSelected || requestedId !== null;
 
+  /**
+   * Unavailable-source recovery settlement (issue #299). When the pair is
+   * unusable at parse time, or Circle Visibility / getTransaction proves the
+   * source gone, settle session state during render (same sanctioned pattern as
+   * appliedId). The effect below owns navigate, toast, and form clears.
+   */
+  const sourceKnownUnavailable =
+    sourcePair.kind === "unusable" ||
+    (sourcePair.kind === "candidate" &&
+      circles !== undefined &&
+      (sourceCircle === null || sourceTransaction === null));
+  if (sourceKnownUnavailable && !sourceRecovered) {
+    setSourceRecovered(true);
+    setAppliedId(null);
+    setAnalyticsMethod("manual");
+    setAppliedPrefill(null);
+  }
+
+  /**
+   * One-time Duplicate prefill derivation during render once every dependency
+   * has settled. The effect below applies the draft to the form store; flags
+   * settle here so effects stay free of setState.
+   */
+  const prefillDependenciesReady =
+    sourcePair.kind === "candidate" &&
+    !sourceRecovered &&
+    appliedPrefill === null &&
+    circles !== undefined &&
+    sourceCircle != null &&
+    sourceTransaction != null &&
+    (!appliedEligible || controller.destinationReadsReady);
+  if (prefillDependenciesReady) {
+    const prefill = deriveDuplicatePrefill({
+      source: sourceTransaction,
+      sourceCircleArchived: sourceCircle.status === "archived",
+      destinationCircleId: appliedEligible && appliedCircle ? appliedCircle.id : null,
+      sourceCircleId: sourceCircle.id,
+      type: urlState.type,
+      selectableCategories: controller.activeCategories,
+      currentMembers: controller.members,
+      selfMemberId: controller.selfMemberId,
+    });
+    setAppliedPrefill(prefill);
+    setAnalyticsMethod("duplicate");
+  }
+
+  const sourceInitialized = appliedPrefill !== null;
+  const archivedSourceNoDestination = appliedPrefill?.archivedSourceWithoutDestination === true;
+
   // --- URL writers (controls; replace, never push) -------------------------
   const navigateTo = useCallback(
     (type: TransactionType, circleRef: string | undefined, returnTo: string) => {
-      navigate(canonicalGlobalAddUrl({ type, circleRef, returnTo }), { replace: true });
+      navigate(canonicalGlobalAddUrl({ type, circleRef, returnTo, ...sourceRewrite }), {
+        replace: true,
+      });
     },
-    [navigate],
+    [navigate, sourceRewrite],
   );
   /** Where cleared/failed states land: the canonical unselected shape. */
   const navigateWithoutCircle = useCallback(
     (returnTo: string) => {
-      navigate(canonicalGlobalAddUrl({ type: urlState.type, returnTo }), { replace: true });
+      navigate(canonicalGlobalAddUrl({ type: urlState.type, returnTo, ...sourceRewrite }), {
+        replace: true,
+      });
     },
-    [navigate, urlState.type],
+    [navigate, urlState.type, sourceRewrite],
   );
 
   // --- Transition appliers (executed on edges by the effects below) --------
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setInvalidating is a stable setState; listing it fights Biome exhaustive-deps
   const invalidateDestination = useCallback(() => {
     setInvalidating(true);
     const invalidation = destinationInvalidation("circle_unavailable");
@@ -309,24 +391,26 @@ export default function TransactionsNew() {
   // --- Effects: external-system synchronization only -----------------------
 
   // Canonicalize the query immediately (drop unknown/duplicate params,
-  // normalize Type, keep the validated origin). Compare against the Router
-  // location — never `window.location` — so MemoryRouter tests and the real
-  // browser agree on "already canonical". The circle param is carried
+  // normalize Type, keep the validated origin and source pair). Compare against
+  // the Router location — never `window.location` — so MemoryRouter tests and
+  // the real browser agree on "already canonical". The circle param is carried
   // verbatim until resolution completes; the stale-slug effect swaps it after.
   useEffect(() => {
     const target = canonicalGlobalAddUrl({
       type: urlState.type,
       circleRef: urlState.circleRefParam ?? undefined,
       returnTo: urlState.returnTo,
+      ...sourceRewrite,
     });
     const current = `${location.pathname}${location.search}`;
     if (current !== target) {
       navigate(target, { replace: true });
     }
-  }, [urlState, location.pathname, location.search, navigate]);
+  }, [urlState, sourceRewrite, location.pathname, location.search, navigate]);
 
-  // Canonicalize a stale slug once its id resolves to an eligible destination
-  // (replace navigation; validated origin and Type preserved).
+  // Canonicalize a stale destination slug once its id resolves to an eligible
+  // destination (replace navigation; validated origin, Type, and source pair
+  // preserved).
   useEffect(() => {
     if (circles === undefined || requestedId === null) {
       return;
@@ -340,10 +424,95 @@ export default function TransactionsNew() {
         type: urlState.type,
         circleRef: match.ref,
         returnTo: urlState.returnTo,
+        ...sourceRewrite,
       }),
       { replace: true },
     );
-  }, [circles, requestedId, urlState.circleRefParam, urlState.returnTo, urlState.type, navigate]);
+  }, [
+    circles,
+    requestedId,
+    urlState.circleRefParam,
+    urlState.returnTo,
+    urlState.type,
+    sourceRewrite,
+    navigate,
+  ]);
+
+  // Canonicalize stale source refs once the source Transaction resolves
+  // (initialization-only; does not alter the draft).
+  useEffect(() => {
+    if (sourcePair.kind !== "candidate" || !sourceCircle || !sourceTransaction || sourceRecovered) {
+      return;
+    }
+    if (
+      sourceCircle.ref === sourcePair.sourceCircleRefParam &&
+      sourceTransaction.ref === sourcePair.sourceTransactionRefParam
+    ) {
+      return;
+    }
+    navigate(
+      canonicalGlobalAddUrl({
+        type: urlState.type,
+        circleRef: urlState.circleRefParam ?? undefined,
+        returnTo: urlState.returnTo,
+        sourceCircleRef: sourceCircle.ref,
+        sourceTransactionRef: sourceTransaction.ref,
+      }),
+      { replace: true },
+    );
+  }, [
+    sourcePair,
+    sourceCircle,
+    sourceTransaction,
+    sourceRecovered,
+    urlState.type,
+    urlState.circleRefParam,
+    urlState.returnTo,
+    navigate,
+  ]);
+
+  // Unavailable-source recovery — external systems only (navigate, toast, form
+  // clear). Session flags settle during render above.
+  const recoveryExternalDoneRef = useRef(false);
+  useEffect(() => {
+    if (!sourceRecovered || recoveryExternalDoneRef.current) {
+      return;
+    }
+    recoveryExternalDoneRef.current = true;
+    const recoveredReturn = recoverOriginFromSourceDetailReturn(urlState.returnTo);
+    controller.clearScopedValues();
+    controller.clearResetWarnings();
+    controller.applyDraftValues({
+      title: "",
+      note: "",
+      amount: "",
+      categoryIds: [],
+      paidByMemberId: "",
+    });
+    lastEdgeRef.current = { id: null, currency: null };
+    navigate(canonicalGlobalAddUrl({ type: "expense", returnTo: recoveredReturn }), {
+      replace: true,
+    });
+    showUnavailable("link");
+  }, [sourceRecovered, controller, navigate, showUnavailable, urlState.returnTo]);
+
+  // One-time Duplicate form apply — layout effect so values land before paint
+  // (no empty-form flash after Splash). Session flags settled during render.
+  const prefillFormAppliedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (appliedPrefill === null || prefillFormAppliedRef.current) {
+      return;
+    }
+    prefillFormAppliedRef.current = true;
+    controller.applyDraftValues(appliedPrefill.values);
+    controller.clearResetWarnings();
+    if (appliedPrefill.warnings.categoryIds !== undefined) {
+      controller.markResetWarnings(["categoryIds"], appliedPrefill.warnings.categoryIds);
+    }
+    if (appliedPrefill.warnings.paidByMemberId !== undefined) {
+      controller.markResetWarnings(["paidByMemberId"], appliedPrefill.warnings.paidByMemberId);
+    }
+  }, [appliedPrefill, controller]);
 
   // Type application on settled diffs: flips the Category read, clears the
   // selection (controller contract), and never runs while its dialog is open,
@@ -381,6 +550,7 @@ export default function TransactionsNew() {
       type: controller.activeType,
       circleRef: settled?.ref,
       returnTo: urlState.returnTo,
+      ...sourceRewrite,
     });
     const current = `${location.pathname}${location.search}`;
     if (current !== target) {
@@ -392,6 +562,7 @@ export default function TransactionsNew() {
     appliedId,
     eligibleCircles,
     urlState.returnTo,
+    sourceRewrite,
     location.pathname,
     location.search,
     navigate,
@@ -513,6 +684,7 @@ export default function TransactionsNew() {
         type: urlState.type,
         circleRef: settled.ref,
         returnTo: urlState.returnTo,
+        ...sourceRewrite,
       }),
       { replace: true },
     );
@@ -530,6 +702,7 @@ export default function TransactionsNew() {
     urlState.circleId,
     urlState.returnTo,
     urlState.type,
+    sourceRewrite,
     navigateWithoutCircle,
     navigate,
     show,
@@ -574,6 +747,7 @@ export default function TransactionsNew() {
         type: controller.activeType,
         circleRef: settled?.ref,
         returnTo: urlState.returnTo,
+        ...sourceRewrite,
       }),
       { replace: true },
     );
@@ -595,8 +769,18 @@ export default function TransactionsNew() {
     navigate(returnUrl);
   };
 
+  // Hold behind ordinary Splash until Duplicate source resolution + prefill
+  // dependencies settle (or recovery rewrites to ordinary Global Add).
+  const sourcePending =
+    (sourcePair.kind === "candidate" && !sourceInitialized && !sourceRecovered) ||
+    (sourcePair.kind === "unusable" && !sourceRecovered);
+
   if (closing) {
     return <Splash label={closing === "success" ? "Opening transaction…" : "Returning…"} />;
+  }
+
+  if (sourcePending) {
+    return <Splash label="Opening…" />;
   }
 
   return (
@@ -678,10 +862,18 @@ export default function TransactionsNew() {
             aria-live="polite"
             className="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center"
           >
-            <p className="text-sm font-medium">Choose a Circle to continue</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Currency, Categories, and Members depend on the destination.
-            </p>
+            {archivedSourceNoDestination ? (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+                {ARCHIVED_SOURCE_NO_DESTINATION_EXPLANATION}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm font-medium">Choose a Circle to continue</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Currency, Categories, and Members depend on the destination.
+                </p>
+              </>
+            )}
             <div className="mt-4 flex justify-center">
               <button
                 type="button"
