@@ -112,12 +112,19 @@ export function TransactionFormCategorySection({
   const [creating, setCreating] = useState(false);
   const circleIdRef = useRef(circleId);
   const activeTypeRef = useRef(activeType);
+  const mountedRef = useRef(true);
   useEffect(() => {
     circleIdRef.current = circleId;
   }, [circleId]);
   useEffect(() => {
     activeTypeRef.current = activeType;
   }, [activeType]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   useEffect(() => {
     onInlineCreateBusyChange?.(creating);
     return () => onInlineCreateBusyChange?.(false);
@@ -196,10 +203,15 @@ export function TransactionFormCategorySection({
         setInlineError("Couldn't create the category. Please try again.");
         return;
       }
-      // Destination or Type may have switched while the create was in flight —
-      // keep the Category where it was created but do not inject it into the
-      // new draft (wrong Circle or wrong Type would fail submit validation).
-      if (circleIdRef.current !== destinationId || activeTypeRef.current !== destinationType) {
+      // Destination or Type may have switched — or this section unmounted —
+      // while the create was in flight. Keep the Category where it was created
+      // but do not inject it into a draft that no longer matches (wrong Circle
+      // / Type, or a remounted section whose host already moved on).
+      if (
+        !mountedRef.current ||
+        circleIdRef.current !== destinationId ||
+        activeTypeRef.current !== destinationType
+      ) {
         setQuery("");
         return;
       }

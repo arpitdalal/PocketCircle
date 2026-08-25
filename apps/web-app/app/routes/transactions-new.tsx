@@ -216,10 +216,14 @@ export default function TransactionsNew() {
   // After invalidateDestination, appliedId is already null and the URL rewrite
   // lands on requestedId null — those ids match, so settlement below would never
   // run. Clear the gate as soon as the URL has dropped the rejected Circle.
+  // While a destination-bound write is locked (inline Category create / save),
+  // do not settle URL Circle changes — Back/Forward must not move the draft
+  // under an in-flight mutation.
   if (invalidating && requestedId === null) {
     setInvalidating(false);
   } else if (
     !invalidating &&
+    !controller.destinationControlsLocked &&
     requestedResolvable &&
     requestedId !== appliedId &&
     (!circleNeedsConfirm || circleConfirmed)
@@ -319,11 +323,12 @@ export default function TransactionsNew() {
   }, [circles, requestedId, urlState.circleRefParam, urlState.returnTo, urlState.type, navigate]);
 
   // Type application on settled diffs: flips the Category read, clears the
-  // selection (controller contract), and never runs while its dialog is open
-  // or while Circle is still settling / rolling back (a joint Back/Forward to
-  // an unavailable Circle must not clear Categories before restore).
+  // selection (controller contract), and never runs while its dialog is open,
+  // while Circle is still settling / rolling back, or while a destination-bound
+  // write is locked (Back/Forward must not unmount an in-flight Category create).
   useEffect(() => {
     if (
+      controller.destinationControlsLocked ||
       pendingConfirmKind !== null ||
       requestedId !== appliedId ||
       urlState.type === controller.activeType
@@ -332,12 +337,41 @@ export default function TransactionsNew() {
     }
     controller.applyTypeChange(urlState.type);
   }, [
+    controller.destinationControlsLocked,
     pendingConfirmKind,
     requestedId,
     appliedId,
     urlState.type,
     controller.activeType,
     controller,
+  ]);
+
+  // While locked, pin the URL to the applied destination + active Type so
+  // browser history cannot drift Circle/Type under an in-flight write.
+  useEffect(() => {
+    if (!controller.destinationControlsLocked) {
+      return;
+    }
+    const settled =
+      appliedId === null ? undefined : eligibleCircles.find((circle) => circle.id === appliedId);
+    const target = canonicalGlobalAddUrl({
+      type: controller.activeType,
+      circleRef: settled?.ref,
+      returnTo: urlState.returnTo,
+    });
+    const current = `${location.pathname}${location.search}`;
+    if (current !== target) {
+      navigate(target, { replace: true });
+    }
+  }, [
+    controller.destinationControlsLocked,
+    controller.activeType,
+    appliedId,
+    eligibleCircles,
+    urlState.returnTo,
+    location.pathname,
+    location.search,
+    navigate,
   ]);
 
   // Destination edge: applies the scoped-value contracts whenever the applied

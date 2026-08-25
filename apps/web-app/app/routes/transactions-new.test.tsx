@@ -716,6 +716,24 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Keep me");
   });
 
+  it("keeps Title required reveal after a Circle switch following a failed submit", async () => {
+    const user = userEvent.setup();
+    setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText(/Amount/), "9");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    expect(await within(form).findByText("Title is required")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
+    await user.click(await screen.findByRole("button", { name: "Change Circle" }));
+
+    const nextForm = screen.getByRole("form");
+    expect(within(nextForm).getByText("Title is required")).toBeInTheDocument();
+    expect(within(nextForm).getByLabelText(/Amount/)).not.toHaveAttribute("aria-invalid", "true");
+  });
+
   it("clears each warning when the User changes its field", async () => {
     const user = userEvent.setup();
     const view = setup({ url: `${GLOBAL_ADD_PATH}?circle=${CIRCLE_A.ref}` });
@@ -769,6 +787,68 @@ describe("TransactionsNew — submission", () => {
     await within(form).findByRole("button", { name: /Remove Pending Cat/ });
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Income" })).toBeEnabled();
+  });
+
+  it("pins URL Type while inline Category create is in flight so history cannot remount it", async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (id: string) => void;
+    const createCategory = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    createTransaction.mockReset();
+    createTransaction.mockResolvedValue("new-txn");
+    configureConvex({ ...baseState(), createCategory });
+    const view = renderRoutes(ROUTES, {
+      initialEntries: [
+        `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}`,
+      ],
+    });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Pending Cat");
+    await user.click(await screen.findByRole("option", { name: 'Create "Pending Cat"' }));
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+
+    // History/URL Type change must be pinned back while create is in flight.
+    view.navigate(`${GLOBAL_ADD_PATH}?type=income&circle=${encodeURIComponent(CIRCLE_A.ref)}`);
+    await waitFor(() =>
+      expect(view.location()).toBe(
+        `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}`,
+      ),
+    );
+    expect(screen.getByRole("form", { name: /add expense/i })).toBeInTheDocument();
+
+    resolveCreate(testId("cat-pending"));
+    expect(
+      await within(form).findByRole("button", { name: /Remove Pending Cat/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("clears Category search state when the Circle changes", async () => {
+    const user = userEvent.setup();
+    setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Leftover");
+    expect(combo).toHaveValue("Leftover");
+    await user.keyboard("{Escape}");
+
+    // Empty draft → immediate Circle switch; Category section remounts for B.
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
+
+    const nextCombo = within(screen.getByRole("form")).getByRole("combobox", {
+      name: "Categories",
+    });
+    expect(nextCombo).toHaveValue("");
   });
 
   it("freezes Circle and Type controls while createTransaction is in flight", async () => {

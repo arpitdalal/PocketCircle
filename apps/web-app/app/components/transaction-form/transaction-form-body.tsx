@@ -129,7 +129,7 @@ export function TransactionFormBody({
           </div>
 
           <TransactionFormCategorySection
-            key={activeType}
+            key={`${circle?.id ?? ""}:${activeType}`}
             circleId={circle?.id ?? null}
             categoryById={categoryById}
             alreadyAttached={alreadyAttached}

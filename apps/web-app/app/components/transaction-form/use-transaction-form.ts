@@ -318,9 +318,8 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   // without remounting the form, so portable draft values survive. Warning
   // registry clears stay with the adapter (voluntary vs unexpected), not here.
   // Validation reveal on emptied fields is suppressed by the body while
-  // `destinationReady` is false. Scoped clears use `form.reset` with portable
-  // values retained so submissionAttempts / field meta don't leak required-field
-  // errors onto the next destination.
+  // `destinationReady` is false. Scoped clears use per-field `resetField` so
+  // portable submissionAttempts / Title meta survive Circle switches.
 
   const [resetWarnings, setResetWarnings] = useState<TransactionResetWarnings>({});
   /** True while inline Category create is in flight — hosts must freeze destination
@@ -332,36 +331,23 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   const destinationControlsLocked = destinationTransitionLocked || isSubmitting;
 
   const clearScopedValues = () => {
-    const values = form.store.state.values;
-    // Reset scoped fields AND their validation/submit-reveal metadata while
-    // keeping portable draft values (Title/Note/Date/Type). A full remount
-    // would lose those; setFieldValue alone would leave submissionAttempts
-    // revealing stale required-field errors on the next destination.
-    form.reset(
-      {
-        ...values,
-        amount: "",
-        categoryIds: [],
-        paidByMemberId: "",
-      },
-      { keepDefaultValues: true },
-    );
+    // Reset ONLY Circle-scoped fields (value + meta). Whole-form `reset` would
+    // also wipe submissionAttempts / portable-field meta, so an invalid Title
+    // that survived the switch would lose its required error until re-submit.
+    // `resetField` leaves form submissionAttempts intact for Title/Note/Date.
+    form.resetField("amount");
+    form.resetField("categoryIds");
+    form.resetField("paidByMemberId");
     setSubmitError(null);
     setInlineCreatedCategories([]);
   };
 
   const clearAmount = () => {
-    const values = form.store.state.values;
-    // Same reveal/meta reset as clearScopedValues: resetField alone leaves
-    // submissionAttempts > 0, so an emptied Amount immediately shows
-    // required-field aria-invalid beside the amber currency warning.
-    form.reset(
-      {
-        ...values,
-        amount: "",
-      },
-      { keepDefaultValues: true },
-    );
+    // Same scoped-field reset: clear Amount value+meta without dropping the
+    // form's submit-reveal (portable fields keep their post-submit errors;
+    // Amount's fresh meta means an emptied value is not aria-invalid beside
+    // the amber currency warning).
+    form.resetField("amount");
     setSubmitError(null);
   };
 
