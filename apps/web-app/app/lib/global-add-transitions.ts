@@ -1,6 +1,6 @@
 import { MUTATION_ERRORS } from "@pocketcircle/domain";
 import {
-  type TransactionResetReason,
+  type DestinationResetReason,
   transactionResetFields,
   transactionResetToast,
 } from "~/components/transaction-form/transaction-form-resets.js";
@@ -58,7 +58,7 @@ export function isEligibleDestination(circle: { status: string; setupComplete: b
 }
 
 /** The full reset contract — reason, toast, and affected fields — for one invalidation. */
-export function destinationInvalidation(reason: TransactionResetReason) {
+export function destinationInvalidation(reason: DestinationResetReason) {
   return {
     reason,
     toast: transactionResetToast(reason),
@@ -76,7 +76,7 @@ const CIRCLE_UNAVAILABLE_CODES = new Set<string>([
  * Submit-time destination failure kinds. Circle loss uses the full scoped reset;
  * Currency mismatch keeps the Circle and clears Amount only (same as reactive).
  */
-export type SubmitDestinationFailure = TransactionResetReason;
+export type SubmitDestinationFailure = DestinationResetReason;
 
 /**
  * Classifies a failed create as submit-time destination invalidation versus an

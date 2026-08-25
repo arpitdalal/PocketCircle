@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import {
   expect,
   inlineCreateFormCategory,
+  openHome,
   returnFromTransactionDetail,
   selectGlobalAddCircle,
   test,
@@ -13,11 +14,6 @@ import {
  * invalidation, Currency races) stay in the real-Router suite — do not multiply
  * slow Playwright cases for them.
  */
-
-async function openHome(page: Page) {
-  await page.goto("/?currency=USD&range=3");
-  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-}
 
 async function assertNoHorizontalOverflow(page: Page) {
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({

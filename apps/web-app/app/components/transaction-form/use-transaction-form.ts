@@ -156,6 +156,15 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     };
   }, []);
 
+  // Analytics context is route-owned and may flip after Duplicate initialization
+  // (manual → duplicate) without remounting; submit must read the current value.
+  const analyticsRef = useRef(inputs.kind === "create" ? inputs.analytics : null);
+  useEffect(() => {
+    if (inputs.kind === "create") {
+      analyticsRef.current = inputs.analytics;
+    }
+  }, [inputs]);
+
   const categories = useCategories(circle?.id, activeType, { includeArchived: true });
   const members = useMembers(circle?.id);
   const allCategories = useMemo(() => categories ?? [], [categories]);
@@ -260,13 +269,16 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
             expectedCurrency: circle.currency,
             ...submitted,
           });
-          track("transaction_added", {
-            type: args.type,
-            paidBySelf: !value.paidByMemberId || paidBy.memberId === selfMemberId,
-            categoryCount: categoryIds.length,
-            surface: inputs.analytics.surface,
-            method: inputs.analytics.method,
-          });
+          const analytics = analyticsRef.current;
+          if (analytics) {
+            track("transaction_added", {
+              type: args.type,
+              paidBySelf: !value.paidByMemberId || paidBy.memberId === selfMemberId,
+              categoryCount: categoryIds.length,
+              surface: analytics.surface,
+              method: analytics.method,
+            });
+          }
           if (!mountedRef.current) {
             return;
           }
@@ -402,6 +414,39 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     });
   };
 
+  /**
+   * Applies a one-time draft (Duplicate prefill). Sets field values without
+   * touching reset-warning registry — the caller marks warnings separately.
+   * Does not remount; portable + scoped fields are written in place.
+   */
+  const applyDraftValues = (
+    values: Partial<
+      Pick<
+        TransactionFormValues,
+        "title" | "note" | "date" | "amount" | "categoryIds" | "paidByMemberId"
+      >
+    >,
+  ) => {
+    for (const key of [
+      "title",
+      "note",
+      "date",
+      "amount",
+      "categoryIds",
+      "paidByMemberId",
+    ] as const) {
+      const next = values[key];
+      if (next !== undefined) {
+        form.setFieldValue(key, next);
+      }
+    }
+  };
+
+  /** True once Category and Member reads for the current destination have settled
+   * (or there is no destination). Duplicate prefill waits on this before applying. */
+  const destinationReadsReady =
+    circle == null || (categories !== undefined && members !== undefined);
+
   return {
     circle,
     form,
@@ -415,12 +460,15 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     categoryById,
     alreadyAttached,
     activeCategories,
+    members: members ?? [],
     addInlineCreatedCategory,
     destinationReady: circle != null,
+    destinationReadsReady,
     destinationControlsLocked,
     setDestinationTransitionLocked,
     clearScopedValues,
     clearAmount,
+    applyDraftValues,
     resetWarnings,
     markResetWarnings,
     clearResetWarnings,

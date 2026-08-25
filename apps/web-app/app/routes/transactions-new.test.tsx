@@ -1,14 +1,15 @@
 import { MUTATION_ERRORS, mutationErrorData, toPlainDate } from "@pocketcircle/domain";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
 import type { ReactNode } from "react";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Circle } from "~/lib/data.js";
+import { ARCHIVED_SOURCE_NO_DESTINATION_EXPLANATION } from "~/components/transaction-form/transaction-form-resets.js";
+import type { Category, Circle, Member, TransactionDetail } from "~/lib/data.js";
 import { SWITCH_RESTORED_TOAST } from "~/lib/global-add-transitions.js";
-import { GLOBAL_ADD_PATH } from "~/lib/global-add-url.js";
-import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
+import { GLOBAL_ADD_PATH, globalAddHref } from "~/lib/global-add-url.js";
+import { RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import {
   configureConvex,
   deferredMutationFn,
@@ -16,6 +17,7 @@ import {
   makeCategoryView,
   makeCircleView,
   makeMemberView,
+  makeTransactionDetailView,
   pickTransactionFormCategory,
   renderRoutes,
   testId,
@@ -31,14 +33,14 @@ vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).con
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
 /**
- * The primary Global Add route suite (issue #298). Runs the REAL Router, the
- * REAL route adapter, the shared Transaction form controller + body, and the
- * real `~/lib/data` hooks under a real MemoryRouter; only the Convex reactive
- * client and PostHog are doubled at their vendor boundaries. Field-level rules
- * live in `transaction-form.test.tsx`; pure URL/reset rules in their own unit
- * suites — this file asserts the ROUTE: canonicalization, progressive reveal,
- * confirmations, browser navigation, reactive invalidation, resets, warnings,
- * and navigation outcomes.
+ * The primary Global Add route suite (issues #298/#299). Runs the REAL Router,
+ * the REAL route adapter, the shared Transaction form controller + body, and
+ * the real `~/lib/data` hooks under a real MemoryRouter; only the Convex
+ * reactive client and PostHog are doubled at their vendor boundaries. Field-
+ * level rules live in `transaction-form.test.tsx`; pure URL/reset/prefill
+ * rules in their own unit suites — this file asserts the ROUTE: canonicalization,
+ * progressive reveal, Duplicate one-time initialization, confirmations, browser
+ * navigation, reactive invalidation, resets, warnings, and navigation outcomes.
  */
 
 import TransactionsNew from "./transactions-new.js";
@@ -63,14 +65,23 @@ import type { Mock } from "vitest";
 
 let createTransaction: Mock;
 
-function baseState(overrides?: { circles?: Circle[] | null }) {
+function baseState(overrides?: {
+  circles?: Circle[] | null;
+  categories?: Category[] | null;
+  members?: Member[] | null;
+  transactionDetail?: TransactionDetail | null | undefined;
+}) {
   return {
     circles: overrides?.circles ?? [CIRCLE_A, CIRCLE_B],
-    categories: [makeCategoryView()],
-    members: [
-      makeMemberView({ isSelf: true }),
-      makeMemberView({ id: testId("m2"), displayName: "Jamie", isSelf: false }),
-    ],
+    categories: overrides?.categories === undefined ? [makeCategoryView()] : overrides.categories,
+    members:
+      overrides?.members === undefined
+        ? [
+            makeMemberView({ isSelf: true }),
+            makeMemberView({ id: testId("m2"), displayName: "Jamie", isSelf: false }),
+          ]
+        : overrides.members,
+    transactionDetail: overrides?.transactionDetail,
     createTransaction,
   };
 }
@@ -86,6 +97,9 @@ const ROUTES: ReactNode = (
 function setup(opts?: {
   url?: string;
   circles?: Circle[] | null;
+  categories?: Category[] | null;
+  members?: Member[] | null;
+  transactionDetail?: TransactionDetail | null | undefined;
   /** Extra history entries seeded BEFORE the test's URL (for Back/Forward). */
   precedingEntries?: string[];
 }) {
@@ -1097,5 +1111,355 @@ describe("TransactionsNew — returns and success navigation", () => {
     await waitFor(() => expect(createTransaction).not.toHaveBeenCalled());
     // The invalid selection stays visible as a retained chip rather than silently resetting.
     expect(retained).toHaveTextContent(/categories/i);
+  });
+});
+
+const LEDGER_ORIGIN = `/circles/${CIRCLE_A.ref}/transactions?month=2026-05`;
+const SOURCE_DETAIL_RETURN = withReturnTo(
+  `/circles/${CIRCLE_A.ref}/transactions/weekly-shop-t1`,
+  LEDGER_ORIGIN,
+);
+
+function duplicateUrl(
+  over: {
+    type?: "expense" | "income";
+    circleRef?: string | null;
+    sourceCircleRef?: string;
+    sourceTransactionRef?: string;
+    returnTo?: string;
+  } = {},
+) {
+  return globalAddHref({
+    type: over.type ?? "expense",
+    circleRef: over.circleRef === null ? undefined : (over.circleRef ?? CIRCLE_A.ref),
+    sourceCircleRef: over.sourceCircleRef ?? CIRCLE_A.ref,
+    sourceTransactionRef: over.sourceTransactionRef ?? "weekly-shop-t1",
+    returnTo: over.returnTo ?? SOURCE_DETAIL_RETURN,
+  });
+}
+
+const SOURCE_TXN = makeTransactionDetailView({
+  ref: "weekly-shop-t1",
+  title: "Weekly shop",
+  note: "Milk and eggs",
+  amountMinorUnits: 1250,
+  type: "expense",
+  categories: [{ id: testId("cat-groceries"), name: "Groceries", color: "green" }],
+  paidBy: { id: testId("m2"), displayName: "Jamie", image: undefined },
+});
+
+describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
+  it("prefills once from an active same-Circle source and keeps source params in the URL", async () => {
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Note/)).toHaveValue("Milk and eggs");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
+    expect(within(form).getByLabelText("Date")).toHaveValue(toPlainDate(new Date()));
+    expect(form).toHaveTextContent("Groceries");
+    expect(within(form).getByLabelText("Paid by")).toHaveValue(testId("m2"));
+
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+    expect(loc.searchParams.get("sourceTransaction")).toBe("weekly-shop-t1");
+    // Async source init must not auto-focus Title (User Circle changes still do).
+    expect(within(form).getByLabelText("Title")).not.toHaveFocus();
+  });
+
+  it("holds Splash while source resolution is pending", () => {
+    setup({
+      url: duplicateUrl(),
+      transactionDetail: undefined,
+    });
+    expect(screen.getByText("Opening…")).toBeInTheDocument();
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+  });
+
+  it("copies no Categories when explicit Type differs from the source Type", async () => {
+    setup({
+      url: duplicateUrl({ type: "income" }),
+      transactionDetail: SOURCE_TXN,
+      categories: [makeCategoryView({ id: testId("cat-salary"), name: "Salary", type: "income" })],
+    });
+    const form = await screen.findByRole("form", { name: /add income/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
+    expect(form).not.toHaveTextContent("Groceries");
+  });
+
+  it("leaves scoped fields empty for a cross-Circle destination", async () => {
+    setup({
+      url: duplicateUrl({ circleRef: CIRCLE_B.ref }),
+      transactionDetail: SOURCE_TXN,
+    });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("");
+    expect(form).not.toHaveTextContent("Groceries");
+  });
+
+  it("warns when a source Category is omitted and when Paid By is substituted", async () => {
+    const user = userEvent.setup();
+    setup({
+      url: duplicateUrl(),
+      transactionDetail: makeTransactionDetailView({
+        ...SOURCE_TXN,
+        categories: [
+          { id: testId("cat-groceries"), name: "Groceries", color: "green" },
+          { id: testId("cat-gone"), name: "Gone", color: "red" },
+        ],
+        paidBy: { id: testId("mem-gone"), displayName: "Gone", image: undefined },
+      }),
+    });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(form).toHaveTextContent(/no longer selectable/i);
+    expect(form).toHaveTextContent(/no longer a member/i);
+    expect(within(form).getByLabelText("Paid by")).toHaveValue(testId("mem-you"));
+
+    await user.type(within(form).getByLabelText(/Amount/), "1");
+    // Amount edit must not clear Category / Paid By warnings.
+    expect(form).toHaveTextContent(/no longer selectable/i);
+    await user.selectOptions(within(form).getByLabelText("Paid by"), testId("m2"));
+    expect(form).not.toHaveTextContent(/no longer a member/i);
+
+    // Changing Categories clears the omitted-Categories warning.
+    await user.click(within(form).getByRole("button", { name: "Remove Groceries" }));
+    expect(form).not.toHaveTextContent(/no longer selectable/i);
+  });
+
+  it("shows the archived-source explanation and keeps Title/Note when a destination is chosen", async () => {
+    const user = userEvent.setup();
+    const archived = makeCircleView({
+      ...CIRCLE_A,
+      status: "archived",
+      setupComplete: true,
+    });
+    setup({
+      url: duplicateUrl({ circleRef: null }),
+      circles: [archived, CIRCLE_B],
+      transactionDetail: SOURCE_TXN,
+    });
+    await waitFor(() =>
+      expect(screen.getByText(ARCHIVED_SOURCE_NO_DESTINATION_EXPLANATION)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Circle"), CIRCLE_B.id);
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Note/)).toHaveValue("Milk and eggs");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("");
+  });
+
+  it("accepts an Archived source Transaction", async () => {
+    setup({
+      url: duplicateUrl(),
+      transactionDetail: makeTransactionDetailView({ ...SOURCE_TXN, status: "archived" }),
+    });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+  });
+
+  it("does not re-apply after later source changes once initialized", async () => {
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+
+    configureConvex({
+      ...baseState({
+        transactionDetail: makeTransactionDetailView({
+          ...SOURCE_TXN,
+          title: "Changed later",
+          amountMinorUnits: 9999,
+        }),
+      }),
+    });
+    view.rerenderRoutes(ROUTES);
+
+    expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toHaveValue("12.50");
+  });
+
+  it("does not recover when source access is lost after initialization", async () => {
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+    await screen.findByRole("form", { name: /add expense/i });
+
+    configureConvex({
+      ...baseState({ transactionDetail: null }),
+    });
+    view.rerenderRoutes(ROUTES);
+
+    const form = screen.getByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+    expect(screen.queryByText("That link isn't available.")).not.toBeInTheDocument();
+  });
+
+  it("re-initializes from source params on remount (reload)", async () => {
+    const url = duplicateUrl();
+    setup({ url, transactionDetail: SOURCE_TXN });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+
+    cleanup();
+    // Fresh mount at the same URL — simulates reload with URL-owned source params.
+    setup({ url, transactionDetail: SOURCE_TXN });
+    const reloaded = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(reloaded).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(reloaded).getByLabelText(/Amount/)).toHaveValue("12.50");
+  });
+
+  it("recovers from an unavailable source with generic toast and prior origin", async () => {
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: null,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(loc.searchParams.get("sourceTransaction")).toBeNull();
+    expect(loc.searchParams.get("circle")).toBeNull();
+    expect(loc.searchParams.get(RETURN_TO_PARAM)).toBe(LEDGER_ORIGIN);
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add transaction" })).toBeInTheDocument();
+  });
+
+  it("does not let unresolvable destination Circle fallback override source recovery", async () => {
+    // Source Circle lost from Visibility AND destination `circle` is the same
+    // inaccessible id — circle fallback would otherwise navigateWithoutCircle
+    // and re-pin the dead source pair / Detail returnTo.
+    const view = setup({
+      url: duplicateUrl(),
+      circles: [CIRCLE_B],
+      transactionDetail: null,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(loc.searchParams.get("sourceTransaction")).toBeNull();
+    expect(loc.searchParams.get("circle")).toBeNull();
+    expect(loc.searchParams.get(RETURN_TO_PARAM)).toBe(LEDGER_ORIGIN);
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+    expect(screen.queryByText("This circle isn't available.")).not.toBeInTheDocument();
+    expect(screen.getByText("Choose a Circle to continue")).toBeInTheDocument();
+  });
+
+  it("still strips an unresolvable destination while a usable Duplicate source is kept", async () => {
+    // Valid source + ghost destination: Circle fallback must clear only `circle`
+    // and preserve source params (ordinary Global Add unresolvable path).
+    const view = setup({
+      url: duplicateUrl({ circleRef: "ghost-zz" }),
+      transactionDetail: SOURCE_TXN,
+    });
+    await waitFor(() => {
+      const loc = new URL(view.location(), "http://t");
+      expect(loc.searchParams.get("circle")).toBeNull();
+      expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+      expect(loc.searchParams.get("sourceTransaction")).toBe("weekly-shop-t1");
+    });
+    expect(screen.getByText("This circle isn't available.")).toBeInTheDocument();
+    expect(screen.queryByText("That link isn't available.")).not.toBeInTheDocument();
+  });
+
+  it("normalizes Type to Expense on unavailable-source recovery even when URL requested income", async () => {
+    // Issue #299 / ADR 0017: recovery clears Duplicate state to ordinary Global
+    // Add defaults — Type always becomes Expense; it is not preserved from the
+    // failed source URL.
+    const view = setup({
+      url: duplicateUrl({ type: "income" }),
+      transactionDetail: null,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("type")).toBe("expense");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+  });
+
+  it("recovers identically from a partial source pair", async () => {
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&sourceCircle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(SOURCE_DETAIL_RETURN)}`,
+    });
+    await waitFor(() => expect(view.location()).toContain("type=expense"));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+  });
+
+  it("recovers identically from duplicate source parameters", async () => {
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&sourceCircle=${encodeURIComponent(CIRCLE_A.ref)}&sourceCircle=${encodeURIComponent(CIRCLE_B.ref)}&sourceTransaction=weekly-shop-t1&returnTo=${encodeURIComponent(SOURCE_DETAIL_RETURN)}`,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(loc.searchParams.get("sourceTransaction")).toBeNull();
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+  });
+
+  it("cancels Duplicate back to the source Transaction Detail", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+    await screen.findByRole("form");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.location()).toBe(SOURCE_DETAIL_RETURN));
+  });
+
+  it("on success opens the new Detail with source Detail as returnTo and emits method duplicate", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+      precedingEntries: [SOURCE_DETAIL_RETURN],
+    });
+    await screen.findByRole("form");
+    await user.click(screen.getByRole("button", { name: "Add expense" }));
+
+    await waitFor(() =>
+      expect(view.location()).toContain(`/circles/${CIRCLE_A.ref}/transactions/`),
+    );
+    const detail = new URL(view.location(), "http://t");
+    expect(detail.searchParams.get(RETURN_TO_PARAM)).toBe(SOURCE_DETAIL_RETURN);
+    expect(posthogSdk.capture).toHaveBeenCalledWith(
+      "transaction_added",
+      expect.objectContaining({ surface: "global", method: "duplicate" }),
+    );
+  });
+
+  it("preserves source params across a voluntary Circle switch and does not recopy", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+    const form = await screen.findByRole("form");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
+
+    await user.selectOptions(screen.getByLabelText("Circle"), CIRCLE_B.id);
+    await user.click(screen.getByRole("button", { name: "Change Circle" }));
+
+    await waitFor(() => {
+      const loc = new URL(view.location(), "http://t");
+      expect(loc.searchParams.get("circle")).toBe(CIRCLE_B.ref);
+      expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+    });
+    const next = screen.getByRole("form");
+    expect(within(next).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(next).getByLabelText(/Amount/)).toHaveValue("");
   });
 });

@@ -1,9 +1,9 @@
 import { api } from "@pocketcircle/convex";
 import { type PlainMonth, TRANSACTION_LIST_PAGE_SIZE } from "@pocketcircle/domain";
-import { useMutation, usePaginatedQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
-import { MOCK_TRANSACTIONS } from "../fixtures.js";
+import { MOCK_TRANSACTIONS, mockTransactionDetail } from "../fixtures.js";
 import type { Circle } from "./circles.js";
 
 /**
@@ -92,6 +92,31 @@ export function useTransactions(
     status: paginated.status,
     loadMore: () => paginated.loadMore(TRANSACTIONS_PAGE_SIZE),
   };
+}
+
+/**
+ * A single Transaction DETAIL by authoritative id inside a Circle (TXN-4 /
+ * Duplicate source resolution). `undefined` while loading; `null` when missing,
+ * inaccessible, or wrong-Circle — same anti-enumeration parity as the detail
+ * object route. Skips the subscription while either id is absent (ordinary
+ * Global Add has no source).
+ */
+export function useTransactionDetail(
+  circleId: Circle["id"] | undefined,
+  transactionId: string | undefined,
+) {
+  const queried = useQuery(
+    api.transactions.getTransaction,
+    MOCKS || circleId === undefined || transactionId === undefined
+      ? "skip"
+      : { circleId, transactionId },
+  );
+  if (MOCKS) {
+    return circleId === undefined || transactionId === undefined
+      ? undefined
+      : mockTransactionDetail(transactionId);
+  }
+  return queried;
 }
 
 /**

@@ -6,6 +6,8 @@ import { buttonVariants } from "~/components/ui/button-variants.js";
 import { circlePath } from "~/lib/circle-path.js";
 import { type Circle, type TransactionDetail, useTransactionHistory } from "~/lib/data.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
+import { isEligibleDestination } from "~/lib/global-add-transitions.js";
+import { globalAddHref } from "~/lib/global-add-url.js";
 import { transactionDetailHref, transactionEditHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
@@ -26,7 +28,9 @@ import { useCircle } from "~/routes/layouts/circle-layout.js";
  * Transaction too. Creating / editing / archiving live in their own slices (TXN-1/2/3);
  * this only LINKS to the edit object route as a courtesy, gated on the server's
  * `canEditFields` flag and a writable Circle — the server re-checks every mutation (ADR
- * 0015), so the link is never the enforcement. No raw internal IDs are shown (PRD 80).
+ * 0015), so the link is never the enforcement. Duplicate (issue #299) is a secondary
+ * outline action that opens Global Add with initialization-only source refs — not gated
+ * on edit permission or destination writability. No raw internal IDs are shown (PRD 80).
  */
 export default function TransactionDetailRoute() {
   const circle = useCircle();
@@ -61,15 +65,29 @@ function TransactionDetailView({
   const writable = circle.status === "active";
   const isArchived = transaction.status === "archived";
 
+  // Canonical Detail URL rebuilt from the already-validated `backTo` — never echo a
+  // tampered nested return value (issue #123 / #299).
+  const detailReturn = withReturnTo(transactionDetailHref(circle, transaction), backTo);
+
   // The Edit link carries THIS detail page's URL as its `returnTo`, so the editor returns
   // here on close — and that nested `returnTo` is the canonical detail path re-built from the
   // already-validated `backTo`, NOT the raw `location.search` (which could echo a tampered
   // nested value). So both reads agree on the same validated origin, and a ledger → detail →
   // edit → close trip ends back on detail with Back still pointing at the ledger (issue #123).
-  const editUrl = withReturnTo(
-    transactionEditHref(circle, transaction),
-    withReturnTo(transactionDetailHref(circle, transaction), backTo),
-  );
+  const editUrl = withReturnTo(transactionEditHref(circle, transaction), detailReturn);
+
+  // Duplicate opens ordinary Global Add with initialization-only source refs. Destination
+  // Circle is set only when this Circle is an eligible Global Add destination; Archived
+  // Circles remain readable sources without granting destination writability.
+  const duplicateUrl = globalAddHref({
+    type: transaction.type,
+    circleRef: isEligibleDestination(circle) ? circle.ref : undefined,
+    sourceCircleRef: circle.ref,
+    sourceTransactionRef: transaction.ref,
+    returnTo: detailReturn,
+  });
+
+  const showEdit = writable && transaction.canEditFields && !isArchived;
 
   return (
     <div className="space-y-6">
@@ -77,15 +95,24 @@ function TransactionDetailView({
         <Link to={backTo} className="text-sm text-muted-foreground hover:text-foreground">
           ‹ Back
         </Link>
-        {writable && transaction.canEditFields && !isArchived ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Link
-            to={editUrl}
-            aria-label={`Edit ${transaction.title}`}
-            className={buttonVariants({ variant: "outline", size: "default" })}
+            to={duplicateUrl}
+            aria-label={`Duplicate ${transaction.title}`}
+            className={buttonVariants({ variant: "ghost", size: "default" })}
           >
-            Edit
+            Duplicate
           </Link>
-        ) : null}
+          {showEdit ? (
+            <Link
+              to={editUrl}
+              aria-label={`Edit ${transaction.title}`}
+              className={buttonVariants({ variant: "outline", size: "default" })}
+            >
+              Edit
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <header className="space-y-2">
