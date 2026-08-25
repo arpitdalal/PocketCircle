@@ -35,7 +35,7 @@ export function TransactionFormTypeEditSection({
     queueMicrotask(() => confirmTypeRef.current?.focus());
   };
   const confirmTypeChange = () => {
-    if (!pendingType) {
+    if (disabled || !pendingType) {
       return;
     }
     onTypeChangeConfirmed(pendingType);
@@ -84,7 +84,12 @@ export function TransactionFormTypeEditSection({
             {TYPE_LABEL[pendingType].toLowerCase()} categories before saving.
           </p>
           <div className="flex gap-2">
-            <Button ref={confirmTypeRef} type="button" onClick={confirmTypeChange}>
+            <Button
+              ref={confirmTypeRef}
+              type="button"
+              disabled={disabled}
+              onClick={confirmTypeChange}
+            >
               Change type
             </Button>
             <Button type="button" variant="outline" onClick={() => setPendingType(null)}>

@@ -642,6 +642,38 @@ describe("TransactionForm — create", () => {
     await user.keyboard("{Escape}");
   });
 
+  it("blocks confirming a Type change while inline Category create is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (id: Category["id"]) => void = () => {};
+    const createPromise = new Promise<Category["id"]>((resolve) => {
+      resolveCreate = resolve;
+    });
+    renderEdit(
+      { title: "Weekly shop" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
+    createCategory.mockReturnValueOnce(createPromise);
+    const form = screen.getByRole("form", { name: /edit transaction/i });
+
+    await user.click(within(form).getByRole("button", { name: "Income" }));
+    const dialog = within(form).getByRole("alertdialog");
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Pending");
+    await user.click(screen.getByRole("option", { name: 'Create "Pending"' }));
+
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+    expect(within(dialog).getByRole("button", { name: "Change type" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
+
+    resolveCreate(testId<Category["id"]>("cat-pending"));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Change type" })).toBeEnabled(),
+    );
+  });
+
   it("shows the category combobox when none exist for the type", () => {
     renderCreate({ type: "expense" }, { categories: [] });
     expect(screen.getByRole("combobox", { name: "Categories" })).toBeInTheDocument();

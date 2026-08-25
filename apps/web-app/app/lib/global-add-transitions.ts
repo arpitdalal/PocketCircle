@@ -1,10 +1,10 @@
-import { MUTATION_ERRORS, mutationErrorDataSchema } from "@pocketcircle/domain";
-import { ConvexError } from "convex/values";
+import { MUTATION_ERRORS } from "@pocketcircle/domain";
 import {
   type TransactionResetReason,
   transactionResetFields,
   transactionResetToast,
 } from "~/components/transaction-form/transaction-form-resets.js";
+import { mutationErrorCode } from "~/lib/mutation-user-message.js";
 
 /**
  * Pure Global Add transition and reset derivation (issue #298): the decision
@@ -57,14 +57,8 @@ export function isEligibleDestination(circle: { status: string; setupComplete: b
   return circle.status === "active" && circle.setupComplete;
 }
 
-export type DestinationInvalidation = {
-  reason: TransactionResetReason;
-  toast: string;
-  fields: ReturnType<typeof transactionResetFields>;
-};
-
 /** The full reset contract — reason, toast, and affected fields — for one invalidation. */
-export function destinationInvalidation(reason: TransactionResetReason): DestinationInvalidation {
+export function destinationInvalidation(reason: TransactionResetReason) {
   return {
     reason,
     toast: transactionResetToast(reason),
@@ -85,9 +79,6 @@ const DESTINATION_INVALID_CODES = new Set<string>([
  * `assertSetupComplete`, `requireCircleAccess`).
  */
 export function isDestinationInvalidationError(error: unknown) {
-  if (!(error instanceof ConvexError)) {
-    return false;
-  }
-  const parsed = mutationErrorDataSchema.safeParse(error.data);
-  return parsed.success && DESTINATION_INVALID_CODES.has(parsed.data.code);
+  const code = mutationErrorCode(error);
+  return code !== null && DESTINATION_INVALID_CODES.has(code);
 }

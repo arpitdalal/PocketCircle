@@ -319,13 +319,26 @@ export default function TransactionsNew() {
   }, [circles, requestedId, urlState.circleRefParam, urlState.returnTo, urlState.type, navigate]);
 
   // Type application on settled diffs: flips the Category read, clears the
-  // selection (controller contract), and never runs while its dialog is open.
+  // selection (controller contract), and never runs while its dialog is open
+  // or while Circle is still settling / rolling back (a joint Back/Forward to
+  // an unavailable Circle must not clear Categories before restore).
   useEffect(() => {
-    if (pendingConfirmKind !== null || urlState.type === controller.activeType) {
+    if (
+      pendingConfirmKind !== null ||
+      requestedId !== appliedId ||
+      urlState.type === controller.activeType
+    ) {
       return;
     }
     controller.applyTypeChange(urlState.type);
-  }, [pendingConfirmKind, urlState.type, controller.activeType, controller]);
+  }, [
+    pendingConfirmKind,
+    requestedId,
+    appliedId,
+    urlState.type,
+    controller.activeType,
+    controller,
+  ]);
 
   // Destination edge: applies the scoped-value contracts whenever the applied
   // destination CHANGES (voluntary switch / removal / first selection → plain

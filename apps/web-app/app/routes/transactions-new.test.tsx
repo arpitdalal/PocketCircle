@@ -548,6 +548,30 @@ describe("TransactionsNew — browser navigation", () => {
     );
   });
 
+  it("keeps Categories when Back/Forward requests a new Type with an unavailable Circle", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await pickTransactionFormCategory(user, form, "Groceries");
+
+    // Joint Type + unavailable Circle: Type must wait for Circle restore so
+    // Categories are not cleared under a false "restored" toast. The Type
+    // confirm only opens when Categories survived — proof they were not wiped.
+    view.navigate(
+      `${GLOBAL_ADD_PATH}?type=income&circle=ghost-zz&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    );
+    expect(await screen.findByText(SWITCH_RESTORED_TOAST)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(view.location()).toBe(
+        `${GLOBAL_ADD_PATH}?type=income&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+      ),
+    );
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/Change transaction type/);
+  });
+
   it("strips an unavailable Circle after removal when there is no rollback target", async () => {
     const view = setup({
       url: `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,

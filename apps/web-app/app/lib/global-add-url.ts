@@ -1,7 +1,7 @@
-import type { TransactionType } from "@pocketcircle/domain";
+import { isTransactionType, type TransactionType } from "@pocketcircle/domain";
 import { withQuery } from "./ledger-url.js";
 import { parseCircleRef } from "./refs.js";
-import { parseReturnTo, RETURN_TO_PARAM } from "./return-to-url.js";
+import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "./return-to-url.js";
 
 /**
  * The one URL codec for ordinary Global Add (issue #298, ADR 0016/0017): the
@@ -28,8 +28,6 @@ export const GLOBAL_ADD_PATH = "/transactions/new";
 const TYPE_PARAM = "type";
 const CIRCLE_PARAM = "circle";
 
-const TRANSACTION_TYPES: readonly TransactionType[] = ["expense", "income"];
-
 export interface GlobalAddHrefInput {
   type: TransactionType;
   /** Canonical Circle ref to select on open; omit for an unselected page. */
@@ -41,18 +39,16 @@ export interface GlobalAddHrefInput {
 /**
  * Canonical Global Add URL builder — the single home every caller (Home's
  * primary action, the Activation Checklist, tests) builds the create link
- * through, so the path and parameter names can't drift. The caller still wraps
- * the result with `withReturnTo`, which merges into this same query.
+ * through, so the path and parameter names can't drift. Optional `returnTo`
+ * merges through the shared `withReturnTo` codec (callers that already wrap
+ * the result may omit it).
  */
 export function globalAddHref({ type, circleRef, returnTo }: GlobalAddHrefInput) {
   const params = new URLSearchParams({ [TYPE_PARAM]: type });
   if (circleRef) {
     params.set(CIRCLE_PARAM, circleRef);
   }
-  if (returnTo) {
-    params.set(RETURN_TO_PARAM, returnTo);
-  }
-  return withQuery(GLOBAL_ADD_PATH, params.toString());
+  return withReturnTo(withQuery(GLOBAL_ADD_PATH, params.toString()), returnTo);
 }
 
 /** The raw query values exactly as the URL carried them (first duplicate wins). */
@@ -62,7 +58,7 @@ export interface RawGlobalAddParams {
   returnTo: string | null;
 }
 
-export function readGlobalAddParams(searchParams: URLSearchParams): RawGlobalAddParams {
+export function readGlobalAddParams(searchParams: URLSearchParams) {
   return {
     type: searchParams.get(TYPE_PARAM),
     circle: searchParams.get(CIRCLE_PARAM),
@@ -91,8 +87,8 @@ export interface GlobalAddUrlState {
   hadUnparseableCircle: boolean;
 }
 
-export function parseGlobalAddParams(raw: RawGlobalAddParams): GlobalAddUrlState {
-  const type = TRANSACTION_TYPES.find((candidate) => candidate === raw.type) ?? "expense";
+export function parseGlobalAddParams(raw: RawGlobalAddParams) {
+  const type = raw.type != null && isTransactionType(raw.type) ? raw.type : "expense";
   const parsedCircle = parseCircleRef(raw.circle ?? undefined);
   return {
     type,
@@ -118,16 +114,17 @@ export interface CanonicalGlobalAddUrlInput {
  * stage: the raw param before resolution completes, the resolved canonical ref
  * after, or nothing once the Circle is cleared. Because output params are
  * rebuilt from scratch, unknown and duplicate parameters are dropped by
- * construction.
+ * construction. Non-Home `returnTo` merges through the shared codec.
  */
 export function canonicalGlobalAddUrl({ type, circleRef, returnTo }: CanonicalGlobalAddUrlInput) {
   const params = new URLSearchParams({ [TYPE_PARAM]: type });
   if (circleRef) {
     params.set(CIRCLE_PARAM, circleRef);
   }
+  const base = withQuery(GLOBAL_ADD_PATH, params.toString());
   // An explicit Home origin adds nothing the fallback doesn't already provide.
   if (returnTo && returnTo !== "/") {
-    params.set(RETURN_TO_PARAM, returnTo);
+    return withReturnTo(base, returnTo);
   }
-  return withQuery(GLOBAL_ADD_PATH, params.toString());
+  return base;
 }
