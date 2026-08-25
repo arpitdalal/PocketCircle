@@ -49,6 +49,17 @@ export interface GlobalAddHrefInput {
   sourceTransactionRef?: string;
 }
 
+function appendSourcePairParams(
+  params: URLSearchParams,
+  sourceCircleRef: string | undefined,
+  sourceTransactionRef: string | undefined,
+) {
+  if (sourceCircleRef && sourceTransactionRef) {
+    params.set(SOURCE_CIRCLE_PARAM, sourceCircleRef);
+    params.set(SOURCE_TRANSACTION_PARAM, sourceTransactionRef);
+  }
+}
+
 /**
  * Canonical Global Add URL builder — the single home every caller (Home's
  * primary action, the Activation Checklist, Transaction Detail Duplicate,
@@ -68,10 +79,7 @@ export function globalAddHref({
   if (circleRef) {
     params.set(CIRCLE_PARAM, circleRef);
   }
-  if (sourceCircleRef && sourceTransactionRef) {
-    params.set(SOURCE_CIRCLE_PARAM, sourceCircleRef);
-    params.set(SOURCE_TRANSACTION_PARAM, sourceTransactionRef);
-  }
+  appendSourcePairParams(params, sourceCircleRef, sourceTransactionRef);
   return withReturnTo(withQuery(GLOBAL_ADD_PATH, params.toString()), returnTo);
 }
 
@@ -135,23 +143,20 @@ export interface GlobalAddUrlState {
   sourcePair: GlobalAddSourcePair;
 }
 
-function parseSourcePair(
-  sourceCircle: string | null,
-  sourceTransaction: string | null,
-): GlobalAddSourcePair {
+function parseSourcePair(sourceCircle: string | null, sourceTransaction: string | null) {
   if (sourceCircle == null && sourceTransaction == null) {
-    return { kind: "absent" };
+    return { kind: "absent" as const };
   }
   if (sourceCircle == null || sourceTransaction == null) {
-    return { kind: "unusable" };
+    return { kind: "unusable" as const };
   }
   const parsedCircle = parseCircleRef(sourceCircle);
   const parsedTransaction = parseTransactionRef(sourceTransaction);
   if (parsedCircle === null || parsedTransaction === null) {
-    return { kind: "unusable" };
+    return { kind: "unusable" as const };
   }
   return {
-    kind: "candidate",
+    kind: "candidate" as const,
     sourceCircleId: parsedCircle.id,
     sourceCircleRefParam: sourceCircle,
     sourceTransactionId: parsedTransaction.id,
@@ -206,10 +211,7 @@ export function canonicalGlobalAddUrl({
   if (circleRef) {
     params.set(CIRCLE_PARAM, circleRef);
   }
-  if (sourceCircleRef && sourceTransactionRef) {
-    params.set(SOURCE_CIRCLE_PARAM, sourceCircleRef);
-    params.set(SOURCE_TRANSACTION_PARAM, sourceTransactionRef);
-  }
+  appendSourcePairParams(params, sourceCircleRef, sourceTransactionRef);
   const base = withQuery(GLOBAL_ADD_PATH, params.toString());
   // An explicit Home origin adds nothing the fallback doesn't already provide.
   if (returnTo && returnTo !== "/") {

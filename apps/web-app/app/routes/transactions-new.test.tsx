@@ -1,5 +1,5 @@
 import { MUTATION_ERRORS, mutationErrorData, toPlainDate } from "@pocketcircle/domain";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
 import type { ReactNode } from "react";
@@ -1225,9 +1225,14 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
     expect(form).toHaveTextContent(/no longer selectable/i);
     await user.selectOptions(within(form).getByLabelText("Paid by"), testId("m2"));
     expect(form).not.toHaveTextContent(/no longer a member/i);
+
+    // Changing Categories clears the omitted-Categories warning.
+    await user.click(within(form).getByRole("button", { name: "Remove Groceries" }));
+    expect(form).not.toHaveTextContent(/no longer selectable/i);
   });
 
-  it("shows the archived-source explanation with no destination and portable fields retained", async () => {
+  it("shows the archived-source explanation and keeps Title/Note when a destination is chosen", async () => {
+    const user = userEvent.setup();
     const archived = makeCircleView({
       ...CIRCLE_A,
       status: "archived",
@@ -1242,6 +1247,12 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
       expect(screen.getByText(ARCHIVED_SOURCE_NO_DESTINATION_EXPLANATION)).toBeInTheDocument(),
     );
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Circle"), CIRCLE_B.id);
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Note/)).toHaveValue("Milk and eggs");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("");
   });
 
   it("accepts an Archived source Transaction", async () => {
@@ -1274,6 +1285,40 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
 
     expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Weekly shop");
     expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toHaveValue("12.50");
+  });
+
+  it("does not recover when source access is lost after initialization", async () => {
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+    });
+    await screen.findByRole("form", { name: /add expense/i });
+
+    configureConvex({
+      ...baseState({ transactionDetail: null }),
+    });
+    view.rerenderRoutes(ROUTES);
+
+    const form = screen.getByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("12.50");
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+    expect(screen.queryByText("That link isn't available.")).not.toBeInTheDocument();
+  });
+
+  it("re-initializes from source params on remount (reload)", async () => {
+    const url = duplicateUrl();
+    setup({ url, transactionDetail: SOURCE_TXN });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(form).getByLabelText("Title")).toHaveValue("Weekly shop");
+
+    cleanup();
+    // Fresh mount at the same URL — simulates reload with URL-owned source params.
+    setup({ url, transactionDetail: SOURCE_TXN });
+    const reloaded = await screen.findByRole("form", { name: /add expense/i });
+    expect(within(reloaded).getByLabelText("Title")).toHaveValue("Weekly shop");
+    expect(within(reloaded).getByLabelText(/Amount/)).toHaveValue("12.50");
   });
 
   it("recovers from an unavailable source with generic toast and prior origin", async () => {

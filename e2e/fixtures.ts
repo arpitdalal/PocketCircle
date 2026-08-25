@@ -18,6 +18,12 @@ export function pendingInvitationListItems(page: Page) {
   return page.getByRole("region", { name: "Pending invitations" }).getByRole("listitem");
 }
 
+/** Navigate to Home with a stable summary query (Global Add / Duplicate E2E origins). */
+export async function openHome(page: Page, pathAndSearch = "/?currency=USD&range=3") {
+  await page.goto(pathAndSearch);
+  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+}
+
 /** `installE2EAuthHelper` runs from entry.client after hydration — wait before any in-page API bridge call. */
 export async function waitForScE2E(page: Page) {
   await page.waitForFunction(() => "__scE2E" in globalThis, { timeout: 30_000 });

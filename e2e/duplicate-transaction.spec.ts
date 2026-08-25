@@ -1,7 +1,7 @@
-import type { Page } from "@playwright/test";
 import {
   expect,
   inlineCreateFormCategory,
+  openHome,
   returnFromTransactionDetail,
   selectGlobalAddCircle,
   test,
@@ -12,11 +12,6 @@ import {
  * → reviewed Duplicate prefill → create → new Detail → source Detail → prior
  * origin. Exceptional-state permutations stay in the real-Router suite.
  */
-
-async function openHome(page: Page) {
-  await page.goto("/?currency=USD&range=3");
-  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-}
 
 test("Duplicate from Transaction Detail creates an independent Transaction and preserves the return chain", async ({
   page,

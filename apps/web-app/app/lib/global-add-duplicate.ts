@@ -1,6 +1,5 @@
 import {
   minorUnitsToMajorString,
-  type PlainDate,
   type TransactionFormValues,
   type TransactionType,
   toPlainDate,
@@ -26,10 +25,10 @@ export interface DuplicateSourceTransaction {
   paidBy: { id: string };
 }
 
-/** Selectable Category id for the chosen Type in the destination Circle. */
+/** Selectable Category for the chosen Type in the destination Circle. */
 export interface DuplicateSelectableCategory {
   id: string;
-  status: string;
+  status: "active" | "archived";
 }
 
 /** Current Member id in the destination Circle (Paid By eligibility). */
@@ -73,7 +72,7 @@ export interface DuplicatePrefillResult {
   archivedSourceWithoutDestination: boolean;
 }
 
-function todayDate(today: Date | undefined): PlainDate {
+function todayDate(today: Date | undefined) {
   return toPlainDate(today ?? new Date());
 }
 
@@ -84,7 +83,7 @@ function todayDate(today: Date | undefined): PlainDate {
  * Categories while retaining Amount and eligible Paid By — the ordinary
  * Type-change contract.
  */
-export function deriveDuplicatePrefill(input: DuplicatePrefillInput): DuplicatePrefillResult {
+export function deriveDuplicatePrefill(input: DuplicatePrefillInput) {
   const date = todayDate(input.today);
   const portable = {
     title: input.source.title,

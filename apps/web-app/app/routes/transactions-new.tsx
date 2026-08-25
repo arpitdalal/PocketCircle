@@ -286,16 +286,17 @@ export default function TransactionsNew() {
   const showBody = everSelected || requestedId !== null;
 
   /**
-   * Unavailable-source recovery settlement (issue #299). When the pair is
-   * unusable at parse time, or Circle Visibility / getTransaction proves the
-   * source gone, settle session state during render (same sanctioned pattern as
-   * appliedId). The effect below owns navigate, toast, and form clears.
+   * Unavailable-source recovery settlement (issue #299). Only BEFORE one-time
+   * initialization (or on a fresh visit/reload where prefill has not run). After
+   * init, loss of source access must not change the draft — source params are
+   * not a live relationship.
    */
   const sourceKnownUnavailable =
-    sourcePair.kind === "unusable" ||
-    (sourcePair.kind === "candidate" &&
-      circles !== undefined &&
-      (sourceCircle === null || sourceTransaction === null));
+    appliedPrefill === null &&
+    (sourcePair.kind === "unusable" ||
+      (sourcePair.kind === "candidate" &&
+        circles !== undefined &&
+        (sourceCircle === null || sourceTransaction === null)));
   if (sourceKnownUnavailable && !sourceRecovered) {
     setSourceRecovered(true);
     setAppliedId(null);

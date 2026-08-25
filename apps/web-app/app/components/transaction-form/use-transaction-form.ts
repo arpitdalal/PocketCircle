@@ -420,32 +420,25 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
    * Does not remount; portable + scoped fields are written in place.
    */
   const applyDraftValues = (
-    values: Partial<{
-      title: string;
-      note: string;
-      date: string;
-      amount: string;
-      categoryIds: string[];
-      paidByMemberId: string;
-    }>,
+    values: Partial<
+      Pick<
+        TransactionFormValues,
+        "title" | "note" | "date" | "amount" | "categoryIds" | "paidByMemberId"
+      >
+    >,
   ) => {
-    if (values.title !== undefined) {
-      form.setFieldValue("title", values.title);
-    }
-    if (values.note !== undefined) {
-      form.setFieldValue("note", values.note);
-    }
-    if (values.date !== undefined) {
-      form.setFieldValue("date", values.date);
-    }
-    if (values.amount !== undefined) {
-      form.setFieldValue("amount", values.amount);
-    }
-    if (values.categoryIds !== undefined) {
-      form.setFieldValue("categoryIds", values.categoryIds);
-    }
-    if (values.paidByMemberId !== undefined) {
-      form.setFieldValue("paidByMemberId", values.paidByMemberId);
+    for (const key of [
+      "title",
+      "note",
+      "date",
+      "amount",
+      "categoryIds",
+      "paidByMemberId",
+    ] as const) {
+      const next = values[key];
+      if (next !== undefined) {
+        form.setFieldValue(key, next);
+      }
     }
   };
 
