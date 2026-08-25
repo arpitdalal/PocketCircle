@@ -4,7 +4,7 @@ import {
   type TransactionType,
   toPlainDate,
 } from "@pocketcircle/domain";
-import type { TransactionResetReason } from "~/components/transaction-form/transaction-form-resets.js";
+import type { PrefillWarningReason } from "~/components/transaction-form/transaction-form-resets.js";
 
 /**
  * Pure Duplicate prefill and warning derivation (issue #299 / #293): given a
@@ -67,7 +67,7 @@ export interface DuplicatePrefillResult {
    * Field-local amber warnings for omitted Categories / substituted Paid By.
    * Never uses invalid-field semantics and never triggers the unavailable toast.
    */
-  warnings: Partial<Record<"categoryIds" | "paidByMemberId", TransactionResetReason>>;
+  warnings: Partial<Record<"categoryIds" | "paidByMemberId", PrefillWarningReason>>;
   /** True when the archived-source no-destination explanation should show. */
   archivedSourceWithoutDestination: boolean;
 }

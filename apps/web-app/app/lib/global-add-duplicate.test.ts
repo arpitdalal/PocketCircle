@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveDuplicatePrefill } from "./global-add-duplicate.js";
+import { type DuplicatePrefillInput, deriveDuplicatePrefill } from "./global-add-duplicate.js";
 
 /**
  * Pure Duplicate prefill + warning derivation (issue #299): active/Archived
@@ -19,42 +19,34 @@ const SOURCE = {
   paidBy: { id: "mem-alex" },
 };
 
+function prefill(over: Partial<DuplicatePrefillInput> = {}) {
+  return deriveDuplicatePrefill({
+    source: SOURCE,
+    sourceCircleArchived: false,
+    destinationCircleId: "c1",
+    sourceCircleId: "c1",
+    type: "expense",
+    selectableCategories: [
+      { id: "cat-groceries", status: "active" },
+      { id: "cat-gone", status: "archived" },
+    ],
+    currentMembers: [{ id: "mem-alex" }, { id: "mem-you" }],
+    selfMemberId: "mem-you",
+    today: TODAY,
+    ...over,
+  });
+}
+
 describe("deriveDuplicatePrefill", () => {
   it("copies Title, Note, and today's Date for every usable source", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
-      type: "expense",
-      selectableCategories: [
-        { id: "cat-groceries", status: "active" },
-        { id: "cat-gone", status: "archived" },
-      ],
-      currentMembers: [{ id: "mem-alex" }, { id: "mem-you" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
-    });
+    const result = prefill();
     expect(result.values.title).toBe("Weekly shop");
     expect(result.values.note).toBe("Milk and eggs");
     expect(result.values.date).toBe("2026-08-25");
   });
 
   it("copies Amount, selectable Categories, and current Paid By when Circles match", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
-      type: "expense",
-      selectableCategories: [
-        { id: "cat-groceries", status: "active" },
-        { id: "cat-gone", status: "archived" },
-      ],
-      currentMembers: [{ id: "mem-alex" }, { id: "mem-you" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
-    });
+    const result = prefill();
     expect(result.values.amount).toBe("12.50");
     expect(result.values.categoryIds).toEqual(["cat-groceries"]);
     expect(result.values.paidByMemberId).toBe("mem-alex");
@@ -64,16 +56,9 @@ describe("deriveDuplicatePrefill", () => {
   });
 
   it("omits Categories and retains Amount + Paid By when explicit Type differs", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
+    const result = prefill({
       type: "income",
       selectableCategories: [{ id: "cat-salary", status: "active" }],
-      currentMembers: [{ id: "mem-alex" }, { id: "mem-you" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
     });
     expect(result.values.amount).toBe("12.50");
     expect(result.values.categoryIds).toEqual([]);
@@ -82,16 +67,10 @@ describe("deriveDuplicatePrefill", () => {
   });
 
   it("leaves scoped fields empty when destination differs from source Circle", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
+    const result = prefill({
       destinationCircleId: "c2",
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [{ id: "cat-other", status: "active" }],
       currentMembers: [{ id: "mem-you" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
     });
     expect(result.values).toMatchObject({
       title: "Weekly shop",
@@ -104,16 +83,11 @@ describe("deriveDuplicatePrefill", () => {
   });
 
   it("leaves scoped fields empty when destination is absent", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
+    const result = prefill({
       destinationCircleId: null,
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [],
       currentMembers: [],
       selfMemberId: "",
-      today: TODAY,
     });
     expect(result.values.amount).toBe("");
     expect(result.values.categoryIds).toEqual([]);
@@ -121,16 +95,12 @@ describe("deriveDuplicatePrefill", () => {
   });
 
   it("for an Archived source Circle, copies only portable fields and flags the explanation", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
+    const result = prefill({
       sourceCircleArchived: true,
       destinationCircleId: null,
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [],
       currentMembers: [],
       selfMemberId: "",
-      today: TODAY,
     });
     expect(result.values).toEqual({
       title: "Weekly shop",
@@ -145,65 +115,40 @@ describe("deriveDuplicatePrefill", () => {
   });
 
   it("does not copy scoped fields from an Archived source Circle even if a destination is set", () => {
-    // Destination should never be the archived source; if somehow present, still
-    // treat archived source as non-writable scoped context.
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
+    const result = prefill({
       sourceCircleArchived: true,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [{ id: "cat-groceries", status: "active" }],
       currentMembers: [{ id: "mem-alex" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
     });
     expect(result.values.amount).toBe("");
     expect(result.values.categoryIds).toEqual([]);
   });
 
   it("substitutes Paid By to the current User when the source payer is not current", () => {
-    const result = deriveDuplicatePrefill({
-      source: SOURCE,
-      sourceCircleArchived: false,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
-      type: "expense",
+    const result = prefill({
       selectableCategories: [{ id: "cat-groceries", status: "active" }],
       currentMembers: [{ id: "mem-you" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
     });
     expect(result.values.paidByMemberId).toBe("mem-you");
     expect(result.warnings.paidByMemberId).toBe("paid_by_substituted");
   });
 
   it("copies an empty Note as empty string", () => {
-    const result = deriveDuplicatePrefill({
+    const result = prefill({
       source: { ...SOURCE, note: undefined },
-      sourceCircleArchived: false,
       destinationCircleId: null,
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [],
       currentMembers: [],
       selfMemberId: "",
-      today: TODAY,
     });
     expect(result.values.note).toBe("");
   });
 
   it("does not warn when every source Category remains selectable", () => {
-    const result = deriveDuplicatePrefill({
+    const result = prefill({
       source: { ...SOURCE, categories: [{ id: "cat-groceries" }] },
-      sourceCircleArchived: false,
-      destinationCircleId: "c1",
-      sourceCircleId: "c1",
-      type: "expense",
       selectableCategories: [{ id: "cat-groceries", status: "active" }],
       currentMembers: [{ id: "mem-alex" }],
-      selfMemberId: "mem-you",
-      today: TODAY,
     });
     expect(result.warnings).toEqual({});
   });
