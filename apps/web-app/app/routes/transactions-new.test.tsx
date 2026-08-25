@@ -662,6 +662,41 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
 });
 
 describe("TransactionsNew — submission", () => {
+  it("freezes Circle and Type controls while inline Category create is in flight", async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (id: string) => void;
+    const createCategory = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    createTransaction.mockReset();
+    createTransaction.mockResolvedValue("new-txn");
+    configureConvex({ ...baseState(), createCategory });
+    renderRoutes(ROUTES, {
+      initialEntries: [
+        `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}`,
+      ],
+    });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Pending Cat");
+    await user.click(await screen.findByRole("option", { name: 'Create "Pending Cat"' }));
+
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+    expect(screen.getByRole("combobox", { name: "Circle" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Income" })).toBeDisabled();
+
+    resolveCreate(testId("cat-pending"));
+    await within(form).findByRole("button", { name: /Remove Pending Cat/ });
+    expect(screen.getByRole("combobox", { name: "Circle" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Income" })).toBeEnabled();
+  });
+
   it("keeps an ordinary failure inline with the draft preserved", async () => {
     const user = userEvent.setup();
     setup();

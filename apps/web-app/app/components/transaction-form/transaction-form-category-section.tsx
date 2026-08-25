@@ -84,6 +84,7 @@ export function TransactionFormCategorySection({
   warning,
   disabled = false,
   onSelectionChanged,
+  onInlineCreateBusyChange,
 }: {
   /** `null` while Global Add has no resolved destination; selection is disabled then. */
   circleId: Circle["id"] | null;
@@ -99,6 +100,9 @@ export function TransactionFormCategorySection({
   /** Runs when the User changes the selection — a warning's clear trigger.
    * Programmatic clears (`form.setFieldValue`) never fire it. */
   onSelectionChanged?: () => void;
+  /** Notifies the host while an inline create mutation is in flight so it can
+   * freeze Circle/Type transitions for the duration. */
+  onInlineCreateBusyChange?: (busy: boolean) => void;
 }) {
   const form = useTypedAppFormContext(transactionFormContextOptions);
   const createCategory = useCreateCategory();
@@ -114,6 +118,10 @@ export function TransactionFormCategorySection({
   useEffect(() => {
     activeTypeRef.current = activeType;
   }, [activeType]);
+  useEffect(() => {
+    onInlineCreateBusyChange?.(creating);
+    return () => onInlineCreateBusyChange?.(false);
+  }, [creating, onInlineCreateBusyChange]);
 
   const trimmedQuery = query.trim();
   const categoryNameIndex = useMemo(() => buildCategoryNameIndex(categoryById), [categoryById]);

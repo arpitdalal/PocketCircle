@@ -58,6 +58,8 @@ export function TransactionFormBody({
     activeCategories,
     addInlineCreatedCategory,
     destinationReady,
+    destinationTransitionLocked,
+    setDestinationTransitionLocked,
     resetWarnings,
     clearResetWarning,
   } = controller;
@@ -88,6 +90,7 @@ export function TransactionFormBody({
           <TransactionFormTypeEditSection
             activeType={activeType}
             onTypeChangeConfirmed={onTypeChangeConfirmed}
+            disabled={destinationTransitionLocked}
           />
         ) : null}
 
@@ -136,6 +139,7 @@ export function TransactionFormBody({
             warning={warningFor("categoryIds")}
             disabled={!destinationReady}
             onSelectionChanged={() => clearResetWarning("categoryIds")}
+            onInlineCreateBusyChange={setDestinationTransitionLocked}
           />
 
           <form.AppField name="paidByMemberId">

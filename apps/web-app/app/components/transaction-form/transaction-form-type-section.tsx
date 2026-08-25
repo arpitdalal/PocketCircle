@@ -17,15 +17,18 @@ import { TYPE_LABEL } from "./transaction-form-constants.js";
 export function TransactionFormTypeEditSection({
   activeType,
   onTypeChangeConfirmed,
+  disabled = false,
 }: {
   activeType: TransactionType;
   onTypeChangeConfirmed: (next: TransactionType) => void;
+  /** Blocks starting a Type change (e.g. while inline Category create is in flight). */
+  disabled?: boolean;
 }) {
   const [pendingType, setPendingType] = useState<TransactionType | null>(null);
   const confirmTypeRef = useRef<HTMLButtonElement>(null);
 
   const requestType = (next: TransactionType) => {
-    if (next === activeType) {
+    if (disabled || next === activeType) {
       return;
     }
     setPendingType(next);
@@ -50,9 +53,11 @@ export function TransactionFormTypeEditSection({
               key={option}
               type="button"
               aria-pressed={pressed}
+              disabled={disabled}
               onClick={() => requestType(option)}
               className={cn(
                 "rounded-md border px-3 py-1 text-sm transition-colors",
+                disabled && "opacity-50",
                 pressed
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:text-foreground",

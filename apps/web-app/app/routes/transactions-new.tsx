@@ -557,12 +557,13 @@ export default function TransactionsNew() {
               <select
                 id="global-add-circle"
                 value={appliedId ?? ""}
+                disabled={controller.destinationTransitionLocked}
                 onChange={(event) => {
                   const id = event.target.value || null;
                   const match = id === null ? undefined : eligibleCircles.find((c) => c.id === id);
                   navigateTo(urlState.type, match?.ref, urlState.returnTo);
                 }}
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50"
               >
                 <option value="">Choose a Circle</option>
                 {eligibleCircles.map((circle) => (
@@ -577,6 +578,7 @@ export default function TransactionsNew() {
             label="Type"
             value={urlState.type}
             options={TYPE_OPTIONS}
+            disabled={controller.destinationTransitionLocked}
             onChange={(next) =>
               navigateTo(next, urlState.circleRefParam ?? undefined, urlState.returnTo)
             }

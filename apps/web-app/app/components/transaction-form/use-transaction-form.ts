@@ -322,6 +322,9 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   // errors onto the next destination.
 
   const [resetWarnings, setResetWarnings] = useState<TransactionResetWarnings>({});
+  /** True while inline Category create is in flight — hosts must freeze destination
+   * / Type transitions so a late completion cannot attach to the wrong draft. */
+  const [destinationTransitionLocked, setDestinationTransitionLocked] = useState(false);
 
   const clearScopedValues = () => {
     const values = form.store.state.values;
@@ -393,6 +396,8 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     activeCategories,
     addInlineCreatedCategory,
     destinationReady: circle != null,
+    destinationTransitionLocked,
+    setDestinationTransitionLocked,
     clearScopedValues,
     clearAmount,
     resetWarnings,

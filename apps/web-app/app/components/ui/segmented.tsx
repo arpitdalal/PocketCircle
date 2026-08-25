@@ -11,6 +11,7 @@ export function Segmented<Value extends string>({
   options,
   onChange,
   compact,
+  disabled = false,
 }: {
   label: string;
   value: Value;
@@ -18,9 +19,10 @@ export function Segmented<Value extends string>({
   onChange: (value: Value) => void;
   /** Tray/header: legend is sr-only, options stay on one row. */
   compact?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <fieldset className={compact ? undefined : "space-y-2"}>
+    <fieldset className={compact ? undefined : "space-y-2"} disabled={disabled}>
       <legend className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</legend>
       <div className={cn("flex gap-2", compact ? "flex-nowrap" : "flex-wrap")}>
         {options.map((option) => (
@@ -28,9 +30,11 @@ export function Segmented<Value extends string>({
             key={option.value}
             type="button"
             aria-pressed={value === option.value}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
               "rounded-md border px-3 py-1 text-sm transition-colors",
+              disabled && "opacity-50",
               value === option.value
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border text-muted-foreground hover:text-foreground",
