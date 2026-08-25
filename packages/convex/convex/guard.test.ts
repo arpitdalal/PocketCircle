@@ -288,14 +288,14 @@ describe("resolveCircleAccessForUser", () => {
 });
 
 describe("requireCircleAccess", () => {
-  it("throws a generic 'Circle not found' when there is no access", async () => {
+  it("throws coded circle.unavailable when there is no access", async () => {
     const t = convexTest(schema, modules);
     const { circleId } = await t.run((ctx) => seed(ctx));
     mockCurrentUser.mockResolvedValue(null);
 
-    await expect(t.run((ctx) => requireCircleAccess(ctx, circleId))).rejects.toThrow(
-      "Circle not found",
-    );
+    await expect(t.run((ctx) => requireCircleAccess(ctx, circleId))).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.circleUnavailable),
+    });
   });
 
   it("returns the AuthorizedCircle when access resolves", async () => {

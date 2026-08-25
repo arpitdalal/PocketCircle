@@ -168,11 +168,13 @@ export async function resolveCircleAccess(
 
 /**
  * Resolves Circle access or throws. The single home of the throw; feeds
- * mutations. Uses the same generic "Circle not found" message for missing and
- * inaccessible so nothing about a Circle's existence leaks (ADR 0016).
+ * mutations. Uses the same coded `circle.unavailable` payload (user message
+ * "Circle not found") for missing and inaccessible so nothing about a Circle's
+ * existence leaks (ADR 0016). A `ConvexError` keeps the signal classifiable on
+ * the client after Convex redacts plain mutation `Error`s in production.
  *
- * Note this folds auth in: an UNAUTHENTICATED caller also gets "Circle not
- * found", not "Not authenticated". That is intentional — the UI never shows a
+ * Note this folds auth in: an UNAUTHENTICATED caller also gets the same coded
+ * unavailable error, not "Not authenticated". That is intentional — the UI never shows a
  * mutating form to an unauthenticated User (the protected layout gates the app,
  * ADR 0017), so this throw is reached only by a session that expired/was revoked
  * mid-flight or a direct API call, and in those cases the anti-enumeration stance
@@ -185,7 +187,7 @@ export async function requireCircleAccess(
 ): Promise<AuthorizedCircle> {
   const access = await resolveCircleAccess(ctx, circleId);
   if (!access) {
-    throw new Error("Circle not found");
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleUnavailable));
   }
   return access;
 }

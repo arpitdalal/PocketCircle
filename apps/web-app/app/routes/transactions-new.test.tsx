@@ -390,6 +390,29 @@ describe("TransactionsNew — Circle switch confirmations", () => {
     expect(within(nextForm).getByLabelText(/Note/)).toHaveValue("from vendor");
     expect(within(nextForm).getByLabelText(/Amount/)).toHaveAccessibleName(/CAD/);
   });
+
+  it("consumes a Circle confirmation so an identical later switch asks again", async () => {
+    const user = userEvent.setup();
+    setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText(/Amount/), "42");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
+    await user.click(await screen.findByRole("button", { name: "Change Circle" }));
+    await waitFor(() =>
+      expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toHaveValue(""),
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_A.id);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Circle" })).toHaveValue(CIRCLE_A.id),
+    );
+    await user.type(within(screen.getByRole("form")).getByLabelText(/Amount/), "42");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/Change Circle/);
+  });
 });
 
 describe("TransactionsNew — Type transitions", () => {

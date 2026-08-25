@@ -107,8 +107,12 @@ describe("submit-time destination-error classification", () => {
     ).toBe(true);
   });
 
-  it("classifies the plain access-revoked throw as destination invalidation", () => {
-    expect(isDestinationInvalidationError(new Error("Circle not found"))).toBe(true);
+  it("classifies the access-revoked / missing Circle guard error as destination invalidation", () => {
+    expect(
+      isDestinationInvalidationError(
+        new ConvexError(mutationErrorData(MUTATION_ERRORS.circleUnavailable)),
+      ),
+    ).toBe(true);
   });
 
   it("keeps other coded errors inline instead of resetting", () => {
@@ -121,6 +125,7 @@ describe("submit-time destination-error classification", () => {
 
   it("keeps unknown failures inline instead of resetting", () => {
     expect(isDestinationInvalidationError(new Error("network down"))).toBe(false);
+    expect(isDestinationInvalidationError(new Error("Circle not found"))).toBe(false);
     expect(isDestinationInvalidationError(undefined)).toBe(false);
   });
 });

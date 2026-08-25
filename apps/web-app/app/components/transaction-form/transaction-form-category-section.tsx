@@ -6,7 +6,7 @@ import {
   type TransactionType,
   transactionFieldSchemas,
 } from "@pocketcircle/domain";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Combobox,
   ComboboxChip,
@@ -106,6 +106,8 @@ export function TransactionFormCategorySection({
   const [query, setQuery] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const circleIdRef = useRef(circleId);
+  circleIdRef.current = circleId;
 
   const trimmedQuery = query.trim();
   const categoryNameIndex = useMemo(() => buildCategoryNameIndex(categoryById), [categoryById]);
@@ -164,18 +166,25 @@ export function TransactionFormCategorySection({
     }
 
     setCreating(true);
+    const destinationId = circleId;
     try {
-      if (!circleId) {
+      if (!destinationId) {
         return;
       }
       const newId = await createCategory({
-        circleId,
+        circleId: destinationId,
         name: parsed.data.name,
         type: activeType,
         color: seededColor,
       });
       if (!newId) {
         setInlineError("Couldn't create the category. Please try again.");
+        return;
+      }
+      // Destination may have switched while the create was in flight — keep the
+      // Category in the old Circle but do not inject it into the new draft.
+      if (circleIdRef.current !== destinationId) {
+        setQuery("");
         return;
       }
       const created = toInlineCreatedCategory(newId, parsed.data.name, activeType, seededColor);

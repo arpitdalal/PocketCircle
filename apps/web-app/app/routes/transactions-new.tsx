@@ -5,8 +5,6 @@ import { Splash } from "~/components/splash.js";
 import {
   TransactionFormBody,
   type TransactionFormResult,
-  transactionResetFields,
-  transactionResetToast,
 } from "~/components/transaction-form/index.js";
 import { useTransactionForm } from "~/components/transaction-form/use-transaction-form.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
@@ -14,6 +12,7 @@ import { ModalDialog } from "~/components/ui/dialog.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import { type Circle, useMyCircles } from "~/lib/data.js";
 import {
+  destinationInvalidation,
   isDestinationInvalidationError,
   isEligibleDestination,
   requiresCircleSwitchConfirmation,
@@ -26,7 +25,7 @@ import {
   readGlobalAddParams,
 } from "~/lib/global-add-url.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
-import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
+import { withReturnTo } from "~/lib/return-to-url.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 
 /** Aggregate-safe analytics context for every ordinary Global Add create (#298). */
@@ -73,7 +72,6 @@ export default function TransactionsNew() {
     [searchParams],
   );
   const returnUrl = urlState.returnTo;
-  const origin = useReturnToOrigin();
   const eligibleCircles = useMemo(() => (circles ?? []).filter(isEligibleDestination), [circles]);
 
   // --- Session state -------------------------------------------------------
@@ -170,10 +168,11 @@ export default function TransactionsNew() {
       ? undefined
       : (circles.find((circle) => circle.id === requestedId) ?? null);
   const requestedResolvable =
-    requestedId === null ||
-    (requestedMatch !== undefined &&
-      requestedMatch !== null &&
-      isEligibleDestination(requestedMatch));
+    !urlState.hadUnparseableCircle &&
+    (requestedId === null ||
+      (requestedMatch !== undefined &&
+        requestedMatch !== null &&
+        isEligibleDestination(requestedMatch)));
 
   const storeValues = controller.form.store.state.values;
   const scopedDraft = {
@@ -223,6 +222,10 @@ export default function TransactionsNew() {
       }
     } else {
       setAppliedId(requestedId);
+      // Consume the acceptance ledger once its transition settles so a later
+      // return to the same destination with the same draft fingerprint cannot
+      // silently bypass confirmation.
+      setConfirmed(null);
     }
   }
   if (!everSelected && appliedEligible) {
@@ -252,12 +255,10 @@ export default function TransactionsNew() {
   // --- Transition appliers (executed on edges by the effects below) --------
   const invalidateDestination = useCallback(() => {
     setInvalidating(true);
+    const invalidation = destinationInvalidation("circle_unavailable");
     controller.clearScopedValues();
-    controller.markResetWarnings(
-      transactionResetFields("circle_unavailable"),
-      "circle_unavailable",
-    );
-    show(transactionResetToast("circle_unavailable"));
+    controller.markResetWarnings(invalidation.fields, invalidation.reason);
+    show(invalidation.toast);
     setAppliedId(null);
     lastEdgeRef.current = { id: null, currency: null };
     navigateWithoutCircle(returnUrl);
@@ -313,6 +314,7 @@ export default function TransactionsNew() {
       return;
     }
     controller.applyTypeChange(urlState.type);
+    setConfirmed(null);
   }, [pendingConfirmKind, urlState.type, controller.activeType, controller]);
 
   // Destination edge: applies the scoped-value contracts whenever the applied
@@ -335,9 +337,13 @@ export default function TransactionsNew() {
       // Same destination — watch its Currency only. Null prev currency means
       // the destination was unresolved before, so this is adoption, not loss.
       if (nextCurrency !== null && prev.currency !== null && prev.currency !== nextCurrency) {
+        const hadAmount = controller.form.store.state.values.amount !== "";
         controller.clearAmount();
-        controller.markResetWarnings(["amount"], "currency_changed");
-        show(transactionResetToast("currency_changed"));
+        if (hadAmount) {
+          const invalidation = destinationInvalidation("currency_changed");
+          controller.markResetWarnings(invalidation.fields, invalidation.reason);
+          show(invalidation.toast);
+        }
       }
       if (prev.currency !== nextCurrency) {
         lastEdgeRef.current = { id: nextId, currency: nextCurrency };
@@ -531,7 +537,7 @@ export default function TransactionsNew() {
                   Create a Circle or finish setup first.
                 </p>
                 <Link
-                  to={withReturnTo("/circles/new", origin)}
+                  to={withReturnTo("/circles/new", returnUrl)}
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
                   Create circle

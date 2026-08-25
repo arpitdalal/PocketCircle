@@ -595,7 +595,7 @@ describe("createTransaction — permission matrix", () => {
         circleId: f.circleId,
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies a non-member User", async () => {
@@ -608,7 +608,7 @@ describe("createTransaction — permission matrix", () => {
         circleId: f.circleId,
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies an unauthenticated caller", async () => {
@@ -620,7 +620,7 @@ describe("createTransaction — permission matrix", () => {
         circleId: f.circleId,
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("allows a Personal Circle owner", async () => {

@@ -75,21 +75,19 @@ export function destinationInvalidation(reason: TransactionResetReason): Destina
 const DESTINATION_INVALID_CODES = new Set<string>([
   MUTATION_ERRORS.circleArchived.code,
   MUTATION_ERRORS.circleSetupIncomplete.code,
+  MUTATION_ERRORS.circleUnavailable.code,
 ]);
 
 /**
  * Classifies a failed create submission as submit-time destination invalidation
- * (same reset contract as reactive loss) versus an ordinary inline error. The
- * coded cases arrive as `ConvexError`s from the backend guards (`assertWritable`,
- * `assertSetupComplete`); a revoked membership mid-submit arrives as the plain
- * `"Circle not found"` throw of `requireCircleAccess` — the one uncoded signal
- * that means the destination is gone, matched exactly because it has a single
- * home in `guard.ts`.
+ * (same reset contract as reactive loss) versus an ordinary inline error. Coded
+ * cases arrive as `ConvexError`s from the backend guards (`assertWritable`,
+ * `assertSetupComplete`, `requireCircleAccess`).
  */
 export function isDestinationInvalidationError(error: unknown) {
-  if (error instanceof ConvexError) {
-    const parsed = mutationErrorDataSchema.safeParse(error.data);
-    return parsed.success && DESTINATION_INVALID_CODES.has(parsed.data.code);
+  if (!(error instanceof ConvexError)) {
+    return false;
   }
-  return error instanceof Error && error.message === "Circle not found";
+  const parsed = mutationErrorDataSchema.safeParse(error.data);
+  return parsed.success && DESTINATION_INVALID_CODES.has(parsed.data.code);
 }

@@ -36,6 +36,12 @@ function defineMutationErrorCatalog<
 
 const mutationErrors = defineMutationErrorCatalog({
   circleArchived: defineMutationError("circle.archived", "Circle is archived"),
+  /**
+   * Missing Circle and no-access collapse to the same coded error (ADR 0016).
+   * Prefer this over a plain `Error` so clients still classify it after Convex
+   * redacts uncoded mutation failures in production.
+   */
+  circleUnavailable: defineMutationError("circle.unavailable", "Circle not found"),
   circleSetupIncomplete: defineMutationError(
     "circle.setupIncomplete",
     "Finish setting up this Circle before continuing",

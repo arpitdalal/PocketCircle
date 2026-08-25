@@ -317,21 +317,33 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   // without remounting the form, so portable draft values survive. Warning
   // registry clears stay with the adapter (voluntary vs unexpected), not here.
   // Validation reveal on emptied fields is suppressed by the body while
-  // `destinationReady` is false — not by remounting or form.reset, which would
-  // fight portable draft retention and race the warning marks.
+  // `destinationReady` is false. Scoped clears use `form.reset` with portable
+  // values retained so submissionAttempts / field meta don't leak required-field
+  // errors onto the next destination.
 
   const [resetWarnings, setResetWarnings] = useState<TransactionResetWarnings>({});
 
   const clearScopedValues = () => {
-    form.setFieldValue("amount", "");
-    form.setFieldValue("categoryIds", []);
-    form.setFieldValue("paidByMemberId", "");
+    const values = form.store.state.values;
+    // Reset scoped fields AND their validation/submit-reveal metadata while
+    // keeping portable draft values (Title/Note/Date/Type). A full remount
+    // would lose those; setFieldValue alone would leave submissionAttempts
+    // revealing stale required-field errors on the next destination.
+    form.reset(
+      {
+        ...values,
+        amount: "",
+        categoryIds: [],
+        paidByMemberId: "",
+      },
+      { keepDefaultValues: true },
+    );
     setSubmitError(null);
     setInlineCreatedCategories([]);
   };
 
   const clearAmount = () => {
-    form.setFieldValue("amount", "");
+    form.resetField("amount");
     setSubmitError(null);
   };
 
