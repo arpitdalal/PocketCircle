@@ -638,12 +638,19 @@ export default function TransactionsNew() {
   // Without an eligible rollback target it is either an initial invalid
   // Circle param or destination invalidation already in flight — never the
   // restore toast (that would overwrite the real unavailable/reset message).
+  //
+  // Duplicate source recovery owns a stricter rewrite (strip source + circle,
+  // Type→Expense, Detail→prior origin). While the URL still carries a source
+  // pair that has triggered recovery, `navigateWithoutCircle` would re-emit
+  // those source params via `sourceRewrite` and clobber the recovery URL —
+  // suppress this effect until the source pair is gone.
   useEffect(() => {
     if (
       circles === undefined ||
       pendingConfirmKind !== null ||
       requestedResolvable ||
-      (!urlState.hadUnparseableCircle && urlState.circleId === null)
+      (!urlState.hadUnparseableCircle && urlState.circleId === null) ||
+      (sourceRecovered && urlState.sourcePair.kind !== "absent")
     ) {
       return;
     }
@@ -703,6 +710,8 @@ export default function TransactionsNew() {
     urlState.circleId,
     urlState.returnTo,
     urlState.type,
+    urlState.sourcePair.kind,
+    sourceRecovered,
     sourceRewrite,
     navigateWithoutCircle,
     navigate,

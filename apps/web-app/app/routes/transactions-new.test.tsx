@@ -1336,6 +1336,43 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
     expect(screen.getByRole("heading", { name: "Add transaction" })).toBeInTheDocument();
   });
 
+  it("does not let unresolvable destination Circle fallback override source recovery", async () => {
+    // Source Circle lost from Visibility AND destination `circle` is the same
+    // inaccessible id — circle fallback would otherwise navigateWithoutCircle
+    // and re-pin the dead source pair / Detail returnTo.
+    const view = setup({
+      url: duplicateUrl(),
+      circles: [CIRCLE_B],
+      transactionDetail: null,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(loc.searchParams.get("sourceTransaction")).toBeNull();
+    expect(loc.searchParams.get("circle")).toBeNull();
+    expect(loc.searchParams.get(RETURN_TO_PARAM)).toBe(LEDGER_ORIGIN);
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+    expect(screen.queryByText("This circle isn't available.")).not.toBeInTheDocument();
+    expect(screen.getByText("Choose a Circle to continue")).toBeInTheDocument();
+  });
+
+  it("still strips an unresolvable destination while a usable Duplicate source is kept", async () => {
+    // Valid source + ghost destination: Circle fallback must clear only `circle`
+    // and preserve source params (ordinary Global Add unresolvable path).
+    const view = setup({
+      url: duplicateUrl({ circleRef: "ghost-zz" }),
+      transactionDetail: SOURCE_TXN,
+    });
+    await waitFor(() => {
+      const loc = new URL(view.location(), "http://t");
+      expect(loc.searchParams.get("circle")).toBeNull();
+      expect(loc.searchParams.get("sourceCircle")).toBe(CIRCLE_A.ref);
+      expect(loc.searchParams.get("sourceTransaction")).toBe("weekly-shop-t1");
+    });
+    expect(screen.getByText("This circle isn't available.")).toBeInTheDocument();
+    expect(screen.queryByText("That link isn't available.")).not.toBeInTheDocument();
+  });
+
   it("normalizes Type to Expense on unavailable-source recovery even when URL requested income", async () => {
     // Issue #299 / ADR 0017: recovery clears Duplicate state to ordinary Global
     // Add defaults — Type always becomes Expense; it is not preserved from the
