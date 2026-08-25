@@ -17,11 +17,19 @@ export type Member = NonNullable<FunctionReturnType<typeof api.members.listMembe
  * A Circle's active Members, Owner first. `undefined` while loading; `null` when
  * the Circle is inaccessible (ADR 0016). Feeds the Transaction form's Paid By
  * selector; MEM-1 layers the full Member List UI on the same query. Mock mode
- * returns fixtures and skips the backend (ADR 0006).
+ * returns fixtures and skips the backend (ADR 0006). An `undefined` circleId
+ * (Global Add's unselected destination) skips the subscription and reads as
+ * loading.
  */
-export function useMembers(circleId: Circle["id"]): Member[] | null | undefined {
-  const queried = useQuery(api.members.listMembers, MOCKS ? "skip" : { circleId });
-  return MOCKS ? MOCK_MEMBERS : queried;
+export function useMembers(circleId: Circle["id"] | undefined): Member[] | null | undefined {
+  const queried = useQuery(
+    api.members.listMembers,
+    MOCKS || circleId === undefined ? "skip" : { circleId },
+  );
+  if (MOCKS) {
+    return circleId === undefined ? undefined : MOCK_MEMBERS;
+  }
+  return queried;
 }
 
 export function useTransferOwnership() {

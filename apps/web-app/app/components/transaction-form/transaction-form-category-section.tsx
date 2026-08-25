@@ -81,13 +81,24 @@ export function TransactionFormCategorySection({
   activeCategories,
   activeType,
   onInlineCreatedCategory,
+  warning,
+  disabled = false,
+  onSelectionChanged,
 }: {
-  circleId: Circle["id"];
+  /** `null` while Global Add has no resolved destination; selection is disabled then. */
+  circleId: Circle["id"] | null;
   categoryById: ReadonlyMap<string, Category>;
   alreadyAttached: ReadonlySet<string>;
   activeCategories: Category[];
   activeType: TransactionType;
   onInlineCreatedCategory: (category: Category) => void;
+  /** Persistent automatic-reset warning text (issue #298) — see the shared field kit. */
+  warning?: string;
+  /** Disables selection and inline creation while no valid destination is resolved. */
+  disabled?: boolean;
+  /** Runs when the User changes the selection — a warning's clear trigger.
+   * Programmatic clears (`form.setFieldValue`) never fire it. */
+  onSelectionChanged?: () => void;
 }) {
   const form = useTypedAppFormContext(transactionFormContextOptions);
   const createCategory = useCreateCategory();
@@ -153,6 +164,9 @@ export function TransactionFormCategorySection({
 
     setCreating(true);
     try {
+      if (!circleId) {
+        return;
+      }
       const newId = await createCategory({
         circleId,
         name: parsed.data.name,
@@ -192,7 +206,10 @@ export function TransactionFormCategorySection({
           validators={{ onChange: transactionFieldSchemas.categoryIds }}
         >
           {(field) => {
-            const reveal = field.state.meta.isDirty || submitReveal;
+            // Disabled (unresolved destination) suppresses submit-reveal so an
+            // automatic reset cannot leave "Pick at least one category" fighting
+            // the amber warning contract (issue #298).
+            const reveal = !disabled && (field.state.meta.isDirty || submitReveal);
             const invalid = reveal && field.state.meta.errors.length > 0;
             const archivedSelected = field.state.value.flatMap((id) => {
               const category = categoryById.get(id);
@@ -208,7 +225,7 @@ export function TransactionFormCategorySection({
                 <Combobox
                   multiple
                   autoHighlight
-                  disabled={creating}
+                  disabled={creating || disabled}
                   inputValue={query}
                   onInputValueChange={(next, eventDetails) => {
                     // Only mirror typed input — item selection also emits input clears we
@@ -228,6 +245,7 @@ export function TransactionFormCategorySection({
                       void handleInlineCreate(field.state.value, field.handleChange);
                       return;
                     }
+                    onSelectionChanged?.();
                     const added = ids.length > field.state.value.length;
                     field.handleChange(ids);
                     if (added) {
@@ -241,7 +259,14 @@ export function TransactionFormCategorySection({
                       : (categoryById.get(id)?.name ?? id)
                   }
                 >
-                  <ComboboxChips ref={anchorRef} className="w-full max-w-full">
+                  <ComboboxChips
+                    ref={anchorRef}
+                    className={cn(
+                      "w-full max-w-full",
+                      disabled && "opacity-50",
+                      warning && !invalid && "border-warning",
+                    )}
+                  >
                     <ComboboxValue>
                       {(values: string[]) => (
                         <>
@@ -270,7 +295,7 @@ export function TransactionFormCategorySection({
                           <ComboboxChipsInput
                             placeholder="Search categories…"
                             aria-label="Categories"
-                            disabled={creating}
+                            disabled={creating || disabled}
                           />
                         </>
                       )}
@@ -306,6 +331,7 @@ export function TransactionFormCategorySection({
                     archived
                   </p>
                 ) : null}
+                {warning ? <p className="text-sm text-warning">{warning}</p> : null}
                 {inlineError ? (
                   <p role="alert" className="text-sm text-destructive">
                     {inlineError}

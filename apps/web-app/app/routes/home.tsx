@@ -28,6 +28,7 @@ import {
   useIncludeCircle,
   useMyCircles,
 } from "~/lib/data.js";
+import { globalAddHref } from "~/lib/global-add-url.js";
 import { canonicalHomeSummaryParams, readHomeSummarySelection } from "~/lib/home-summary-url.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
@@ -48,6 +49,7 @@ const CURRENCY_SEGMENTED_MAX = 4;
 export default function Home() {
   const circles = useMyCircles();
   const [searchParams, setSearchParams] = useSearchParams();
+  const origin = useReturnToOrigin();
   const selection = readHomeSummarySelection(searchParams);
 
   const { summary, isPending } = useHomeSummary({
@@ -105,15 +107,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Home</h1>
-        <Link
-          to={href("/circles/new")}
-          className={buttonVariants({ variant: "default", size: "default" })}
-        >
-          Create circle
-        </Link>
-      </div>
+      <HomeHeader origin={origin} />
 
       <ActivationChecklist />
 
@@ -132,18 +126,38 @@ export default function Home() {
   );
 }
 
-function HomeLoading() {
+/**
+ * Persistent primary Transaction action beside secondary Create circle (issue
+ * #298). Shared by the loaded and loading Home shells so the exact origin link
+ * cannot drift between them.
+ */
+function HomeHeader({ origin }: { origin: string }) {
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Home</h1>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Home</h1>
+      <div className="flex items-center gap-2">
+        <Link
+          to={withReturnTo(globalAddHref({ type: "expense" }), origin)}
+          className={buttonVariants({ variant: "default", size: "default" })}
+        >
+          Add transaction
+        </Link>
         <Link
           to={href("/circles/new")}
-          className={buttonVariants({ variant: "default", size: "default" })}
+          className={buttonVariants({ variant: "outline", size: "default" })}
         >
           Create circle
         </Link>
       </div>
+    </div>
+  );
+}
+
+function HomeLoading() {
+  const origin = useReturnToOrigin();
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <HomeHeader origin={origin} />
       <LoadingStatus loading label="Loading home…" />
       <div className="space-y-3">
         <Skeleton className="h-6 w-32" />

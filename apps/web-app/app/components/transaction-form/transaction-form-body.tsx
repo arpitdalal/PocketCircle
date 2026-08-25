@@ -8,6 +8,7 @@ import {
 import { FieldError, FieldGroup } from "~/components/ui/field.js";
 import { TransactionFormCategorySection } from "./transaction-form-category-section.js";
 import { TYPE_LABEL } from "./transaction-form-constants.js";
+import { type TransactionResetField, transactionResetWarning } from "./transaction-form-resets.js";
 import { TransactionFormTypeEditSection } from "./transaction-form-type-section.js";
 import type { TransactionFormController } from "./use-transaction-form.js";
 
@@ -23,6 +24,14 @@ import type { TransactionFormController } from "./use-transaction-form.js";
  * `applyTypeChange` unless the adapter overrides `onTypeChangeConfirmed` with a
  * different decision. Everything else about the fields is owned here, so no route
  * ever defines a second Transaction field tree.
+ *
+ * Automatic-reset feedback (issue #298) is rendered here from the controller's
+ * warning registry: an amber border plus field-specific helper text per affected
+ * field — never invalid-field semantics — and each warning clears through
+ * `clearResetWarning` the moment the User edits that field. While Global Add's
+ * destination is unresolved (`destinationReady === false`), the Circle-dependent
+ * controls (Amount, Categories, Paid By) are disabled; portable fields stay
+ * usable.
  */
 export function TransactionFormBody({
   controller,
@@ -48,7 +57,15 @@ export function TransactionFormBody({
     alreadyAttached,
     activeCategories,
     addInlineCreatedCategory,
+    destinationReady,
+    resetWarnings,
+    clearResetWarning,
   } = controller;
+
+  const warningFor = (field: TransactionResetField) => {
+    const reason = resetWarnings[field];
+    return reason === undefined ? undefined : transactionResetWarning(reason, field);
+  };
 
   return (
     <form
@@ -91,11 +108,14 @@ export function TransactionFormBody({
               {(f) => (
                 <f.AmountField
                   id="txn-amount"
-                  label={`Amount (${circle.currency})`}
+                  label={`Amount${circle ? ` (${circle.currency})` : ""}`}
                   onBlurNormalize={(raw) => {
                     const parsed = parseAmountToMinorUnits(raw);
                     return parsed.ok ? minorUnitsToMajorString(parsed.minorUnits) : null;
                   }}
+                  warning={warningFor("amount")}
+                  disabled={!destinationReady}
+                  onUserChange={() => clearResetWarning("amount")}
                 />
               )}
             </form.AppField>
@@ -107,12 +127,15 @@ export function TransactionFormBody({
 
           <TransactionFormCategorySection
             key={activeType}
-            circleId={circle.id}
+            circleId={circle?.id ?? null}
             categoryById={categoryById}
             alreadyAttached={alreadyAttached}
             activeCategories={activeCategories}
             activeType={activeType}
             onInlineCreatedCategory={addInlineCreatedCategory}
+            warning={warningFor("categoryIds")}
+            disabled={!destinationReady}
+            onSelectionChanged={() => clearResetWarning("categoryIds")}
           />
 
           <form.AppField name="paidByMemberId">
@@ -123,6 +146,9 @@ export function TransactionFormBody({
                 options={paidByOptions}
                 showLoadingPlaceholder={showPaidByLoadingPlaceholder}
                 displayValueFallback={selfMemberId}
+                warning={warningFor("paidByMemberId")}
+                disabled={!destinationReady}
+                onUserChange={() => clearResetWarning("paidByMemberId")}
               />
             )}
           </form.AppField>

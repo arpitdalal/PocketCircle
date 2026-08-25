@@ -38,6 +38,8 @@
     --destructive: oklch(0.7 0.18 22);
     --destructive-foreground: oklch(0.985 0.005 22);
     --destructive-soft: oklch(0.7 0.18 22 / 14%);
+    /* Automatic-reset field warnings (amber) — distinct from destructive/invalid. */
+    --warning: oklch(0.8 0.14 80);
 
     --radius: 0.625rem;
 
@@ -83,6 +85,7 @@
     --destructive: oklch(0.55 0.2 25);
     --destructive-foreground: oklch(0.985 0.005 25);
     --destructive-soft: oklch(0.55 0.2 25 / 10%);
+    --warning: oklch(0.6 0.13 75);
   }
 
   /*
@@ -137,6 +140,7 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-soft: var(--destructive-soft);
+  --color-warning: var(--warning);
 
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Bricolage Grotesque Variable", "Inter Variable", ui-sans-serif, sans-serif;

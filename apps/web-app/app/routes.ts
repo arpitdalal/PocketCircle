@@ -33,6 +33,12 @@ export default [
     route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
 
+    // Global Add Transaction (issue #298): the protected top-level create
+    // route. A STATIC segment above the `circles` prefix — it owns its own URL
+    // state (`type`, `circle`, `returnTo`) and shares the form controller + body
+    // with the Circle-scoped create route below, without merging their
+    // navigation contracts (ADR 0016/0017).
+    route("transactions/new", "routes/transactions-new.tsx"),
     // Circle-scoped routes. The Circle guard resolves/canonicalizes/guards the
     // Circle and provides it to children via Outlet context; object routes
     // resolve their own ref within the resolved Circle (ADR 0016/0017).

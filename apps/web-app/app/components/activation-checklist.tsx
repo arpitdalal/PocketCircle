@@ -1,4 +1,3 @@
-import { currentMonth } from "@pocketcircle/domain";
 import { CheckIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -13,7 +12,7 @@ import {
   useActivationChecklist,
   useSkipActivationChecklist,
 } from "~/lib/data.js";
-import { transactionNewHref } from "~/lib/ledger-url.js";
+import { globalAddHref } from "~/lib/global-add-url.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
 
@@ -80,8 +79,6 @@ function isComplete(
   return sharedMemberStateForUi(checklist, pendingActive) === "complete";
 }
 
-type PickerAction = "expense" | "income" | "category";
-
 function MemberCta({
   checklist,
   origin,
@@ -127,13 +124,13 @@ function ItemActions({
   checklist,
   origin,
   pendingActive,
-  onPickCircle,
+  onPickCategoryCircle,
 }: {
   id: (typeof ITEMS)[number]["id"];
   checklist: ReadyActivationChecklist;
   origin: string;
   pendingActive: boolean;
-  onPickCircle: (action: PickerAction) => void;
+  onPickCategoryCircle: () => void;
 }) {
   if (isComplete(checklist, id, pendingActive)) {
     return null;
@@ -153,34 +150,22 @@ function ItemActions({
         </div>
       );
     }
-    const firstEligible = eligible[0];
-    if (eligible.length === 1 && firstEligible) {
-      const month = currentMonth(new Date());
-      return (
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to={withReturnTo(transactionNewHref(firstEligible, { type: "expense", month }), origin)}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Add expense
-          </Link>
-          <Link
-            to={withReturnTo(transactionNewHref(firstEligible, { type: "income", month }), origin)}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Add income
-          </Link>
-        </div>
-      );
-    }
+    // Global Add (issue #298): the Type rides in the URL, no Circle is
+    // preselected, and the EXACT Home origin is retained as returnTo.
     return (
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("expense")}>
+        <Link
+          to={withReturnTo(globalAddHref({ type: "expense" }), origin)}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
           Add expense
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("income")}>
+        </Link>
+        <Link
+          to={withReturnTo(globalAddHref({ type: "income" }), origin)}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
           Add income
-        </Button>
+        </Link>
       </div>
     );
   }
@@ -211,7 +196,7 @@ function ItemActions({
       );
     }
     return (
-      <Button type="button" variant="outline" size="sm" onClick={() => onPickCircle("category")}>
+      <Button type="button" variant="outline" size="sm" onClick={onPickCategoryCircle}>
         New category
       </Button>
     );
@@ -232,30 +217,20 @@ function ItemActions({
 function CirclePickerDialog({
   open,
   onOpenChange,
-  action,
   eligibleCircles,
   origin,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  action: PickerAction;
   eligibleCircles: ReadyActivationChecklist["eligibleCircles"];
   origin: string;
 }) {
   const navigate = useNavigate();
-  const month = currentMonth(new Date());
 
-  const title = action === "category" ? "Choose a Circle for the category" : "Choose a Circle";
+  const title = "Choose a Circle for the category";
 
   function handleSelect(circle: ReadyActivationChecklist["eligibleCircles"][number]) {
-    let target: string;
-    if (action === "expense") {
-      target = withReturnTo(transactionNewHref(circle, { type: "expense", month }), origin);
-    } else if (action === "income") {
-      target = withReturnTo(transactionNewHref(circle, { type: "income", month }), origin);
-    } else {
-      target = withReturnTo(categoryNewHref(circle, { type: "expense" }), origin);
-    }
+    const target = withReturnTo(categoryNewHref(circle, { type: "expense" }), origin);
     onOpenChange(false);
     navigate(target);
   }
@@ -288,8 +263,8 @@ function CirclePickerDialog({
 /**
  * Skippable User-level Activation Checklist (ADR 0030, GH-273). Mounted only on Home.
  * Never a route or write gate. Skip persists then hides; it does not fabricate
- * completion. Transaction and Category actions open a Circle picker when multiple
- * eligible Circles exist.
+ * completion. Transaction actions open Global Add directly with their Type and
+ * no Circle (issue #298); the Category action keeps its eligible-Circle picker.
  */
 export function ActivationChecklist() {
   const origin = useReturnToOrigin();
@@ -298,7 +273,6 @@ export function ActivationChecklist() {
   const [skipError, setSkipError] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerAction, setPickerAction] = useState<PickerAction>("expense");
   const pendingActive = usePendingInvitationActive(
     checklist?.status === "ready" ? checklist.pendingInvitationExpiresAt : null,
   );
@@ -322,8 +296,7 @@ export function ActivationChecklist() {
     }
   };
 
-  const handlePickCircle = (action: PickerAction) => {
-    setPickerAction(action);
+  const openCategoryPicker = () => {
     setPickerOpen(true);
   };
 
@@ -399,7 +372,7 @@ export function ActivationChecklist() {
                       checklist={checklist}
                       origin={origin}
                       pendingActive={pendingActive}
-                      onPickCircle={handlePickCircle}
+                      onPickCategoryCircle={openCategoryPicker}
                     />
                   </div>
                 </div>
@@ -412,7 +385,6 @@ export function ActivationChecklist() {
       <CirclePickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        action={pickerAction}
         eligibleCircles={checklist.eligibleCircles}
         origin={origin}
       />

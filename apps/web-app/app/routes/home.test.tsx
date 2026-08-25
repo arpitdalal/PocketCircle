@@ -93,7 +93,7 @@ describe("Home (loaded)", () => {
     expect(screen.getByRole("region", { name: "Your circles" })).toBeInTheDocument();
   });
 
-  it("shows the Create circle link", () => {
+  it("shows the secondary Create circle link", () => {
     configureConvex({
       circles: MOCK_CIRCLES,
       homeSummary: makeHomeSummaryView(),
@@ -103,6 +103,34 @@ describe("Home (loaded)", () => {
       "href",
       "/circles/new",
     );
+  });
+
+  it("shows one persistent primary Add transaction action carrying the exact Home origin", () => {
+    configureConvex({
+      circles: MOCK_CIRCLES,
+      homeSummary: makeHomeSummaryView({ selectedCurrency: "CAD", range: 3 }),
+      activation: makeActivationChecklistView(),
+    });
+    setupHome("?currency=CAD&range=3");
+    const url = new URL(
+      screen.getByRole("link", { name: "Add transaction" }).getAttribute("href") ?? "",
+      "http://t",
+    );
+    expect(url.pathname).toBe("/transactions/new");
+    expect(url.searchParams.get("type")).toBe("expense");
+    expect(url.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=CAD&range=3");
+  });
+
+  it("keeps the Add transaction action while the summary is still loading", () => {
+    configureConvex({ circles: MOCK_CIRCLES, homeSummary: undefined });
+    renderRoutes(HOME_ROUTES, { initialEntries: ["/?currency=CAD&range=3"] });
+    expect(screen.getByText("Loading home…")).toBeInTheDocument();
+    const url = new URL(
+      screen.getByRole("link", { name: "Add transaction" }).getAttribute("href") ?? "",
+      "http://t",
+    );
+    expect(url.pathname).toBe("/transactions/new");
+    expect(url.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=CAD&range=3");
   });
 
   it("displays range-wide totals: Income, Expenses, Net cash flow", () => {
