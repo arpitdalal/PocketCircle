@@ -144,6 +144,11 @@ const mutationErrors = defineMutationErrorCatalog({
     "currency.locked",
     "Currency is locked once the circle has a transaction",
   ),
+  /**
+   * Create submitted against a stale client-observed Currency (Global Add #298).
+   * Client applies the Amount-only reset contract; do not treat as full Circle loss.
+   */
+  currencyChanged: defineMutationError("currency.changed", "The Circle's currency changed"),
   currencyForbidden: defineMutationError(
     "currency.forbidden",
     "Only the Circle owner can change the currency",

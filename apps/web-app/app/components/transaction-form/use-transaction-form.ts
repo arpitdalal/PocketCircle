@@ -257,6 +257,7 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
           };
           const transactionId = await createTransaction({
             circleId: circle.id,
+            expectedCurrency: circle.currency,
             ...submitted,
           });
           track("transaction_added", {

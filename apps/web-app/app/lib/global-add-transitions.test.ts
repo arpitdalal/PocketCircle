@@ -3,9 +3,9 @@ import { ConvexError } from "convex/values";
 import { describe, expect, it } from "vitest";
 import { transactionResetWarning } from "~/components/transaction-form/transaction-form-resets.js";
 import {
+  classifySubmitDestinationFailure,
   destinationInvalidation,
   hasScopedDraft,
-  isDestinationInvalidationError,
   isEligibleDestination,
   requiresCircleSwitchConfirmation,
   requiresTypeChangeConfirmation,
@@ -91,41 +91,49 @@ describe("automatic invalidation reset bundles", () => {
 });
 
 describe("submit-time destination-error classification", () => {
-  it("classifies the archived-circle guard error as destination invalidation", () => {
+  it("classifies the archived-circle guard error as Circle invalidation", () => {
     expect(
-      isDestinationInvalidationError(
+      classifySubmitDestinationFailure(
         new ConvexError(mutationErrorData(MUTATION_ERRORS.circleArchived)),
       ),
-    ).toBe(true);
+    ).toBe("circle_unavailable");
   });
 
-  it("classifies the Setup-incomplete guard error as destination invalidation", () => {
+  it("classifies the Setup-incomplete guard error as Circle invalidation", () => {
     expect(
-      isDestinationInvalidationError(
+      classifySubmitDestinationFailure(
         new ConvexError(mutationErrorData(MUTATION_ERRORS.circleSetupIncomplete)),
       ),
-    ).toBe(true);
+    ).toBe("circle_unavailable");
   });
 
-  it("classifies the access-revoked / missing Circle guard error as destination invalidation", () => {
+  it("classifies the access-revoked / missing Circle guard error as Circle invalidation", () => {
     expect(
-      isDestinationInvalidationError(
+      classifySubmitDestinationFailure(
         new ConvexError(mutationErrorData(MUTATION_ERRORS.circleUnavailable)),
       ),
-    ).toBe(true);
+    ).toBe("circle_unavailable");
+  });
+
+  it("classifies an expectedCurrency mismatch as the Amount-only Currency reset", () => {
+    expect(
+      classifySubmitDestinationFailure(
+        new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyChanged)),
+      ),
+    ).toBe("currency_changed");
   });
 
   it("keeps other coded errors inline instead of resetting", () => {
     expect(
-      isDestinationInvalidationError(
+      classifySubmitDestinationFailure(
         new ConvexError(mutationErrorData(MUTATION_ERRORS.memberNotFound)),
       ),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   it("keeps unknown failures inline instead of resetting", () => {
-    expect(isDestinationInvalidationError(new Error("network down"))).toBe(false);
-    expect(isDestinationInvalidationError(new Error("Circle not found"))).toBe(false);
-    expect(isDestinationInvalidationError(undefined)).toBe(false);
+    expect(classifySubmitDestinationFailure(new Error("network down"))).toBeNull();
+    expect(classifySubmitDestinationFailure(new Error("Circle not found"))).toBeNull();
+    expect(classifySubmitDestinationFailure(undefined)).toBeNull();
   });
 });

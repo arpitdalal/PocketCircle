@@ -982,6 +982,29 @@ describe("TransactionsNew — submission", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("applies the Amount-only reset when expectedCurrency mismatches at submit time", async () => {
+    const user = userEvent.setup();
+    const view = setup();
+    createTransaction.mockRejectedValue(
+      new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyChanged)),
+    );
+    await fillAndSubmit(user);
+
+    expect(
+      await screen.findByText("The Circle's currency changed. Amount was cleared."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Amount was cleared because the Circle's currency changed."),
+    ).toBeInTheDocument();
+    // Circle stays selected — Currency reset is not destination loss.
+    expect(view.location()).toContain(encodeURIComponent(CIRCLE_A.ref));
+    const form = screen.getByRole("form");
+    expect(within(form).getByLabelText("Title")).toHaveValue("Lunch");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("");
+    expect(within(form).getByLabelText(/Amount/)).toHaveAccessibleName(/USD/);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("emits transaction_added with surface global and method manual and no financial content", async () => {
     const user = userEvent.setup();
     setup();

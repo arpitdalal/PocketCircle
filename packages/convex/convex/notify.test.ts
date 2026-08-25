@@ -418,6 +418,7 @@ describe("notification creation on events (NTF-2)", () => {
     const id = await mutateAndDrain(t, () =>
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         paidByMemberId: maya.memberId,
       }),
@@ -451,6 +452,7 @@ describe("notification creation on events (NTF-2)", () => {
     await mutateAndDrain(t, () =>
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
     );

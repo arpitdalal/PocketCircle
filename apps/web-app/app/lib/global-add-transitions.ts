@@ -8,11 +8,11 @@ import { mutationErrorCode } from "~/lib/mutation-user-message.js";
 
 /**
  * Pure Global Add transition and reset derivation (issue #298): the decision
- * rules behind Circle/Type switches, optimistic rollback, automatic
- * invalidation, and destination-error classification, with zero React, router,
- * or data-layer imports so they are unit-testable in isolation. The route
- * adapter executes what these functions decide; the shared controller and body
- * apply the field effects.
+ * rules behind Circle/Type switches, automatic invalidation, and submit-time
+ * destination-error classification, with zero React, router, or data-layer
+ * imports so they are unit-testable in isolation. The route adapter executes
+ * what these functions decide; the shared controller and body apply the field
+ * effects.
  */
 
 /** The Circle-scoped draft values — the only work a Circle switch can discard. */
@@ -66,19 +66,34 @@ export function destinationInvalidation(reason: TransactionResetReason) {
   };
 }
 
-const DESTINATION_INVALID_CODES = new Set<string>([
+const CIRCLE_UNAVAILABLE_CODES = new Set<string>([
   MUTATION_ERRORS.circleArchived.code,
   MUTATION_ERRORS.circleSetupIncomplete.code,
   MUTATION_ERRORS.circleUnavailable.code,
 ]);
 
 /**
- * Classifies a failed create submission as submit-time destination invalidation
- * (same reset contract as reactive loss) versus an ordinary inline error. Coded
- * cases arrive as `ConvexError`s from the backend guards (`assertWritable`,
- * `assertSetupComplete`, `requireCircleAccess`).
+ * Submit-time destination failure kinds. Circle loss uses the full scoped reset;
+ * Currency mismatch keeps the Circle and clears Amount only (same as reactive).
  */
-export function isDestinationInvalidationError(error: unknown) {
+export type SubmitDestinationFailure = TransactionResetReason;
+
+/**
+ * Classifies a failed create as submit-time destination invalidation versus an
+ * ordinary inline error. Coded cases arrive as `ConvexError`s from the backend
+ * guards (`assertWritable`, `assertSetupComplete`, `requireCircleAccess`) and
+ * from `createTransaction`'s `expectedCurrency` check.
+ */
+export function classifySubmitDestinationFailure(error: unknown) {
   const code = mutationErrorCode(error);
-  return code !== null && DESTINATION_INVALID_CODES.has(code);
+  if (code === null) {
+    return null;
+  }
+  if (CIRCLE_UNAVAILABLE_CODES.has(code)) {
+    return "circle_unavailable" as const satisfies SubmitDestinationFailure;
+  }
+  if (code === MUTATION_ERRORS.currencyChanged.code) {
+    return "currency_changed" as const satisfies SubmitDestinationFailure;
+  }
+  return null;
 }

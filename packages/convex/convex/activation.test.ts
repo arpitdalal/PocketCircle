@@ -430,6 +430,7 @@ describe("activation writers", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: personal.circleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Latte",
       amountMinorUnits: 500,
@@ -473,6 +474,7 @@ describe("activation writers", () => {
     );
     await t.mutation(api.transactions.createTransaction, {
       circleId: regularId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Fuel",
       amountMinorUnits: 4000,
@@ -511,6 +513,7 @@ describe("activation writers", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: regularId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Ivy's chips",
       amountMinorUnits: 250,
@@ -538,6 +541,7 @@ describe("activation writers", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: personalCircleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Chips",
       amountMinorUnits: 250,
@@ -563,6 +567,7 @@ describe("activation writers", () => {
     );
     await t.mutation(api.transactions.createTransaction, {
       circleId: regularId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Fuel",
       amountMinorUnits: 4000,
@@ -870,6 +875,7 @@ describe("skip and acknowledge", () => {
     });
     await t.mutation(api.transactions.createTransaction, {
       circleId: personalCircleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "May rent",
       amountMinorUnits: 120_000,
@@ -928,6 +934,7 @@ describe("activation monotonicity", () => {
     });
     await t.mutation(api.transactions.createTransaction, {
       circleId: personalCircleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Temp spend",
       amountMinorUnits: 100,

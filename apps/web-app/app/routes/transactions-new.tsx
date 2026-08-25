@@ -12,8 +12,8 @@ import { ModalDialog } from "~/components/ui/dialog.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import { type Circle, useMyCircles } from "~/lib/data.js";
 import {
+  classifySubmitDestinationFailure,
   destinationInvalidation,
-  isDestinationInvalidationError,
   isEligibleDestination,
   requiresCircleSwitchConfirmation,
   requiresTypeChangeConfirmation,
@@ -116,10 +116,11 @@ export default function TransactionsNew() {
     [appliedCircle, returnUrl, navigate],
   );
 
-  // Ref bridge so the shared controller's submit-failure escape hatch can call
-  // the destination-invalidation contract — assigned in an effect (not during
-  // render) for the React Compiler refs rule.
+  // Ref bridges so submit-failure handlers (declared before these appliers) can
+  // invoke the destination contracts — assigned in effects for the React
+  // Compiler refs rule.
   const invalidateDestinationRef = useRef<() => void>(() => {});
+  const applyCurrencyChangeRef = useRef<() => void>(() => {});
   /** Blocks render-phase settlement from re-applying a Circle while an
    * invalidation's URL rewrite is still in flight (submit-time: the list may
    * still show the Circle as eligible even though the mutation rejected it). */
@@ -138,13 +139,17 @@ export default function TransactionsNew() {
     analytics: GLOBAL_ADD_ANALYTICS,
     circle: appliedEligible ? appliedCircle : null,
     onComplete: completeCreation,
-    // Submit-time twin of the reactive invalidation edge below: the backend
-    // rejected the DESTINATION itself (archived / Setup-incomplete / access
-    // lost), so apply the exact same reset contract and suppress the generic
-    // inline error. Any other failure keeps the draft and stays inline.
+    // Submit-time twin of the reactive edges below: Circle loss uses the full
+    // reset; Currency mismatch uses the Amount-only contract. Other failures
+    // stay inline with the draft.
     onSubmitFailure: (error) => {
-      if (!isDestinationInvalidationError(error)) {
+      const kind = classifySubmitDestinationFailure(error);
+      if (kind === null) {
         return false;
+      }
+      if (kind === "currency_changed") {
+        applyCurrencyChangeRef.current();
+        return true;
       }
       invalidateDestinationRef.current();
       return true;
@@ -279,9 +284,27 @@ export default function TransactionsNew() {
     navigateWithoutCircle(returnUrl);
   }, [controller, show, navigateWithoutCircle, returnUrl]);
 
+  /** Amount-only reset for Currency change (reactive or submit-time). */
+  const applyCurrencyChange = useCallback(() => {
+    const hadAmount = controller.form.store.state.values.amount !== "";
+    // Skip empty Amount on the reactive edge so a post-submit required error
+    // survives a no-op currency reconcile. Submit-time always had an Amount.
+    if (!hadAmount) {
+      return;
+    }
+    controller.clearAmount();
+    const invalidation = destinationInvalidation("currency_changed");
+    controller.markResetWarnings(invalidation.fields, invalidation.reason);
+    show(invalidation.toast);
+  }, [controller, show]);
+
   useEffect(() => {
     invalidateDestinationRef.current = invalidateDestination;
   }, [invalidateDestination]);
+
+  useEffect(() => {
+    applyCurrencyChangeRef.current = applyCurrencyChange;
+  }, [applyCurrencyChange]);
 
   // --- Effects: external-system synchronization only -----------------------
 
@@ -399,15 +422,7 @@ export default function TransactionsNew() {
       // Same destination — watch its Currency only. Null prev currency means
       // the destination was unresolved before, so this is adoption, not loss.
       if (nextCurrency !== null && prev.currency !== null && prev.currency !== nextCurrency) {
-        const hadAmount = controller.form.store.state.values.amount !== "";
-        // Only clear when Amount held work — resetting an already-empty field
-        // would wipe a post-submit required error while nothing changed.
-        if (hadAmount) {
-          controller.clearAmount();
-          const invalidation = destinationInvalidation("currency_changed");
-          controller.markResetWarnings(invalidation.fields, invalidation.reason);
-          show(invalidation.toast);
-        }
+        applyCurrencyChange();
       }
       if (prev.currency !== nextCurrency) {
         lastEdgeRef.current = { id: nextId, currency: nextCurrency };
@@ -436,7 +451,14 @@ export default function TransactionsNew() {
     // values with no warnings and no toast.
     controller.clearScopedValues();
     controller.clearResetWarnings();
-  }, [appliedEligible, appliedCircle, circles, invalidateDestination, controller, show]);
+  }, [
+    appliedEligible,
+    appliedCircle,
+    circles,
+    invalidateDestination,
+    applyCurrencyChange,
+    controller,
+  ]);
 
   // Unresolvable requests. With an eligible applied selection behind them this
   // is a failed optimistic switch: nothing was cleared (settlement never

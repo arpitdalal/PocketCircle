@@ -1,11 +1,17 @@
 import type { Page } from "@playwright/test";
-import { expect, inlineCreateFormCategory, test } from "./fixtures.js";
+import {
+  expect,
+  inlineCreateFormCategory,
+  returnFromTransactionDetail,
+  selectGlobalAddCircle,
+  test,
+} from "./fixtures.js";
 
 /**
- * TRUE-E2E (ADR 0019 / issue #298): Home → ordinary Global Add → create →
- * Transaction Detail → Back to the exact Home origin. Runs in the existing
- * desktop and mobile Playwright projects. Also asserts the progressive
- * reveal's focus contract and a 390 px layout (no horizontal overflow).
+ * TRUE-E2E (ADR 0019 / issue #298 / parent #296 §19–21): the critical Global Add
+ * navigation paths. Exceptional-state permutations (confirmations, reactive
+ * invalidation, Currency races) stay in the real-Router suite — do not multiply
+ * slow Playwright cases for them.
  */
 
 async function openHome(page: Page) {
@@ -41,14 +47,9 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   await assertNoHorizontalOverflow(page);
 
   // Destination: the worker's Personal Circle (always eligible after bootstrap).
-  const circleSelect = page.getByLabel("Circle", { exact: true });
-  await expect(circleSelect).toBeVisible();
-  const firstCircleValue = await circleSelect.locator("option").nth(1).getAttribute("value");
-  expect(firstCircleValue).toBeTruthy();
-  await circleSelect.selectOption(firstCircleValue ?? "");
+  await selectGlobalAddCircle(page, /Circle/);
 
   const form = page.getByRole("form", { name: /add expense/i });
-  await expect(form).toBeVisible();
   const titleField = form.getByLabel("Title");
   await expect(titleField).toBeFocused();
   // Step 2 should be scrolled into the viewport after Circle selection.
@@ -71,7 +72,23 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   expect(page.url()).toContain("/transactions/");
   expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/?currency=USD&range=3");
 
-  await page.getByRole("link", { name: "‹ Back" }).click();
+  await returnFromTransactionDetail(page);
+  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(homePathAndSearch);
+});
+
+test("Cancel from Global Add returns to the exact Home origin", async ({ page }) => {
+  await openHome(page);
+  const homePathAndSearch = new URL(page.url()).pathname + new URL(page.url()).search;
+
+  await page.getByRole("link", { name: "Add transaction" }).click();
+  await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
+  await selectGlobalAddCircle(page, /Circle/);
+
+  const form = page.getByRole("form", { name: /add expense/i });
+  await form.getByLabel("Title").fill("Will cancel");
+  await form.getByRole("button", { name: "Cancel" }).click();
+
   await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(homePathAndSearch);
 });

@@ -214,6 +214,7 @@ describe("TransactionForm — create", () => {
 
     expect(createTransaction).toHaveBeenCalledWith({
       circleId: "c1",
+      expectedCurrency: "USD",
       type: "expense",
       title: "Weekly shop",
       note: undefined,
