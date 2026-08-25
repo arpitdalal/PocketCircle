@@ -229,8 +229,7 @@ export default function TransactionsNew() {
     }
   }
   if (
-    confirmed !== null &&
-    confirmed.key.startsWith("type:") &&
+    confirmed?.key.startsWith("type:") &&
     urlState.type === controller.activeType &&
     !typeNeedsConfirm
   ) {
