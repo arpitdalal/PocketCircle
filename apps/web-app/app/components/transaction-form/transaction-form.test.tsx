@@ -640,6 +640,28 @@ describe("TransactionForm — create", () => {
     await user.keyboard("{Escape}");
   });
 
+  it("emits category_created even when the section unmounts before attach", async () => {
+    const user = userEvent.setup();
+    const pending = deferredValue<Category["id"]>();
+    const view = renderCreate({ type: "expense" }, { categories: [] });
+    createCategory.mockReturnValueOnce(pending.promise);
+    const form = screen.getByRole("form", { name: /add expense/i });
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Orphan");
+    await user.click(screen.getByRole("option", { name: 'Create "Orphan"' }));
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+
+    view.unmount();
+    pending.resolve(testId<Category["id"]>("cat-orphan"));
+    await waitFor(() =>
+      expect(posthogSdk.capture).toHaveBeenCalledWith("category_created", {
+        type: "expense",
+        source: "transaction_inline",
+      }),
+    );
+  });
+
   it("blocks confirming a Type change while inline Category create is in flight", async () => {
     const user = userEvent.setup();
     const pending = deferredValue<Category["id"]>();

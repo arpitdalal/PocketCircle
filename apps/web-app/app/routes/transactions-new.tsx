@@ -379,6 +379,11 @@ export default function TransactionsNew() {
   // clear) or its eligibility or Currency changes underneath (reactive
   // invalidation → full reset contract; currency change → Amount only).
   useEffect(() => {
+    // A transient `useMyCircles()` reload returns undefined — do not treat that
+    // as destination loss or it silently clears the draft / drops confirmations.
+    if (circles === undefined) {
+      return;
+    }
     const next = appliedEligible ? appliedCircle : null;
     const nextId = next?.id ?? null;
     const nextCurrency = next?.currency ?? null;
@@ -395,8 +400,10 @@ export default function TransactionsNew() {
       // the destination was unresolved before, so this is adoption, not loss.
       if (nextCurrency !== null && prev.currency !== null && prev.currency !== nextCurrency) {
         const hadAmount = controller.form.store.state.values.amount !== "";
-        controller.clearAmount();
+        // Only clear when Amount held work — resetting an already-empty field
+        // would wipe a post-submit required error while nothing changed.
         if (hadAmount) {
+          controller.clearAmount();
           const invalidation = destinationInvalidation("currency_changed");
           controller.markResetWarnings(invalidation.fields, invalidation.reason);
           show(invalidation.toast);
@@ -411,12 +418,9 @@ export default function TransactionsNew() {
     lastEdgeRef.current = { id: nextId, currency: nextCurrency };
 
     if (prev.id !== null && nextId === null) {
-      const previousCircle =
-        circles === undefined ? undefined : circles.find((circle) => circle.id === prev.id);
+      const previousCircle = circles.find((circle) => circle.id === prev.id);
       const previousLost =
-        previousCircle !== undefined
-          ? !isEligibleDestination(previousCircle)
-          : circles !== undefined;
+        previousCircle !== undefined ? !isEligibleDestination(previousCircle) : true;
       if (previousLost) {
         // Applied destination died (archived / Setup-incomplete / gone from the
         // list) — full reset contract even if the URL already moved away.
@@ -655,6 +659,15 @@ export default function TransactionsNew() {
             <p className="mt-1 text-xs text-muted-foreground">
               Currency, Categories, and Members depend on the destination.
             </p>
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={close}
+                className={buttonVariants({ variant: "ghost" })}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
       </div>

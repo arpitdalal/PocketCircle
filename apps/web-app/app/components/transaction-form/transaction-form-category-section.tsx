@@ -203,6 +203,9 @@ export function TransactionFormCategorySection({
         setInlineError("Couldn't create the category. Please try again.");
         return;
       }
+      // Creation succeeded on the destination that started it — record that
+      // before any stale-attachment guard so analytics still sees orphans.
+      track("category_created", { type: destinationType, source: "transaction_inline" });
       // Destination or Type may have switched — or this section unmounted —
       // while the create was in flight. Keep the Category where it was created
       // but do not inject it into a draft that no longer matches (wrong Circle
@@ -222,7 +225,6 @@ export function TransactionFormCategorySection({
         seededColor,
       );
       onInlineCreatedCategory(created);
-      track("category_created", { type: destinationType, source: "transaction_inline" });
       if (!currentIds.includes(newId)) {
         onSelectionChanged?.();
         onIdsChange([...currentIds, newId]);

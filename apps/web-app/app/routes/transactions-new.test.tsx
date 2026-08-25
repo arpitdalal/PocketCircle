@@ -161,6 +161,7 @@ describe("TransactionsNew — initial states", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText("Choose a Circle to continue")).toBeInTheDocument();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   it("shows Loading Circles while destinations resolve", () => {
@@ -410,7 +411,9 @@ describe("TransactionsNew — Circle switch confirmations", () => {
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: "Circle" })).toHaveValue(CIRCLE_A.id),
     );
-    await user.type(within(screen.getByRole("form")).getByLabelText(/Amount/), "42");
+    const amount = within(screen.getByRole("form")).getByLabelText(/Amount/);
+    await user.type(amount, "42");
+    await waitFor(() => expect(amount).toHaveValue("42"));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
     expect(await screen.findByRole("dialog")).toHaveTextContent(/Change Circle/);
@@ -718,6 +721,44 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Keep me");
   });
 
+  it("keeps Amount required reveal when currency changes with Amount already empty", async () => {
+    const user = userEvent.setup();
+    const view = setup({ url: `${GLOBAL_ADD_PATH}?circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText("Title"), "Keep me");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    expect(await within(form).findByText("Amount is required")).toBeInTheDocument();
+
+    rerenderWith(view, { circles: [{ ...CIRCLE_A, currency: "EUR" }, CIRCLE_B] });
+    expect(
+      screen.queryByText("Amount was cleared because the Circle's currency changed."),
+    ).not.toBeInTheDocument();
+    expect(within(screen.getByRole("form")).getByText("Amount is required")).toBeInTheDocument();
+  });
+
+  it("preserves the draft when the Circles list briefly reloads as undefined", async () => {
+    const user = userEvent.setup();
+    const view = setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText("Title"), "Survives reload");
+    await user.type(within(form).getByLabelText(/Amount/), "12");
+    await pickTransactionFormCategory(user, form, "Groceries");
+
+    rerenderWith(view, { circles: undefined });
+    expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Survives reload");
+    expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toHaveValue("12.00");
+    expect(
+      within(screen.getByRole("form")).getByRole("button", { name: /Remove Groceries/ }),
+    ).toBeInTheDocument();
+
+    rerenderWith(view, { circles: [CIRCLE_A, CIRCLE_B] });
+    expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Survives reload");
+    expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toHaveValue("12.00");
+  });
+
   it("keeps Title required reveal after a Circle switch following a failed submit", async () => {
     const user = userEvent.setup();
     setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
@@ -921,6 +962,16 @@ describe("TransactionsNew — submission", () => {
 });
 
 describe("TransactionsNew — returns and success navigation", () => {
+  it("cancels from the unselected placeholder to the validated origin", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    });
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.location()).toBe(HOME_ORIGIN));
+  });
+
   it("cancels directly to the validated origin", async () => {
     const user = userEvent.setup();
     const view = setup();
