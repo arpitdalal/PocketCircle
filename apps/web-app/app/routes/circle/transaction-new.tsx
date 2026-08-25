@@ -1,9 +1,16 @@
-import { currentMonth, isValidPlainMonth } from "@pocketcircle/domain";
+import {
+  currentMonth,
+  isValidPlainMonth,
+  type PlainMonth,
+  type TransactionType,
+} from "@pocketcircle/domain";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";
-import { TransactionForm } from "~/components/transaction-form/index.js";
+import { TransactionFormBody } from "~/components/transaction-form/transaction-form-body.js";
+import { useTransactionForm } from "~/components/transaction-form/use-transaction-form.js";
 import { circlePath } from "~/lib/circle-path.js";
+import type { Circle } from "~/lib/data.js";
 import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
@@ -11,6 +18,11 @@ import { useCircle } from "~/routes/layouts/circle-layout.js";
  * The new-Transaction route — `/circles/:circleRef/transactions/new` (issue #96). A
  * dedicated create page so the ledger no longer stacks a create form above its rows,
  * mirroring `transaction-edit.tsx`'s lifecycle (the up-to-date object-route template).
+ *
+ * This route is a ROUTE ADAPTER (issue #297): it owns URL state (`type`, `month`,
+ * `returnTo`), the guards, initialization timing, and navigation, then hands the
+ * shared {@link useTransactionForm} controller + {@link TransactionFormBody} its fixed
+ * inputs. It defines no fields of its own.
  *
  * Own params (URL-view-state convention, ADR 0016):
  *   - `type=expense|income` (required) — the kind of Transaction to create. Missing /
@@ -63,20 +75,48 @@ export default function TransactionNew() {
   // This splash only ever shows while LEAVING — ejecting (archived / invalid type) or
   // closing (cancel / save); a valid open renders the form immediately, never this. So the
   // copy reflects the return, not an open. The inline `type === null` check also narrows
-  // `type` to a concrete `TransactionType` for the form below.
+  // `type` to a concrete `TransactionType` for the adapter below.
   if (!writable || type === null || closing) {
     return <Splash label="Returning…" />;
   }
 
   return (
-    <TransactionForm
-      // Keyed by type so navigating expense↔income (e.g. Back/Forward between the two
-      // CTAs) REMOUNTS the form rather than reusing the previous type's field state —
-      // the same id-keying the inline ledger form used.
-      key={`create-${type}`}
+    <TransactionNewForm
+      // Keyed by EVERY URL-owned create input — type AND month — so navigating between
+      // create URLs (e.g. Back/Forward between two ledger CTAs) REMOUNTS the form rather
+      // than reusing the previous context's field state: the shared controller
+      // initializes its defaults (including the month-seeded Date) once per mount.
+      key={`create-${type}-${month}`}
       circle={circle}
-      mode={{ kind: "create", type, selectedMonth: month }}
+      type={type}
+      selectedMonth={month}
       onClose={close}
     />
   );
+}
+
+/** The create-side adapter wiring: shared controller + shared body, no field tree here.
+ * A successful create's completion result carries the new Transaction id and submitted
+ * values for the route to build its canonical destination; THIS route's contract is its
+ * historical one — close to the validated `returnTo` origin. */
+function TransactionNewForm({
+  circle,
+  type,
+  selectedMonth,
+  onClose,
+}: {
+  circle: Circle;
+  type: TransactionType;
+  selectedMonth: PlainMonth;
+  onClose: () => void;
+}) {
+  const controller = useTransactionForm({
+    kind: "create",
+    circle,
+    type,
+    selectedMonth,
+    analytics: { surface: "circle_scoped", method: "manual" },
+    onComplete: () => onClose(),
+  });
+  return <TransactionFormBody controller={controller} onCancel={onClose} />;
 }
