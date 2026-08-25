@@ -198,6 +198,25 @@ describe("TransactionsNew — initial states", () => {
     expect(screen.getByText("Choose a Circle to continue")).toBeInTheDocument();
   });
 
+  it("preserves a malformed Circle param until Circles load, then strips with feedback", async () => {
+    // Fresh load: Circles still resolving. Canonicalize must NOT drop the raw
+    // unparseable value or the unavailable effect loses hadUnparseableCircle.
+    configureConvex({ ...baseState(), circles: undefined, createTransaction });
+    const view = renderRoutes(ROUTES, {
+      initialEntries: [`${GLOBAL_ADD_PATH}?type=expense&circle=not-a-ref!&utm=drop`],
+    });
+    await waitFor(() =>
+      expect(view.location()).toBe(`${GLOBAL_ADD_PATH}?type=expense&circle=not-a-ref%21`),
+    );
+
+    configureConvex({ ...baseState({ circles: [CIRCLE_A] }), createTransaction });
+    view.rerenderRoutes(ROUTES);
+
+    expect(await screen.findByText("This circle isn't available.")).toBeInTheDocument();
+    await waitFor(() => expect(view.location()).toBe(`${GLOBAL_ADD_PATH}?type=expense`));
+    expect(screen.getByText("Choose a Circle to continue")).toBeInTheDocument();
+  });
+
   it("canonicalizes a stale Circle slug to the resolved ref with replace navigation", async () => {
     const view = setup({
       url: `${GLOBAL_ADD_PATH}?type=expense&circle=old-slug-${CIRCLE_A.id}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
@@ -901,6 +920,34 @@ describe("TransactionsNew — submission", () => {
 
     pending.resolve("new-txn");
     await screen.findByText("detail");
+  });
+
+  it("ignores create completion navigation after the User leaves Global Add", async () => {
+    const user = userEvent.setup();
+    const pending = deferredValue<string>();
+    const view = setup({ precedingEntries: [HOME_ORIGIN] });
+    createTransaction.mockImplementation(() => pending.promise);
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText("Title"), "Left mid-save");
+    await user.type(within(form).getByLabelText(/Amount/), "4");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await waitFor(() => expect(createTransaction).toHaveBeenCalled());
+
+    // Surrounding nav / Back can leave while destination controls stay locked —
+    // a late success must not yank the User to Transaction Detail.
+    view.navigate(HOME_ORIGIN);
+    await waitFor(() => expect(view.location()).toBe(HOME_ORIGIN));
+    pending.resolve("new-txn");
+    await waitFor(() =>
+      expect(posthogSdk.capture).toHaveBeenCalledWith(
+        "transaction_added",
+        expect.objectContaining({ surface: "global", method: "manual" }),
+      ),
+    );
+    expect(view.location()).toBe(HOME_ORIGIN);
+    expect(screen.queryByText("detail")).not.toBeInTheDocument();
   });
 
   it("keeps an ordinary failure inline with the draft preserved", async () => {

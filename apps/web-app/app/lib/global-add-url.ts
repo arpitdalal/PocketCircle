@@ -15,8 +15,9 @@ import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "./return-to-url.js
  *  - Missing or malformed `type` normalizes to `expense`.
  *  - `circle` is the canonical `slug-id` Circle ref; it parses to its
  *    authoritative id (raw ids and stale slugs both resolve by id). An absent
- *    param is a valid unselected state; an UNPARSEABLE one is flagged so the
- *    route can fire the generic unavailable feedback.
+ *    param is a valid unselected state; an UNPARSEABLE one is kept in the
+ *    raw param so canonicalize cannot erase the feedback flag before the
+ *    route's unavailable path strips it.
  *  - `returnTo` reuses the app-wide safe-origin codec; anything unsafe falls
  *    back to Home (`/`) and is indistinguishable from absent.
  *  - Unknown and duplicate parameters simply never reach the canonical output —
@@ -76,9 +77,9 @@ export interface GlobalAddUrlState {
   /** Authoritative Circle id from the `circle` param; null when absent/unparseable. */
   circleId: string | null;
   /**
-   * The raw param as carried, kept ONLY while it still matches the resolved
-   * Circle's canonical ref — the stale-slug comparison input. Null when absent
-   * or unparseable.
+   * The raw `circle` query value as carried. Kept for parseable refs (stale-slug
+   * comparison + URL pin) AND for unparseable values so canonicalize cannot
+   * strip them before the unavailable-feedback path runs. Null when absent.
    */
   circleRefParam: string | null;
   /** Validated return origin; Home when missing/unsafe. */
@@ -93,7 +94,9 @@ export function parseGlobalAddParams(raw: RawGlobalAddParams) {
   return {
     type,
     circleId: parsedCircle?.id ?? null,
-    circleRefParam: parsedCircle ? (raw.circle ?? null) : null,
+    // Preserve the raw param even when unparseable — dropping it here would let
+    // canonicalize erase `hadUnparseableCircle` before Circles finish loading.
+    circleRefParam: raw.circle,
     // The safe-origin codec owns validation: unsafe ≡ absent ≡ Home.
     returnTo: parseReturnTo(raw.returnTo, { fallback: "/" }),
     hadUnparseableCircle: raw.circle != null && parsedCircle === null,

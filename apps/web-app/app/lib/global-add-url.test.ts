@@ -79,7 +79,19 @@ describe("parseGlobalAddParams — circle", () => {
   it("flags an unparseable circle value for generic feedback while clearing the id", () => {
     const state = parseQuery("circle=not-a-ref!");
     expect(state.circleId).toBeNull();
+    expect(state.circleRefParam).toBe("not-a-ref!");
     expect(state.hadUnparseableCircle).toBe(true);
+  });
+
+  it("keeps an unparseable circle in the canonical URL until the route strips it", () => {
+    const state = parseQuery("type=expense&circle=not-a-ref!");
+    expect(
+      canonicalGlobalAddUrl({
+        type: state.type,
+        circleRef: state.circleRefParam ?? undefined,
+        returnTo: state.returnTo,
+      }),
+    ).toBe(`${GLOBAL_ADD_PATH}?type=expense&circle=not-a-ref%21`);
   });
 });
 

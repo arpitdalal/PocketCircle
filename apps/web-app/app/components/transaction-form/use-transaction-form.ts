@@ -10,7 +10,7 @@ import {
   toMutationArgs,
 } from "@pocketcircle/domain";
 import { useStore } from "@tanstack/react-form";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { track } from "~/lib/analytics.js";
 import type {
   AnalyticsTransactionMethod,
@@ -145,6 +145,16 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   const initialType = inputs.kind === "create" ? inputs.type : inputs.transaction.type;
   const [activeType, setActiveType] = useState<TransactionType>(initialType);
   const isTypeChanged = activeType !== initialType;
+  // Submit handlers outlive the route when the User leaves mid-mutation (Back /
+  // Cancel / other nav). Skip completion callbacks and post-unmount setState so
+  // a late success cannot yank them to Detail from an unrelated page.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const categories = useCategories(circle?.id, activeType, { includeArchived: true });
   const members = useMembers(circle?.id);
@@ -256,6 +266,9 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
             surface: inputs.analytics.surface,
             method: inputs.analytics.method,
           });
+          if (!mountedRef.current) {
+            return;
+          }
           onComplete({ kind: "created", transactionId, submitted });
         } else {
           const parsed = parseAmountToMinorUnits(value.amount);
@@ -278,9 +291,15 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
             categoryIds,
             ...(paidBy.memberId ? { paidByMemberId: paidBy.memberId } : {}),
           });
+          if (!mountedRef.current) {
+            return;
+          }
           onComplete({ kind: "updated", transactionId: inputs.transaction.id });
         }
       } catch (error) {
+        if (!mountedRef.current) {
+          return;
+        }
         if (inputs.kind === "create" && inputs.onSubmitFailure?.(error)) {
           return;
         }

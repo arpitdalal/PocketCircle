@@ -456,8 +456,9 @@ export default function TransactionsNew() {
     if (!everSelected) {
       // An initial invalid/unparseable Circle param: no rollback target and no
       // draft to lose - strip the param, keep ordinary Global Add, generic
-      // feedback only.
-      if (requestedId !== null || urlState.circleId !== null) {
+      // feedback only. Unparseable values keep `circleId` null, so the raw
+      // param flag is what still requires the strip.
+      if (requestedId !== null || urlState.circleId !== null || urlState.hadUnparseableCircle) {
         navigateWithoutCircle(urlState.returnTo);
       }
       showUnavailable("circle");
@@ -478,7 +479,7 @@ export default function TransactionsNew() {
       // everSelected with no eligible rollback (e.g. after removal, then
       // Back/Forward to an unavailable Circle): strip the stale param and show
       // the same generic unavailable feedback as an initial bad deep link.
-      if (requestedId !== null || urlState.circleId !== null) {
+      if (requestedId !== null || urlState.circleId !== null || urlState.hadUnparseableCircle) {
         navigateWithoutCircle(urlState.returnTo);
       }
       showUnavailable("circle");
