@@ -228,6 +228,16 @@ export default function TransactionsNew() {
       setConfirmed(null);
     }
   }
+  if (
+    confirmed !== null &&
+    confirmed.key.startsWith("type:") &&
+    urlState.type === controller.activeType &&
+    !typeNeedsConfirm
+  ) {
+    // Type settlement happens in an effect (controller field mutations); consume
+    // the ledger here in the same render-phase pattern as Circle switches.
+    setConfirmed(null);
+  }
   if (!everSelected && appliedEligible) {
     setEverSelected(true);
   }
@@ -314,7 +324,6 @@ export default function TransactionsNew() {
       return;
     }
     controller.applyTypeChange(urlState.type);
-    setConfirmed(null);
   }, [pendingConfirmKind, urlState.type, controller.activeType, controller]);
 
   // Destination edge: applies the scoped-value contracts whenever the applied

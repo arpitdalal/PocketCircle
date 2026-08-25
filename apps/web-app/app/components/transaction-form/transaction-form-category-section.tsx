@@ -6,7 +6,7 @@ import {
   type TransactionType,
   transactionFieldSchemas,
 } from "@pocketcircle/domain";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Combobox,
   ComboboxChip,
@@ -107,7 +107,9 @@ export function TransactionFormCategorySection({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const circleIdRef = useRef(circleId);
-  circleIdRef.current = circleId;
+  useEffect(() => {
+    circleIdRef.current = circleId;
+  }, [circleId]);
 
   const trimmedQuery = query.trim();
   const categoryNameIndex = useMemo(() => buildCategoryNameIndex(categoryById), [categoryById]);
