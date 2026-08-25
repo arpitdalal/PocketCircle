@@ -346,7 +346,17 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   };
 
   const clearAmount = () => {
-    form.resetField("amount");
+    const values = form.store.state.values;
+    // Same reveal/meta reset as clearScopedValues: resetField alone leaves
+    // submissionAttempts > 0, so an emptied Amount immediately shows
+    // required-field aria-invalid beside the amber currency warning.
+    form.reset(
+      {
+        ...values,
+        amount: "",
+      },
+      { keepDefaultValues: true },
+    );
     setSubmitError(null);
   };
 

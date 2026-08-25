@@ -642,6 +642,30 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     expect(view.location()).toContain(encodeURIComponent(CIRCLE_A.ref));
   });
 
+  it("does not reveal Amount as invalid after currency reset following a failed submit", async () => {
+    const user = userEvent.setup();
+    const view = setup({ url: `${GLOBAL_ADD_PATH}?circle=${CIRCLE_A.ref}` });
+    const form = await screen.findByRole("form");
+    await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
+    await user.type(within(form).getByLabelText("Title"), "Keep me");
+    await user.type(within(form).getByLabelText(/Amount/), "9");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    createTransaction.mockRejectedValueOnce(new Error("network down"));
+    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    expect(
+      await screen.findByText("Couldn't save the transaction. Please try again."),
+    ).toBeInTheDocument();
+
+    rerenderWith(view, { circles: [{ ...CIRCLE_A, currency: "EUR" }, CIRCLE_B] });
+    expect(
+      await screen.findByText("Amount was cleared because the Circle's currency changed."),
+    ).toBeInTheDocument();
+    const amount = within(screen.getByRole("form")).getByLabelText(/Amount/);
+    expect(amount).toHaveValue("");
+    expect(amount).not.toHaveAttribute("aria-invalid", "true");
+    expect(within(screen.getByRole("form")).getByLabelText("Title")).toHaveValue("Keep me");
+  });
+
   it("clears each warning when the User changes its field", async () => {
     const user = userEvent.setup();
     const view = setup({ url: `${GLOBAL_ADD_PATH}?circle=${CIRCLE_A.ref}` });
