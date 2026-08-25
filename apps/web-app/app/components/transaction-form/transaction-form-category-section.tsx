@@ -6,7 +6,7 @@ import {
   type TransactionType,
   transactionFieldSchemas,
 } from "@pocketcircle/domain";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Combobox,
   ComboboxChip,
@@ -81,13 +81,28 @@ export function TransactionFormCategorySection({
   activeCategories,
   activeType,
   onInlineCreatedCategory,
+  warning,
+  disabled = false,
+  onSelectionChanged,
+  onInlineCreateBusyChange,
 }: {
-  circleId: Circle["id"];
+  /** `null` while Global Add has no resolved destination; selection is disabled then. */
+  circleId: Circle["id"] | null;
   categoryById: ReadonlyMap<string, Category>;
   alreadyAttached: ReadonlySet<string>;
   activeCategories: Category[];
   activeType: TransactionType;
   onInlineCreatedCategory: (category: Category) => void;
+  /** Persistent automatic-reset warning text (issue #298) — see the shared field kit. */
+  warning?: string;
+  /** Disables selection and inline creation while no valid destination is resolved. */
+  disabled?: boolean;
+  /** Runs when the User changes the selection — a warning's clear trigger.
+   * Programmatic clears (`form.setFieldValue`) never fire it. */
+  onSelectionChanged?: () => void;
+  /** Notifies the host while an inline create mutation is in flight so it can
+   * freeze Circle/Type transitions for the duration. */
+  onInlineCreateBusyChange?: (busy: boolean) => void;
 }) {
   const form = useTypedAppFormContext(transactionFormContextOptions);
   const createCategory = useCreateCategory();
@@ -95,6 +110,25 @@ export function TransactionFormCategorySection({
   const [query, setQuery] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const circleIdRef = useRef(circleId);
+  const activeTypeRef = useRef(activeType);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    circleIdRef.current = circleId;
+  }, [circleId]);
+  useEffect(() => {
+    activeTypeRef.current = activeType;
+  }, [activeType]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    onInlineCreateBusyChange?.(creating);
+    return () => onInlineCreateBusyChange?.(false);
+  }, [creating, onInlineCreateBusyChange]);
 
   const trimmedQuery = query.trim();
   const categoryNameIndex = useMemo(() => buildCategoryNameIndex(categoryById), [categoryById]);
@@ -129,6 +163,7 @@ export function TransactionFormCategorySection({
 
     if (exactNameMatch?.status === "active") {
       if (!currentIds.includes(exactNameMatch.id)) {
+        onSelectionChanged?.();
         onIdsChange([...currentIds, exactNameMatch.id]);
       }
       setQuery("");
@@ -152,21 +187,46 @@ export function TransactionFormCategorySection({
     }
 
     setCreating(true);
+    const destinationId = circleId;
+    const destinationType = activeType;
     try {
+      if (!destinationId) {
+        return;
+      }
       const newId = await createCategory({
-        circleId,
+        circleId: destinationId,
         name: parsed.data.name,
-        type: activeType,
+        type: destinationType,
         color: seededColor,
       });
       if (!newId) {
         setInlineError("Couldn't create the category. Please try again.");
         return;
       }
-      const created = toInlineCreatedCategory(newId, parsed.data.name, activeType, seededColor);
+      // Creation succeeded on the destination that started it — record that
+      // before any stale-attachment guard so analytics still sees orphans.
+      track("category_created", { type: destinationType, source: "transaction_inline" });
+      // Destination or Type may have switched — or this section unmounted —
+      // while the create was in flight. Keep the Category where it was created
+      // but do not inject it into a draft that no longer matches (wrong Circle
+      // / Type, or a remounted section whose host already moved on).
+      if (
+        !mountedRef.current ||
+        circleIdRef.current !== destinationId ||
+        activeTypeRef.current !== destinationType
+      ) {
+        setQuery("");
+        return;
+      }
+      const created = toInlineCreatedCategory(
+        newId,
+        parsed.data.name,
+        destinationType,
+        seededColor,
+      );
       onInlineCreatedCategory(created);
-      track("category_created", { type: activeType, source: "transaction_inline" });
       if (!currentIds.includes(newId)) {
+        onSelectionChanged?.();
         onIdsChange([...currentIds, newId]);
       }
       setQuery("");
@@ -192,7 +252,10 @@ export function TransactionFormCategorySection({
           validators={{ onChange: transactionFieldSchemas.categoryIds }}
         >
           {(field) => {
-            const reveal = field.state.meta.isDirty || submitReveal;
+            // Disabled (unresolved destination) suppresses submit-reveal so an
+            // automatic reset cannot leave "Pick at least one category" fighting
+            // the amber warning contract (issue #298).
+            const reveal = !disabled && (field.state.meta.isDirty || submitReveal);
             const invalid = reveal && field.state.meta.errors.length > 0;
             const archivedSelected = field.state.value.flatMap((id) => {
               const category = categoryById.get(id);
@@ -208,7 +271,7 @@ export function TransactionFormCategorySection({
                 <Combobox
                   multiple
                   autoHighlight
-                  disabled={creating}
+                  disabled={creating || disabled}
                   inputValue={query}
                   onInputValueChange={(next, eventDetails) => {
                     // Only mirror typed input — item selection also emits input clears we
@@ -228,6 +291,7 @@ export function TransactionFormCategorySection({
                       void handleInlineCreate(field.state.value, field.handleChange);
                       return;
                     }
+                    onSelectionChanged?.();
                     const added = ids.length > field.state.value.length;
                     field.handleChange(ids);
                     if (added) {
@@ -241,7 +305,14 @@ export function TransactionFormCategorySection({
                       : (categoryById.get(id)?.name ?? id)
                   }
                 >
-                  <ComboboxChips ref={anchorRef} className="w-full max-w-full">
+                  <ComboboxChips
+                    ref={anchorRef}
+                    className={cn(
+                      "w-full max-w-full",
+                      disabled && "opacity-50",
+                      warning && !invalid && "border-warning",
+                    )}
+                  >
                     <ComboboxValue>
                       {(values: string[]) => (
                         <>
@@ -270,7 +341,7 @@ export function TransactionFormCategorySection({
                           <ComboboxChipsInput
                             placeholder="Search categories…"
                             aria-label="Categories"
-                            disabled={creating}
+                            disabled={creating || disabled}
                           />
                         </>
                       )}
@@ -306,6 +377,7 @@ export function TransactionFormCategorySection({
                     archived
                   </p>
                 ) : null}
+                {warning ? <p className="text-sm text-warning">{warning}</p> : null}
                 {inlineError ? (
                   <p role="alert" className="text-sm text-destructive">
                     {inlineError}

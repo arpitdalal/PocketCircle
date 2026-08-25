@@ -30,6 +30,7 @@ export {
 } from "./convex/render.js";
 export { makeTransactionDetailView, makeTransactionView } from "./convex/transactions.js";
 export { makeCurrentUserView } from "./convex/users.js";
+export { deferredMutationFn, deferredValue } from "./deferred.js";
 export {
   assertFilterPanelDiscardsDraftOnClose,
   FILTER_PANEL_CLOSE_MEDIUMS,

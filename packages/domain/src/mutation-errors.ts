@@ -36,6 +36,12 @@ function defineMutationErrorCatalog<
 
 const mutationErrors = defineMutationErrorCatalog({
   circleArchived: defineMutationError("circle.archived", "Circle is archived"),
+  /**
+   * Missing Circle and no-access collapse to the same coded error (ADR 0016).
+   * Prefer this over a plain `Error` so clients still classify it after Convex
+   * redacts uncoded mutation failures in production.
+   */
+  circleUnavailable: defineMutationError("circle.unavailable", "Circle not found"),
   circleSetupIncomplete: defineMutationError(
     "circle.setupIncomplete",
     "Finish setting up this Circle before continuing",
@@ -138,6 +144,11 @@ const mutationErrors = defineMutationErrorCatalog({
     "currency.locked",
     "Currency is locked once the circle has a transaction",
   ),
+  /**
+   * Create submitted against a stale client-observed Currency (Global Add #298).
+   * Client applies the Amount-only reset contract; do not treat as full Circle loss.
+   */
+  currencyChanged: defineMutationError("currency.changed", "The Circle's currency changed"),
   currencyForbidden: defineMutationError(
     "currency.forbidden",
     "Only the Circle owner can change the currency",

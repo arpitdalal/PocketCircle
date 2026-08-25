@@ -10,6 +10,6 @@ The rollout preserves every existing milestone. Existing Personal-Circle Transac
 
 The User may choose **Skip onboarding** at any time. Dismissal is persisted independently from milestones, hides the checklist permanently, and does not fabricate completion. Completing all four milestones also hides it. The existing feature-action analytics remain authoritative for Category, Transaction, and Circle creation; the checklist adds only coarse `activation_checklist_skipped` (completed-item count only) and `activation_checklist_completed` events. No Circle, Member, Category, Transaction, email, name, or other identifier is attached.
 
-The Transaction and Category actions open a minimal Circle picker containing active, Setup-complete Circles, then continue through the existing canonical Circle-scoped form and return to the Home Summary. No global Transaction or Category form is introduced.
+The Transaction actions open Global Add at `/transactions/new` with the selected Type, no Circle preselected, and the exact Home Summary URL as `returnTo`. The Category action keeps its eligible-Circle picker and continues through the existing Circle-scoped Category form. No global Category form is introduced. When no eligible Circle exists, the create-or-finish-setup guidance remains.
 
 This decision extends the Onboarding glossary and does not weaken ADR 0023: regular **Circle Setup** remains a mandatory, per-Circle gate. The Activation Checklist begins only after the profile gate and never blocks navigation or writes.

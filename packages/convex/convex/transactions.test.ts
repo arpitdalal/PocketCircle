@@ -90,6 +90,7 @@ describe("createTransaction — happy path", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -133,6 +134,7 @@ describe("createTransaction — happy path", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       type: "income",
       title: "Paycheck",
       note: "  May salary  ",
@@ -164,6 +166,7 @@ describe("createTransaction — happy path", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Weekly shop",
       note: "eggs and milk",
@@ -212,6 +215,7 @@ describe("createTransaction — happy path", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "EUR",
       ...baseExpense([f.groceriesId]),
       amountMinorUnits: 4500,
     });
@@ -229,6 +233,7 @@ describe("createTransaction — happy path", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -255,6 +260,7 @@ describe("createTransaction — amount edges", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         amountMinorUnits,
       }),
@@ -268,6 +274,7 @@ describe("createTransaction — amount edges", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         amountMinorUnits: 99_999_999_999,
       }),
@@ -283,6 +290,7 @@ describe("createTransaction — date edges", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         date: "15/05/2026",
       }),
@@ -296,6 +304,7 @@ describe("createTransaction — date edges", () => {
 
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       date: "2026-05-31",
     });
@@ -315,6 +324,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([]),
       }),
     ).rejects.toThrow();
@@ -327,6 +337,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId, f.groceriesId]),
       }),
     ).rejects.toThrow();
@@ -348,6 +359,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([otherCategory]),
       }),
     ).rejects.toThrow(/not found in this circle/i);
@@ -360,6 +372,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.salaryId]), // income category on an expense
       }),
     ).rejects.toThrow(/type does not match/i);
@@ -380,6 +393,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([archivedId]),
       }),
     ).rejects.toThrow(/archived categories cannot be added/i);
@@ -392,6 +406,7 @@ describe("createTransaction — category rules", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId, f.diningId]),
       }),
     ).resolves.toBeTruthy();
@@ -405,6 +420,7 @@ describe("createTransaction — Paid By", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.run(async (ctx) => {
@@ -421,6 +437,7 @@ describe("createTransaction — Paid By", () => {
     const id = await mutateAndDrain(t, () =>
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         paidByMemberId: other.memberId,
       }),
@@ -448,6 +465,7 @@ describe("createTransaction — Paid By", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       type: "income",
       title: "Refund",
       amountMinorUnits: 999,
@@ -470,6 +488,7 @@ describe("createTransaction — Paid By", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         paidByMemberId: removed.memberId,
       }),
@@ -487,6 +506,7 @@ describe("createTransaction — Paid By", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         paidByMemberId: foreignMemberId,
       }),
@@ -502,6 +522,7 @@ describe("createTransaction — title / note", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         title: "",
       }),
@@ -515,6 +536,7 @@ describe("createTransaction — title / note", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         title: "   ",
       }),
@@ -528,6 +550,7 @@ describe("createTransaction — title / note", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         title: "x".repeat(121),
       }),
@@ -535,6 +558,7 @@ describe("createTransaction — title / note", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         note: "x".repeat(1001),
       }),
@@ -547,6 +571,7 @@ describe("createTransaction — title / note", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "  Weekly shop  ",
     });
@@ -564,6 +589,7 @@ describe("createTransaction — permission matrix", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
     ).resolves.toBeTruthy();
@@ -576,6 +602,7 @@ describe("createTransaction — permission matrix", () => {
     mockCurrentUser.mockResolvedValue(member.user);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.run(async (ctx) => {
@@ -593,9 +620,10 @@ describe("createTransaction — permission matrix", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies a non-member User", async () => {
@@ -606,9 +634,10 @@ describe("createTransaction — permission matrix", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies an unauthenticated caller", async () => {
@@ -618,9 +647,10 @@ describe("createTransaction — permission matrix", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("allows a Personal Circle owner", async () => {
@@ -637,6 +667,7 @@ describe("createTransaction — permission matrix", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: personal.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([personal.cat]),
       }),
     ).resolves.toBeTruthy();
@@ -658,6 +689,7 @@ describe("createTransaction — lifecycle edges", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.cat]),
       }),
     ).rejects.toMatchObject({
@@ -673,6 +705,7 @@ describe("createTransaction — lifecycle edges", () => {
     await expect(
       t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
       }),
     ).rejects.toMatchObject({
@@ -702,6 +735,31 @@ describe("createTransaction — lifecycle edges", () => {
 });
 
 describe("createTransaction — currency lock side effect", () => {
+  it("rejects when expectedCurrency does not match the Circle's Currency", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx, { currency: "USD" }));
+    mockCurrentUser.mockResolvedValue(f.owner);
+
+    await expect(
+      t.mutation(api.transactions.createTransaction, {
+        circleId: f.circleId,
+        expectedCurrency: "EUR",
+        ...baseExpense([f.groceriesId]),
+      }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.currencyChanged),
+    });
+
+    await t.run(async (ctx) => {
+      const txns = await ctx.db
+        .query("transactions")
+        .withIndex("by_circle", (q) => q.eq("circleId", f.circleId))
+        .collect();
+      expect(txns).toHaveLength(0);
+      expect((await ctx.db.get(f.circleId))?.currencyLocked).toBe(false);
+    });
+  });
+
   it("flips currencyLocked true on the first Transaction", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));
@@ -713,6 +771,7 @@ describe("createTransaction — currency lock side effect", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -728,6 +787,7 @@ describe("createTransaction — currency lock side effect", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.run(async (ctx) => {
@@ -746,12 +806,14 @@ describe("listTransactions", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "Older",
       date: "2026-05-01",
     });
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "Newer",
       date: "2026-05-20",
@@ -774,12 +836,14 @@ describe("listTransactions", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "First",
       date: "2026-05-10",
     });
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "Second",
       date: "2026-05-10",
@@ -800,6 +864,7 @@ describe("listTransactions", () => {
     for (const date of ["2026-05-01", "2026-05-02", "2026-05-03"]) {
       await t.mutation(api.transactions.createTransaction, {
         circleId: f.circleId,
+        expectedCurrency: "USD",
         ...baseExpense([f.groceriesId]),
         title: `Txn ${date}`,
         date,
@@ -827,6 +892,7 @@ describe("listTransactions", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.run((ctx) => ctx.db.patch(id, { status: "archived", archivedAt: Date.now() }));
@@ -849,6 +915,7 @@ describe("listTransactions", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -2195,6 +2262,7 @@ describe("getTransaction — Audit Metadata (TXN-4, PRD 76)", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -2218,6 +2286,7 @@ describe("getTransaction — Audit Metadata (TXN-4, PRD 76)", () => {
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     const created = await t.run((ctx) => ctx.db.get(id));
@@ -2249,6 +2318,7 @@ describe("getTransaction — Audit Metadata (TXN-4, PRD 76)", () => {
     mockCurrentUser.mockResolvedValue(alex);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       paidByMemberId: alexMemberId,
     });
@@ -2272,6 +2342,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "Weekly shop",
     });
@@ -2298,6 +2369,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       amountMinorUnits: 1250,
     });
@@ -2330,6 +2402,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     // (Categories), date, title, amount — none may surface as an id.
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.mutation(api.transactions.updateTransaction, {
@@ -2376,6 +2449,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
     await t.mutation(api.transactions.updateTransaction, {
@@ -2405,6 +2479,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
     });
 
@@ -2445,6 +2520,7 @@ describe("listTransactionHistory — Transaction History content (TXN-4, PRD 77)
     mockCurrentUser.mockResolvedValue(f.owner);
     const id = await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       ...baseExpense([f.groceriesId]),
       title: "Edit me",
     });

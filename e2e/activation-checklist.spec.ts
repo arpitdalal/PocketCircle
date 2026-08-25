@@ -8,6 +8,8 @@ import {
   homeCircleCard,
   inviteMemberByEmail,
   pickFormCategory,
+  returnFromTransactionDetail,
+  selectGlobalAddCircle,
   test,
 } from "./fixtures.js";
 
@@ -106,11 +108,15 @@ test("checklist items complete in any order, pending stays waiting, accept hides
       .getByRole("region", { name: "Get started" })
       .getByRole("link", { name: "Add expense" })
       .click();
+    await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
+    await selectGlobalAddCircle(page, /Ada's Circle/);
     const form = page.getByRole("form", { name: /add expense/i });
     await form.getByLabel("Title").fill(`Act spend ${stamp}`);
     await form.getByLabel(/Amount/).fill("4.50");
     await pickFormCategory(page, form, categoryName);
     await form.getByRole("button", { name: "Add expense" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: `Act spend ${stamp}` })).toBeVisible();
+    await returnFromTransactionDetail(page);
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("2 of 4 complete"),

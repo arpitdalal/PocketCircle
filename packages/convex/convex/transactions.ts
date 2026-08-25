@@ -1,14 +1,17 @@
 import {
   buildRef,
+  isSupportedCurrency,
   isValidPlainMonth,
+  MUTATION_ERRORS,
   monthOf,
+  mutationErrorData,
   type TransactionType,
   toCurrencyCode,
   transactionCreateSchema,
   transactionUpdateSchema,
 } from "@pocketcircle/domain";
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/server.js";
 import { markActivationMilestone } from "./activation.js";
@@ -582,11 +585,25 @@ export const createTransaction = mutation({
     date: v.string(),
     categoryIds: v.array(v.id("categories")),
     paidByMemberId: v.optional(v.id("members")),
+    /**
+     * Currency the client observed when the Amount was drafted (Global Add #298).
+     * Rejects when the Circle's Currency has changed underneath so a stale
+     * denomination cannot freeze under the new code.
+     */
+    expectedCurrency: v.string(),
   },
   handler: async (ctx, args) => {
     const access = await requireCircleAccess(ctx, args.circleId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
     access.assertSetupComplete();
+
+    const circleCurrency = toCurrencyCode(access.circle.currency);
+    if (!isSupportedCurrency(args.expectedCurrency)) {
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyUnsupported));
+    }
+    if (args.expectedCurrency !== circleCurrency) {
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyChanged));
+    }
 
     const input = transactionCreateSchema.parse({
       type: args.type,

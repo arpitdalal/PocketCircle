@@ -13,6 +13,8 @@ import {
   inlineCreateFormCategory,
   inviteMemberByEmail,
   pickFormCategory,
+  returnFromTransactionDetail,
+  selectGlobalAddCircle,
   test,
   toggleHomeScopeCircle,
 } from "./fixtures.js";
@@ -137,14 +139,16 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
 
     await page
       .getByRole("region", { name: "Get started" })
-      .getByRole("button", { name: "Add expense" })
+      .getByRole("link", { name: "Add expense" })
       .click();
-    await pickChecklistCircle(page, sharedName);
+    await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
+    await selectGlobalAddCircle(page, sharedName);
     await addExpenseOnCurrentForm(page, {
       title: `Shared spend ${stamp}`,
       amount: "25.00",
       category: categoryName,
     });
+    await returnFromTransactionDetail(page);
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
 
     await homeCircleCard(page, /Ada's Circle/).click();

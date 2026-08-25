@@ -217,7 +217,7 @@ describe("transferOwnership — permissions", () => {
 
     await expect(
       t.mutation(api.members.transferOwnership, { circleId, toMemberId: maya.memberId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects an unauthenticated caller with Circle not found", async () => {
@@ -228,7 +228,7 @@ describe("transferOwnership — permissions", () => {
 
     await expect(
       t.mutation(api.members.transferOwnership, { circleId, toMemberId: maya.memberId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
 
     await t.run(async (ctx) => {
       const ownerRow = await ctx.db.get(ownerMemberId);
@@ -245,7 +245,7 @@ describe("transferOwnership — permissions", () => {
 
     await expect(
       t.mutation(api.members.transferOwnership, { circleId, toMemberId: maya.memberId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 });
 
@@ -431,7 +431,7 @@ describe("removeMember — permissions", () => {
 
     await expect(
       t.mutation(api.members.removeMember, { circleId, memberId: maya.memberId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects a memberId from a different Circle with Member not found", async () => {
@@ -728,7 +728,7 @@ describe("leaveCircle — guards", () => {
     mockCurrentUser.mockResolvedValue(stranger);
 
     await expect(t.mutation(api.members.leaveCircle, { circleId })).rejects.toThrow(
-      "Circle not found",
+      /circle\.unavailable/,
     );
   });
 
@@ -739,7 +739,7 @@ describe("leaveCircle — guards", () => {
     mockCurrentUser.mockResolvedValue(null);
 
     await expect(t.mutation(api.members.leaveCircle, { circleId })).rejects.toThrow(
-      "Circle not found",
+      /circle\.unavailable/,
     );
   });
 
@@ -753,7 +753,7 @@ describe("leaveCircle — guards", () => {
     mockCurrentUser.mockResolvedValue(removed.user);
 
     await expect(t.mutation(api.members.leaveCircle, { circleId })).rejects.toThrow(
-      "Circle not found",
+      /circle\.unavailable/,
     );
   });
 });

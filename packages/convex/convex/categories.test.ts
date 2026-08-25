@@ -493,7 +493,7 @@ describe("createCategory — permission matrix", () => {
     mockCurrentUser.mockResolvedValue(removed);
     await expect(
       t.mutation(api.categories.createCategory, { circleId, ...EXPENSE }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies a non-member User", async () => {
@@ -503,7 +503,7 @@ describe("createCategory — permission matrix", () => {
     mockCurrentUser.mockResolvedValue(stranger);
     await expect(
       t.mutation(api.categories.createCategory, { circleId, ...EXPENSE }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("denies an unauthenticated caller", async () => {
@@ -512,7 +512,7 @@ describe("createCategory — permission matrix", () => {
     mockCurrentUser.mockResolvedValue(null);
     await expect(
       t.mutation(api.categories.createCategory, { circleId, ...EXPENSE }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("allows a Member in a Personal Circle", async () => {

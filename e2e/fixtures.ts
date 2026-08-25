@@ -352,6 +352,41 @@ export async function pickFormCategory(page: Page, scope: Locator, name: string)
 }
 
 /**
+ * Global Add destination select (issue #298). Options render as `Name · CURRENCY`.
+ * Reveals the shared form once an eligible Circle is chosen. Skips the empty
+ * "Choose a Circle" placeholder — name filters like `/Circle/` would otherwise
+ * match that row and fail on a blank value.
+ */
+export async function selectGlobalAddCircle(page: Page, circleName?: string | RegExp) {
+  const circleSelect = page.getByLabel("Circle", { exact: true });
+  await expect(circleSelect).toBeVisible();
+  const options =
+    circleName === undefined
+      ? circleSelect.locator("option")
+      : circleSelect.locator("option").filter({ hasText: circleName });
+  const count = await options.count();
+  let value: string | null = null;
+  for (let i = 0; i < count; i++) {
+    const candidate = await options.nth(i).getAttribute("value");
+    if (candidate) {
+      value = candidate;
+      break;
+    }
+  }
+  expect(value).toBeTruthy();
+  await circleSelect.selectOption(value ?? "");
+  await expect(page.getByRole("form", { name: /add (expense|income)/i })).toBeVisible();
+}
+
+/**
+ * After Global Add submit, Detail is the success landing; Back restores returnTo.
+ */
+export async function returnFromTransactionDetail(page: Page) {
+  await expect(page.getByRole("link", { name: "‹ Back" })).toBeVisible();
+  await page.getByRole("link", { name: "‹ Back" }).click();
+}
+
+/**
  * Inline-create a Category in a Transaction form combobox (CAT-3).
  */
 export async function inlineCreateFormCategory(page: Page, scope: Locator, name: string) {

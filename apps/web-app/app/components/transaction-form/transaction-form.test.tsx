@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Category, Circle, Member, Transaction } from "~/lib/data.js";
 import {
   configureConvex,
+  deferredValue,
   inlineCreateTransactionFormCategory,
   makeCategoryView,
   makeCircleView,
@@ -213,6 +214,7 @@ describe("TransactionForm — create", () => {
 
     expect(createTransaction).toHaveBeenCalledWith({
       circleId: "c1",
+      expectedCurrency: "USD",
       type: "expense",
       title: "Weekly shop",
       note: undefined,
@@ -623,12 +625,9 @@ describe("TransactionForm — create", () => {
 
   it("disables the category combobox while inline create is in flight", async () => {
     const user = userEvent.setup();
-    let resolveCreate: (id: Category["id"]) => void = () => {};
-    const createPromise = new Promise<Category["id"]>((resolve) => {
-      resolveCreate = resolve;
-    });
+    const pending = deferredValue<Category["id"]>();
     renderCreate({ type: "expense" }, { categories: [] });
-    createCategory.mockReturnValueOnce(createPromise);
+    createCategory.mockReturnValueOnce(pending.promise);
     const form = screen.getByRole("form", { name: /add expense/i });
     const combo = within(form).getByRole("combobox", { name: "Categories" });
     await user.click(combo);
@@ -637,9 +636,60 @@ describe("TransactionForm — create", () => {
 
     expect(combo).toBeDisabled();
 
-    resolveCreate(testId<Category["id"]>("cat-snacks"));
+    pending.resolve(testId<Category["id"]>("cat-snacks"));
     await waitFor(() => expect(combo).not.toBeDisabled());
     await user.keyboard("{Escape}");
+  });
+
+  it("emits category_created even when the section unmounts before attach", async () => {
+    const user = userEvent.setup();
+    const pending = deferredValue<Category["id"]>();
+    const view = renderCreate({ type: "expense" }, { categories: [] });
+    createCategory.mockReturnValueOnce(pending.promise);
+    const form = screen.getByRole("form", { name: /add expense/i });
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Orphan");
+    await user.click(screen.getByRole("option", { name: 'Create "Orphan"' }));
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+
+    view.unmount();
+    pending.resolve(testId<Category["id"]>("cat-orphan"));
+    await waitFor(() =>
+      expect(posthogSdk.capture).toHaveBeenCalledWith("category_created", {
+        type: "expense",
+        source: "transaction_inline",
+      }),
+    );
+  });
+
+  it("blocks confirming a Type change while inline Category create is in flight", async () => {
+    const user = userEvent.setup();
+    const pending = deferredValue<Category["id"]>();
+    renderEdit(
+      { title: "Weekly shop" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+      },
+    );
+    createCategory.mockReturnValueOnce(pending.promise);
+    const form = screen.getByRole("form", { name: /edit transaction/i });
+
+    await user.click(within(form).getByRole("button", { name: "Income" }));
+    const dialog = within(form).getByRole("alertdialog");
+    const combo = within(form).getByRole("combobox", { name: "Categories" });
+    await user.click(combo);
+    await user.type(combo, "Pending");
+    await user.click(screen.getByRole("option", { name: 'Create "Pending"' }));
+
+    await waitFor(() => expect(createCategory).toHaveBeenCalled());
+    expect(within(dialog).getByRole("button", { name: "Change type" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
+
+    pending.resolve(testId<Category["id"]>("cat-pending"));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Change type" })).toBeEnabled(),
+    );
   });
 
   it("shows the category combobox when none exist for the type", () => {

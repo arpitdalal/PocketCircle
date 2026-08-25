@@ -1321,7 +1321,7 @@ describe("deleteCircle", () => {
     mockCurrentUser.mockResolvedValue(null);
 
     await expect(t.mutation(api.circles.deleteCircle, { circleId })).rejects.toThrow(
-      /Circle not found/,
+      /circle\.unavailable/,
     );
   });
 
@@ -1332,7 +1332,7 @@ describe("deleteCircle", () => {
     mockCurrentUser.mockResolvedValue(outsider);
 
     await expect(t.mutation(api.circles.deleteCircle, { circleId })).rejects.toThrow(
-      /Circle not found/,
+      /circle\.unavailable/,
     );
   });
 

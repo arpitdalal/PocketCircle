@@ -79,7 +79,7 @@ export function circleLayoutHeadingChrome(circle: Pick<Circle, "name">) {
  */
 export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[] } = {}) {
   let navigate: ReturnType<typeof useNavigate> | undefined;
-  const result = render(
+  const wrap = (node: ReactNode) => (
     <AppTestProviders>
       <MemoryRouter initialEntries={opts.initialEntries ?? ["/"]}>
         <LocationProbe />
@@ -88,12 +88,17 @@ export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[
             navigate = nextNavigate;
           }}
         />
-        <Routes>{routes}</Routes>
+        <Routes>{node}</Routes>
       </MemoryRouter>
-    </AppTestProviders>,
+    </AppTestProviders>
   );
+  const result = render(wrap(routes));
   return {
     ...result,
+    /** Rerenders the route subtree INSIDE the same Router so reactive query
+     * doubles (re-configured via `configureConvex`) are re-read without
+     * resetting history — the model for live backend changes mid-session. */
+    rerenderRoutes: (nextRoutes: ReactNode) => result.rerender(wrap(nextRoutes)),
     /** The current URL (pathname + search), e.g. `/circles/my-home-c1`. */
     location: () => result.getByTestId("location").textContent ?? "",
     navigate: (to: string | number) => {

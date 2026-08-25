@@ -184,7 +184,7 @@ describe("createInvitation — permissions", () => {
 
     await expect(
       t.mutation(api.invitations.createInvitation, { circleId, email: "new@example.com" }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects a non-member with Circle not found", async () => {
@@ -196,7 +196,7 @@ describe("createInvitation — permissions", () => {
 
     await expect(
       t.mutation(api.invitations.createInvitation, { circleId, email: "new@example.com" }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects an unauthenticated caller with Circle not found", async () => {
@@ -207,7 +207,7 @@ describe("createInvitation — permissions", () => {
 
     await expect(
       t.mutation(api.invitations.createInvitation, { circleId, email: "new@example.com" }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 });
 
@@ -958,7 +958,7 @@ describe("resendInvitation", () => {
 
     await expect(
       t.mutation(api.invitations.resendInvitation, { invitationId: inviteId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects an invitation from a different Circle", async () => {
@@ -975,7 +975,7 @@ describe("resendInvitation", () => {
 
     await expect(
       t.mutation(api.invitations.resendInvitation, { invitationId: inviteId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects revoked and expired invitations with a generic error", async () => {
@@ -1333,7 +1333,7 @@ describe("revokeInvitation", () => {
 
     await expect(
       t.mutation(api.invitations.revokeInvitation, { invitationId: inviteId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 
   it("rejects already-revoked and accepted invitations", async () => {
@@ -1378,7 +1378,7 @@ describe("revokeInvitation", () => {
 
     await expect(
       t.mutation(api.invitations.revokeInvitation, { invitationId: inviteId }),
-    ).rejects.toThrow("Circle not found");
+    ).rejects.toThrow(/circle\.unavailable/);
   });
 });
 

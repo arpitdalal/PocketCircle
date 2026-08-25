@@ -106,6 +106,7 @@ describe("filterLedgerTransactions", () => {
 
     await t.mutation(api.transactions.createTransaction, {
       circleId: f.circleId,
+      expectedCurrency: "USD",
       type: "expense",
       title: "Indexed vendor",
       amountMinorUnits: 4200,

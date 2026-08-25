@@ -42,23 +42,27 @@ export type CategoryDetail = NonNullable<FunctionReturnType<typeof api.categorie
  * them apart). `undefined` while loading; `null` when the Circle is inaccessible
  * (anti-enumeration — ADR 0016). In mock mode it filters fixtures and skips the
  * backend so E2E renders without a live deployment (ADR 0006); in real mode it is
- * the reactive Convex query.
+ * the reactive Convex query. An `undefined` circleId (Global Add's unselected
+ * destination) skips the subscription and reads as loading.
  */
 export function useCategories(
-  circleId: Circle["id"],
+  circleId: Circle["id"] | undefined,
   type: TransactionType,
   options?: { includeArchived?: boolean },
 ) {
   const includeArchived = options?.includeArchived ?? false;
   const queried = useQuery(
     api.categories.listCategories,
-    MOCKS ? "skip" : { circleId, type, includeArchived },
+    MOCKS || circleId === undefined ? "skip" : { circleId, type, includeArchived },
   );
-  return MOCKS
-    ? MOCK_CATEGORIES.filter(
-        (category) => category.type === type && (includeArchived || category.status === "active"),
-      )
-    : queried;
+  if (MOCKS) {
+    return circleId === undefined
+      ? undefined
+      : MOCK_CATEGORIES.filter(
+          (category) => category.type === type && (includeArchived || category.status === "active"),
+        );
+  }
+  return queried;
 }
 
 /** How many Categories to fetch per page (initial load and each "load more"). */

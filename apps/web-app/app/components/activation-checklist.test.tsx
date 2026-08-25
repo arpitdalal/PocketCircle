@@ -1,4 +1,3 @@
-import { currentMonth } from "@pocketcircle/domain";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -23,8 +22,6 @@ vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).con
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
 import { ActivationChecklist } from "./activation-checklist.js";
-
-const month = currentMonth(new Date());
 
 beforeEach(() => {
   primeAnalyticsForTests();
@@ -112,7 +109,7 @@ describe("ActivationChecklist items", () => {
     expect(within(circle).getByRole("link", { name: "Create circle" })).toBeInTheDocument();
   });
 
-  it("links Transaction CTAs with returnTo for single eligible circle", () => {
+  it("links Transaction CTAs to Global Add with their Type, no Circle, and returnTo", () => {
     const eligible = [
       makeEligibleCircle({
         id: testId<Circle["id"]>("c1"),
@@ -123,23 +120,31 @@ describe("ActivationChecklist items", () => {
     configureConvex({
       activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
-    renderChecklist();
+    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
+      initialEntries: ["/?currency=CAD&range=3"],
+    });
 
-    expect(screen.getByRole("link", { name: "Add expense" })).toHaveAttribute(
-      "href",
-      expect.stringContaining(
-        `/circles/adas-circle-c1/transactions/new?type=expense&month=${month}`,
-      ),
+    const expense = new URL(
+      screen.getByRole("link", { name: "Add expense" }).getAttribute("href") ?? "",
+      "http://t",
     );
-    expect(screen.getByRole("link", { name: "Add income" })).toHaveAttribute(
-      "href",
-      expect.stringContaining(
-        `/circles/adas-circle-c1/transactions/new?type=income&month=${month}`,
-      ),
+    expect(expense.pathname).toBe("/transactions/new");
+    expect(expense.searchParams.get("type")).toBe("expense");
+    expect(expense.searchParams.get("circle")).toBeNull();
+    expect(expense.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=CAD&range=3");
+    // The exact origin survives URL encoding as one parameter value.
+    expect(view.location()).toBe("/?currency=CAD&range=3");
+
+    const income = new URL(
+      screen.getByRole("link", { name: "Add income" }).getAttribute("href") ?? "",
+      "http://t",
     );
+    expect(income.pathname).toBe("/transactions/new");
+    expect(income.searchParams.get("type")).toBe("income");
+    expect(income.searchParams.get("circle")).toBeNull();
   });
 
-  it("shows buttons that open picker when multiple eligible circles exist", () => {
+  it("links Transaction CTAs directly even with multiple eligible circles", () => {
     const eligible = [
       makeEligibleCircle({
         id: testId<Circle["id"]>("c1"),
@@ -158,9 +163,11 @@ describe("ActivationChecklist items", () => {
     });
     renderChecklist();
 
-    // Instead of links, we get buttons that open the picker
-    expect(screen.getByRole("button", { name: "Add expense" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add income" })).toBeInTheDocument();
+    // No Circle picker for Transactions anymore — Global Add owns destination choice.
+    expect(screen.getByRole("link", { name: "Add expense" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add income" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add expense" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add income" })).not.toBeInTheDocument();
   });
 
   it("shows create circle hint when zero eligible circles", () => {
@@ -306,54 +313,17 @@ describe("ActivationChecklist circle picker", () => {
     }),
   ];
 
-  it("opens picker dialog when clicking Add expense with multiple eligible circles", async () => {
+  it("keeps the Category picker while Transaction actions link out", async () => {
     configureConvex({
       activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
     const user = userEvent.setup();
     renderChecklist();
 
-    await user.click(screen.getByRole("button", { name: "Add expense" }));
-
-    expect(screen.getByRole("heading", { name: "Choose a Circle" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Personal.*USD/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Trip.*CAD/ })).toBeInTheDocument();
-  });
-
-  it("routes the picker to the canonical form and restores Home Summary returnTo", async () => {
-    configureConvex({
-      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
-    });
-    const user = userEvent.setup();
-    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
-      initialEntries: ["/?currency=CAD&range=3"],
-    });
-
-    await user.click(screen.getByRole("button", { name: "Add expense" }));
-    await user.click(screen.getByRole("button", { name: /Trip.*CAD/ }));
-
-    const dest = new URL(view.location(), "http://t");
-    expect(dest.pathname).toBe("/circles/trip-c2/transactions/new");
-    expect(dest.searchParams.get("type")).toBe("expense");
-    expect(dest.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=CAD&range=3");
-  });
-
-  it("preserves Add income through the picker", async () => {
-    configureConvex({
-      activation: makeActivationChecklistView({ eligibleCircles: eligible }),
-    });
-    const user = userEvent.setup();
-    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
-      initialEntries: ["/?currency=USD&range=6"],
-    });
-
-    await user.click(screen.getByRole("button", { name: "Add income" }));
-    await user.click(screen.getByRole("button", { name: /Trip.*CAD/ }));
-
-    const dest = new URL(view.location(), "http://t");
-    expect(dest.pathname).toBe("/circles/trip-c2/transactions/new");
-    expect(dest.searchParams.get("type")).toBe("income");
-    expect(dest.searchParams.get(RETURN_TO_PARAM)).toBe("/?currency=USD&range=6");
+    await user.click(screen.getByRole("button", { name: "New category" }));
+    expect(
+      screen.getByRole("heading", { name: "Choose a Circle for the category" }),
+    ).toBeInTheDocument();
   });
 
   it("preserves New category through the picker", async () => {
