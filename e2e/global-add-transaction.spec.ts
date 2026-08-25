@@ -47,7 +47,7 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   await assertNoHorizontalOverflow(page);
 
   // Destination: the worker's Personal Circle (always eligible after bootstrap).
-  await selectGlobalAddCircle(page, /Circle/);
+  await selectGlobalAddCircle(page);
 
   const form = page.getByRole("form", { name: /add expense/i });
   const titleField = form.getByLabel("Title");
@@ -83,7 +83,7 @@ test("Cancel from Global Add returns to the exact Home origin", async ({ page })
 
   await page.getByRole("link", { name: "Add transaction" }).click();
   await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
-  await selectGlobalAddCircle(page, /Circle/);
+  await selectGlobalAddCircle(page);
 
   const form = page.getByRole("form", { name: /add expense/i });
   await form.getByLabel("Title").fill("Will cancel");
