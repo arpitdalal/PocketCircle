@@ -605,6 +605,18 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
         "Paid By was cleared because the Circle is no longer available.",
       ),
     ).toBeInTheDocument();
+    expect(within(invalidated).getByRole("button", { name: /Add expense/i })).toBeDisabled();
+
+    // Invalidating must clear once the URL has no Circle — otherwise later
+    // selections stay ignored forever.
+    await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
+    await waitFor(() => {
+      expect(view.location()).toContain(encodeURIComponent(CIRCLE_B.ref));
+      expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toBeEnabled();
+    });
+    expect(
+      within(screen.getByRole("form")).getByRole("button", { name: /Add expense/i }),
+    ).toBeEnabled();
   });
 
   it("clears only Amount when the destination Currency changes, with its toast and warning", async () => {

@@ -229,17 +229,20 @@ function SubmitRow({
   isEdit,
   activeTypeLabel,
   onCancel,
+  disabled = false,
 }: {
   isEdit: boolean;
   activeTypeLabel: string;
   /** What Cancel means to the host — navigation stays outside the form kit. */
   onCancel: () => void;
+  /** Host-level block (e.g. Global Add with no resolved destination). */
+  disabled?: boolean;
 }) {
   const form = useFormContext();
   const isSubmitting = useStore(form.store, (s: AnyFormState) => s.isSubmitting);
   return (
     <div className="flex scroll-mb-28 items-center gap-2 pt-2">
-      <Button type="submit" disabled={isSubmitting} className="scroll-mb-28">
+      <Button type="submit" disabled={disabled || isSubmitting} className="scroll-mb-28">
         {isSubmitting
           ? "Saving…"
           : isEdit

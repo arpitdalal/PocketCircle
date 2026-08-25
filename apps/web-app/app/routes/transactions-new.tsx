@@ -205,28 +205,30 @@ export default function TransactionsNew() {
   const typeConfirmed = confirmed?.key === typeKey && confirmed.draft === draftKey;
 
   // Circle diffs settle first so a Back/Forward spanning both never stacks two
-  // dialogs; the Type diff settles on the next pass.
+  // dialogs; Type only confirms once Circle has already settled onto the request.
   const pendingConfirmKind: "circle" | "type" | null =
     circleNeedsConfirm && !circleConfirmed
       ? "circle"
-      : typeNeedsConfirm && !typeConfirmed
+      : typeNeedsConfirm && !typeConfirmed && requestedId === appliedId
         ? "type"
         : null;
 
-  if (!pendingConfirmKind && requestedResolvable && requestedId !== appliedId) {
-    if (invalidating) {
-      // Wait for the URL to drop the rejected Circle; do not re-apply it from a
-      // still-eligible listMyCircles row after submit-time destination rejection.
-      if (requestedId === null) {
-        setInvalidating(false);
-      }
-    } else {
-      setAppliedId(requestedId);
-      // Consume the acceptance ledger once its transition settles so a later
-      // return to the same destination with the same draft fingerprint cannot
-      // silently bypass confirmation.
-      setConfirmed(null);
-    }
+  // After invalidateDestination, appliedId is already null and the URL rewrite
+  // lands on requestedId null — those ids match, so settlement below would never
+  // run. Clear the gate as soon as the URL has dropped the rejected Circle.
+  if (invalidating && requestedId === null) {
+    setInvalidating(false);
+  } else if (
+    !invalidating &&
+    requestedResolvable &&
+    requestedId !== appliedId &&
+    (!circleNeedsConfirm || circleConfirmed)
+  ) {
+    // Apply immediate and confirmed Circle transitions even when a Type confirm
+    // would otherwise become pending — otherwise accepting Circle opens Type
+    // without settling, Type accept overwrites the ledger, and Circle loops.
+    setAppliedId(requestedId);
+    setConfirmed(null);
   }
   if (
     confirmed?.key.startsWith("type:") &&

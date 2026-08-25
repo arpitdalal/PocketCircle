@@ -107,9 +107,13 @@ export function TransactionFormCategorySection({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const circleIdRef = useRef(circleId);
+  const activeTypeRef = useRef(activeType);
   useEffect(() => {
     circleIdRef.current = circleId;
   }, [circleId]);
+  useEffect(() => {
+    activeTypeRef.current = activeType;
+  }, [activeType]);
 
   const trimmedQuery = query.trim();
   const categoryNameIndex = useMemo(() => buildCategoryNameIndex(categoryById), [categoryById]);
@@ -169,6 +173,7 @@ export function TransactionFormCategorySection({
 
     setCreating(true);
     const destinationId = circleId;
+    const destinationType = activeType;
     try {
       if (!destinationId) {
         return;
@@ -176,22 +181,28 @@ export function TransactionFormCategorySection({
       const newId = await createCategory({
         circleId: destinationId,
         name: parsed.data.name,
-        type: activeType,
+        type: destinationType,
         color: seededColor,
       });
       if (!newId) {
         setInlineError("Couldn't create the category. Please try again.");
         return;
       }
-      // Destination may have switched while the create was in flight — keep the
-      // Category in the old Circle but do not inject it into the new draft.
-      if (circleIdRef.current !== destinationId) {
+      // Destination or Type may have switched while the create was in flight —
+      // keep the Category where it was created but do not inject it into the
+      // new draft (wrong Circle or wrong Type would fail submit validation).
+      if (circleIdRef.current !== destinationId || activeTypeRef.current !== destinationType) {
         setQuery("");
         return;
       }
-      const created = toInlineCreatedCategory(newId, parsed.data.name, activeType, seededColor);
+      const created = toInlineCreatedCategory(
+        newId,
+        parsed.data.name,
+        destinationType,
+        seededColor,
+      );
       onInlineCreatedCategory(created);
-      track("category_created", { type: activeType, source: "transaction_inline" });
+      track("category_created", { type: destinationType, source: "transaction_inline" });
       if (!currentIds.includes(newId)) {
         onSelectionChanged?.();
         onIdsChange([...currentIds, newId]);

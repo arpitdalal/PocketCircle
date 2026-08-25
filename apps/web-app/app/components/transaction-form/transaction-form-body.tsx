@@ -173,6 +173,7 @@ export function TransactionFormBody({
           isEdit={isEdit}
           activeTypeLabel={TYPE_LABEL[activeType]}
           onCancel={onCancel}
+          disabled={!destinationReady}
         />
       </form.AppForm>
     </form>
