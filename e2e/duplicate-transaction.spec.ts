@@ -46,7 +46,7 @@ test("Duplicate from Transaction Detail creates an independent Transaction and p
   expect(sourceDetailUrl.searchParams.get("returnTo")).toBe("/?currency=USD&range=3");
 
   // Duplicate opens Global Add with reviewed prefill (same destination).
-  await page.getByRole("link", { name: `Duplicate transaction ${sourceTitle}` }).click();
+  await page.getByRole("link", { name: `Duplicate ${sourceTitle}` }).click();
   await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
   const dupForm = page.getByRole("form", { name: /add expense/i });
   await expect(dupForm.getByLabel("Title")).toHaveValue(sourceTitle);

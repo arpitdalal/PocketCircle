@@ -98,10 +98,10 @@ function TransactionDetailView({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Link
             to={duplicateUrl}
-            aria-label={`Duplicate transaction ${transaction.title}`}
-            className={buttonVariants({ variant: "outline", size: "default" })}
+            aria-label={`Duplicate ${transaction.title}`}
+            className={buttonVariants({ variant: "ghost", size: "default" })}
           >
-            Duplicate transaction
+            Duplicate
           </Link>
           {showEdit ? (
             <Link
