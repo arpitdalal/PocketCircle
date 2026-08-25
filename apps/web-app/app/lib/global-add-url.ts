@@ -20,14 +20,17 @@ import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "./return-to-url.js
  *    raw param so canonicalize cannot erase the feedback flag before the
  *    route's unavailable path strips it.
  *  - `sourceCircle` + `sourceTransaction` are a pair. Both absent means
- *    ordinary Global Add. Anything other than exactly one usable parseable
- *    value for each is an unusable pair (indistinguishable unavailable-source
- *    recovery). Usable refs accept raw ids and stale slugs; resolution is by
- *    id after Circle Visibility.
+ *    ordinary Global Add. Anything other than exactly one occurrence of each
+ *    with a usable parseable value is an unusable pair (including duplicate
+ *    source params — indistinguishable unavailable-source recovery). Usable
+ *    refs accept raw ids and stale slugs; resolution is by id after Circle
+ *    Visibility.
  *  - `returnTo` reuses the app-wide safe-origin codec; anything unsafe falls
  *    back to Home (`/`) and is indistinguishable from absent.
- *  - Unknown and duplicate parameters simply never reach the canonical output —
- *    rebuilding the query from parsed state drops them.
+ *  - Unknown and duplicate ordinary parameters (`type`, `circle`, …) never
+ *    reach the canonical output — rebuilding from parsed state drops them.
+ *    Duplicate source-pair params are rejected as unusable, not silently
+ *    collapsed to the first value.
  */
 
 export const GLOBAL_ADD_PATH = "/transactions/new";
@@ -83,21 +86,33 @@ export function globalAddHref({
   return withReturnTo(withQuery(GLOBAL_ADD_PATH, params.toString()), returnTo);
 }
 
-/** The raw query values exactly as the URL carried them (first duplicate wins). */
+/**
+ * The raw query values exactly as the URL carried them. Ordinary params use
+ * first-wins (`get`); source-pair occurrence counts are preserved so duplicates
+ * can be rejected as unusable rather than silently collapsed.
+ */
 export interface RawGlobalAddParams {
   type: string | null;
   circle: string | null;
   sourceCircle: string | null;
   sourceTransaction: string | null;
+  /** Occurrence count of `sourceCircle` (0 = absent). */
+  sourceCircleCount: number;
+  /** Occurrence count of `sourceTransaction` (0 = absent). */
+  sourceTransactionCount: number;
   returnTo: string | null;
 }
 
 export function readGlobalAddParams(searchParams: URLSearchParams) {
+  const sourceCircles = searchParams.getAll(SOURCE_CIRCLE_PARAM);
+  const sourceTransactions = searchParams.getAll(SOURCE_TRANSACTION_PARAM);
   return {
     type: searchParams.get(TYPE_PARAM),
     circle: searchParams.get(CIRCLE_PARAM),
-    sourceCircle: searchParams.get(SOURCE_CIRCLE_PARAM),
-    sourceTransaction: searchParams.get(SOURCE_TRANSACTION_PARAM),
+    sourceCircle: sourceCircles[0] ?? null,
+    sourceTransaction: sourceTransactions[0] ?? null,
+    sourceCircleCount: sourceCircles.length,
+    sourceTransactionCount: sourceTransactions.length,
     returnTo: searchParams.get(RETURN_TO_PARAM),
   };
 }
@@ -143,9 +158,14 @@ export interface GlobalAddUrlState {
   sourcePair: GlobalAddSourcePair;
 }
 
-function parseSourcePair(sourceCircle: string | null, sourceTransaction: string | null) {
-  if (sourceCircle == null && sourceTransaction == null) {
+function parseSourcePair(raw: RawGlobalAddParams) {
+  const { sourceCircle, sourceTransaction, sourceCircleCount, sourceTransactionCount } = raw;
+  if (sourceCircleCount === 0 && sourceTransactionCount === 0) {
     return { kind: "absent" as const };
+  }
+  // Exactly one of each — duplicates / partials / extras are all unusable.
+  if (sourceCircleCount !== 1 || sourceTransactionCount !== 1) {
+    return { kind: "unusable" as const };
   }
   if (sourceCircle == null || sourceTransaction == null) {
     return { kind: "unusable" as const };
@@ -176,7 +196,7 @@ export function parseGlobalAddParams(raw: RawGlobalAddParams) {
     // The safe-origin codec owns validation: unsafe ≡ absent ≡ Home.
     returnTo: parseReturnTo(raw.returnTo, { fallback: "/" }),
     hadUnparseableCircle: raw.circle != null && parsedCircle === null,
-    sourcePair: parseSourcePair(raw.sourceCircle, raw.sourceTransaction),
+    sourcePair: parseSourcePair(raw),
   };
 }
 

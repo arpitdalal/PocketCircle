@@ -1,3 +1,4 @@
+import { toPlainDate } from "@pocketcircle/domain";
 import {
   expect,
   inlineCreateFormCategory,
@@ -21,6 +22,11 @@ test("Duplicate from Transaction Detail creates an independent Transaction and p
   const sourceTitle = `Dup Source ${stamp}`;
   const copyTitle = `Dup Copy ${stamp}`;
 
+  // Freeze page Date so Duplicate's "today" prefill and the assertion share one
+  // plain date across midnight and slow navigations (Playwright clock).
+  const fixedNow = new Date(2026, 7, 25, 15, 0, 0);
+  const expectedDate = toPlainDate(fixedNow);
+  await page.clock.setFixedTime(fixedNow);
   await openHome(page);
   const homePathAndSearch = new URL(page.url()).pathname + new URL(page.url()).search;
 
@@ -40,15 +46,13 @@ test("Duplicate from Transaction Detail creates an independent Transaction and p
   expect(sourceDetailUrl.searchParams.get("returnTo")).toBe("/?currency=USD&range=3");
 
   // Duplicate opens Global Add with reviewed prefill (same destination).
-  await page.getByRole("link", { name: `Duplicate ${sourceTitle}` }).click();
+  await page.getByRole("link", { name: `Duplicate transaction ${sourceTitle}` }).click();
   await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
   const dupForm = page.getByRole("form", { name: /add expense/i });
   await expect(dupForm.getByLabel("Title")).toHaveValue(sourceTitle);
   await expect(dupForm.getByLabel(/Note/)).toHaveValue("Source note");
   await expect(dupForm.getByLabel(/Amount/)).toHaveValue("18.25");
-  const dateValue = await dupForm.getByLabel("Date").inputValue();
-  const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
-  expect(dateValue).toBe(todayLocal);
+  await expect(dupForm.getByLabel("Date")).toHaveValue(expectedDate);
   await expect(dupForm.getByRole("button", { name: `Remove ${categoryName}` })).toBeVisible();
 
   // Review: change Title so the new Transaction is distinct; source stays intact.

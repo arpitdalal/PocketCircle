@@ -292,7 +292,7 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
       }),
       url: `/circles/${REF}/transactions/weekly-shop-t1?returnTo=${encodeURIComponent(ledger)}`,
     });
-    const duplicate = screen.getByRole("link", { name: "Duplicate Weekly shop" });
+    const duplicate = screen.getByRole("link", { name: "Duplicate transaction Weekly shop" });
     const edit = screen.getByRole("link", { name: "Edit Weekly shop" });
     expect(duplicate.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -315,7 +315,9 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
         canEditFields: false,
       }),
     });
-    expect(screen.getByRole("link", { name: "Duplicate Weekly shop" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Duplicate transaction Weekly shop" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
   });
 
@@ -328,7 +330,9 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
         canEditFields: true,
       }),
     });
-    expect(screen.getByRole("link", { name: "Duplicate Weekly shop" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Duplicate transaction Weekly shop" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
   });
 
@@ -343,7 +347,9 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
       }),
     });
     const href = new URL(
-      screen.getByRole("link", { name: "Duplicate Weekly shop" }).getAttribute("href") ?? "",
+      screen
+        .getByRole("link", { name: "Duplicate transaction Weekly shop" })
+        .getAttribute("href") ?? "",
       "http://t",
     );
     expect(href.searchParams.get("type")).toBe("income");

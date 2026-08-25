@@ -1336,6 +1336,21 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
     expect(screen.getByRole("heading", { name: "Add transaction" })).toBeInTheDocument();
   });
 
+  it("normalizes Type to Expense on unavailable-source recovery even when URL requested income", async () => {
+    // Issue #299 / ADR 0017: recovery clears Duplicate state to ordinary Global
+    // Add defaults — Type always becomes Expense; it is not preserved from the
+    // failed source URL.
+    const view = setup({
+      url: duplicateUrl({ type: "income" }),
+      transactionDetail: null,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("type")).toBe("expense");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+  });
+
   it("recovers identically from a partial source pair", async () => {
     const view = setup({
       url: `${GLOBAL_ADD_PATH}?type=expense&sourceCircle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(SOURCE_DETAIL_RETURN)}`,
@@ -1343,6 +1358,17 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
     await waitFor(() => expect(view.location()).toContain("type=expense"));
     const loc = new URL(view.location(), "http://t");
     expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
+  });
+
+  it("recovers identically from duplicate source parameters", async () => {
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&sourceCircle=${encodeURIComponent(CIRCLE_A.ref)}&sourceCircle=${encodeURIComponent(CIRCLE_B.ref)}&sourceTransaction=weekly-shop-t1&returnTo=${encodeURIComponent(SOURCE_DETAIL_RETURN)}`,
+    });
+    await waitFor(() => expect(view.location()).toContain(`${GLOBAL_ADD_PATH}?type=expense`));
+    const loc = new URL(view.location(), "http://t");
+    expect(loc.searchParams.get("sourceCircle")).toBeNull();
+    expect(loc.searchParams.get("sourceTransaction")).toBeNull();
     expect(screen.getByText("That link isn't available.")).toBeInTheDocument();
   });
 

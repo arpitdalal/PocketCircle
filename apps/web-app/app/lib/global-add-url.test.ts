@@ -163,6 +163,22 @@ describe("parseGlobalAddParams — source pair", () => {
     });
   });
 
+  it("treats duplicate source parameters as unusable", () => {
+    expect(
+      parseQuery("sourceCircle=trip-c1&sourceCircle=cabin-c2&sourceTransaction=weekly-shop-t1")
+        .sourcePair,
+    ).toEqual({ kind: "unusable" });
+    expect(
+      parseQuery("sourceCircle=trip-c1&sourceTransaction=weekly-shop-t1&sourceTransaction=rent-t2")
+        .sourcePair,
+    ).toEqual({ kind: "unusable" });
+    expect(
+      parseQuery(
+        "sourceCircle=trip-c1&sourceCircle=cabin-c2&sourceTransaction=weekly-shop-t1&sourceTransaction=rent-t2",
+      ).sourcePair,
+    ).toEqual({ kind: "unusable" });
+  });
+
   it("preserves candidate source refs across Type and Circle rewrites", () => {
     const state = parseQuery(
       "type=expense&circle=trip-c1&sourceCircle=trip-c1&sourceTransaction=weekly-shop-t1&returnTo=%2F",
