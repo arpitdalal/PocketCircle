@@ -140,6 +140,7 @@ export function TransactionFormCategorySection({
 
     if (exactNameMatch?.status === "active") {
       if (!currentIds.includes(exactNameMatch.id)) {
+        onSelectionChanged?.();
         onIdsChange([...currentIds, exactNameMatch.id]);
       }
       setQuery("");
@@ -181,6 +182,7 @@ export function TransactionFormCategorySection({
       onInlineCreatedCategory(created);
       track("category_created", { type: activeType, source: "transaction_inline" });
       if (!currentIds.includes(newId)) {
+        onSelectionChanged?.();
         onIdsChange([...currentIds, newId]);
       }
       setQuery("");

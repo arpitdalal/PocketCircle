@@ -21,7 +21,7 @@ export type Member = NonNullable<FunctionReturnType<typeof api.members.listMembe
  * (Global Add's unselected destination) skips the subscription and reads as
  * loading.
  */
-export function useMembers(circleId: Circle["id"] | undefined): Member[] | null | undefined {
+export function useMembers(circleId: Circle["id"] | undefined) {
   const queried = useQuery(
     api.members.listMembers,
     MOCKS || circleId === undefined ? "skip" : { circleId },

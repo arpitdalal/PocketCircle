@@ -69,6 +69,13 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
   };
 }
 
+// jsdom ships no scrollIntoView; Global Add Step 2 (issue #298) scrolls the
+// form container into view after Circle selection. A no-op keeps suites from
+// throwing; tests that assert scroll spy via `vi.spyOn(Element.prototype, …)`.
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+
 // jsdom ships no matchMedia; PwaInstallProvider (#262) reads display-mode on mount.
 // Default to non-standalone. Suites that need a specific match install
 // `installMatchMediaFake` from `~/test/pwa-install-env.js` over this.

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Circle } from "~/lib/data.js";
+import { SWITCH_RESTORED_TOAST } from "~/lib/global-add-transitions.js";
 import { GLOBAL_ADD_PATH } from "~/lib/global-add-url.js";
 import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
 import {
@@ -248,15 +249,17 @@ describe("TransactionsNew — progressive reveal, focus, and scroll", () => {
 
   it("scrolls Step 2 to the top, focuses Title with preventScroll, and selects preserved text", async () => {
     const user = userEvent.setup();
-    const scrollIntoView = vi.fn();
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
     const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
-    Element.prototype.scrollIntoView = scrollIntoView;
     setup({ url: `${GLOBAL_ADD_PATH}?type=expense&circle=${CIRCLE_A.ref}` });
     const form = await screen.findByRole("form", { name: /add expense/i });
     await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
     await user.type(within(form).getByLabelText("Title"), "Hotel deposit");
     await user.type(within(form).getByLabelText(/Amount/), "99");
     focusSpy.mockClear();
+    scrollIntoView.mockClear();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
     await user.click(await screen.findByRole("button", { name: "Change Circle" }));
@@ -275,24 +278,26 @@ describe("TransactionsNew — progressive reveal, focus, and scroll", () => {
     }
     await waitFor(() => expect(title.selectionStart).toBe(0));
     expect(title.selectionEnd).toBe("Hotel deposit".length);
-    Element.prototype.scrollIntoView = vi.fn();
+    scrollIntoView.mockRestore();
     focusSpy.mockRestore();
   });
 
   it("falls back to instant scrolling under prefers-reduced-motion", async () => {
     const user = userEvent.setup();
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
     const media = installReducedMotionPreference(true);
 
     setup({ url: `${GLOBAL_ADD_PATH}?circle=${CIRCLE_A.ref}` });
     await screen.findByRole("form");
+    scrollIntoView.mockClear();
     await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
 
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
     expect(scrollIntoView.mock.calls.at(-1)?.[0]).toMatchObject({ behavior: "auto" });
     media.restore();
-    Element.prototype.scrollIntoView = vi.fn();
+    scrollIntoView.mockRestore();
   });
 });
 
@@ -512,7 +517,7 @@ describe("TransactionsNew — browser navigation", () => {
     view.navigate(
       `${GLOBAL_ADD_PATH}?type=expense&circle=ghost-zz&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
     );
-    expect(await screen.findByText(SWITCH_RESTORED_TOAST_TEXT)).toBeInTheDocument();
+    expect(await screen.findByText(SWITCH_RESTORED_TOAST)).toBeInTheDocument();
     await waitFor(() =>
       expect(view.location()).toBe(
         `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
@@ -520,8 +525,6 @@ describe("TransactionsNew — browser navigation", () => {
     );
   });
 });
-
-const SWITCH_RESTORED_TOAST_TEXT = "Couldn't switch Circles. Your previous values were restored.";
 
 describe("TransactionsNew — reactive invalidation and resets", () => {
   function rerenderWith(
