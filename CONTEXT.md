@@ -260,6 +260,10 @@ _Avoid_: Release Notes
 The in-app formatted changelog page for released versions. Distinct from **App Version** and from Feature Announcements.
 _Avoid_: Release Notes, Changelog popup
 
+**Feature Announcement**:
+A rare, non-modal notice that points an existing **User** at a substantial new capability through an in-app CTA. Dismissing it or following its CTA permanently acknowledges it across devices; acknowledgement never requires using or completing the capability and is distinct from **What's New** and the **Activation Checklist**.
+_Avoid_: Announcement Modal, Feature Checklist, Changelog Popup
+
 ## Example Dialogue
 
 **Product**: "A person creates a Circle and invites the people they budget with."
