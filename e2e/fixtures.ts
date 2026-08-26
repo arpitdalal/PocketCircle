@@ -483,10 +483,21 @@ async function ensureAppShellReady(page: Page) {
  */
 export async function establishE2ESession(
   page: Page,
-  opts: { baseURL: string; email: string; password?: string; name?: string },
+  opts: {
+    baseURL: string;
+    email: string;
+    password?: string;
+    name?: string;
+    /**
+     * Keep Feature Announcement eligibility (#282). Default sessions acknowledge
+     * all registered IDs so the corner card cannot block product-flow E2E.
+     */
+    keepFeatureAnnouncements?: boolean;
+  },
 ) {
   const password = opts.password ?? E2E_PASSWORD;
   const name = opts.name ?? "E2E Tester";
+  const keepFeatureAnnouncements = opts.keepFeatureAnnouncements === true;
 
   for (let attempt = 0; ; attempt++) {
     try {
@@ -503,7 +514,7 @@ export async function establishE2ESession(
   let signInResult: string | undefined;
   try {
     signInResult = await page.evaluate(
-      async ([e, p, n]) => {
+      async ([e, p, n, keepAnnouncements]) => {
         const helper = Reflect.get(globalThis, "__scE2E");
         if (typeof helper !== "object" || helper === null) {
           return "error: missing __scE2E";
@@ -514,12 +525,19 @@ export async function establishE2ESession(
         }
         try {
           await Reflect.apply(signIn, helper, [e, p, n]);
+          if (!keepAnnouncements) {
+            const acknowledgeAll = Reflect.get(helper, "acknowledgeAllFeatureAnnouncements");
+            if (typeof acknowledgeAll !== "function") {
+              return "error: missing acknowledgeAllFeatureAnnouncements";
+            }
+            await Reflect.apply(acknowledgeAll, helper, []);
+          }
           return "ok";
         } catch (err) {
           return `error: ${String(err instanceof Error ? err.message : err)}`;
         }
       },
-      [opts.email, password, name],
+      [opts.email, password, name, keepFeatureAnnouncements],
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -535,6 +553,21 @@ export async function establishE2ESession(
 
   await page.goto(opts.baseURL, { waitUntil: "domcontentloaded" });
   await ensureAppShellReady(page);
+
+  // Re-ack after shell ready in case sign-in lost the evaluate realm mid-flight.
+  if (!keepFeatureAnnouncements) {
+    await page.evaluate(async () => {
+      const helper = Reflect.get(globalThis, "__scE2E");
+      if (typeof helper !== "object" || helper === null) {
+        throw new Error("missing __scE2E");
+      }
+      const acknowledgeAll = Reflect.get(helper, "acknowledgeAllFeatureAnnouncements");
+      if (typeof acknowledgeAll !== "function") {
+        throw new Error("missing acknowledgeAllFeatureAnnouncements");
+      }
+      await Reflect.apply(acknowledgeAll, helper, []);
+    });
+  }
 }
 
 async function signUpUserAndSaveStorageState(opts: {

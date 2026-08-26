@@ -1,4 +1,5 @@
 import { api } from "@pocketcircle/convex";
+import { FEATURE_ANNOUNCEMENT_IDS } from "@pocketcircle/domain";
 import { testId } from "~/test/convex/ids.js";
 import { authClient } from "./auth-client.js";
 import { convex } from "./convex.js";
@@ -143,6 +144,18 @@ export function installE2EAuthHelper(): void {
        */
       async backdateCreatedAt(createdAt: number) {
         await convex.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, { createdAt });
+      },
+
+      /**
+       * Acknowledge every registered Feature Announcement ID. Default E2E
+       * sessions call this so the corner card cannot block product-flow tests
+       * while the provisional `eligibleBefore` still matches new Users.
+       */
+      async acknowledgeAllFeatureAnnouncements() {
+        for (const announcementId of FEATURE_ANNOUNCEMENT_IDS) {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential acks; each depends on prior User row write
+          await convex.mutation(api.users.acknowledgeFeatureAnnouncement, { announcementId });
+        }
       },
     },
   });

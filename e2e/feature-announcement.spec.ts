@@ -23,7 +23,10 @@ async function establishAnnouncementEligibleSession(
   page: import("@playwright/test").Page,
   opts: { baseURL: string; email: string; name: string },
 ) {
-  await establishE2ESession(page, opts);
+  await establishE2ESession(page, {
+    ...opts,
+    keepFeatureAnnouncements: true,
+  });
   await page.evaluate(async (createdAt) => {
     const helper = Reflect.get(globalThis, "__scE2E");
     if (typeof helper !== "object" || helper === null) {
@@ -131,9 +134,12 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
     await card.getByRole("button", { name: "Close" }).click();
     await expect(card).toHaveCount(0);
 
-    await page.reload();
-    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
+    // Optimistic hide can race the Convex write — poll reload until ack sticks.
+    await expect(async () => {
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+      await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
+    }).toPass({ timeout: 15_000 });
   } finally {
     await context.close();
   }
