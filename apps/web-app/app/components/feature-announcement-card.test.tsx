@@ -148,6 +148,7 @@ describe("FeatureAnnouncementCard", () => {
     await waitFor(() => {
       expect(screen.getByRole("region", { name: /Duplicate a transaction/i })).toBeVisible();
     });
+    expect(screen.getByTestId("feature-announcement-ack")).toHaveAttribute("data-result", "failed");
   });
 
   it("records one impression per tab session after genuine visibility", async () => {
@@ -236,6 +237,44 @@ describe("FeatureAnnouncementCard", () => {
         .getAllByRole("status")
         .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
     ).toBe(true);
+  });
+
+  it("delays live announcement while the Chromium native install prompt is pending", async () => {
+    const u = userEvent.setup();
+    setNavigatorInstallProps();
+    const view = renderCard({ path: "/", source: "omit" });
+    const { resolveOutcome } = dispatchBeforeInstallPrompt("accepted");
+    const dialog = await screen.findByRole("dialog", { name: "Install PocketCircle" });
+
+    configureConvex({
+      currentUser: makeCurrentUserView({ createdAt: 1 }),
+      acknowledgeFeatureAnnouncement: acknowledge,
+      circles: [makeCircleView({ ref: "trip-abc", name: "Trip" })],
+      featureAnnouncementSource: { circleRef: "trip-abc", transactionRef: "shop-xyz" },
+    });
+    view.rerenderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />);
+    await screen.findByRole("heading", {
+      name: "Duplicate a transaction",
+      hidden: true,
+    });
+
+    await u.click(within(dialog).getByRole("button", { name: "Install" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Install PocketCircle" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
+
+    resolveOutcome();
+    await waitFor(() => {
+      expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
+        announcement: "duplicate-transaction",
+      });
+    });
   });
 
   it("delays live announcement while iOS Home Screen instructions cover the card", async () => {

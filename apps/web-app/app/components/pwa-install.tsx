@@ -209,15 +209,20 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     store.getServerSnapshot,
   );
   const [iosInstructionsOpen, setIosInstructionsOpen] = useState(false);
+  /** Chromium native install sheet covers the app until userChoice settles. */
+  const [nativeInstallPromptOpen, setNativeInstallPromptOpen] = useState(false);
 
   const available = availability !== "unavailable";
   const showInstallPrompt = available && !promptDismissed;
   const showInstallHeaderButton = available && promptDismissed;
-  const installSurfaceOpen = showInstallPrompt || iosInstructionsOpen;
+  const installSurfaceOpen = showInstallPrompt || iosInstructionsOpen || nativeInstallPromptOpen;
 
   // Close the iOS sheet if installability flips to unavailable (e.g. appinstalled).
   if (availability === "unavailable" && iosInstructionsOpen) {
     setIosInstructionsOpen(false);
+  }
+  if (availability === "unavailable" && nativeInstallPromptOpen) {
+    setNativeInstallPromptOpen(false);
   }
 
   const install = () => {
@@ -231,12 +236,15 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     if (promptEvent == null) {
       return;
     }
+    setNativeInstallPromptOpen(true);
     void (async () => {
       try {
         await promptEvent.prompt();
         await promptEvent.userChoice;
       } catch {
         // Already consumed, dismissed, or browser-rejected — UI already cleared.
+      } finally {
+        setNativeInstallPromptOpen(false);
       }
     })();
   };

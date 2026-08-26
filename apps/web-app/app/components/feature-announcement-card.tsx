@@ -1,3 +1,4 @@
+import type { FeatureAnnouncementId } from "@pocketcircle/domain";
 import { XIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -48,6 +49,8 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   const { installSurfaceOpen } = usePwaInstall();
   const acknowledge = useAcknowledgeFeatureAnnouncement();
   const titleId = useId();
+  // Tracks server settlement even after optimistic hide removes the visible card.
+  const [ackResult, setAckResult] = useState<"saved" | "failed" | null>(null);
 
   const announcement = activeFeatureAnnouncement();
   const scope = featureAnnouncementRouteScope(location.pathname);
@@ -100,82 +103,98 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
     }
   }, [liveVisible, announcement]);
 
-  if (!visible || !announcement) {
-    return null;
-  }
-
-  const detailPath = withReturnTo(
-    transactionDetailHref({ ref: visible.circleRef }, { ref: visible.transactionRef }),
-    returnTo,
-  );
-
-  const fireAcknowledge = () => {
-    void acknowledge({ announcementId: announcement.id }).catch(() => {
-      show(ACK_FAILURE_TOAST);
-    });
+  const fireAcknowledge = (announcementId: FeatureAnnouncementId) => {
+    void acknowledge({ announcementId })
+      .then(() => {
+        setAckResult("saved");
+      })
+      .catch(() => {
+        setAckResult("failed");
+        show(ACK_FAILURE_TOAST);
+      });
   };
 
   const onCtaClick = () => {
+    if (!announcement) {
+      return;
+    }
     track("feature_announcement_cta_clicked", { announcement: announcement.id });
-    fireAcknowledge();
+    fireAcknowledge(announcement.id);
   };
 
   const onDismiss = () => {
+    if (!announcement) {
+      return;
+    }
     track("feature_announcement_dismissed", { announcement: announcement.id });
-    fireAcknowledge();
+    fireAcknowledge(announcement.id);
   };
 
-  const aboveCircleNav = scope.kind === "circle";
+  const aboveCircleNav = scope?.kind === "circle";
+  const detailPath =
+    visible && announcement
+      ? withReturnTo(
+          transactionDetailHref({ ref: visible.circleRef }, { ref: visible.transactionRef }),
+          returnTo,
+        )
+      : null;
 
   return (
     <>
-      <section
-        aria-labelledby={titleId}
-        className={cn(
-          // Below Circle nav (z-30), dialogs (z-50), and snackbars (z-60).
-          "pointer-events-auto fixed z-20 w-[min(22rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-background p-4 shadow-md",
-          "left-[max(0.75rem,var(--safe-area-left,0px))]",
-          aboveCircleNav
-            ? "bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)] sm:bottom-[max(0.75rem,var(--safe-area-bottom))]"
-            : "bottom-[max(0.75rem,var(--safe-area-bottom))]",
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <p className="text-xs font-medium tracking-wide text-primary uppercase">
-              {announcement.label}
-            </p>
-            <h2 id={titleId} className="font-display text-base font-semibold tracking-tight">
-              {announcement.title}
-            </h2>
-            <p className="text-sm text-muted-foreground">{announcement.body}</p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close"
+      {ackResult !== null ? (
+        <div hidden data-testid="feature-announcement-ack" data-result={ackResult} />
+      ) : null}
+      {visible && announcement && detailPath ? (
+        <>
+          <section
+            aria-labelledby={titleId}
             className={cn(
-              buttonVariants({ variant: "ghost", size: "icon-xs" }),
-              "shrink-0 text-muted-foreground",
+              // Below Circle nav (z-30), dialogs (z-50), and snackbars (z-60).
+              "pointer-events-auto fixed z-20 w-[min(22rem,calc(100vw-1.5rem))] rounded-lg border border-border bg-background p-4 shadow-md",
+              "left-[max(0.75rem,var(--safe-area-left,0px))]",
+              aboveCircleNav
+                ? "bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)] sm:bottom-[max(0.75rem,var(--safe-area-bottom))]"
+                : "bottom-[max(0.75rem,var(--safe-area-bottom))]",
             )}
-            onClick={onDismiss}
           >
-            <XIcon />
-          </button>
-        </div>
-        <div className="mt-3">
-          <Link
-            to={detailPath}
-            state={{ featureAnnouncementFocus: announcement.id }}
-            className={buttonVariants({ variant: "default", size: "sm" })}
-            onClick={onCtaClick}
-          >
-            {announcement.ctaLabel}
-          </Link>
-        </div>
-      </section>
-      <p className="sr-only" role="status" aria-live="polite">
-        {liveVisible ? liveMessage : ""}
-      </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <p className="text-xs font-medium tracking-wide text-primary uppercase">
+                  {announcement.label}
+                </p>
+                <h2 id={titleId} className="font-display text-base font-semibold tracking-tight">
+                  {announcement.title}
+                </h2>
+                <p className="text-sm text-muted-foreground">{announcement.body}</p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "icon-xs" }),
+                  "shrink-0 text-muted-foreground",
+                )}
+                onClick={onDismiss}
+              >
+                <XIcon />
+              </button>
+            </div>
+            <div className="mt-3">
+              <Link
+                to={detailPath}
+                state={{ featureAnnouncementFocus: announcement.id }}
+                className={buttonVariants({ variant: "default", size: "sm" })}
+                onClick={onCtaClick}
+              >
+                {announcement.ctaLabel}
+              </Link>
+            </div>
+          </section>
+          <p className="sr-only" role="status" aria-live="polite">
+            {liveVisible ? liveMessage : ""}
+          </p>
+        </>
+      ) : null}
     </>
   );
 }
