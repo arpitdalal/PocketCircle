@@ -232,4 +232,58 @@ describe("FeatureAnnouncementCard", () => {
         .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
     ).toBe(true);
   });
+
+  it("delays live announcement while iOS Home Screen instructions cover the card", async () => {
+    const u = userEvent.setup();
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    });
+    // Omit source until the promo covers the app — same arbitration shape as Chromium BIP.
+    const view = renderCard({ path: "/", source: "omit" });
+    const promo = await screen.findByRole("dialog", { name: "Install PocketCircle" });
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
+
+    configureConvex({
+      currentUser: makeCurrentUserView({ createdAt: 1 }),
+      acknowledgeFeatureAnnouncement: acknowledge,
+      circles: [makeCircleView({ ref: "trip-abc", name: "Trip" })],
+      featureAnnouncementSource: { circleRef: "trip-abc", transactionRef: "shop-xyz" },
+    });
+    view.rerenderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />);
+    expect(
+      await screen.findByRole("heading", {
+        name: "Duplicate a transaction",
+        hidden: true,
+      }),
+    ).toBeInTheDocument();
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
+
+    await u.click(within(promo).getByRole("button", { name: "Install" }));
+    expect(await screen.findByText("Share", { exact: true })).toBeInTheDocument();
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
+    expect(
+      screen.getAllByRole("status", { hidden: true }).some((node) => node.textContent === ""),
+    ).toBe(true);
+
+    await u.click(screen.getByRole("button", { name: "Got it" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Share", { exact: true })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
+        announcement: "duplicate-transaction",
+      });
+    });
+  });
 });

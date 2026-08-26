@@ -157,3 +157,29 @@ describe("getInvitationTokenForE2E", () => {
     ).resolves.toBeNull();
   });
 });
+
+describe("backdateCurrentUserCreatedAtForE2E", () => {
+  it("patches the signed-in User createdAt when E2E auth is enabled", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await t.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, {
+      createdAt: Date.parse("2020-01-01T00:00:00.000Z"),
+    });
+
+    const updated = await t.run((ctx) => ctx.db.get(owner._id));
+    expect(updated?.createdAt).toBe(Date.parse("2020-01-01T00:00:00.000Z"));
+  });
+
+  it("rejects when E2E auth is disabled", async () => {
+    vi.stubEnv("E2E_TEST_AUTH", "0");
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, { createdAt: 1 }),
+    ).rejects.toThrow("Forbidden");
+  });
+});

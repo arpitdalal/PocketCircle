@@ -1,10 +1,10 @@
 import { type FeatureAnnouncementId, isFeatureAnnouncementId } from "@pocketcircle/domain";
-import { RESERVED_CIRCLE_REFS } from "./circle-path.js";
+import { circleRefOf } from "./circle-path.js";
 
 /**
  * Typed in-repo Feature Announcement catalog (#282). Newest entry owns the slot.
  * `eligibleBefore` is immutable product history — provisional until release prep
- * replaces it with the concrete UTC cutoff immediately before merge.
+ * replaces it with the concrete UTC cutoff (not a guessed “now”).
  */
 export interface FeatureAnnouncement {
   readonly id: FeatureAnnouncementId;
@@ -23,8 +23,7 @@ export const FEATURE_ANNOUNCEMENTS = [
     title: "Duplicate a transaction",
     body: "Start from a recent transaction, select Duplicate, then review and save a separate copy.",
     ctaLabel: "Try Duplicate",
-    // Provisional cutoff for branch validation. Replace with the release-prep UTC
-    // timestamp immediately before final approval — never merge a guessed value.
+    // Provisional until release prep sets the real UTC cutoff (#282).
     eligibleBefore: "2099-01-01T00:00:00.000Z",
   },
 ] as const satisfies readonly FeatureAnnouncement[];
@@ -38,34 +37,31 @@ export type FeatureAnnouncementRouteScope =
   | { kind: "home" }
   | { kind: "circle"; circleRef: string };
 
-const RESERVED_CIRCLE_REF_SET = new Set<string>(RESERVED_CIRCLE_REFS);
+/** Allowed in-Circle child segments for the announcement card (Dashboard = none). */
+const ANNOUNCEMENT_CIRCLE_CHILDREN = new Set(["transactions", "categories"]);
 
 /**
  * Allowed routes for the Feature Announcement card: Home, Circle Dashboard,
- * Ledger, Categories list. Everything else is excluded.
+ * Ledger, Categories list. Circle identity comes from {@link circleRefOf};
+ * this helper only applies the announcement child-route allowlist.
  */
 export function featureAnnouncementRouteScope(pathname: string) {
   if (pathname === "/") {
     return { kind: "home" } as const;
   }
 
-  const match = pathname.match(/^\/circles\/([^/?#]+)(?:\/([^/?#]+))?\/?$/);
-  if (!match) {
+  const circleRef = circleRefOf(pathname);
+  if (circleRef === null) {
     return null;
   }
 
-  let circleRef: string;
-  try {
-    circleRef = decodeURIComponent(match[1] ?? "");
-  } catch {
+  // One optional child after `/circles/<ref>`; deeper paths (detail/create/edit) fail.
+  const childMatch = pathname.match(/^\/circles\/[^/?#]+(?:\/([^/?#]+))?\/?$/);
+  if (!childMatch) {
     return null;
   }
-  if (circleRef === "" || RESERVED_CIRCLE_REF_SET.has(circleRef)) {
-    return null;
-  }
-
-  const child = match[2];
-  if (child === undefined || child === "transactions" || child === "categories") {
+  const child = childMatch[1];
+  if (child === undefined || ANNOUNCEMENT_CIRCLE_CHILDREN.has(child)) {
     return { kind: "circle", circleRef } as const;
   }
   return null;

@@ -136,6 +136,14 @@ export function installE2EAuthHelper(): void {
         const result = await authClient.getSession();
         return result.data?.session ?? null;
       },
+
+      /**
+       * Backdate the signed-in User's `createdAt` for Feature Announcement E2E
+       * (#282) so eligibility survives release-prep cutoff replacement.
+       */
+      async backdateCreatedAt(createdAt: number) {
+        await convex.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, { createdAt });
+      },
     },
   });
 }

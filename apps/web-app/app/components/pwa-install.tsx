@@ -182,6 +182,11 @@ interface PwaInstallContextValue {
   available: boolean;
   /** Soft install dialog — available and not yet dismissed. */
   showInstallPrompt: boolean;
+  /**
+   * Soft promo or iOS Home Screen instructions cover the app. Feature
+   * Announcements read this to delay live region + impression without unmounting.
+   */
+  installSurfaceOpen: boolean;
   /** Header shortcut — available after the soft prompt was dismissed. */
   showInstallHeaderButton: boolean;
   install: () => void;
@@ -208,6 +213,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const available = availability !== "unavailable";
   const showInstallPrompt = available && !promptDismissed;
   const showInstallHeaderButton = available && promptDismissed;
+  const installSurfaceOpen = showInstallPrompt || iosInstructionsOpen;
 
   // Close the iOS sheet if installability flips to unavailable (e.g. appinstalled).
   if (availability === "unavailable" && iosInstructionsOpen) {
@@ -249,6 +255,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       value={{
         available,
         showInstallPrompt,
+        installSurfaceOpen,
         showInstallHeaderButton,
         install,
         dismissInstallPrompt,

@@ -33,6 +33,7 @@ describe("featureAnnouncementRouteScope", () => {
       "/onboarding",
       "/transactions/new",
       "/circles/new",
+      "/circles/%6e%65%77",
       "/circles/trip-abc/setup",
       "/circles/trip-abc/search",
       "/circles/trip-abc/transactions/new",
@@ -48,6 +49,13 @@ describe("featureAnnouncementRouteScope", () => {
     for (const path of excluded) {
       expect(featureAnnouncementRouteScope(path), path).toBeNull();
     }
+  });
+
+  it("decodes Circle refs through circleRefOf", () => {
+    expect(featureAnnouncementRouteScope("/circles/trip%2Dabc")).toEqual({
+      kind: "circle",
+      circleRef: "trip-abc",
+    });
   });
 });
 

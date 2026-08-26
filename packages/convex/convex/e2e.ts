@@ -206,3 +206,23 @@ export const getAccountDeletionTokenForE2E = query({
     return row?.token ?? null;
   },
 });
+
+/**
+ * E2E-only: set the current User's `createdAt` so Feature Announcement eligibility
+ * stays testable after release prep replaces the provisional `eligibleBefore`.
+ * Gated on `E2E_TEST_AUTH=1` — never enabled in production.
+ */
+export const backdateCurrentUserCreatedAtForE2E = mutation({
+  args: { createdAt: v.number() },
+  handler: async (ctx, args) => {
+    if (process.env.E2E_TEST_AUTH !== "1") {
+      throw new Error("Forbidden");
+    }
+    if (!Number.isFinite(args.createdAt) || args.createdAt < 0) {
+      throw new Error("Invalid createdAt");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    await ctx.db.patch(user._id, { createdAt: args.createdAt });
+  },
+});

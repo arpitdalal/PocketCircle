@@ -45,7 +45,7 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   const location = useLocation();
   const returnTo = useReturnToOrigin();
   const { show } = useSnackbar();
-  const { showInstallPrompt } = usePwaInstall();
+  const { installSurfaceOpen } = usePwaInstall();
   const acknowledge = useAcknowledgeFeatureAnnouncement();
   const titleId = useId();
   const [liveMessage, setLiveMessage] = useState("");
@@ -71,8 +71,8 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   const visible =
     eligible && !circleLookupPending && !circleMissing && sourceReady && hasSource && source;
 
-  // Genuinely visible: mounted card not covered by the PWA install modal.
-  const liveVisible = Boolean(visible) && !showInstallPrompt;
+  // Genuinely visible: mounted card not covered by soft promo or iOS instructions.
+  const liveVisible = Boolean(visible) && !installSurfaceOpen;
   const liveAnnouncementId = liveVisible && announcement ? announcement.id : null;
 
   useValueChange(liveAnnouncementId, (current) => {

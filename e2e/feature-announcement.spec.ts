@@ -12,8 +12,30 @@ import {
 /**
  * TRUE-E2E Feature Announcement (#282). Uses throwaway Users (not the worker
  * storageState session) so acknowledgment from one scenario cannot hide the
- * card for another.
+ * card for another. Backdates `createdAt` so eligibility survives release-prep
+ * replacement of the provisional `eligibleBefore`.
  */
+
+/** Well before any Duplicate release cutoff — keeps E2E Users eligible. */
+const ANNOUNCEMENT_ELIGIBLE_CREATED_AT = Date.parse("2020-01-01T00:00:00.000Z");
+
+async function establishAnnouncementEligibleSession(
+  page: import("@playwright/test").Page,
+  opts: { baseURL: string; email: string; name: string },
+) {
+  await establishE2ESession(page, opts);
+  await page.evaluate(async (createdAt) => {
+    const helper = Reflect.get(globalThis, "__scE2E");
+    if (typeof helper !== "object" || helper === null) {
+      throw new Error("missing __scE2E");
+    }
+    const backdate = Reflect.get(helper, "backdateCreatedAt");
+    if (typeof backdate !== "function") {
+      throw new Error("missing backdateCreatedAt");
+    }
+    await Reflect.apply(backdate, helper, [createdAt]);
+  }, ANNOUNCEMENT_ELIGIBLE_CREATED_AT);
+}
 
 async function seedSourceTransaction(
   page: import("@playwright/test").Page,
@@ -39,7 +61,7 @@ test("Feature Announcement CTA reaches focused Duplicate and preserves the retur
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   try {
-    await establishE2ESession(page, {
+    await establishAnnouncementEligibleSession(page, {
       baseURL: resolvedBase,
       email: `e2e+ann-cta-${stamp}@example.com`,
       name: "Ann CTA",
@@ -89,7 +111,7 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   try {
-    await establishE2ESession(page, {
+    await establishAnnouncementEligibleSession(page, {
       baseURL: resolvedBase,
       email: `e2e+ann-dismiss-${stamp}@example.com`,
       name: "Ann Dismiss",
