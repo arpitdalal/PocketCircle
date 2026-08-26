@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
-import { track } from "~/lib/analytics.js";
 import { impressionStorageKey } from "~/lib/feature-announcements.js";
 import {
   configureConvex,
@@ -14,6 +13,11 @@ import {
   renderRoutes,
 } from "~/test/convex-react.js";
 import {
+  posthogSdk,
+  primeAnalyticsForTests,
+  resetPostHogBoundary,
+} from "~/test/posthog-boundary.js";
+import {
   clearPwaInstallPromptDismissal,
   dispatchBeforeInstallPrompt,
   installMatchMediaFake,
@@ -22,11 +26,7 @@ import {
 } from "~/test/pwa-install-env.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
-
-vi.mock("~/lib/analytics.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("~/lib/analytics.js")>();
-  return { ...actual, track: vi.fn() };
-});
+vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
 const acknowledge = vi.fn().mockResolvedValue(undefined);
 
@@ -37,7 +37,8 @@ beforeEach(() => {
   installMatchMediaFake(false);
   acknowledge.mockReset();
   acknowledge.mockResolvedValue(undefined);
-  vi.mocked(track).mockClear();
+  primeAnalyticsForTests(makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }));
+  posthogSdk.capture.mockClear();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
 });
 
@@ -45,6 +46,7 @@ afterEach(() => {
   sessionStorage.clear();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();
+  resetPostHogBoundary();
 });
 
 function renderCard(opts: {
@@ -147,25 +149,31 @@ describe("FeatureAnnouncementCard", () => {
     const first = renderCard({ path: "/" });
     await screen.findByRole("region", { name: /Duplicate a transaction/i });
     await waitFor(() => {
-      expect(track).toHaveBeenCalledWith("feature_announcement_impression", {
+      expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
         announcement: "duplicate-transaction",
       });
     });
     expect(sessionStorage.getItem(impressionStorageKey("duplicate-transaction"))).toBe("1");
     first.unmount();
 
-    vi.mocked(track).mockClear();
+    posthogSdk.capture.mockClear();
     // Remount on another route — models a route change in the same tab session.
     const second = renderCard({ path: "/circles/trip-abc/transactions" });
     await screen.findByRole("region", { name: /Duplicate a transaction/i });
-    expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
     second.unmount();
 
-    vi.mocked(track).mockClear();
+    posthogSdk.capture.mockClear();
     // Remount after unmount with the same sessionStorage — models a same-tab reload.
     renderCard({ path: "/" });
     await screen.findByRole("region", { name: /Duplicate a transaction/i });
-    expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
   });
 
   it("keeps stacking below snackbars/dialogs and clears the Circle mobile nav", async () => {
@@ -182,7 +190,10 @@ describe("FeatureAnnouncementCard", () => {
     const view = renderCard({ path: "/", source: "omit" });
     dispatchBeforeInstallPrompt();
     const dialog = await screen.findByRole("dialog", { name: "Install PocketCircle" });
-    expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
 
     // Source becomes available under the covering modal — card mounts, no live announce.
     configureConvex({
@@ -197,7 +208,10 @@ describe("FeatureAnnouncementCard", () => {
       hidden: true,
     });
     expect(region).toBeInTheDocument();
-    expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith(
+      "feature_announcement_impression",
+      expect.anything(),
+    );
     const liveStatuses = screen.getAllByRole("status", { hidden: true });
     expect(liveStatuses.some((node) => node.textContent === "")).toBe(true);
 
@@ -208,7 +222,7 @@ describe("FeatureAnnouncementCard", () => {
       ).not.toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(track).toHaveBeenCalledWith("feature_announcement_impression", {
+      expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
         announcement: "duplicate-transaction",
       });
     });

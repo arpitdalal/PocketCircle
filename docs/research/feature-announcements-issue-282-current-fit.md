@@ -1,5 +1,11 @@
 # Feature announcements issue #282: current fit
 
+> **Pre-implementation research snapshot (2026-08-25).** Captures the contract
+> alignment before #282 shipped. The Feature Announcement catalog, User
+> acknowledgment field, Convex-before-Worker deploy order, and Unreleased
+> changelog entry now exist on `main` via PR #304 — treat the “not implemented”
+> matrix rows and Worker-first deploy notes below as historical.
+
 Research date: 2026-08-25. Sources are the issue, merged feature work, repository source, tests, ADRs, release workflow, and published GitHub releases.
 
 ## Verdict

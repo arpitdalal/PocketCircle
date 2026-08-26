@@ -61,15 +61,12 @@ describe("getFeatureAnnouncementSource", () => {
         onboarded: true,
       }),
     );
-    const olderId = await t.run((ctx) =>
+    await t.run((ctx) =>
       seedTransaction(ctx, f, { title: "Older", createdAt: 1_000, date: "2026-06-01" }),
     );
     const newerId = await t.run((ctx) =>
       seedTransaction(ctx, f, { title: "Newer", createdAt: 2_000, date: "2026-01-01" }),
     );
-    await t.run(async (ctx) => {
-      await ctx.db.patch(olderId, { status: "archived", archivedAt: 3_000 });
-    });
     await signIn(t, f.owner._id);
 
     const source = await t.query(api.featureAnnouncementSource.getFeatureAnnouncementSource, {
@@ -78,6 +75,35 @@ describe("getFeatureAnnouncementSource", () => {
     expect(source).toEqual({
       circleRef: buildRef("Ada's Circle", f.circleId),
       transactionRef: buildRef("Newer", newerId),
+    });
+  });
+
+  it("excludes archived Transactions from source selection", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) =>
+      seedPersonalFixture(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      }),
+    );
+    const olderId = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Older active", createdAt: 1_000 }),
+    );
+    const newerArchived = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Newer archived", createdAt: 2_000 }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(newerArchived, { status: "archived", archivedAt: 3_000 });
+    });
+    await signIn(t, f.owner._id);
+
+    const source = await t.query(api.featureAnnouncementSource.getFeatureAnnouncementSource, {
+      circleId: f.circleId,
+    });
+    expect(source).toEqual({
+      circleRef: buildRef("Ada's Circle", f.circleId),
+      transactionRef: buildRef("Older active", olderId),
     });
   });
 

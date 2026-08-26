@@ -78,7 +78,9 @@ function TransactionDetailView({
   );
 
   useEffect(() => {
-    if (!shouldFocusDuplicateAction(announcementFocus)) {
+    const shouldFocus = shouldFocusDuplicateAction(announcementFocus);
+    setEmphasizeDuplicate(shouldFocus);
+    if (!shouldFocus) {
       return;
     }
     duplicateLinkRef.current?.focus({ preventScroll: true });
