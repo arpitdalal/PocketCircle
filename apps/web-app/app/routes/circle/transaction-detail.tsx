@@ -17,6 +17,7 @@ import { transactionDetailHref, transactionEditHref } from "~/lib/ledger-url.js"
 import { viewerLocale } from "~/lib/locale.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import { useResolvedTransactionDetail } from "~/lib/use-resolved-transaction-detail.js";
+import { useValueChange } from "~/lib/use-value-change.js";
 import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
@@ -73,18 +74,19 @@ function TransactionDetailView({
   const isArchived = transaction.status === "archived";
   const duplicateLinkRef = useRef<HTMLAnchorElement>(null);
   const announcementFocus = featureAnnouncementFocusFromState(location.state);
-  const [emphasizeDuplicate, setEmphasizeDuplicate] = useState(
-    shouldFocusDuplicateAction(announcementFocus),
-  );
+  const shouldFocusDuplicate = shouldFocusDuplicateAction(announcementFocus);
+  const [emphasizeDuplicate, setEmphasizeDuplicate] = useState(shouldFocusDuplicate);
+
+  useValueChange(shouldFocusDuplicate, (current) => {
+    setEmphasizeDuplicate(current);
+  });
 
   useEffect(() => {
-    const shouldFocus = shouldFocusDuplicateAction(announcementFocus);
-    setEmphasizeDuplicate(shouldFocus);
-    if (!shouldFocus) {
+    if (!shouldFocusDuplicate) {
       return;
     }
     duplicateLinkRef.current?.focus({ preventScroll: true });
-  }, [announcementFocus]);
+  }, [shouldFocusDuplicate]);
 
   // Canonical Detail URL rebuilt from the already-validated `backTo` — never echo a
   // tampered nested return value (issue #123 / #299).
