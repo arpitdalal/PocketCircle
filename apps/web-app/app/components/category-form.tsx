@@ -22,6 +22,9 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
   { value: "income", label: "Income" },
 ];
 
+/** Stable id linking the Name field to a form-level mutation rejection (a11y). */
+const CATEGORY_MUTATION_ERROR_ID = "category-error";
+
 /**
  * The new-Category form (issue #96; revised #138; TanStack Form #305): name, an
  * Expense/Income type toggle, and a palette color picker. Lifted off the Categories
@@ -128,6 +131,8 @@ export function NewCategoryForm({
                   maxLength={LIMITS.categoryNameMax}
                   placeholder="e.g. Groceries"
                   onUserChange={() => setSubmitError(null)}
+                  describedBy={submitError ? CATEGORY_MUTATION_ERROR_ID : undefined}
+                  externallyInvalid={submitError != null}
                 />
               )}
             </form.AppField>
@@ -144,7 +149,9 @@ export function NewCategoryForm({
           )}
         </form.AppField>
 
-        {submitError ? <FieldError>{submitError}</FieldError> : null}
+        {submitError ? (
+          <FieldError id={CATEGORY_MUTATION_ERROR_ID}>{submitError}</FieldError>
+        ) : null}
 
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(isSubmitting) => (

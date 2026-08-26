@@ -339,10 +339,13 @@ describe("CategoryNew — mutation errors", () => {
     await user.click(screen.getByRole("button", { name: "Teal" }));
     await user.click(screen.getByRole("button", { name: "Add category" }));
 
+    const name = screen.getByLabelText(/New expense category/);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       MUTATION_ERRORS.categoryNameDuplicate.message,
     );
-    expect(screen.getByLabelText<HTMLInputElement>(/New expense category/).value).toBe("Groceries");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAttribute("aria-describedby", "category-error");
+    expect(name).toHaveValue("Groceries");
     expect(screen.getByRole("button", { name: "Teal", pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
     expect(posthogSdk.capture).not.toHaveBeenCalled();
@@ -356,10 +359,14 @@ describe("CategoryNew — mutation errors", () => {
     await user.click(screen.getByRole("button", { name: "Teal" }));
     await user.click(screen.getByRole("button", { name: "Add category" }));
 
+    const name = screen.getByLabelText(/New expense category/);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Couldn't create the category/i);
     expect(alert).not.toHaveTextContent(/Network down/);
-    expect(screen.getByLabelText<HTMLInputElement>(/New expense category/).value).toBe("Groceries");
+    expect(alert).toHaveAttribute("id", "category-error");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAttribute("aria-describedby", "category-error");
+    expect(name).toHaveValue("Groceries");
     expect(screen.getByRole("button", { name: "Teal", pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
     expect(posthogSdk.capture).not.toHaveBeenCalled();

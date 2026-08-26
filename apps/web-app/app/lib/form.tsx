@@ -31,6 +31,8 @@ function TextField({
   maxLength,
   autoComplete = "off",
   onUserChange,
+  describedBy,
+  externallyInvalid = false,
 }: {
   id: string;
   label: string;
@@ -39,8 +41,16 @@ function TextField({
   autoComplete?: string;
   /** Runs when the User edits the value — e.g. clear a stale mutation error. */
   onUserChange?: () => void;
+  /** Extra description id(s) — e.g. a form-level mutation error tied to this field. */
+  describedBy?: string;
+  /** Extra invalid signal from a form-level error associated with this field. */
+  externallyInvalid?: boolean;
 }) {
-  const { field, invalid, errors } = useFieldReveal();
+  const { field, invalid: fieldInvalid, errors } = useFieldReveal();
+  const invalid = fieldInvalid || externallyInvalid;
+  const fieldErrorId = `${id}-error`;
+  const ariaDescribedBy =
+    [fieldInvalid ? fieldErrorId : undefined, describedBy].filter(Boolean).join(" ") || undefined;
   return (
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -56,8 +66,9 @@ function TextField({
         placeholder={placeholder}
         autoComplete={autoComplete}
         aria-invalid={invalid}
+        aria-describedby={ariaDescribedBy}
       />
-      <FieldError errors={invalid ? errors : undefined} />
+      <FieldError id={fieldErrorId} errors={fieldInvalid ? errors : undefined} />
     </Field>
   );
 }
