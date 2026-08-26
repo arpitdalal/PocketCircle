@@ -7,14 +7,32 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-08-26
+
 ### Added
 
-- Duplicate a transaction from Transaction Detail: start from a recent
-  transaction, review the copy, and save it as a separate entry. Cancel and
-  success keep the Back chain through the source Detail.
-- A rare, dismissible Feature Announcement card can point existing Users at
-  Duplicate from Home, Circle Dashboard, Ledger, or Categories. Following the
-  CTA or closing the card acknowledges it across devices.
+- Home now includes Add transaction for recording an expense or income in any
+  active Circle.
+- Transaction Detail now includes Duplicate for creating a new transaction from
+  an existing one.
+- Added a What's new page for current and previous release notes, linked from
+  the account menu and Settings.
+- The Notification Center now has Unread and All views with full notification
+  history.
+
+### Changed
+
+- Google sign-in now asks which account to use each time. The sign-in page also
+  shows a masked reminder of the last Google account used on that device.
+- Income, expense, and net totals and cash-flow charts now animate when the
+  selected period or currency changes. Reduced-motion preferences disable these
+  animations.
+
+### Fixed
+
+- Mark all read now clears the full unread backlog instead of only the first
+  page.
+- Cash-flow totals and charts no longer disappear while a new selection loads.
 
 ## [v0.2.0] - 2026-08-17
 

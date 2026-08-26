@@ -50,6 +50,22 @@ Use Keep a Changelog categories only when populated: `Added`, `Changed`,
 
 - Lead with observable outcome, use plain language, and combine related
   implementation work into one bullet.
+- Write release notes, not instructions. State the durable product change; do
+  not guide the reader through clicks, navigation, success paths, or edge-case
+  handling.
+- Name the affected product area and what it now does. Prefer concrete language
+  such as `Added`, `now has`, `shows`, `supports`, `animates`, `fixes`, or `no
+  longer`.
+- Use the product's visible terms. Replace engineering or marketing language
+  such as `route`, `state`, `surface`, `transition`, and `CTA` with the words a
+  customer sees. When describing motion, say `animate`, not `transition`.
+- Keep supporting behavior only when it defines the feature, fixes a reported
+  problem, or requires customer action. Omit incidental recovery, navigation,
+  persistence, and eligibility details.
+- Exclude announcements that only advertise another shipped feature. Record
+  the feature itself.
+- Verify absolute claims such as `all`, `always`, `every`, `full`, and `never`
+  against the code and tests. Narrow the claim when the evidence is narrower.
 - Include migration/action required for a breaking change. Do not bury security
   issues, removals, or incompatibilities.
 - Exclude refactors, CI, generated files, dependency bumps, observability, and
@@ -58,6 +74,16 @@ Use Keep a Changelog categories only when populated: `Added`, `Changed`,
   commit SHAs in customer-facing bullets.
 - Preserve existing history exactly. Keep `## [Unreleased]` at the top. A
   versioned section uses `## [vX.Y.Z] - YYYY-MM-DD`, latest first.
+
+### Voice examples
+
+| Avoid | Use |
+| --- | --- |
+| `Add an expense or income from Home without opening a Circle first. Choose the Circle in the form, then review the saved transaction before returning to where you started.` | `Home now includes Add transaction for recording an expense or income in any active Circle.` |
+| `Duplicate a transaction from Transaction Detail. Review the copy before saving; PocketCircle flags categories or payers it could not carry over.` | `Transaction Detail now includes Duplicate for creating a new transaction from an existing one.` |
+| `Filter the Notification Center between Unread and All, then scroll through older notifications.` | `The Notification Center now has Unread and All views with full notification history.` |
+| `Income, expense, and net totals transition when the selected period changes.` | `Income, expense, and net totals now animate when the selected period changes.` |
+| `Some returning users will see a dismissible announcement for Duplicate Transaction.` | Omit it. The announcement only advertises Duplicate Transaction. |
 
 Present the baseline, evidence reviewed, included/excluded changes, and the
 full proposed Markdown. Wait for explicit approval before editing.
