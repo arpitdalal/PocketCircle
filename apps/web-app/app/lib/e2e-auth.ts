@@ -146,6 +146,12 @@ export function installE2EAuthHelper(): void {
         await convex.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, { createdAt });
       },
 
+      /** Current User's acknowledged Feature Announcement IDs (server-truth). */
+      async acknowledgedFeatureAnnouncementIds() {
+        const user = await convex.query(api.users.getCurrentUser, {});
+        return user?.acknowledgedFeatureAnnouncementIds ?? [];
+      },
+
       /**
        * Acknowledge every registered Feature Announcement ID. Default E2E
        * sessions call this so the corner card cannot block product-flow tests

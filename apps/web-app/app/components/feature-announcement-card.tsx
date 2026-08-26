@@ -48,7 +48,6 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   const { installSurfaceOpen } = usePwaInstall();
   const acknowledge = useAcknowledgeFeatureAnnouncement();
   const titleId = useId();
-  const [liveMessage, setLiveMessage] = useState("");
 
   const announcement = activeFeatureAnnouncement();
   const scope = featureAnnouncementRouteScope(location.pathname);
@@ -74,6 +73,14 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   // Genuinely visible: mounted card not covered by soft promo or iOS instructions.
   const liveVisible = Boolean(visible) && !installSurfaceOpen;
   const liveAnnouncementId = liveVisible && announcement ? announcement.id : null;
+
+  // Seed from the first paint when already live (cached source): useValueChange only
+  // fires on transitions, so an initially-live card would otherwise stay silent.
+  const [liveMessage, setLiveMessage] = useState(
+    liveAnnouncementId && announcement
+      ? `${announcement.label}. ${announcement.title}. ${announcement.body}`
+      : "",
+  );
 
   useValueChange(liveAnnouncementId, (current) => {
     if (current && announcement) {

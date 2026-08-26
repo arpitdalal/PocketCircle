@@ -83,6 +83,11 @@ describe("FeatureAnnouncementCard", () => {
       "href",
       "/circles/trip-abc/transactions/shop-xyz?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3",
     );
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
+    ).toBe(true);
   });
 
   it("renders nothing while loading, with no source, for new Users, or when acknowledged", () => {

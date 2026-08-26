@@ -134,12 +134,27 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
     await card.getByRole("button", { name: "Close" }).click();
     await expect(card).toHaveCount(0);
 
-    // Optimistic hide can race the Convex write — poll reload until ack sticks.
-    await expect(async () => {
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-      await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
-    }).toPass({ timeout: 15_000 });
+    // Wait for the Convex mutation to commit over WS before reload — an early
+    // reload aborts the in-flight write and the optimistic hide never persists.
+    await expect
+      .poll(async () => {
+        return page.evaluate(async () => {
+          const helper = Reflect.get(globalThis, "__scE2E");
+          if (typeof helper !== "object" || helper === null) {
+            throw new Error("missing __scE2E");
+          }
+          const readIds = Reflect.get(helper, "acknowledgedFeatureAnnouncementIds");
+          if (typeof readIds !== "function") {
+            throw new Error("missing acknowledgedFeatureAnnouncementIds");
+          }
+          return Reflect.apply(readIds, helper, []);
+        });
+      })
+      .toContain("duplicate-transaction");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
   } finally {
     await context.close();
   }
