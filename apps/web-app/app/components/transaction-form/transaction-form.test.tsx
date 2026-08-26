@@ -210,7 +210,7 @@ describe("TransactionForm — create", () => {
     await user.type(within(form).getByLabelText("Title"), "Weekly shop");
     await user.type(within(form).getByLabelText(/Amount/), "12.5");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(createTransaction).toHaveBeenCalledWith({
       circleId: "c1",
@@ -243,6 +243,7 @@ describe("TransactionForm — create", () => {
         categoryIds: ["cat-groceries"],
         paidByMemberId: undefined,
       },
+      intent: "save",
     });
     expect(onCancel).not.toHaveBeenCalled(); // a save is never a Cancel
   });
@@ -262,7 +263,7 @@ describe("TransactionForm — create", () => {
     await user.type(within(form).getByLabelText("Title"), "Back-dated");
     await user.type(within(form).getByLabelText(/Amount/), "10");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(createTransaction).toHaveBeenCalledWith(expect.objectContaining({ date: "2026-03-01" }));
   });
 
@@ -287,7 +288,7 @@ describe("TransactionForm — create", () => {
     await user.type(within(form).getByLabelText(/Amount/), "20");
     await pickTransactionFormCategory(user, form, "Groceries");
     await user.selectOptions(within(form).getByLabelText("Paid by"), "mem-alex");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(createTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ paidByMemberId: "mem-alex" }),
@@ -315,7 +316,7 @@ describe("TransactionForm — create", () => {
 
     members.splice(1, 1); // Yuki removed mid-form
     rerenderForm();
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(await within(form).findByText(/no longer a member/i)).toBeInTheDocument();
     expect(createTransaction).not.toHaveBeenCalled();
@@ -330,7 +331,7 @@ describe("TransactionForm — create", () => {
       },
     );
     const form = screen.getByRole("form", { name: /add expense/i });
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(await within(form).findByText("Title is required")).toBeInTheDocument();
     expect(within(form).getByText("Amount is required")).toBeInTheDocument();
@@ -401,7 +402,7 @@ describe("TransactionForm — create", () => {
 
     expect(within(form).getByText(/Snacks · archived/)).toBeInTheDocument();
     expect(within(form).getByRole("alert")).toHaveTextContent(/"Snacks" was archived/);
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(createTransaction).not.toHaveBeenCalled();
 
     await user.click(within(form).getByRole("button", { name: /Remove Snacks/ }));
@@ -423,7 +424,7 @@ describe("TransactionForm — create", () => {
     await user.type(within(form).getByLabelText("Title"), "Weekly shop");
     await user.type(within(form).getByLabelText(/Amount/), "10");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Couldn't save the transaction/i);
@@ -463,7 +464,7 @@ describe("TransactionForm — create", () => {
     await user.type(within(form).getByLabelText("Title"), "Movie night");
     await user.type(within(form).getByLabelText(/Amount/), "10");
     await inlineCreateTransactionFormCategory(user, form, "Snacks");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(createCategory).toHaveBeenCalledWith({
       circleId: "c1",
@@ -710,9 +711,188 @@ describe("TransactionForm — create", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onComplete).not.toHaveBeenCalled();
   });
+
+  it("exposes Save as the native submit and Save & new as the alternate typed intent", async () => {
+    const user = userEvent.setup();
+    renderCreate(
+      { type: "expense" },
+      { categories: [makeCategoryView({ name: "Groceries", type: "expense" })] },
+    );
+    const form = screen.getByRole("form", { name: /add expense/i });
+    expect(within(form).getByRole("button", { name: "Save" })).toHaveAttribute("type", "submit");
+    expect(within(form).getByRole("button", { name: "Save & new" })).toHaveAttribute(
+      "type",
+      "button",
+    );
+    await user.type(within(form).getByLabelText("Title"), "x");
+    await user.type(within(form).getByLabelText(/Amount/), "1");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+    expect(posthogSdk.capture).toHaveBeenCalledWith("save_and_new_clicked", {
+      entity: "transaction",
+      surface: "circle_scoped",
+    });
+  });
+
+  it("Save & new creates once, resets the draft, and completes with stay intent", async () => {
+    const user = userEvent.setup();
+    const { onComplete, onCancel } = renderCreate(
+      { type: "expense" },
+      {
+        categories: [makeCategoryView({ name: "Groceries", type: "expense" })],
+        selectedMonth: "2026-03",
+        members: [
+          makeMemberView(),
+          makeMemberView({
+            id: testId<Member["id"]>("mem-alex"),
+            displayName: "Alex",
+            isSelf: false,
+          }),
+        ],
+      },
+    );
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "First");
+    await user.type(within(form).getByLabelText(/Amount/), "10");
+    await user.type(within(form).getByLabelText(/Note/), "keep?");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.selectOptions(within(form).getByLabelText("Paid by"), "mem-alex");
+    await user.clear(within(form).getByLabelText("Date"));
+    await user.type(within(form).getByLabelText("Date"), "2026-03-15");
+
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    expect(createTransaction).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "created", intent: "save_and_new" }),
+    );
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).toHaveBeenCalledWith(
+      "transaction_added",
+      expect.objectContaining({ surface: "circle_scoped", method: "manual" }),
+    );
+
+    await waitFor(() => {
+      expect(within(form).getByLabelText("Title")).toHaveValue("");
+    });
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("");
+    expect(within(form).getByLabelText(/Note/)).toHaveValue("");
+    expect(within(form).getByLabelText("Date")).toHaveValue("2026-03-01");
+    expect(
+      within(form).queryByRole("button", { name: /Remove Groceries/ }),
+    ).not.toBeInTheDocument();
+    // Empty paidByMemberId displays as self via displayValueFallback.
+    expect(within(form).getByLabelText("Paid by")).toHaveDisplayValue(/You/);
+  });
+
+  it("keeps an inline-created Category available but unselected after Save & new reset", async () => {
+    const user = userEvent.setup();
+    createCategory.mockResolvedValue(testId<Category["id"]>("cat-new"));
+    const { onComplete } = renderCreate(
+      { type: "expense" },
+      { categories: [makeCategoryView({ name: "Groceries", type: "expense" })] },
+    );
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "Inline then stay");
+    await user.type(within(form).getByLabelText(/Amount/), "5");
+    await inlineCreateTransactionFormCategory(user, form, "Brand New");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    await waitFor(() => {
+      expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ intent: "save_and_new" }));
+    });
+    expect(within(form).getByLabelText("Title")).toHaveValue("");
+    expect(
+      within(form).queryByRole("button", { name: /Remove Brand New/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(form).getByRole("combobox", { name: "Categories" }));
+    expect(await screen.findByRole("option", { name: "Brand New" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+  });
+
+  it("failed validation on Save & new preserves the draft and emits the click event only", async () => {
+    const user = userEvent.setup();
+    const { onComplete } = renderCreate(
+      { type: "expense" },
+      { categories: [makeCategoryView({ name: "Groceries", type: "expense" })] },
+    );
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "Incomplete");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    expect(await within(form).findByText("Amount is required")).toBeInTheDocument();
+    expect(within(form).getByLabelText("Title")).toHaveValue("Incomplete");
+    expect(createTransaction).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).toHaveBeenCalledWith("save_and_new_clicked", {
+      entity: "transaction",
+      surface: "circle_scoped",
+    });
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith("transaction_added", expect.anything());
+  });
+
+  it("failed mutation on Save & new preserves the draft and shows no success feedback", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { onComplete } = renderCreate(
+      { type: "expense" },
+      { categories: [makeCategoryView({ name: "Groceries", type: "expense" })] },
+    );
+    createTransaction.mockRejectedValueOnce(new Error("Network down"));
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "Will fail");
+    await user.type(within(form).getByLabelText(/Amount/), "9");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    expect(await within(form).findByText(/Couldn't save the transaction/i)).toBeInTheDocument();
+    expect(within(form).getByLabelText("Title")).toHaveValue("Will fail");
+    expect(within(form).getByLabelText(/Amount/)).toHaveValue("9.00");
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).toHaveBeenCalledWith("save_and_new_clicked", {
+      entity: "transaction",
+      surface: "circle_scoped",
+    });
+    expect(posthogSdk.capture).not.toHaveBeenCalledWith("transaction_added", expect.anything());
+    consoleError.mockRestore();
+  });
+
+  it("locks both submit actions during an in-flight Save & new mutation", async () => {
+    const user = userEvent.setup();
+    const pending = deferredValue<string>();
+    renderCreate(
+      { type: "expense" },
+      { categories: [makeCategoryView({ name: "Groceries", type: "expense" })] },
+    );
+    createTransaction.mockReturnValueOnce(pending.promise);
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "Pending");
+    await user.type(within(form).getByLabelText(/Amount/), "3");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    expect(await within(form).findByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(within(form).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(form).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    // Only the activated action shows Saving…
+    expect(within(form).getByRole("button", { name: "Save" })).toHaveTextContent("Save");
+
+    pending.resolve("new-id");
+    await waitFor(() => {
+      expect(within(form).getByRole("button", { name: "Save & new" })).toBeEnabled();
+    });
+  });
 });
 
 describe("TransactionForm — edit (TXN-2)", () => {
+  it("never renders Save & new and retains Save changes", () => {
+    renderEdit({ title: "Weekly shop" });
+    const form = screen.getByRole("form", { name: /edit transaction/i });
+    expect(within(form).getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    expect(within(form).queryByRole("button", { name: "Save & new" })).not.toBeInTheDocument();
+  });
+
   it("prefills from the saved Transaction", () => {
     renderEdit({ title: "Weekly shop", amountMinorUnits: 1250, date: "2026-05-15" });
     const form = screen.getByRole("form", { name: /edit transaction/i });

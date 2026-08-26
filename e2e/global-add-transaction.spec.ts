@@ -3,7 +3,11 @@ import {
   expect,
   inlineCreateFormCategory,
   openHome,
+  openPersonalCircleFromHome,
+  pickFormCategory,
   returnFromTransactionDetail,
+  saveAndNewButton,
+  saveButton,
   selectGlobalAddCircle,
   test,
 } from "./fixtures.js";
@@ -62,7 +66,7 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   await titleField.fill(title);
   await form.getByLabel(/Amount/).fill("12.50");
   await inlineCreateFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await saveButton(form).click();
 
   await expect(page.getByRole("heading", { level: 2, name: title })).toBeVisible();
   expect(page.url()).toContain("/transactions/");
@@ -71,6 +75,53 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   await returnFromTransactionDetail(page);
   await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
   expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(homePathAndSearch);
+});
+
+test("Global Add Save & new then Save keeps both Transactions and the Detail return chain", async ({
+  page,
+}, testInfo) => {
+  const stamp = `${Date.now()}-${testInfo.project.name}`;
+  const categoryName = `GA SN Cat ${stamp}`.slice(0, 40);
+  const firstTitle = `GA First ${stamp}`;
+  const secondTitle = `GA Second ${stamp}`;
+
+  await openHome(page);
+  const homePathAndSearch = new URL(page.url()).pathname + new URL(page.url()).search;
+
+  await page.getByRole("link", { name: "Add transaction" }).click();
+  await selectGlobalAddCircle(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const form = page.getByRole("form", { name: /add expense/i });
+  await assertNoHorizontalOverflow(page);
+
+  await form.getByLabel("Title").fill(firstTitle);
+  await form.getByLabel(/Amount/).fill("5.00");
+  await inlineCreateFormCategory(page, form, categoryName);
+  await saveAndNewButton(form).click();
+
+  await expect(page.getByText("Transaction added. Ready for another.")).toBeVisible();
+  await expect(form.getByLabel("Title")).toHaveValue("");
+  await expect(form.getByLabel("Title")).toBeFocused();
+  expect(page.url()).toContain("/transactions/new");
+  await assertNoHorizontalOverflow(page);
+
+  await form.getByLabel("Title").fill(secondTitle);
+  await form.getByLabel(/Amount/).fill("7.00");
+  await pickFormCategory(page, form, categoryName);
+  await saveButton(form).click();
+
+  await expect(page.getByRole("heading", { level: 2, name: secondTitle })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/?currency=USD&range=3");
+
+  await returnFromTransactionDetail(page);
+  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(homePathAndSearch);
+
+  // Both independent Transactions exist on the Personal Circle ledger.
+  await openPersonalCircleFromHome(page);
+  await expect(page.getByRole("listitem").filter({ hasText: firstTitle })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: secondTitle })).toBeVisible();
 });
 
 test("Cancel from Global Add returns to the exact Home origin", async ({ page }) => {

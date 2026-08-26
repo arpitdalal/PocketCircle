@@ -5,6 +5,8 @@ import {
   createRegularCircleAndFinishSetup,
   expect,
   openPersonalCircleFromHome,
+  saveAndNewButton,
+  saveButton,
   test,
 } from "./fixtures.js";
 
@@ -35,6 +37,38 @@ test("a member creates a category and sees it in the live list", async ({ page }
 
   // The reactive list shows the new Category once back on the list, no reload.
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
+});
+
+test("Save & new then Save creates two independent Categories on the list", async ({ page }) => {
+  const nonce = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const first = `E2E SN First ${nonce}`;
+  const second = `E2E SN Second ${nonce}`;
+
+  await openPersonalCircleFromHome(page);
+  await clickCircleChromeTab(page, "Categories");
+
+  await page.getByRole("link", { name: "New category" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const form = page.getByRole("form", { name: "New category" });
+  await form.getByLabel(/New expense category/).fill(first);
+  await saveAndNewButton(form).click();
+
+  await expect(page.getByText("Category added. Ready for another.")).toBeVisible();
+  await expect(form.getByLabel(/New expense category/)).toHaveValue("");
+  await expect(form.getByLabel(/New expense category/)).toBeFocused();
+  expect(page.url()).toContain("/categories/new");
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+
+  await form.getByLabel(/New expense category/).fill(second);
+  await saveButton(form).click();
+  await page.waitForURL(/\/categories(?:\?|$)/);
+
+  await expect(page.getByRole("listitem").filter({ hasText: first })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: second })).toBeVisible();
 });
 
 /**
@@ -84,7 +118,7 @@ test("the server rejects a duplicate name inline", async ({ page }) => {
   // which stays put (the one user-fixable error) rather than navigating back to the list.
   await page.getByRole("link", { name: "New category" }).click();
   await page.getByLabel(/New expense category/).fill(name.toUpperCase());
-  await page.getByRole("button", { name: "Add category" }).click();
+  await saveButton(page).click();
   await expect(page.getByRole("alert")).toHaveText(/already exists/i);
 });
 
@@ -110,7 +144,7 @@ test("a member edits, archives, and restores a category and sees its history", a
   await page.getByRole("button", { name: `Edit ${name}` }).click();
   const editForm = page.getByRole("form", { name: `Edit ${name}` });
   await editForm.getByLabel("Name").fill(renamed);
-  await editForm.getByRole("button", { name: "Save" }).click();
+  await saveButton(editForm).click();
   await expect(page.getByRole("listitem").filter({ hasText: renamed })).toBeVisible();
 
   // The history panel shows the edit over the create, newest first.

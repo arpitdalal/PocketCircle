@@ -62,6 +62,9 @@ export function TransactionFormBody({
     setDestinationTransitionLocked,
     resetWarnings,
     clearResetWarning,
+    activeSubmitIntent,
+    draftGeneration,
+    requestSaveAndNew,
   } = controller;
 
   const warningFor = (field: TransactionResetField) => {
@@ -74,6 +77,7 @@ export function TransactionFormBody({
       onSubmit={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        // Enter / native submit → ordinary Save (default onSubmitMeta).
         void form.handleSubmit();
       }}
       aria-label={isEdit ? "Edit transaction" : `Add ${TYPE_LABEL[activeType].toLowerCase()}`}
@@ -129,7 +133,7 @@ export function TransactionFormBody({
           </div>
 
           <TransactionFormCategorySection
-            key={`${circle?.id ?? ""}:${activeType}`}
+            key={`${circle?.id ?? ""}:${activeType}:${draftGeneration}`}
             circleId={circle?.id ?? null}
             categoryById={categoryById}
             alreadyAttached={alreadyAttached}
@@ -175,9 +179,10 @@ export function TransactionFormBody({
 
         <form.SubmitRow
           isEdit={isEdit}
-          activeTypeLabel={TYPE_LABEL[activeType]}
           onCancel={onCancel}
           disabled={!destinationReady}
+          onSaveAndNew={isEdit ? undefined : requestSaveAndNew}
+          activeSubmitIntent={activeSubmitIntent}
         />
       </form.AppForm>
     </form>

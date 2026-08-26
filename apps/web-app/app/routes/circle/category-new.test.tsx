@@ -167,7 +167,7 @@ describe("CategoryNew — type toggle", () => {
       screen.getByRole("button", { name: initialColor.name, pressed: true }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(createCategory).toHaveBeenCalledWith({
       circleId: "c1",
       name: "Bonus",
@@ -183,7 +183,7 @@ describe("CategoryNew — type toggle", () => {
       new ConvexError(mutationErrorData(MUTATION_ERRORS.categoryNameDuplicate)),
     );
     await user.type(screen.getByLabelText(/New expense category/), "Groceries");
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       MUTATION_ERRORS.categoryNameDuplicate.message,
     );
@@ -199,7 +199,7 @@ describe("CategoryNew — validation timing (ADR 0020)", () => {
   it("reveals Name is required on an invalid submit attempt and does not mutate", async () => {
     const user = userEvent.setup();
     setup();
-    const submit = screen.getByRole("button", { name: "Add category" });
+    const submit = screen.getByRole("button", { name: "Save" });
     expect(submit).toBeEnabled();
     await user.click(submit);
 
@@ -252,7 +252,7 @@ describe("CategoryNew — submit", () => {
     setup();
     await user.type(screen.getByLabelText(/New expense category/), "  Dining  ");
     await user.click(screen.getByRole("button", { name: "Teal" }));
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(createCategory).toHaveBeenCalledWith({
       circleId: "c1",
@@ -267,11 +267,52 @@ describe("CategoryNew — submit", () => {
     expect(posthogSdk.capture).toHaveBeenCalledTimes(1);
   });
 
+  it("Save & new stays, clears Name, rolls Color, preserves Type, snackbar + Name focus", async () => {
+    const user = userEvent.setup();
+    const { location } = setup();
+    const name = screen.getByLabelText(/New expense category/);
+    await user.type(name, "First");
+    await user.click(screen.getByRole("button", { name: "Teal" }));
+    expect(screen.getByRole("button", { name: "Teal" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Save & new" }));
+
+    await waitFor(() => expect(createCategory).toHaveBeenCalledTimes(1));
+    expect(location()).toContain("/categories/new");
+    expect(await screen.findByText("Category added. Ready for another.")).toBeInTheDocument();
+    expect(posthogSdk.capture).toHaveBeenCalledWith("save_and_new_clicked", {
+      entity: "category",
+      surface: "circle_scoped",
+    });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("category_created", {
+      type: "expense",
+      source: "standalone",
+    });
+    await waitFor(() => expect(name).toHaveValue(""));
+    expect(name).toHaveFocus();
+    expect(
+      within(screen.getByRole("group", { name: "Type" })).getByRole("button", {
+        name: "Expense",
+        pressed: true,
+      }),
+    ).toBeInTheDocument();
+    // A palette color remains selected (fresh random — may or may not be Teal).
+    expect(
+      COLOR_PALETTE.some(
+        (color) =>
+          screen.getByRole("button", { name: color.name }).getAttribute("aria-pressed") === "true",
+      ),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(location()).toBe(LIST_ORIGIN);
+  });
+
   it("deep-links the income type from the URL into the mutation", async () => {
     const user = userEvent.setup();
     setup({ url: `/circles/${REF}/categories/new?type=income&returnTo=${LIST}` });
     await user.type(screen.getByLabelText(/New income category/), "Bonus");
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ type: "income" }));
   });
@@ -295,10 +336,11 @@ describe("CategoryNew — submit", () => {
     createCategory.mockImplementation(() => pending.promise);
 
     await user.type(screen.getByLabelText(/New expense category/), "Dining");
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    const busy = await screen.findByRole("button", { name: "Adding…" });
+    const busy = await screen.findByRole("button", { name: "Saving…" });
     expect(busy).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save & new" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(createCategory).toHaveBeenCalledTimes(1);
 
@@ -307,7 +349,7 @@ describe("CategoryNew — submit", () => {
 
     pending.resolve("new-id");
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Adding…" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: "Saving…" })).not.toBeInTheDocument(),
     );
   });
 });
@@ -317,7 +359,7 @@ describe("CategoryNew — return navigation", () => {
     const user = userEvent.setup();
     const { location } = setup();
     await user.type(screen.getByLabelText(/New expense category/), "Dining");
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createCategory).toHaveBeenCalled());
     await waitFor(() => expect(location()).toBe(LIST_ORIGIN));
@@ -356,7 +398,7 @@ describe("CategoryNew — mutation errors", () => {
     );
     await user.type(screen.getByLabelText(/New expense category/), "Groceries");
     await user.click(screen.getByRole("button", { name: "Teal" }));
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     const name = screen.getByLabelText(/New expense category/);
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -366,7 +408,7 @@ describe("CategoryNew — mutation errors", () => {
     expect(name).toHaveAttribute("aria-describedby", "category-error");
     expect(name).toHaveValue("Groceries");
     expect(screen.getByRole("button", { name: "Teal", pressed: true })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
@@ -376,7 +418,7 @@ describe("CategoryNew — mutation errors", () => {
     createCategory.mockRejectedValueOnce(new Error("Network down"));
     await user.type(screen.getByLabelText(/New expense category/), "Groceries");
     await user.click(screen.getByRole("button", { name: "Teal" }));
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     const name = screen.getByLabelText(/New expense category/);
     const alert = await screen.findByRole("alert");
@@ -387,7 +429,7 @@ describe("CategoryNew — mutation errors", () => {
     expect(name).toHaveAttribute("aria-describedby", "category-error");
     expect(name).toHaveValue("Groceries");
     expect(screen.getByRole("button", { name: "Teal", pressed: true })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
@@ -401,7 +443,7 @@ describe("CategoryNew — mutation errors", () => {
       .mockResolvedValueOnce("new-id");
 
     await user.type(screen.getByLabelText(/New expense category/), "Groceries");
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       MUTATION_ERRORS.categoryNameDuplicate.message,
     );
@@ -409,7 +451,7 @@ describe("CategoryNew — mutation errors", () => {
     await user.type(screen.getByLabelText(/New expense category/), " weekly");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(createCategory).toHaveBeenLastCalledWith(
         expect.objectContaining({ name: "Groceries weekly" }),

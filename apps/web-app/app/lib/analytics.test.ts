@@ -352,6 +352,69 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("circle_created", { currency: "EUR" });
   });
 
+  it("captures save_and_new_clicked only with the exact entity/surface matrix", () => {
+    initAnalytics(readyUser);
+
+    const transactionGlobal = { entity: "transaction", surface: "global" } as const;
+    const categoryScoped = { entity: "category", surface: "circle_scoped" } as const;
+    expect(sanitizeAnalyticsProps("save_and_new_clicked", transactionGlobal)).toEqual(
+      transactionGlobal,
+    );
+    expect(sanitizeAnalyticsProps("save_and_new_clicked", categoryScoped)).toEqual(categoryScoped);
+    track("save_and_new_clicked", transactionGlobal);
+    expect(posthogSdk.capture).toHaveBeenLastCalledWith("save_and_new_clicked", transactionGlobal);
+  });
+
+  it("rejects invalid save_and_new_clicked payloads", () => {
+    initAnalytics(readyUser);
+
+    expect(
+      sanitizeAnalyticsProps("save_and_new_clicked", {
+        // @ts-expect-error intentional unsupported entity
+        entity: "circle",
+        surface: "global",
+      }),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps("save_and_new_clicked", {
+        entity: "transaction",
+        // @ts-expect-error intentional unsupported surface
+        surface: "home",
+      }),
+    ).toBeNull();
+    expect(
+      sanitizeAnalyticsProps(
+        "save_and_new_clicked",
+        // @ts-expect-error intentionally missing surface
+        { entity: "transaction" },
+      ),
+    ).toBeNull();
+    // Category create has no global surface — discriminated payload rejects the pair.
+    expect(
+      sanitizeAnalyticsProps(
+        "save_and_new_clicked",
+        // @ts-expect-error intentional invalid category/global combo
+        { entity: "category", surface: "global" },
+      ),
+    ).toBeNull();
+    // Forbidden / unknown extras are stripped; only the exact allowlisted pair survives.
+    expect(
+      sanitizeAnalyticsProps("save_and_new_clicked", {
+        entity: "transaction",
+        surface: "global",
+        // @ts-expect-error intentional forbidden financial content
+        amount: 12,
+        title: "leak",
+      }),
+    ).toEqual({ entity: "transaction", surface: "global" });
+    track("save_and_new_clicked", {
+      // @ts-expect-error intentional unsupported entity
+      entity: "member",
+      surface: "circle_scoped",
+    });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
   it("captures transaction_added only with the full coarse payload incl. surface and method", () => {
     initAnalytics(readyUser);
 

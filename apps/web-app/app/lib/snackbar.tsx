@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, use, useCallback, useMemo, useState } from "react";
+import { createContext, type ReactNode, use, useCallback, useMemo, useRef, useState } from "react";
 
 /**
  * The closed vocabulary of non-revealing "unavailable" messages (ADR 0016/0017).
@@ -22,12 +22,29 @@ interface SnackbarContextValue {
 
 const SnackbarContext = createContext<SnackbarContextValue | null>(null);
 
+const SNACKBAR_LIFETIME_MS = 4000;
+
 export function SnackbarProvider({ children }: { children: ReactNode }) {
-  const [message, setMessage] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<{
+    message: string;
+    generation: number;
+  } | null>(null);
+  const generationRef = useRef(0);
+  const dismissCleanupRef = useRef<(() => void) | null>(null);
 
   const show = useCallback((next: string) => {
-    setMessage(next);
-    window.setTimeout(() => setMessage(null), 4000);
+    dismissCleanupRef.current?.();
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    setAnnouncement({ message: next, generation });
+    const timeoutId = window.setTimeout(() => {
+      setAnnouncement((current) => (current?.generation === generation ? null : current));
+      dismissCleanupRef.current = null;
+    }, SNACKBAR_LIFETIME_MS);
+    dismissCleanupRef.current = () => {
+      window.clearTimeout(timeoutId);
+      dismissCleanupRef.current = null;
+    };
   }, []);
 
   const showUnavailable = useCallback(
@@ -42,16 +59,19 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
   return (
     <SnackbarContext.Provider value={contextValue}>
       {children}
-      {message ? (
+      {announcement ? (
         // aria-live polite announcements — not role="status". The old <output> tag
         // exposed an implicit status landmark that collided with page-level status
         // regions (Members transfer success, invite confirmation, skeleton loaders).
+        // generation key remounts so identical successive messages re-announce and an
+        // older timeout cannot dismiss a newer message (issue #287).
         <div
+          key={announcement.generation}
           aria-live="polite"
           aria-atomic="true"
           className="fixed inset-x-0 bottom-4 z-60 mx-auto block w-fit max-w-[90vw] animate-slide-up rounded-lg border border-border bg-popover px-4 py-2.5 text-center text-sm text-popover-foreground shadow-lg"
         >
-          {message}
+          {announcement.message}
         </div>
       ) : null}
     </SnackbarContext.Provider>

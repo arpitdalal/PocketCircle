@@ -102,7 +102,7 @@ describe("TransactionNew — render", () => {
     await user.type(within(form).getByLabelText("Title"), "Lunch");
     await user.type(within(form).getByLabelText(/Amount/), "12.50");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createTransaction).toHaveBeenCalled());
     expect(createTransaction.mock.calls[0]?.[0]).toMatchObject({ type: "expense" });
@@ -117,7 +117,7 @@ describe("TransactionNew — render", () => {
     await user.type(within(form).getByLabelText("Title"), "Lunch");
     await user.type(within(form).getByLabelText(/Amount/), "1.00");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createTransaction).toHaveBeenCalled());
     expect(createTransaction.mock.calls[0]?.[0]?.date).toMatch(
@@ -174,10 +174,32 @@ describe("TransactionNew — return navigation", () => {
     await user.type(within(form).getByLabelText("Title"), "Lunch");
     await user.type(within(form).getByLabelText(/Amount/), "12.50");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createTransaction).toHaveBeenCalled());
     await waitFor(() => expect(location()).toBe(LEDGER_ORIGIN));
+  });
+
+  it("Save & new stays on the create URL, shows snackbar, focuses Title, and Cancel still returns", async () => {
+    const user = userEvent.setup();
+    const { location } = setup();
+    const form = screen.getByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "First stay");
+    await user.type(within(form).getByLabelText(/Amount/), "4");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(location()).toContain("/transactions/new");
+    expect(await screen.findByText("Transaction added. Ready for another.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(form).getByLabelText("Title")).toHaveValue("");
+    });
+    expect(within(form).getByLabelText("Title")).toHaveFocus();
+    expect(within(form).getByLabelText("Date")).toHaveValue("2026-05-01");
+
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(location()).toBe(LEDGER_ORIGIN);
   });
 
   it("falls back to the bare ledger when there is no returnTo", async () => {
@@ -235,14 +257,12 @@ describe("TransactionNew — submit errors (stay on the page)", () => {
     await user.type(within(form).getByLabelText("Title"), "Late entry");
     await user.type(within(form).getByLabelText(/Amount/), "10");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(
       await within(form).findByText(MUTATION_ERRORS.circleArchived.message),
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(within(form).getByRole("button", { name: "Add expense" })).toBeEnabled(),
-    );
+    await waitFor(() => expect(within(form).getByRole("button", { name: "Save" })).toBeEnabled());
   });
 
   it("treats a plain Error with archived message as a generic fallback", async () => {
@@ -253,7 +273,7 @@ describe("TransactionNew — submit errors (stay on the page)", () => {
     await user.type(within(form).getByLabelText("Title"), "Late entry");
     await user.type(within(form).getByLabelText(/Amount/), "10");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: "Add expense" }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     expect(
       await within(form).findByText("Couldn't save the transaction. Please try again."),

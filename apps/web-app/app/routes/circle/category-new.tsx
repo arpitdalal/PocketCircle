@@ -4,13 +4,15 @@ import { NewCategoryForm } from "~/components/category-form.js";
 import { Splash } from "~/components/splash.js";
 import { circlePath } from "~/lib/circle-path.js";
 import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
+import { useSnackbar } from "~/lib/snackbar.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
 /**
- * The new-Category route — `/circles/:circleRef/categories/new` (issue #96; revised #138).
- * A dedicated create page so the Categories list no longer renders a new-Category form
- * above its rows alongside per-row edit forms and history panels — the overload that issue
- * removed. Same static-segment + lifecycle pattern as `transaction-new.tsx`.
+ * The new-Category route — `/circles/:circleRef/categories/new` (issue #96; revised #138;
+ * Save & new #287). A dedicated create page so the Categories list no longer renders a
+ * new-Category form above its rows alongside per-row edit forms and history panels — the
+ * overload that issue removed. Same static-segment + lifecycle pattern as
+ * `transaction-new.tsx`.
  *
  * Own param: `type=expense|income` is now an OPTIONAL initial default for the form's
  * in-form type toggle (issue #138), not a hard requirement. The list's All filter deep-links
@@ -18,16 +20,16 @@ import { useCircle } from "~/routes/layouts/circle-layout.js";
  * concrete type. A missing / unrecognized `type` seeds `expense` — there's nothing to eject
  * over, since the toggle lets the user pick either type on the page.
  *
- * Close (cancel / successful save) and the archived-Circle redirect land on `returnTo` —
+ * Close (cancel / ordinary Save) and the archived-Circle redirect land on `returnTo` —
  * the categories list the CTA was opened FROM, with its type/status/search intact, or the
- * bare list when absent / malformed / out-of-scope. The server enforces writability anyway
- * (ADR 0015), but the page shouldn't offer a form every submit would reject. `closing` +
- * `Splash` keep the form from flashing while leaving.
+ * bare list when absent / malformed / out-of-scope. Save & new stays on this URL, preserves
+ * the validated origin, and the route owns the success snackbar + Name focus.
  */
 export default function CategoryNew() {
   const circle = useCircle();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { show } = useSnackbar();
   const writable = circle.status === "active";
 
   const listBase = circlePath(circle.ref, "categories");
@@ -42,6 +44,11 @@ export default function CategoryNew() {
   const close = () => {
     setClosing(true);
     navigate(returnUrl);
+  };
+
+  const onSaveAndNewComplete = () => {
+    show("Category added. Ready for another.");
+    document.getElementById("category-name")?.focus();
   };
 
   // Only an archived (read-only) Circle ejects — the form can't write there. Replace so the
@@ -60,5 +67,12 @@ export default function CategoryNew() {
     return <Splash label="Returning…" />;
   }
 
-  return <NewCategoryForm circleId={circle.id} initialType={initialType} onClose={close} />;
+  return (
+    <NewCategoryForm
+      circleId={circle.id}
+      initialType={initialType}
+      onClose={close}
+      onSaveAndNewComplete={onSaveAndNewComplete}
+    />
+  );
 }

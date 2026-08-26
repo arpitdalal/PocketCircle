@@ -7,17 +7,21 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";
-import { TransactionFormBody } from "~/components/transaction-form/transaction-form-body.js";
+import {
+  TransactionFormBody,
+  type TransactionFormResult,
+} from "~/components/transaction-form/index.js";
 import { useTransactionForm } from "~/components/transaction-form/use-transaction-form.js";
 import { circlePath } from "~/lib/circle-path.js";
 import type { Circle } from "~/lib/data.js";
 import { parseReturnTo, RETURN_TO_PARAM } from "~/lib/return-to-url.js";
+import { useSnackbar } from "~/lib/snackbar.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
 /**
- * The new-Transaction route — `/circles/:circleRef/transactions/new` (issue #96). A
- * dedicated create page so the ledger no longer stacks a create form above its rows,
- * mirroring `transaction-edit.tsx`'s lifecycle (the up-to-date object-route template).
+ * The new-Transaction route — `/circles/:circleRef/transactions/new` (issue #96; Save & new
+ * #287). A dedicated create page so the ledger no longer stacks a create form above its
+ * rows, mirroring `transaction-edit.tsx`'s lifecycle (the up-to-date object-route template).
  *
  * This route is a ROUTE ADAPTER (issue #297): it owns URL state (`type`, `month`,
  * `returnTo`), the guards, initialization timing, and navigation, then hands the
@@ -33,12 +37,11 @@ import { useCircle } from "~/routes/layouts/circle-layout.js";
  *     malformed month falls to the current month. This is the page's own create concern,
  *     distinct from `returnTo`.
  *
- * Close (cancel / successful save), the invalid-`type` guard, and the archived-Circle
- * redirect ALL land on the validated `returnTo` (issue #123): the exact filtered ledger
- * URL the CTA was opened FROM, or — when absent / malformed / out-of-scope — the Circle's
- * ledger (anti-enumeration). Unlike edit there is no target to resolve, so no resolver: a
- * create page has nothing to fetch by id. `closing` + `Splash` keep the form from
- * flashing while the close navigation is in flight, exactly as edit does.
+ * Close (cancel / ordinary Save), the invalid-`type` guard, and the archived-Circle
+ * redirect ALL land on the validated `returnTo` (issue #123). Save & new stays on this
+ * URL with Type/month/return origin intact; the route owns the success snackbar and
+ * Title focus. `closing` + `Splash` keep the form from flashing while the close
+ * navigation is in flight, exactly as edit does.
  */
 export default function TransactionNew() {
   const circle = useCircle();
@@ -57,7 +60,7 @@ export default function TransactionNew() {
   const rawMonth = searchParams.get("month");
   const month = isValidPlainMonth(rawMonth) ? rawMonth : currentMonth(new Date());
 
-  // Set the instant we begin leaving (cancel or successful save).
+  // Set the instant we begin leaving (cancel or ordinary save).
   const [closing, setClosing] = useState(false);
   const close = () => {
     setClosing(true);
@@ -96,9 +99,8 @@ export default function TransactionNew() {
 }
 
 /** The create-side adapter wiring: shared controller + shared body, no field tree here.
- * A successful create's completion result carries the new Transaction id and submitted
- * values for the route to build its canonical destination; THIS route's contract is its
- * historical one — close to the validated `returnTo` origin. */
+ * Ordinary Save closes to the validated `returnTo`; Save & new stays, snackbar + Title
+ * focus owned here. */
 function TransactionNewForm({
   circle,
   type,
@@ -110,13 +112,24 @@ function TransactionNewForm({
   selectedMonth: PlainMonth;
   onClose: () => void;
 }) {
+  const { show } = useSnackbar();
   const controller = useTransactionForm({
     kind: "create",
     circle,
     type,
     selectedMonth,
     analytics: { surface: "circle_scoped", method: "manual" },
-    onComplete: () => onClose(),
+    onComplete: (result: TransactionFormResult) => {
+      if (result.kind !== "created") {
+        return;
+      }
+      if (result.intent === "save_and_new") {
+        show("Transaction added. Ready for another.");
+        document.getElementById("txn-title")?.focus();
+        return;
+      }
+      onClose();
+    },
   });
   return <TransactionFormBody controller={controller} onCancel={onClose} />;
 }

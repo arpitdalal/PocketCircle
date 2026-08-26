@@ -1,6 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SnackbarProvider, useSnackbar } from "./snackbar.js";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // A tiny harness that surfaces the snackbar API as buttons, so the closed
 // vocabulary is exercised through the real provider/context rather than a double.
@@ -48,5 +52,32 @@ describe("snackbar unavailable vocabulary (ADR 0016)", () => {
     renderHarness();
     act(() => screen.getByText("show").click());
     expect(screen.getByText("Custom copy")).toBeInTheDocument();
+  });
+});
+
+describe("snackbar lifetime (issue #287)", () => {
+  it("restarts the four-second lifetime and re-announces identical successive messages", () => {
+    vi.useFakeTimers();
+    renderHarness();
+    act(() => screen.getByText("show").click());
+    expect(screen.getByText("Custom copy")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    // A second identical show restarts lifetime — the older timeout must not clear it.
+    act(() => screen.getByText("show").click());
+    expect(screen.getByText("Custom copy")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByText("Custom copy")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByText("Custom copy")).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

@@ -16,11 +16,14 @@ export type AnalyticsLifecycleStatus = LifecycleFilter;
 
 export type AnalyticsCategorySource = "standalone" | "transaction_inline";
 
-/** Which page surface a Transaction was added from — never a Circle or Transaction identity. */
+/** Which page surface a create happened on — never a Circle or object identity. */
 export type AnalyticsTransactionSurface = "circle_scoped" | "global";
 
 /** How the added Transaction was authored — manual entry or duplication of an existing one. */
 export type AnalyticsTransactionMethod = "manual" | "duplicate";
+
+/** Entity kind for the Save & new click intent event (issue #287). */
+export type AnalyticsSaveAndNewEntity = "transaction" | "category";
 
 export type AnalyticsExportResult = "downloaded" | "too_many" | "inaccessible" | "failed";
 
@@ -73,6 +76,10 @@ export type AnalyticsEventMap = {
     type: AnalyticsCategoryType;
     source: AnalyticsCategorySource;
   };
+  // Category create is circle-scoped only — no Global Category route (#287).
+  save_and_new_clicked:
+    | { entity: "transaction"; surface: AnalyticsTransactionSurface }
+    | { entity: "category"; surface: "circle_scoped" };
   ledger_filter_applied: {
     type: AnalyticsTransactionType;
     status: AnalyticsLifecycleStatus;
@@ -115,6 +122,7 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   circle_created: new Set(["currency"]),
   transaction_added: new Set(["type", "paidBySelf", "categoryCount", "surface", "method"]),
   category_created: new Set(["type", "source"]),
+  save_and_new_clicked: new Set(["entity", "surface"]),
   ledger_filter_applied: new Set([
     "type",
     "status",
@@ -193,6 +201,10 @@ function isAnalyticsTransactionMethod(value: unknown): value is AnalyticsTransac
   return value === "manual" || value === "duplicate";
 }
 
+function isAnalyticsSaveAndNewEntity(value: unknown): value is AnalyticsSaveAndNewEntity {
+  return value === "transaction" || value === "category";
+}
+
 function isAnalyticsExportResult(value: unknown): value is AnalyticsExportResult {
   return (
     value === "downloaded" || value === "too_many" || value === "inaccessible" || value === "failed"
@@ -238,6 +250,10 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
     case "category_created":
       if (key === "type") return isAnalyticsCategoryType(value);
       if (key === "source") return isAnalyticsCategorySource(value);
+      return false;
+    case "save_and_new_clicked":
+      if (key === "entity") return isAnalyticsSaveAndNewEntity(value);
+      if (key === "surface") return isAnalyticsTransactionSurface(value);
       return false;
     case "ledger_filter_applied":
     case "transaction_search_submitted":
@@ -310,6 +326,19 @@ function isCategoryCreatedPayload(
     isAnalyticsCategorySource(value.source) &&
     Object.keys(value).length === 2
   );
+}
+
+function isSaveAndNewClickedPayload(
+  value: Record<string, unknown>,
+): value is AnalyticsEventMap["save_and_new_clicked"] {
+  if (Object.keys(value).length !== 2 || !isAnalyticsTransactionSurface(value.surface)) {
+    return false;
+  }
+  if (value.entity === "transaction") {
+    return true;
+  }
+  // Category Save & new only exists on circle-scoped create — reject global.
+  return value.entity === "category" && value.surface === "circle_scoped";
 }
 
 function isLedgerFilterAppliedPayload(
@@ -410,6 +439,10 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["category_created"] | null;
 function toValidatedPayload(
+  event: "save_and_new_clicked",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["save_and_new_clicked"] | null;
+function toValidatedPayload(
   event: "ledger_filter_applied",
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["ledger_filter_applied"] | null;
@@ -465,6 +498,8 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
       return isTransactionAddedPayload(sanitized) ? sanitized : null;
     case "category_created":
       return isCategoryCreatedPayload(sanitized) ? sanitized : null;
+    case "save_and_new_clicked":
+      return isSaveAndNewClickedPayload(sanitized) ? sanitized : null;
     case "ledger_filter_applied":
       return isLedgerFilterAppliedPayload(sanitized) ? sanitized : null;
     case "transaction_search_submitted":
