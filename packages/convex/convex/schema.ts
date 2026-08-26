@@ -44,6 +44,9 @@ export default defineSchema({
     onboardingCompletedAt: v.union(v.number(), v.null()),
     // Set when the Welcome email is claimed/sent (EML-1); absent ⇒ not yet sent.
     welcomeSentAt: v.optional(v.number()),
+    // Feature Announcement IDs the User acknowledged via CTA or close (#282).
+    // Missing ≡ none. Allowed values are the shared domain registry.
+    acknowledgedFeatureAnnouncementIds: v.optional(v.array(v.string())),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -175,6 +178,8 @@ export default defineSchema({
     // active Ledger paginates date-desc (then created-at desc via _creationTime)
     // straight off the index — no in-memory sort of an unbounded set.
     .index("by_circle_status_date", ["circleId", "status", "date"])
+    // Newest active Transaction by record time (Feature Announcement CTA source, #282).
+    .index("by_circle_status_createdAt", ["circleId", "status", "createdAt"])
     // Ranges one Member's Transactions of one status by Transaction Date. Backs the
     // Dashboard's Paid By filter (RPT-3): the per-Member month totals/recent range
     // this index at the source instead of scanning the whole month and filtering in

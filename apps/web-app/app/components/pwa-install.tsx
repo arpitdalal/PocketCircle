@@ -182,6 +182,11 @@ interface PwaInstallContextValue {
   available: boolean;
   /** Soft install dialog — available and not yet dismissed. */
   showInstallPrompt: boolean;
+  /**
+   * Soft promo or iOS Home Screen instructions cover the app. Feature
+   * Announcements read this to delay live region + impression without unmounting.
+   */
+  installSurfaceOpen: boolean;
   /** Header shortcut — available after the soft prompt was dismissed. */
   showInstallHeaderButton: boolean;
   install: () => void;
@@ -204,12 +209,18 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     store.getServerSnapshot,
   );
   const [iosInstructionsOpen, setIosInstructionsOpen] = useState(false);
+  /** Chromium native install sheet covers the app until userChoice settles. */
+  const [nativeInstallPromptOpen, setNativeInstallPromptOpen] = useState(false);
 
   const available = availability !== "unavailable";
   const showInstallPrompt = available && !promptDismissed;
   const showInstallHeaderButton = available && promptDismissed;
+  const installSurfaceOpen = showInstallPrompt || iosInstructionsOpen || nativeInstallPromptOpen;
 
   // Close the iOS sheet if installability flips to unavailable (e.g. appinstalled).
+  // Do not clear nativeInstallPromptOpen here: consumeDeferredPrompt sets availability
+  // to unavailable while the Chromium sheet is still open; the install() finally
+  // block clears the flag when userChoice settles.
   if (availability === "unavailable" && iosInstructionsOpen) {
     setIosInstructionsOpen(false);
   }
@@ -225,12 +236,15 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     if (promptEvent == null) {
       return;
     }
+    setNativeInstallPromptOpen(true);
     void (async () => {
       try {
         await promptEvent.prompt();
         await promptEvent.userChoice;
       } catch {
         // Already consumed, dismissed, or browser-rejected — UI already cleared.
+      } finally {
+        setNativeInstallPromptOpen(false);
       }
     })();
   };
@@ -240,6 +254,13 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   };
 
   const installFromPrompt = () => {
+    // Arm the covering flag before dismissing the soft promo so Feature
+    // Announcement arbitration never sees a gap under the native sheet.
+    if (availability === "ios") {
+      setIosInstructionsOpen(true);
+    } else {
+      setNativeInstallPromptOpen(true);
+    }
     dismissInstallPrompt();
     install();
   };
@@ -249,6 +270,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       value={{
         available,
         showInstallPrompt,
+        installSurfaceOpen,
         showInstallHeaderButton,
         install,
         dismissInstallPrompt,

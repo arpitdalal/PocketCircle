@@ -1,5 +1,6 @@
 import { act, render } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
+import type { InitialEntry } from "react-router";
 import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { Circle } from "~/lib/data.js";
 import type { CircleOutletContext } from "~/routes/layouts/circle-layout.js";
@@ -137,7 +138,7 @@ export function renderRoutes(routes: ReactNode, opts: { initialEntries?: string[
 export function renderCircleRoutes(
   circle: Circle,
   routes: ReactNode,
-  opts: { initialEntries?: string[]; chrome?: ReactNode } = {},
+  opts: { initialEntries?: InitialEntry[]; chrome?: ReactNode } = {},
 ) {
   const wrap = (current: Circle) => (
     <AppTestProviders>

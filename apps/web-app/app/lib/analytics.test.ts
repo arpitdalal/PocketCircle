@@ -497,6 +497,34 @@ describe("track", () => {
     });
   });
 
+  it("captures feature announcement events with allowlisted announcement only", () => {
+    initAnalytics(readyUser);
+
+    for (const event of [
+      "feature_announcement_impression",
+      "feature_announcement_cta_clicked",
+      "feature_announcement_dismissed",
+    ] as const) {
+      expect(sanitizeAnalyticsProps(event, { announcement: "duplicate-transaction" })).toEqual({
+        announcement: "duplicate-transaction",
+      });
+      expect(
+        // @ts-expect-error intentional invalid announcement id for allowlist coverage
+        sanitizeAnalyticsProps(event, { announcement: "nope" }),
+      ).toBeNull();
+      expect(
+        sanitizeAnalyticsProps(event, {
+          announcement: "duplicate-transaction",
+          ...{ circleId: "c1", transactionId: "t1", url: "/circles/x" },
+        }),
+      ).toEqual({ announcement: "duplicate-transaction" });
+      track(event, { announcement: "duplicate-transaction" });
+      expect(posthogSdk.capture).toHaveBeenCalledWith(event, {
+        announcement: "duplicate-transaction",
+      });
+    }
+  });
+
   it("does not throw when PostHog capture rejects", () => {
     initAnalytics(readyUser);
     posthogSdk.capture.mockImplementation(() => {

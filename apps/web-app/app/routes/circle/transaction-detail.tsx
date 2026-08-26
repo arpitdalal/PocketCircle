@@ -1,17 +1,24 @@
 import { formatMoney, money, toCurrencyCode } from "@pocketcircle/domain";
-import { Link, useSearchParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { HistoryList } from "~/components/history-list.js";
 import { Splash } from "~/components/splash.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { circlePath } from "~/lib/circle-path.js";
 import { type Circle, type TransactionDetail, useTransactionHistory } from "~/lib/data.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
+import {
+  featureAnnouncementFocusFromState,
+  shouldFocusDuplicateAction,
+} from "~/lib/feature-announcements.js";
 import { isEligibleDestination } from "~/lib/global-add-transitions.js";
 import { globalAddHref } from "~/lib/global-add-url.js";
 import { transactionDetailHref, transactionEditHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { parseReturnTo, RETURN_TO_PARAM, withReturnTo } from "~/lib/return-to-url.js";
 import { useResolvedTransactionDetail } from "~/lib/use-resolved-transaction-detail.js";
+import { useValueChange } from "~/lib/use-value-change.js";
+import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
 
 /**
@@ -60,10 +67,26 @@ function TransactionDetailView({
   transaction: TransactionDetail;
   backTo: string;
 }) {
+  const location = useLocation();
   const currency = toCurrencyCode(circle.currency);
   const amount = formatMoney(money(transaction.amountMinorUnits, currency), viewerLocale());
   const writable = circle.status === "active";
   const isArchived = transaction.status === "archived";
+  const duplicateLinkRef = useRef<HTMLAnchorElement>(null);
+  const announcementFocus = featureAnnouncementFocusFromState(location.state);
+  const shouldFocusDuplicate = shouldFocusDuplicateAction(announcementFocus);
+  const [emphasizeDuplicate, setEmphasizeDuplicate] = useState(shouldFocusDuplicate);
+
+  useValueChange(shouldFocusDuplicate, (current) => {
+    setEmphasizeDuplicate(current);
+  });
+
+  useEffect(() => {
+    if (!shouldFocusDuplicate) {
+      return;
+    }
+    duplicateLinkRef.current?.focus({ preventScroll: true });
+  }, [shouldFocusDuplicate]);
 
   // Canonical Detail URL rebuilt from the already-validated `backTo` — never echo a
   // tampered nested return value (issue #123 / #299).
@@ -89,6 +112,10 @@ function TransactionDetailView({
 
   const showEdit = writable && transaction.canEditFields && !isArchived;
 
+  const clearDuplicateEmphasis = () => {
+    setEmphasizeDuplicate(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
@@ -97,9 +124,16 @@ function TransactionDetailView({
         </Link>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Link
+            ref={duplicateLinkRef}
             to={duplicateUrl}
             aria-label={`Duplicate ${transaction.title}`}
-            className={buttonVariants({ variant: "ghost", size: "default" })}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "default" }),
+              emphasizeDuplicate && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+            )}
+            data-feature-announcement-focus={emphasizeDuplicate ? "true" : undefined}
+            onBlur={clearDuplicateEmphasis}
+            onClick={clearDuplicateEmphasis}
           >
             Duplicate
           </Link>

@@ -1,4 +1,5 @@
 import { type FunctionReference, getFunctionName } from "convex/server";
+import { useSyncExternalStore } from "react";
 import type { Mock } from "vitest";
 import { vi } from "vitest";
 import { type AccountDeletionState, accountDeletionDouble } from "./account-deletion.js";
@@ -7,6 +8,10 @@ import { type CategoriesState, categoriesDouble } from "./categories.js";
 import { type CirclesState, circlesDouble } from "./circles.js";
 import type { PaginatedPage } from "./contract.js";
 import { type DashboardState, dashboardDouble } from "./dashboard.js";
+import {
+  type FeatureAnnouncementsState,
+  featureAnnouncementsDouble,
+} from "./feature-announcements.js";
 import { type FeedbackState, feedbackDouble } from "./feedback.js";
 import { type HistoryState, historyDouble } from "./history.js";
 import { type HomeSummaryState, homeSummaryDouble } from "./home-summary.js";
@@ -30,7 +35,8 @@ export type ConvexState = CirclesState &
   FeedbackState &
   AccountDeletionState &
   ActivationState &
-  HomeSummaryState;
+  HomeSummaryState &
+  FeatureAnnouncementsState;
 
 const ENTITY_DOUBLES = [
   circlesDouble,
@@ -47,6 +53,7 @@ const ENTITY_DOUBLES = [
   accountDeletionDouble,
   activationDouble,
   homeSummaryDouble,
+  featureAnnouncementsDouble,
 ];
 function mergeEntityDoubles(state: ConvexState) {
   const queries: Record<string, (args: Record<string, unknown>) => unknown> = {};
@@ -109,12 +116,32 @@ export const convexHelpersReactMock = {
 export function configureConvex(state: ConvexState = {}) {
   const merged = mergeEntityDoubles(state);
   const noop = vi.fn();
+  const queryOverrides = new Map<string, unknown>();
+  let queryEpoch = 0;
+  const queryListeners = new Set<() => void>();
+  const bumpQueries = () => {
+    queryEpoch += 1;
+    for (const listener of queryListeners) {
+      listener();
+    }
+  };
+  const queryCacheKey = (name: string, args: Record<string, unknown>) =>
+    `${name}:${JSON.stringify(args)}`;
+
+  const readQuery = (name: string, args: Record<string, unknown>) => {
+    const key = queryCacheKey(name, args);
+    if (queryOverrides.has(key)) {
+      return queryOverrides.get(key);
+    }
+    const handler = merged.queries[name];
+    if (!handler) return undefined;
+    return handler(args);
+  };
+
   const convexQuery = vi.fn(
     async (fn: FunctionReference<"query">, args: Record<string, unknown>) => {
       const name = getFunctionName(fn);
-      const handler = merged.queries[name];
-      if (handler) return handler(args);
-      return undefined;
+      return readQuery(name, args);
     },
   );
 
@@ -127,12 +154,20 @@ export function configureConvex(state: ConvexState = {}) {
 
   convexReactMock.useQuery.mockImplementation(
     (fn: FunctionReference<"query">, args: Record<string, unknown> | "skip") => {
+      useSyncExternalStore(
+        (onStoreChange) => {
+          queryListeners.add(onStoreChange);
+          return () => {
+            queryListeners.delete(onStoreChange);
+          };
+        },
+        () => queryEpoch,
+        () => 0,
+      );
       if (args === "skip") return undefined;
       const name = getFunctionName(fn);
-      const handler = merged.queries[name];
-      if (!handler) return undefined;
-      const next = handler(args);
-      const key = `${name}:${JSON.stringify(args)}`;
+      const next = readQuery(name, args);
+      const key = queryCacheKey(name, args);
       if (next === undefined) {
         queryResultCache.delete(key);
         return undefined;
@@ -162,7 +197,55 @@ export function configureConvex(state: ConvexState = {}) {
 
   convexReactMock.useMutation.mockImplementation((fn: FunctionReference<"mutation">) => {
     const name = getFunctionName(fn);
-    const m = merged.mutations[name];
-    return m ?? noop;
+    const m = merged.mutations[name] ?? noop;
+    let optimisticUpdate:
+      | ((
+          localStore: {
+            getQuery: (query: FunctionReference<"query">, args: Record<string, unknown>) => unknown;
+            setQuery: (
+              query: FunctionReference<"query">,
+              args: Record<string, unknown>,
+              value: unknown,
+            ) => void;
+          },
+          args: unknown,
+        ) => void)
+      | undefined;
+
+    const localStore = {
+      getQuery(query: FunctionReference<"query">, queryArgs: Record<string, unknown>) {
+        return readQuery(getFunctionName(query), queryArgs);
+      },
+      setQuery(
+        query: FunctionReference<"query">,
+        queryArgs: Record<string, unknown>,
+        value: unknown,
+      ) {
+        queryOverrides.set(queryCacheKey(getFunctionName(query), queryArgs), value);
+        bumpQueries();
+      },
+    };
+
+    const mutation = Object.assign(
+      async (args: unknown) => {
+        optimisticUpdate?.(localStore, args);
+        try {
+          return await m(args);
+        } catch (error) {
+          // Roll back optimistic overrides for this mutation's queries by clearing
+          // overrides and re-reading entity doubles (mirrors Convex rollback).
+          queryOverrides.clear();
+          bumpQueries();
+          throw error;
+        }
+      },
+      {
+        withOptimisticUpdate(update: NonNullable<typeof optimisticUpdate>) {
+          optimisticUpdate = update;
+          return mutation;
+        },
+      },
+    );
+    return mutation;
   });
 }

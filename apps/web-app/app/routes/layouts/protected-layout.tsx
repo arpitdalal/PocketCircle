@@ -6,6 +6,7 @@ import {
   mobileBottomNavClearanceClassName,
 } from "~/components/circle-mobile-bottom-nav.js";
 import { CircleSwitcher } from "~/components/circle-switcher.js";
+import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
@@ -115,6 +116,7 @@ export default function ProtectedLayout() {
         {showSkeleton ? <PageSkeleton /> : <Outlet />}
       </main>
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}
+      <FeatureAnnouncementCard />
     </div>
   );
 }

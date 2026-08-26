@@ -1,4 +1,5 @@
 import { api } from "@pocketcircle/convex";
+import { FEATURE_ANNOUNCEMENT_IDS } from "@pocketcircle/domain";
 import { testId } from "~/test/convex/ids.js";
 import { authClient } from "./auth-client.js";
 import { convex } from "./convex.js";
@@ -135,6 +136,32 @@ export function installE2EAuthHelper(): void {
       async getSession() {
         const result = await authClient.getSession();
         return result.data?.session ?? null;
+      },
+
+      /**
+       * Backdate the signed-in User's `createdAt` for Feature Announcement E2E
+       * (#282) so eligibility survives release-prep cutoff replacement.
+       */
+      async backdateCreatedAt(createdAt: number) {
+        await convex.mutation(api.e2e.backdateCurrentUserCreatedAtForE2E, { createdAt });
+      },
+
+      /** Current User's acknowledged Feature Announcement IDs (server-truth). */
+      async acknowledgedFeatureAnnouncementIds() {
+        const user = await convex.query(api.users.getCurrentUser, {});
+        return user?.acknowledgedFeatureAnnouncementIds ?? [];
+      },
+
+      /**
+       * Acknowledge every registered Feature Announcement ID. Default E2E
+       * sessions call this so the corner card cannot block product-flow tests
+       * when the cutoff still leaves the signed-in User eligible.
+       */
+      async acknowledgeAllFeatureAnnouncements() {
+        for (const announcementId of FEATURE_ANNOUNCEMENT_IDS) {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential acks; each depends on prior User row write
+          await convex.mutation(api.users.acknowledgeFeatureAnnouncement, { announcementId });
+        }
       },
     },
   });

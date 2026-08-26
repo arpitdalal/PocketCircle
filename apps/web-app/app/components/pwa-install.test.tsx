@@ -30,6 +30,8 @@ const user = {
   image: undefined,
   onboardingComplete: true,
   analyticsEnabled: false,
+  createdAt: 1,
+  acknowledgedFeatureAnnouncementIds: [],
 };
 
 async function openAccountMenu(u: UserEvent) {

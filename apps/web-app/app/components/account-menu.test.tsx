@@ -35,6 +35,8 @@ describe("AccountMenu", () => {
     image: undefined,
     onboardingComplete: true,
     analyticsEnabled: false,
+    createdAt: 1,
+    acknowledgedFeatureAnnouncementIds: [],
   };
 
   it("opens the menu and navigates to Settings", async () => {
