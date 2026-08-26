@@ -155,7 +155,7 @@ export function installE2EAuthHelper(): void {
       /**
        * Acknowledge every registered Feature Announcement ID. Default E2E
        * sessions call this so the corner card cannot block product-flow tests
-       * while the provisional `eligibleBefore` still matches new Users.
+       * when the cutoff still leaves the signed-in User eligible.
        */
       async acknowledgeAllFeatureAnnouncements() {
         for (const announcementId of FEATURE_ANNOUNCEMENT_IDS) {

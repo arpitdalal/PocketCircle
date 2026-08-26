@@ -209,7 +209,7 @@ export const getAccountDeletionTokenForE2E = query({
 
 /**
  * E2E-only: set the current User's `createdAt` so Feature Announcement eligibility
- * stays testable after release prep replaces the provisional `eligibleBefore`.
+ * stays testable when `eligibleBefore` is at or before account creation time.
  * Gated on `E2E_TEST_AUTH=1` — never enabled in production.
  */
 export const backdateCurrentUserCreatedAtForE2E = mutation({

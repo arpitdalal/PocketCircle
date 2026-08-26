@@ -3,8 +3,7 @@ import { circleRefOf } from "./circle-path.js";
 
 /**
  * Typed in-repo Feature Announcement catalog (#282). Newest entry owns the slot.
- * `eligibleBefore` is immutable product history — provisional until release prep
- * replaces it with the concrete UTC cutoff (not a guessed “now”).
+ * `eligibleBefore` is immutable product history — set at Duplicate release prep.
  */
 export interface FeatureAnnouncement {
   readonly id: FeatureAnnouncementId;
@@ -23,8 +22,8 @@ export const FEATURE_ANNOUNCEMENTS = [
     title: "Duplicate a transaction",
     body: "Start from a recent transaction, select Duplicate, then review and save a separate copy.",
     ctaLabel: "Try Duplicate",
-    // Provisional until release prep sets the real UTC cutoff (#282).
-    eligibleBefore: "2099-01-01T00:00:00.000Z",
+    // Release cutoff: Users created at or after this instant never see the card.
+    eligibleBefore: "2026-08-26T13:40:00.000Z",
   },
 ] as const satisfies readonly FeatureAnnouncement[];
 

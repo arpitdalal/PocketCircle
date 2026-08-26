@@ -12,8 +12,8 @@ import {
 /**
  * TRUE-E2E Feature Announcement (#282). Uses throwaway Users (not the worker
  * storageState session) so acknowledgment from one scenario cannot hide the
- * card for another. Backdates `createdAt` so eligibility survives release-prep
- * replacement of the provisional `eligibleBefore`.
+ * card for another. Backdates `createdAt` so eligibility survives any
+ * `eligibleBefore` at or after account creation time.
  */
 
 /** Well before any Duplicate release cutoff — keeps E2E Users eligible. */

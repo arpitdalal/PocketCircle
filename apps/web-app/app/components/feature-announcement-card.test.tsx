@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
-import { impressionStorageKey } from "~/lib/feature-announcements.js";
+import { activeFeatureAnnouncement, impressionStorageKey } from "~/lib/feature-announcements.js";
 import {
   configureConvex,
   convexReactMock,
@@ -99,9 +99,10 @@ describe("FeatureAnnouncementCard", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
     noSource();
 
+    const cutoff = Date.parse(activeFeatureAnnouncement()?.eligibleBefore ?? "Invalid Date");
     const { unmount: newUser } = renderCard({
       path: "/",
-      user: makeCurrentUserView({ createdAt: Date.parse("2099-01-01T00:00:00.000Z") }),
+      user: makeCurrentUserView({ createdAt: cutoff }),
     });
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
     newUser();
