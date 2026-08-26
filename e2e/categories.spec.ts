@@ -5,6 +5,8 @@ import {
   createRegularCircleAndFinishSetup,
   expect,
   openPersonalCircleFromHome,
+  saveAndNewButton,
+  saveButton,
   test,
 } from "./fixtures.js";
 
@@ -49,7 +51,7 @@ test("Save & new then Save creates two independent Categories on the list", asyn
   await page.setViewportSize({ width: 390, height: 844 });
   const form = page.getByRole("form", { name: "New category" });
   await form.getByLabel(/New expense category/).fill(first);
-  await form.getByRole("button", { name: "Save & new" }).click();
+  await saveAndNewButton(form).click();
 
   await expect(page.getByText("Category added. Ready for another.")).toBeVisible();
   await expect(form.getByLabel(/New expense category/)).toHaveValue("");
@@ -62,7 +64,7 @@ test("Save & new then Save creates two independent Categories on the list", asyn
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
   await form.getByLabel(/New expense category/).fill(second);
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
   await page.waitForURL(/\/categories(?:\?|$)/);
 
   await expect(page.getByRole("listitem").filter({ hasText: first })).toBeVisible();
@@ -116,7 +118,7 @@ test("the server rejects a duplicate name inline", async ({ page }) => {
   // which stays put (the one user-fixable error) rather than navigating back to the list.
   await page.getByRole("link", { name: "New category" }).click();
   await page.getByLabel(/New expense category/).fill(name.toUpperCase());
-  await page.getByRole("button", { name: "Save" }).click();
+  await saveButton(page).click();
   await expect(page.getByRole("alert")).toHaveText(/already exists/i);
 });
 
@@ -142,7 +144,7 @@ test("a member edits, archives, and restores a category and sees its history", a
   await page.getByRole("button", { name: `Edit ${name}` }).click();
   const editForm = page.getByRole("form", { name: `Edit ${name}` });
   await editForm.getByLabel("Name").fill(renamed);
-  await editForm.getByRole("button", { name: "Save" }).click();
+  await saveButton(editForm).click();
   await expect(page.getByRole("listitem").filter({ hasText: renamed })).toBeVisible();
 
   // The history panel shows the edit over the create, newest first.

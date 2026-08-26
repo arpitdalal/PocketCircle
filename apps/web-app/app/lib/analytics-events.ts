@@ -76,10 +76,10 @@ export type AnalyticsEventMap = {
     type: AnalyticsCategoryType;
     source: AnalyticsCategorySource;
   };
-  save_and_new_clicked: {
-    entity: AnalyticsSaveAndNewEntity;
-    surface: AnalyticsTransactionSurface;
-  };
+  // Category create is circle-scoped only — no Global Category route (#287).
+  save_and_new_clicked:
+    | { entity: "transaction"; surface: AnalyticsTransactionSurface }
+    | { entity: "category"; surface: "circle_scoped" };
   ledger_filter_applied: {
     type: AnalyticsTransactionType;
     status: AnalyticsLifecycleStatus;
@@ -331,11 +331,14 @@ function isCategoryCreatedPayload(
 function isSaveAndNewClickedPayload(
   value: Record<string, unknown>,
 ): value is AnalyticsEventMap["save_and_new_clicked"] {
-  return (
-    isAnalyticsSaveAndNewEntity(value.entity) &&
-    isAnalyticsTransactionSurface(value.surface) &&
-    Object.keys(value).length === 2
-  );
+  if (Object.keys(value).length !== 2 || !isAnalyticsTransactionSurface(value.surface)) {
+    return false;
+  }
+  if (value.entity === "transaction") {
+    return true;
+  }
+  // Category Save & new only exists on circle-scoped create — reject global.
+  return value.entity === "category" && value.surface === "circle_scoped";
 }
 
 function isLedgerFilterAppliedPayload(

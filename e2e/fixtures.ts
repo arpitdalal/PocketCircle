@@ -8,6 +8,19 @@ const SM_BREAKPOINT_PX = 640;
 
 export type CircleChromeTab = "Dashboard" | "Transactions" | "Search" | "Categories" | "Members";
 
+/**
+ * Exact accessible-name match for create/edit primary submit.
+ * Playwright substring-matches by default, so `name: "Save"` also hits `Save & new`.
+ */
+export function saveButton(scope: Page | Locator) {
+  return scope.getByRole("button", { name: "Save", exact: true });
+}
+
+/** Exact match for the create-only alternate submit (issue #287). */
+export function saveAndNewButton(scope: Page | Locator) {
+  return scope.getByRole("button", { name: "Save & new", exact: true });
+}
+
 /** Member rows only — excludes pending-invitation `<li>`s on the Members page. */
 export function memberListItems(page: Page) {
   return page.getByRole("list", { name: "Circle members" }).getByRole("listitem");
@@ -441,7 +454,7 @@ export async function createCategoryViaForm(
   if (color) {
     await form.getByRole("button", { name: color }).click();
   }
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
   // Success navigates back to the categories list (returnTo); the page leaves `/new`.
   await page.waitForURL(/\/categories(?:\?|$)/);
 }

@@ -5,6 +5,7 @@ import {
   expect,
   openPersonalCircleFromHome,
   pickFormCategory,
+  saveButton,
   test,
 } from "./fixtures.js";
 
@@ -32,7 +33,7 @@ test("transaction search finds circle transactions across months and opens detai
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("14.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
   await expect(page.getByRole("listitem").filter({ hasText: title })).toBeVisible();
 
   await clickCircleChromeTab(page, "Search");
@@ -110,7 +111,7 @@ test("sparse transaction filters spanning multiple source pages do not crash", a
     await form.getByLabel(/Amount/).fill("1.00");
     await form.getByLabel("Date").fill(`${month}-${day}`);
     await pickFormCategory(page, form, categoryName);
-    await form.getByRole("button", { name: "Save" }).click();
+    await saveButton(form).click();
     await expect(form).toHaveCount(0);
   }
 
@@ -167,7 +168,7 @@ test("transaction search pagination updates URL and result slice", async ({ page
     await form.getByLabel(/Amount/).fill("1.00");
     await form.getByLabel("Date").fill(`${month}-${day}`);
     await pickFormCategory(page, form, categoryName);
-    await form.getByRole("button", { name: "Save" }).click();
+    await saveButton(form).click();
     await expect(form).toHaveCount(0);
   }
 

@@ -9,6 +9,7 @@ import {
   inviteMemberByEmail,
   pickFormCategory,
   returnFromTransactionDetail,
+  saveButton,
   selectGlobalAddCircle,
   test,
 } from "./fixtures.js";
@@ -98,7 +99,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     await checklist.getByRole("link", { name: "New category" }).click();
     const categoryForm = page.getByRole("form", { name: "New category" });
     await categoryForm.getByLabel(/New expense category/).fill(categoryName);
-    await categoryForm.getByRole("button", { name: "Save" }).click();
+    await saveButton(categoryForm).click();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("1 of 4 complete"),
@@ -114,7 +115,7 @@ test("checklist items complete in any order, pending stays waiting, accept hides
     await form.getByLabel("Title").fill(`Act spend ${stamp}`);
     await form.getByLabel(/Amount/).fill("4.50");
     await pickFormCategory(page, form, categoryName);
-    await form.getByRole("button", { name: "Save" }).click();
+    await saveButton(form).click();
     await expect(page.getByRole("heading", { level: 2, name: `Act spend ${stamp}` })).toBeVisible();
     await returnFromTransactionDetail(page);
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();

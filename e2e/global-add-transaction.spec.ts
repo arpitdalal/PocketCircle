@@ -6,6 +6,8 @@ import {
   openPersonalCircleFromHome,
   pickFormCategory,
   returnFromTransactionDetail,
+  saveAndNewButton,
+  saveButton,
   selectGlobalAddCircle,
   test,
 } from "./fixtures.js";
@@ -64,7 +66,7 @@ test("Home Global Add records a Transaction and Back restores the Home origin", 
   await titleField.fill(title);
   await form.getByLabel(/Amount/).fill("12.50");
   await inlineCreateFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
 
   await expect(page.getByRole("heading", { level: 2, name: title })).toBeVisible();
   expect(page.url()).toContain("/transactions/");
@@ -96,7 +98,7 @@ test("Global Add Save & new then Save keeps both Transactions and the Detail ret
   await form.getByLabel("Title").fill(firstTitle);
   await form.getByLabel(/Amount/).fill("5.00");
   await inlineCreateFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Save & new" }).click();
+  await saveAndNewButton(form).click();
 
   await expect(page.getByText("Transaction added. Ready for another.")).toBeVisible();
   await expect(form.getByLabel("Title")).toHaveValue("");
@@ -107,7 +109,7 @@ test("Global Add Save & new then Save keeps both Transactions and the Detail ret
   await form.getByLabel("Title").fill(secondTitle);
   await form.getByLabel(/Amount/).fill("7.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
 
   await expect(page.getByRole("heading", { level: 2, name: secondTitle })).toBeVisible();
   expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/?currency=USD&range=3");

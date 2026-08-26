@@ -10,6 +10,7 @@ import {
   expect,
   memberListItems,
   pickFormCategory,
+  saveButton,
   seedActiveMemberOnCircle,
   test,
 } from "./fixtures.js";
@@ -30,7 +31,7 @@ async function recordExpenseAsMember(
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("12.50");
   await pickFormCategory(memberPage, form, categoryName);
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
 
   const row = memberPage.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();

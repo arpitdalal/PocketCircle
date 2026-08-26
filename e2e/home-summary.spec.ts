@@ -14,6 +14,7 @@ import {
   inviteMemberByEmail,
   pickFormCategory,
   returnFromTransactionDetail,
+  saveButton,
   selectGlobalAddCircle,
   test,
   toggleHomeScopeCircle,
@@ -80,7 +81,7 @@ async function addExpenseOnCurrentForm(
   if (opts.paidBy) {
     await form.getByLabel("Paid by").selectOption({ label: opts.paidBy });
   }
-  await form.getByRole("button", { name: "Save" }).click();
+  await saveButton(form).click();
   await expect(form).toHaveCount(0);
 }
 
@@ -131,7 +132,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await pickChecklistCircle(page, sharedName);
     const categoryForm = page.getByRole("form", { name: "New category" });
     await categoryForm.getByLabel(/New expense category/).fill(categoryName);
-    await categoryForm.getByRole("button", { name: "Save" }).click();
+    await saveButton(categoryForm).click();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Get started" }).getByText("2 of 4 complete"),
@@ -158,7 +159,7 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await incomeForm.getByLabel("Title").fill(`Personal pay ${stamp}`);
     await incomeForm.getByLabel(/Amount/).fill("100.00");
     await inlineCreateFormCategory(page, incomeForm, `Pay ${stamp}`.slice(0, 40));
-    await incomeForm.getByRole("button", { name: "Save" }).click();
+    await saveButton(incomeForm).click();
     await expect(incomeForm).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Transactions" })).toBeVisible();
 

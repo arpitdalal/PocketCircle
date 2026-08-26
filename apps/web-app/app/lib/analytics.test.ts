@@ -389,6 +389,14 @@ describe("track", () => {
         { entity: "transaction" },
       ),
     ).toBeNull();
+    // Category create has no global surface — discriminated payload rejects the pair.
+    expect(
+      sanitizeAnalyticsProps(
+        "save_and_new_clicked",
+        // @ts-expect-error intentional invalid category/global combo
+        { entity: "category", surface: "global" },
+      ),
+    ).toBeNull();
     // Forbidden / unknown extras are stripped; only the exact allowlisted pair survives.
     expect(
       sanitizeAnalyticsProps("save_and_new_clicked", {
