@@ -123,7 +123,7 @@ export function NewCategoryForm({
 
         <form.Subscribe selector={(state) => state.values.type}>
           {(type) => (
-            <form.AppField name="name" validators={{ onBlur: categoryInputSchema.shape.name }}>
+            <form.AppField name="name" validators={{ onChange: categoryInputSchema.shape.name }}>
               {(field) => (
                 <field.TextField
                   id="category-name"

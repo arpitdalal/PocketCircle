@@ -225,6 +225,25 @@ describe("CategoryNew — validation timing (ADR 0020)", () => {
     await user.tab();
     expect(await screen.findByText("Name is required")).toBeInTheDocument();
   });
+
+  it("clears a revealed Name error live once the value becomes valid, then submits on Enter", async () => {
+    const user = userEvent.setup();
+    setup();
+    const name = screen.getByLabelText(/New expense category/);
+    await user.type(name, "a");
+    await user.clear(name);
+    await user.tab();
+    expect(await screen.findByText("Name is required")).toBeInTheDocument();
+
+    await user.type(name, "Dining");
+    expect(screen.queryByText("Name is required")).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(createCategory).toHaveBeenCalledTimes(1));
+    expect(createCategory).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Dining", type: "expense" }),
+    );
+  });
 });
 
 describe("CategoryNew — submit", () => {
