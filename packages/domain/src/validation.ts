@@ -138,6 +138,14 @@ export const categoryInputSchema = z.object({
   type: z.enum(TRANSACTION_TYPES),
   color: colorId,
 });
+/**
+ * Form-bound Category create values — Standard Schema *input* of
+ * {@link categoryInputSchema}. Distinct from {@link CategoryInput} (output)
+ * because `colorId`'s type-predicate refine keeps Color as `string` on the way
+ * in and narrows to a palette id on the way out; TanStack Form's values must
+ * match the input side to use this schema as an `onSubmit` validator (ADR 0020).
+ */
+export type CategoryFormValues = z.input<typeof categoryInputSchema>;
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
 /**
