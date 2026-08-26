@@ -218,11 +218,11 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const installSurfaceOpen = showInstallPrompt || iosInstructionsOpen || nativeInstallPromptOpen;
 
   // Close the iOS sheet if installability flips to unavailable (e.g. appinstalled).
+  // Do not clear nativeInstallPromptOpen here: consumeDeferredPrompt sets availability
+  // to unavailable while the Chromium sheet is still open; the install() finally
+  // block clears the flag when userChoice settles.
   if (availability === "unavailable" && iosInstructionsOpen) {
     setIosInstructionsOpen(false);
-  }
-  if (availability === "unavailable" && nativeInstallPromptOpen) {
-    setNativeInstallPromptOpen(false);
   }
 
   const install = () => {
@@ -254,6 +254,13 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   };
 
   const installFromPrompt = () => {
+    // Arm the covering flag before dismissing the soft promo so Feature
+    // Announcement arbitration never sees a gap under the native sheet.
+    if (availability === "ios") {
+      setIosInstructionsOpen(true);
+    } else {
+      setNativeInstallPromptOpen(true);
+    }
     dismissInstallPrompt();
     install();
   };
