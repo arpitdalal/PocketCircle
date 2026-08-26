@@ -59,11 +59,21 @@ function setup(opts: { circle?: Partial<Circle>; url?: string } = {}) {
   });
 }
 
-function pressedPaletteColor() {
-  return COLOR_PALETTE.find(
+function pressedPaletteColors() {
+  return COLOR_PALETTE.filter(
     (paletteColor) =>
       screen.queryByRole("button", { name: paletteColor.name, pressed: true }) != null,
   );
+}
+
+function requirePressedPaletteColor() {
+  const pressed = pressedPaletteColors();
+  expect(pressed).toHaveLength(1);
+  const color = pressed[0];
+  if (!color) {
+    throw new Error("expected one pressed palette color");
+  }
+  return color;
 }
 
 beforeEach(() => {
@@ -130,23 +140,15 @@ describe("CategoryNew — initial type seed", () => {
 describe("CategoryNew — color initialization", () => {
   it("pre-selects exactly one palette swatch on open", () => {
     setup();
-    expect(pressedPaletteColor()).toBeDefined();
-    const pressed = COLOR_PALETTE.filter(
-      (paletteColor) =>
-        screen.queryByRole("button", { name: paletteColor.name, pressed: true }) != null,
-    );
-    expect(pressed).toHaveLength(1);
+    requirePressedPaletteColor();
   });
 
   it("keeps the initial color stable across field-driven rerenders", async () => {
     const user = userEvent.setup();
     setup();
-    const initial = pressedPaletteColor();
-    expect(initial).toEqual(expect.objectContaining({ name: expect.any(String) }));
+    const initial = requirePressedPaletteColor();
     await user.type(screen.getByLabelText(/New expense category/), "Dining");
-    expect(
-      screen.getByRole("button", { name: initial?.name ?? "", pressed: true }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: initial.name, pressed: true })).toBeInTheDocument();
   });
 });
 
@@ -154,8 +156,7 @@ describe("CategoryNew — type toggle", () => {
   it("creates with the toggled type, keeping Name and Color", async () => {
     const user = userEvent.setup();
     setup();
-    const initialColor = pressedPaletteColor();
-    expect(initialColor).toEqual(expect.objectContaining({ id: expect.any(String) }));
+    const initialColor = requirePressedPaletteColor();
     await user.type(screen.getByLabelText(/New expense category/), "Bonus");
 
     await user.click(
@@ -163,7 +164,7 @@ describe("CategoryNew — type toggle", () => {
     );
     expect(screen.getByLabelText<HTMLInputElement>(/New income category/).value).toBe("Bonus");
     expect(
-      screen.getByRole("button", { name: initialColor?.name ?? "", pressed: true }),
+      screen.getByRole("button", { name: initialColor.name, pressed: true }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add category" }));
@@ -171,7 +172,7 @@ describe("CategoryNew — type toggle", () => {
       circleId: "c1",
       name: "Bonus",
       type: "income",
-      color: initialColor?.id,
+      color: initialColor.id,
     });
   });
 
@@ -352,11 +353,15 @@ describe("CategoryNew — mutation errors", () => {
     setup();
     createCategory.mockRejectedValueOnce(new Error("Network down"));
     await user.type(screen.getByLabelText(/New expense category/), "Groceries");
+    await user.click(screen.getByRole("button", { name: "Teal" }));
     await user.click(screen.getByRole("button", { name: "Add category" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Couldn't create the category/i);
     expect(alert).not.toHaveTextContent(/Network down/);
+    expect(screen.getByLabelText<HTMLInputElement>(/New expense category/).value).toBe("Groceries");
+    expect(screen.getByRole("button", { name: "Teal", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add category" })).toBeEnabled();
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
