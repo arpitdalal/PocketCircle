@@ -1,8 +1,4 @@
-import {
-  FEATURE_ANNOUNCEMENT_IDS,
-  type FeatureAnnouncementId,
-  isFeatureAnnouncementId,
-} from "@pocketcircle/domain";
+import { type FeatureAnnouncementId, isFeatureAnnouncementId } from "@pocketcircle/domain";
 import { RESERVED_CIRCLE_REFS } from "./circle-path.js";
 
 /**
@@ -35,7 +31,7 @@ export const FEATURE_ANNOUNCEMENTS = [
 
 /** The single campaign that owns the announcement slot (newest catalog entry). */
 export function activeFeatureAnnouncement() {
-  return FEATURE_ANNOUNCEMENTS[FEATURE_ANNOUNCEMENTS.length - 1] ?? null;
+  return selectActiveCatalogEntry(FEATURE_ANNOUNCEMENTS);
 }
 
 export type FeatureAnnouncementRouteScope =
@@ -48,11 +44,9 @@ const RESERVED_CIRCLE_REF_SET = new Set<string>(RESERVED_CIRCLE_REFS);
  * Allowed routes for the Feature Announcement card: Home, Circle Dashboard,
  * Ledger, Categories list. Everything else is excluded.
  */
-export function featureAnnouncementRouteScope(
-  pathname: string,
-): FeatureAnnouncementRouteScope | null {
+export function featureAnnouncementRouteScope(pathname: string) {
   if (pathname === "/") {
-    return { kind: "home" };
+    return { kind: "home" } as const;
   }
 
   const match = pathname.match(/^\/circles\/([^/?#]+)(?:\/([^/?#]+))?\/?$/);
@@ -72,7 +66,7 @@ export function featureAnnouncementRouteScope(
 
   const child = match[2];
   if (child === undefined || child === "transactions" || child === "categories") {
-    return { kind: "circle", circleRef };
+    return { kind: "circle", circleRef } as const;
   }
   return null;
 }
@@ -106,6 +100,13 @@ export function featureAnnouncementFocusFromState(state: unknown) {
   return value;
 }
 
+/** Duplicate Transaction Detail focus — first campaign's CTA target on Detail. */
+export function shouldFocusDuplicateAction(
+  focus: ReturnType<typeof featureAnnouncementFocusFromState>,
+) {
+  return focus === "duplicate-transaction";
+}
+
 export function impressionStorageKey(announcementId: FeatureAnnouncementId) {
   return `pc:feature-announcement-impression:${announcementId}`;
 }
@@ -126,11 +127,10 @@ export function markImpressionRecorded(announcementId: FeatureAnnouncementId) {
   }
 }
 
-/** Exhaustive registry check so catalog IDs cannot drift from the domain allowlist. */
-export function assertCatalogIdsAreRegistered() {
-  for (const entry of FEATURE_ANNOUNCEMENTS) {
-    if (!FEATURE_ANNOUNCEMENT_IDS.includes(entry.id)) {
-      throw new Error(`Unregistered feature announcement id: ${entry.id}`);
-    }
+/** Newest catalog entry owns the announcement slot — no queue or older fallback. */
+export function selectActiveCatalogEntry<T>(entries: readonly T[]) {
+  if (entries.length === 0) {
+    return null;
   }
+  return entries[entries.length - 1] ?? null;
 }

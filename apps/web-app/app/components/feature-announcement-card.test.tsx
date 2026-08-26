@@ -28,11 +28,6 @@ vi.mock("~/lib/analytics.js", async (importOriginal) => {
   return { ...actual, track: vi.fn() };
 });
 
-vi.mock("~/lib/env.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("~/lib/env.js")>();
-  return { ...actual, MOCKS: false };
-});
-
 const acknowledge = vi.fn().mockResolvedValue(undefined);
 
 beforeEach(() => {
@@ -79,11 +74,12 @@ function renderCard(opts: {
 
 describe("FeatureAnnouncementCard", () => {
   it("renders on allowed routes when eligible with a source", async () => {
-    renderCard({ path: "/" });
+    renderCard({ path: "/?currency=USD&range=3" });
     expect(await screen.findByRole("region", { name: /Duplicate a transaction/i })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Try Duplicate" })).toHaveAttribute(
+    const cta = screen.getByRole("link", { name: "Try Duplicate" });
+    expect(cta).toHaveAttribute(
       "href",
-      expect.stringContaining("/circles/trip-abc/transactions/shop-xyz"),
+      "/circles/trip-abc/transactions/shop-xyz?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3",
     );
   });
 
@@ -159,9 +155,24 @@ describe("FeatureAnnouncementCard", () => {
     first.unmount();
 
     vi.mocked(track).mockClear();
-    renderCard({ path: "/circles/trip-abc/transactions" });
+    // Remount on another route — models a route change in the same tab session.
+    const second = renderCard({ path: "/circles/trip-abc/transactions" });
     await screen.findByRole("region", { name: /Duplicate a transaction/i });
     expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+    second.unmount();
+
+    vi.mocked(track).mockClear();
+    // Remount after unmount with the same sessionStorage — models a same-tab reload.
+    renderCard({ path: "/" });
+    await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    expect(track).not.toHaveBeenCalledWith("feature_announcement_impression", expect.anything());
+  });
+
+  it("keeps stacking below snackbars/dialogs and clears the Circle mobile nav", async () => {
+    renderCard({ path: "/circles/trip-abc/transactions" });
+    const region = await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    expect(region.className).toContain("z-20");
+    expect(region.className).toContain("bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)]");
   });
 
   it("delays the live announcement and impression while the PWA install modal covers the card", async () => {
@@ -206,11 +217,5 @@ describe("FeatureAnnouncementCard", () => {
         .getAllByRole("status")
         .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
     ).toBe(true);
-  });
-
-  it("keeps stacking below snackbars and dialogs via z-20", async () => {
-    renderCard({ path: "/" });
-    const region = await screen.findByRole("region", { name: /Duplicate a transaction/i });
-    expect(region.className).toContain("z-20");
   });
 });

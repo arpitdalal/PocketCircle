@@ -7,7 +7,10 @@ import { buttonVariants } from "~/components/ui/button-variants.js";
 import { circlePath } from "~/lib/circle-path.js";
 import { type Circle, type TransactionDetail, useTransactionHistory } from "~/lib/data.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
-import { featureAnnouncementFocusFromState } from "~/lib/feature-announcements.js";
+import {
+  featureAnnouncementFocusFromState,
+  shouldFocusDuplicateAction,
+} from "~/lib/feature-announcements.js";
 import { isEligibleDestination } from "~/lib/global-add-transitions.js";
 import { globalAddHref } from "~/lib/global-add-url.js";
 import { transactionDetailHref, transactionEditHref } from "~/lib/ledger-url.js";
@@ -71,11 +74,11 @@ function TransactionDetailView({
   const duplicateLinkRef = useRef<HTMLAnchorElement>(null);
   const announcementFocus = featureAnnouncementFocusFromState(location.state);
   const [emphasizeDuplicate, setEmphasizeDuplicate] = useState(
-    announcementFocus === "duplicate-transaction",
+    shouldFocusDuplicateAction(announcementFocus),
   );
 
   useEffect(() => {
-    if (announcementFocus !== "duplicate-transaction") {
+    if (!shouldFocusDuplicateAction(announcementFocus)) {
       return;
     }
     duplicateLinkRef.current?.focus({ preventScroll: true });

@@ -630,6 +630,13 @@ describe("acknowledgeFeatureAnnouncement", () => {
       onboarded: true,
     });
 
+    await t.run(async (ctx) => {
+      await ctx.db.patch(userId, {
+        acknowledgedFeatureAnnouncementIds: ["prior-campaign"],
+      });
+    });
+    await signInOwner(t, userId);
+
     await t.mutation(api.users.acknowledgeFeatureAnnouncement, {
       announcementId: "duplicate-transaction",
     });
@@ -640,11 +647,17 @@ describe("acknowledgeFeatureAnnouncement", () => {
 
     await t.run(async (ctx) => {
       const user = await ctx.db.get(userId);
-      expect(user?.acknowledgedFeatureAnnouncementIds).toEqual(["duplicate-transaction"]);
+      expect(user?.acknowledgedFeatureAnnouncementIds).toEqual([
+        "prior-campaign",
+        "duplicate-transaction",
+      ]);
     });
 
     const view = await t.query(api.users.getCurrentUser, {});
-    expect(view?.acknowledgedFeatureAnnouncementIds).toEqual(["duplicate-transaction"]);
+    expect(view?.acknowledgedFeatureAnnouncementIds).toEqual([
+      "prior-campaign",
+      "duplicate-transaction",
+    ]);
   });
 
   it("rejects unknown IDs without mutating the User", async () => {

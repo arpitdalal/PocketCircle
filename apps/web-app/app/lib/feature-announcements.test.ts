@@ -4,6 +4,7 @@ import {
   featureAnnouncementFocusFromState,
   featureAnnouncementRouteScope,
   isEligibleForFeatureAnnouncement,
+  selectActiveCatalogEntry,
 } from "./feature-announcements.js";
 
 describe("featureAnnouncementRouteScope", () => {
@@ -85,6 +86,14 @@ describe("isEligibleForFeatureAnnouncement", () => {
         acknowledgedFeatureAnnouncementIds: [announcement.id],
       }),
     ).toBe(false);
+  });
+});
+
+describe("selectActiveCatalogEntry", () => {
+  it("gives the slot only to the newest entry with no older fallback", () => {
+    expect(selectActiveCatalogEntry([])).toBeNull();
+    expect(selectActiveCatalogEntry([{ id: "older" }, { id: "newer" }])).toEqual({ id: "newer" });
+    expect(activeFeatureAnnouncement()?.id).toBe("duplicate-transaction");
   });
 });
 

@@ -22,6 +22,7 @@ import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import type { SessionUser } from "~/lib/session.js";
 import { useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
+import { useValueChange } from "~/lib/use-value-change.js";
 import { cn } from "~/lib/utils.js";
 
 const ACK_FAILURE_TOAST = "Couldn't save that preference.";
@@ -72,12 +73,20 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
 
   // Genuinely visible: mounted card not covered by the PWA install modal.
   const liveVisible = Boolean(visible) && !showInstallPrompt;
+  const liveAnnouncementId = liveVisible && announcement ? announcement.id : null;
+
+  useValueChange(liveAnnouncementId, (current) => {
+    if (current && announcement) {
+      setLiveMessage(`${announcement.label}. ${announcement.title}. ${announcement.body}`);
+      return;
+    }
+    setLiveMessage("");
+  });
 
   useEffect(() => {
     if (!liveVisible || !announcement) {
       return;
     }
-    setLiveMessage(`${announcement.label}. ${announcement.title}. ${announcement.body}`);
     if (!hasRecordedImpression(announcement.id)) {
       markImpressionRecorded(announcement.id);
       track("feature_announcement_impression", { announcement: announcement.id });
