@@ -13,6 +13,10 @@ describe("legal pages", () => {
     expect(screen.getByText(`Effective ${LEGAL_DOCUMENTS.terms.effectiveDate}`)).toBeVisible();
     expect(screen.getByRole("heading", { name: /Shared Circles and your content$/ })).toBeVisible();
     expect(screen.getByRole("heading", { name: /Beta service and availability$/ })).toBeVisible();
+    expect(screen.getByRole("heading", { name: /Email communications$/ })).toBeVisible();
+    expect(screen.getByText(/emails are enabled by default for active accounts/i)).toBeVisible();
+    expect(screen.getByText(/change this preference in Settings → Privacy/i)).toBeVisible();
+    expect(screen.queryByText(/unsubscribe/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
     const contact = screen.getByRole("link", { name: POCKETCIRCLE_SUPPORT_EMAIL });
@@ -23,9 +27,9 @@ describe("legal pages", () => {
     renderWithRouter(<Privacy />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Privacy Policy" })).toBeVisible();
-    expect(screen.getByText("Effective August 13, 2026")).toBeVisible();
-    expect(LEGAL_DOCUMENTS.privacy.effectiveDate).toBe("August 13, 2026");
-    expect(LEGAL_DOCUMENTS.terms.effectiveDate).toBe("August 12, 2026");
+    expect(screen.getByText("Effective August 26, 2026")).toBeVisible();
+    expect(LEGAL_DOCUMENTS.privacy.effectiveDate).toBe("August 26, 2026");
+    expect(LEGAL_DOCUMENTS.terms.effectiveDate).toBe("August 26, 2026");
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
     const providers = screen
@@ -56,6 +60,17 @@ describe("legal pages", () => {
     expect(
       screen.getByText(/Sentry operational monitoring remains enabled regardless/i),
     ).toBeVisible();
+    const emailCommunications = screen
+      .getByRole("heading", { name: /Email communications$/ })
+      .closest("section");
+    expect(emailCommunications).not.toBeNull();
+    const emailSection = within(emailCommunications ?? document.body);
+    expect(
+      emailSection.getByText(/emails are enabled by default for active accounts/i),
+    ).toBeVisible();
+    expect(emailSection.getByText(/change this preference in Settings → Privacy/i)).toBeVisible();
+    expect(emailSection.getByText(/does not affect emails needed to operate/i)).toBeVisible();
+    expect(screen.queryByText(/unsubscribe/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/off by default for every user/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/After you opt in, PostHog may use local/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Retention and Account Deletion$/ })).toBeVisible();

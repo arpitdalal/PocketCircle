@@ -27,8 +27,9 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-foreground">Communications:</strong> feedback you submit and
-            operational email-delivery records. Feedback message text is sent by email and is not
-            stored in the PocketCircle database.
+            operational and Product updates email-delivery records, including your Product updates
+            email preference. Feedback message text is sent by email and is not stored in the
+            PocketCircle database.
           </li>
           <li>
             <strong className="text-foreground">Technical information:</strong> session data,
@@ -45,7 +46,8 @@ export default function Privacy() {
           <li>
             enforce permissions, preserve audit History, prevent abuse, and protect the service;
           </li>
-          <li>send Welcome, Invitation, Account Deletion, and support-related emails;</li>
+          <li>send Welcome, Invitation, Account Deletion, security, support, and legal emails;</li>
+          <li>send occasional Product updates, Feature Announcements, and service news;</li>
           <li>diagnose errors, maintain reliability, and respond to feedback; and</li>
           <li>understand feature usage through privacy-limited analytics when enabled.</li>
         </LegalList>
@@ -84,8 +86,8 @@ export default function Privacy() {
             application;
           </li>
           <li>
-            <strong className="text-foreground">Resend</strong> to deliver transactional and support
-            email;
+            <strong className="text-foreground">Resend</strong> to deliver service, support, and
+            Product updates email;
           </li>
           <li>
             <strong className="text-foreground">Sentry</strong> for operational error monitoring and
@@ -130,7 +132,21 @@ export default function Privacy() {
         </p>
       </LegalSection>
 
-      <LegalSection title="6. Cookies and local storage">
+      <LegalSection title="6. Email communications">
+        <p>
+          PocketCircle uses your Google Account Email for messages needed to operate, secure, and
+          support your account. These may include Welcome, Invitation, Account Deletion, security,
+          support, and material legal notices.
+        </p>
+        <p>
+          PocketCircle also uses your Google Account Email for occasional Product updates, Feature
+          Announcements, and other news about the service. These emails are enabled by default for
+          active accounts. You can change this preference in Settings → Privacy. Changing it does
+          not affect emails needed to operate, secure, or support your account.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="7. Cookies and local storage">
         <p>
           PocketCircle and its authentication provider use cookies or equivalent browser storage to
           keep you signed in and protect account access. Product analytics do not use cookies or
@@ -140,7 +156,7 @@ export default function Privacy() {
         </p>
       </LegalSection>
 
-      <LegalSection title="7. When information may be disclosed">
+      <LegalSection title="8. When information may be disclosed">
         <p>Information may be disclosed:</p>
         <LegalList>
           <li>to other Circle Members as described above;</li>
@@ -151,12 +167,16 @@ export default function Privacy() {
         </LegalList>
       </LegalSection>
 
-      <LegalSection title="8. Retention and Account Deletion">
+      <LegalSection title="9. Retention and Account Deletion">
         <p>
           PocketCircle keeps information while your account is active and as needed to provide and
           secure the service. Operational records may be kept for a limited period for reliability,
           abuse prevention, dispute handling, or legal obligations. Retention periods may differ
           across service providers.
+        </p>
+        <p>
+          Product updates preference and delivery records may be kept as needed to respect your
+          choice and document email operations.
         </p>
         <p>
           You can request Account Deletion in Settings. After email verification, PocketCircle
@@ -167,12 +187,13 @@ export default function Privacy() {
         </p>
       </LegalSection>
 
-      <LegalSection title="9. Your choices and requests">
+      <LegalSection title="10. Your choices and requests">
         <LegalList>
           <li>Update your Display Name and analytics preference in Settings.</li>
           <li>Export Circle Transactions to CSV where Export is available.</li>
           <li>Leave eligible shared Circles or ask an Owner to correct shared records.</li>
           <li>Request Account Deletion in Settings.</li>
+          <li>Change your Product updates email preference in Settings → Privacy.</li>
           <li>
             Contact us to ask about access, correction, deletion, turning analytics off, or a
             privacy concern. Some requests may be limited by shared-record integrity or legal
@@ -181,7 +202,7 @@ export default function Privacy() {
         </LegalList>
       </LegalSection>
 
-      <LegalSection title="10. Security">
+      <LegalSection title="11. Security">
         <p>
           PocketCircle uses access controls, server-side authorization, encrypted network
           connections, scoped provider credentials, and data-minimization measures appropriate to an
@@ -190,7 +211,7 @@ export default function Privacy() {
         </p>
       </LegalSection>
 
-      <LegalSection title="11. Children">
+      <LegalSection title="12. Children">
         <p>
           PocketCircle is not directed to children under 13. If you believe a child provided
           personal information without appropriate consent, contact us so the situation can be
@@ -198,7 +219,7 @@ export default function Privacy() {
         </p>
       </LegalSection>
 
-      <LegalSection title="12. Changes to this Policy">
+      <LegalSection title="13. Changes to this Policy">
         <p>
           This Policy may change as PocketCircle and its providers change. Material changes will be
           presented in a reasonably prominent way and renewed consent will be requested when

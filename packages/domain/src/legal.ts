@@ -1,6 +1,6 @@
 export const LEGAL_DOCUMENTS = {
-  terms: { version: "2026-08-12", effectiveDate: "August 12, 2026" },
-  privacy: { version: "2026-08-13", effectiveDate: "August 13, 2026" },
+  terms: { version: "2026-08-26", effectiveDate: "August 26, 2026" },
+  privacy: { version: "2026-08-26", effectiveDate: "August 26, 2026" },
 } as const;
 
 export const CURRENT_TERMS_VERSION = LEGAL_DOCUMENTS.terms.version;

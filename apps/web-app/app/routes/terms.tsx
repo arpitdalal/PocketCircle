@@ -111,7 +111,21 @@ export default function Terms() {
         </p>
       </LegalSection>
 
-      <LegalSection title="8. Disclaimers">
+      <LegalSection title="8. Email communications">
+        <p>
+          PocketCircle may send emails needed to operate, secure, and support your account. These
+          may include Welcome, Invitation, Account Deletion, security, support, and material legal
+          notices. Some of these emails are necessary to provide the service and do not contain
+          promotional content.
+        </p>
+        <p>
+          PocketCircle may also send occasional emails about Product updates, Feature Announcements,
+          and other news about the service. These emails are enabled by default for active accounts.
+          You can change this preference in Settings → Privacy.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="9. Disclaimers">
         <p>
           To the maximum extent permitted by law, PocketCircle is provided “as is” and “as
           available,” without warranties of uninterrupted operation, accuracy, fitness for a
@@ -121,7 +135,7 @@ export default function Terms() {
         <p>Nothing in these Terms excludes warranties or rights that cannot legally be excluded.</p>
       </LegalSection>
 
-      <LegalSection title="9. Limitation of liability">
+      <LegalSection title="10. Limitation of liability">
         <p>
           To the maximum extent permitted by law, PocketCircle and its operator will not be liable
           for indirect, incidental, special, consequential, exemplary, or punitive damages, or for
@@ -131,7 +145,7 @@ export default function Terms() {
         </p>
       </LegalSection>
 
-      <LegalSection title="10. Changes and termination">
+      <LegalSection title="11. Changes and termination">
         <p>
           We may update these Terms as PocketCircle changes. Material changes will be presented in a
           reasonably prominent way before they apply when required. Continued use after an update
