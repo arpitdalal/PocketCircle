@@ -30,12 +30,15 @@ function TextField({
   placeholder,
   maxLength,
   autoComplete = "off",
+  onUserChange,
 }: {
   id: string;
   label: string;
   placeholder?: string;
   maxLength?: number;
   autoComplete?: string;
+  /** Runs when the User edits the value — e.g. clear a stale mutation error. */
+  onUserChange?: () => void;
 }) {
   const { field, invalid, errors } = useFieldReveal();
   return (
@@ -44,7 +47,10 @@ function TextField({
       <Input
         id={id}
         value={field.state.value}
-        onChange={(event) => field.handleChange(event.target.value)}
+        onChange={(event) => {
+          onUserChange?.();
+          field.handleChange(event.target.value);
+        }}
         onBlur={field.handleBlur}
         maxLength={maxLength}
         placeholder={placeholder}

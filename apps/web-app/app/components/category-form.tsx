@@ -1,4 +1,5 @@
 import {
+  type CategoryFormValues,
   COLOR_PALETTE,
   categoryInputSchema,
   colorLabel,
@@ -6,11 +7,14 @@ import {
   randomColorId,
   type TransactionType,
 } from "@pocketcircle/domain";
-import { type FormEvent, useState } from "react";
+import { useState } from "react";
+import { categoryFormOptions } from "~/components/category-form-options.js";
 import { Button } from "~/components/ui/button.js";
+import { FieldError } from "~/components/ui/field.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import { track } from "~/lib/analytics.js";
 import { type Circle, useCreateCategory } from "~/lib/data.js";
+import { useAppForm } from "~/lib/form.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import { cn } from "~/lib/utils.js";
 
@@ -20,19 +24,21 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
 ];
 
 /**
- * The new-Category form (issue #96; revised #138): name, an Expense/Income type toggle,
- * and a palette color picker. Lifted off the Categories list onto its own dedicated route
- * (`category-new.tsx`) so the list no longer stacks a create form above its rows. The
- * owning route guards writability (ADR 0015) and supplies `onClose` — what "done" means
- * here: a successful create or a Cancel navigates back to the validated `returnTo` origin
- * (issue #123).
+ * The new-Category form (issue #96; revised #138; TanStack Form #305): name, an
+ * Expense/Income type toggle, and a palette color picker. Lifted off the Categories
+ * list onto its own dedicated route (`category-new.tsx`) so the list no longer stacks
+ * a create form above its rows. The owning route guards writability (ADR 0015) and
+ * supplies `onClose` — what "done" means here: a successful create or a Cancel
+ * navigates back to the validated `returnTo` origin (issue #123).
  *
- * `type` is internal state (the toggle), seeded from `initialType` — the list CTA may
- * deep-link a concrete type when it's filtered to one, or arrive with none under the
- * default All view, in which case the route seeds `expense` (issue #138). Toggling only
- * re-labels and retargets the create; it never wipes the name/color the user has entered.
- * The server owns the unique-name invariant (per Circle+type, case-insensitive, incl.
- * archived); its rejection is the one error a user can fix inline, so it stays on the form.
+ * Field state, validation timing, and pending submission live in TanStack Form
+ * (ADR 0020). `type` is seeded from `initialType` — the list CTA may deep-link a
+ * concrete type when it's filtered to one, or arrive with none under the default All
+ * view, in which case the route seeds `expense` (issue #138). Toggling only re-labels
+ * and retargets the create; it never wipes the name/color the user has entered. The
+ * server owns the unique-name invariant (per Circle+type, case-insensitive, incl.
+ * archived); its rejection stays on the form as a mutation error, distinct from field
+ * validation.
  */
 export function NewCategoryForm({
   circleId,
@@ -44,39 +50,49 @@ export function NewCategoryForm({
   onClose: () => void;
 }) {
   const createCategory = useCreateCategory();
-  const [type, setType] = useState<TransactionType>(initialType);
-  const [name, setName] = useState("");
-  const [color, setColor] = useState<string>(() => randomColorId());
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // One-shot Color + URL-seeded Type: useAppForm only reads defaultValues on mount,
+  // but generating Color in render would re-roll on every parent render before mount
+  // settles — and tests assert Color stability across field-driven rerenders.
+  const [defaultValues] = useState(
+    (): CategoryFormValues => ({
+      type: initialType,
+      name: "",
+      color: randomColorId(),
+    }),
+  );
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    // Client-side mirror of the shared schema (the server re-validates — ADR 0015).
-    const parsed = categoryInputSchema.safeParse({ name, type, color });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Please check the category details.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await createCategory({ circleId, name: parsed.data.name, type, color });
-      track("category_created", { type, source: "standalone" });
-      onClose(); // a dedicated page is done on success — return to where it opened from
-    } catch (caught) {
-      setError(
-        mutationErrorMessageForUser(caught, "Couldn't create the category. Please try again."),
-      );
-      setSubmitting(false);
-    }
-  }
+  const form = useAppForm({
+    ...categoryFormOptions(defaultValues),
+    onSubmit: async ({ value }) => {
+      setSubmitError(null);
+      // Re-parse so the mutation gets schema output (trimmed Name), not raw field
+      // strings — the onSubmit Standard Schema gate already passed.
+      const parsed = categoryInputSchema.parse(value);
+      try {
+        await createCategory({
+          circleId,
+          name: parsed.name,
+          type: parsed.type,
+          color: parsed.color,
+        });
+        track("category_created", { type: parsed.type, source: "standalone" });
+        onClose();
+      } catch (caught) {
+        setSubmitError(
+          mutationErrorMessageForUser(caught, "Couldn't create the category. Please try again."),
+        );
+      }
+    },
+  });
 
   return (
     <form
-      onSubmit={onSubmit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void form.handleSubmit();
+      }}
       // Names the form as a landmark region for screen-reader / heading navigation —
       // this dedicated create page would otherwise expose only the input's field label
       // (the standalone route had no heading at all). Mirrors `TransactionForm`'s labeled
@@ -84,63 +100,68 @@ export function NewCategoryForm({
       aria-label="New category"
       className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm"
     >
-      <h2 className="font-display text-lg font-semibold tracking-tight">New category</h2>
+      <form.AppForm>
+        <h2 className="font-display text-lg font-semibold tracking-tight">New category</h2>
 
-      <Segmented
-        label="Type"
-        value={type}
-        options={[...TYPE_OPTIONS]}
-        onChange={(next) => {
-          if (next !== type) {
-            setType(next);
-            // A name rejected as a duplicate is per-type, so switching type may clear
-            // the conflict — drop the stale error rather than leave it asserting.
-            if (error) {
-              setError(null);
-            }
-          }
-        }}
-      />
+        <form.AppField name="type">
+          {(field) => (
+            <Segmented
+              label="Type"
+              value={field.state.value}
+              options={[...TYPE_OPTIONS]}
+              onChange={(next) => {
+                if (next !== field.state.value) {
+                  field.handleChange(next);
+                  // A name rejected as a duplicate is per-type, so switching type may
+                  // clear the conflict — drop the stale mutation error.
+                  setSubmitError(null);
+                }
+              }}
+            />
+          )}
+        </form.AppField>
 
-      <div className="space-y-1.5">
-        <label htmlFor="category-name" className="block text-sm font-medium">
-          New {type} category
-        </label>
-        <input
-          id="category-name"
-          name="name"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-            if (error) {
-              setError(null);
-            }
-          }}
-          maxLength={LIMITS.categoryNameMax}
-          placeholder="e.g. Groceries"
-          autoComplete="off"
-          aria-invalid={error != null}
-          aria-describedby={error ? "category-error" : undefined}
-          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
-        />
-      </div>
+        <form.Subscribe selector={(state) => state.values.type}>
+          {(type) => (
+            <form.AppField name="name" validators={{ onBlur: categoryInputSchema.shape.name }}>
+              {(field) => (
+                <field.TextField
+                  id="category-name"
+                  label={`New ${type} category`}
+                  maxLength={LIMITS.categoryNameMax}
+                  placeholder="e.g. Groceries"
+                  onUserChange={() => setSubmitError(null)}
+                />
+              )}
+            </form.AppField>
+          )}
+        </form.Subscribe>
 
-      <ColorPicker legend="Color" color={color} onChange={setColor} />
+        <form.AppField name="color">
+          {(field) => (
+            <ColorPicker
+              legend="Color"
+              color={field.state.value}
+              onChange={(color) => field.handleChange(color)}
+            />
+          )}
+        </form.AppField>
 
-      {error ? (
-        <p id="category-error" role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+        {submitError ? <FieldError>{submitError}</FieldError> : null}
 
-      <div className="flex gap-2">
-        <Button type="submit" disabled={submitting || name.trim() === ""}>
-          {submitting ? "Adding…" : "Add category"}
-        </Button>
-        <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
-          Cancel
-        </Button>
-      </div>
+        <form.Subscribe selector={(state) => state.isSubmitting}>
+          {(isSubmitting) => (
+            <div className="flex gap-2">
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Adding…" : "Add category"}
+              </Button>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+                Cancel
+              </Button>
+            </div>
+          )}
+        </form.Subscribe>
+      </form.AppForm>
     </form>
   );
 }
