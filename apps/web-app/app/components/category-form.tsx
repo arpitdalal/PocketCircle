@@ -8,10 +8,10 @@ import {
 } from "@pocketcircle/domain";
 import { useState } from "react";
 import { categoryFormOptions } from "~/components/category-form-options.js";
-import { Button } from "~/components/ui/button.js";
 import { FieldError } from "~/components/ui/field.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import { track } from "~/lib/analytics.js";
+import { type CreateFormSubmitIntent, defaultCreateSubmitMeta } from "~/lib/create-form-submit.js";
 import { type Circle, useCreateCategory } from "~/lib/data.js";
 import { useAppForm } from "~/lib/form.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
@@ -26,12 +26,12 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
 const CATEGORY_MUTATION_ERROR_ID = "category-error";
 
 /**
- * The new-Category form (issue #96; revised #138; TanStack Form #305): name, an
- * Expense/Income type toggle, and a palette color picker. Lifted off the Categories
- * list onto its own dedicated route (`category-new.tsx`) so the list no longer stacks
- * a create form above its rows. The owning route guards writability (ADR 0015) and
- * supplies `onClose` — what "done" means here: a successful create or a Cancel
- * navigates back to the validated `returnTo` origin (issue #123).
+ * The new-Category form (issue #96; revised #138; TanStack Form #305; Save & new #287):
+ * name, an Expense/Income type toggle, and a palette color picker. Lifted off the
+ * Categories list onto its own dedicated route (`category-new.tsx`) so the list no
+ * longer stacks a create form above its rows. The owning route guards writability
+ * (ADR 0015) and supplies completion callbacks — ordinary Save / Cancel navigate
+ * via `onClose`; Save & new stays and the route owns snackbar + Name focus.
  *
  * Field state, validation timing, and pending submission live in TanStack Form
  * (ADR 0020). `type` is seeded from `initialType` — the list CTA may deep-link a
@@ -41,15 +41,23 @@ const CATEGORY_MUTATION_ERROR_ID = "category-error";
  * server owns the unique-name invariant (per Circle+type, case-insensitive, incl.
  * archived); its rejection stays on the form as a mutation error, distinct from field
  * validation.
+ *
+ * Save & new uses the shared typed submit-intent contract: Enter / native submit are
+ * ordinary Save; the outline control passes `save_and_new`. After a successful stay,
+ * Name clears, Type is preserved, Color rolls once, and form/mutation meta reset —
+ * no hand-written per-field reset state.
  */
 export function NewCategoryForm({
   circleId,
   initialType,
   onClose,
+  onSaveAndNewComplete,
 }: {
   circleId: Circle["id"];
   initialType: TransactionType;
   onClose: () => void;
+  /** After a successful Save & new reset — route shows snackbar and focuses Name. */
+  onSaveAndNewComplete: () => void;
 }) {
   const createCategory = useCreateCategory();
   // One-shot Color + URL-seeded Type: useAppForm only reads defaultValues on mount,
@@ -61,11 +69,14 @@ export function NewCategoryForm({
     color: randomColorId(),
   }));
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [activeSubmitIntent, setActiveSubmitIntent] = useState<CreateFormSubmitIntent | null>(null);
 
   const form = useAppForm({
     ...categoryFormOptions(defaultValues),
-    onSubmit: async ({ value }) => {
+    onSubmitMeta: defaultCreateSubmitMeta,
+    onSubmit: async ({ value, meta, formApi }) => {
       setSubmitError(null);
+      setActiveSubmitIntent(meta.intent);
       // Re-parse so the mutation gets schema output (trimmed Name), not raw field
       // strings — the onSubmit Standard Schema gate already passed.
       const parsed = categoryInputSchema.parse(value);
@@ -77,14 +88,34 @@ export function NewCategoryForm({
           color: parsed.color,
         });
         track("category_created", { type: parsed.type, source: "standalone" });
-        onClose();
+        if (meta.intent === "save_and_new") {
+          formApi.reset({
+            type: parsed.type,
+            name: "",
+            color: randomColorId(),
+          });
+          setSubmitError(null);
+          onSaveAndNewComplete();
+        } else {
+          onClose();
+        }
       } catch (caught) {
         setSubmitError(
           mutationErrorMessageForUser(caught, "Couldn't create the category. Please try again."),
         );
+      } finally {
+        setActiveSubmitIntent(null);
       }
     },
   });
+
+  const requestSaveAndNew = () => {
+    if (activeSubmitIntent !== null) {
+      return;
+    }
+    track("save_and_new_clicked", { entity: "category", surface: "circle_scoped" });
+    void form.handleSubmit({ intent: "save_and_new" });
+  };
 
   return (
     <form
@@ -153,18 +184,12 @@ export function NewCategoryForm({
           <FieldError id={CATEGORY_MUTATION_ERROR_ID}>{submitError}</FieldError>
         ) : null}
 
-        <form.Subscribe selector={(state) => state.isSubmitting}>
-          {(isSubmitting) => (
-            <div className="flex gap-2">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Adding…" : "Add category"}
-              </Button>
-              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-                Cancel
-              </Button>
-            </div>
-          )}
-        </form.Subscribe>
+        <form.SubmitRow
+          isEdit={false}
+          onCancel={onClose}
+          onSaveAndNew={requestSaveAndNew}
+          activeSubmitIntent={activeSubmitIntent}
+        />
       </form.AppForm>
     </form>
   );

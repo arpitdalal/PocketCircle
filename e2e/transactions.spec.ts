@@ -58,7 +58,7 @@ test("a member records an expense and sees it in the live list", async ({ page }
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("12.50");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   // The reactive query flips to include the new Transaction with no reload.
   const item = page.getByRole("listitem").filter({ hasText: title });
@@ -84,7 +84,7 @@ test("a member inline-creates a category while recording a transaction", async (
   await form.getByLabel(/Amount/).fill("8.25");
   await inlineCreateFormCategory(page, form, categoryName);
   await expect(form.getByRole("button", { name: `Remove ${categoryName}` })).toBeVisible();
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   const item = page.getByRole("listitem").filter({ hasText: title });
   await expect(item).toBeVisible();
@@ -108,7 +108,7 @@ test("the expense form blocks submit and explains a missing category", async ({
 
   // Submit is attemptable (no guessing why it's greyed out): pressing it with no
   // category reveals the requirement and creates nothing (the server enforces ≥1 too).
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
   await expect(form.getByText("Pick at least one category")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
 });
@@ -157,7 +157,7 @@ test("the monthly ledger totals a month and navigates between months", async ({
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("12.50");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   // The row appears and the month's totals reflect exactly this one expense: a -$12.50 Net.
   const row = page.getByRole("listitem").filter({ hasText: title });
@@ -250,7 +250,7 @@ test("the recorder edits a transaction and changes its type", async ({ page }, t
   await addForm.getByLabel("Title").fill(title);
   await addForm.getByLabel(/Amount/).fill("10.00");
   await pickFormCategory(page, addForm, expenseCat);
-  await addForm.getByRole("button", { name: "Add expense" }).click();
+  await addForm.getByRole("button", { name: "Save" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
 
@@ -312,7 +312,7 @@ test("a member archives and restores a transaction", async ({ page }, testInfo) 
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("8.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
@@ -391,7 +391,7 @@ test("the transactions page restores month, add form, and edit link across reloa
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("9.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
@@ -442,7 +442,7 @@ test("the transaction detail shows audit metadata and history reflecting an edit
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("10.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
@@ -512,7 +512,7 @@ test("editing from the transaction detail returns to the detail on cancel and on
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("10.00");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
 
   const row = page.getByRole("listitem").filter({ hasText: title });
   await row.getByRole("link", { name: `View ${title}` }).click();

@@ -39,7 +39,7 @@ test("the dashboard shows recent activity", async ({ page }, testInfo) => {
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("18.25");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: title })).toBeVisible();
 
   // The Dashboard is the Circle index tab. Its recent feed reflects the new
@@ -126,7 +126,7 @@ test("a category analytics row drills into the ledger filtered to that category"
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("22.40");
   await pickFormCategory(page, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: title })).toBeVisible();
 
   await clickCircleChromeTab(page, "Dashboard");

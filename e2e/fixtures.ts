@@ -441,7 +441,7 @@ export async function createCategoryViaForm(
   if (color) {
     await form.getByRole("button", { name: color }).click();
   }
-  await form.getByRole("button", { name: "Add category" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
   // Success navigates back to the categories list (returnTo); the page leaves `/new`.
   await page.waitForURL(/\/categories(?:\?|$)/);
 }

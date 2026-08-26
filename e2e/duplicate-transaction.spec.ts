@@ -38,7 +38,7 @@ test("Duplicate from Transaction Detail creates an independent Transaction and p
   await createForm.getByLabel(/Amount/).fill("18.25");
   await createForm.getByLabel(/Note/).fill("Source note");
   await inlineCreateFormCategory(page, createForm, categoryName);
-  await createForm.getByRole("button", { name: "Add expense" }).click();
+  await createForm.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByRole("heading", { level: 2, name: sourceTitle })).toBeVisible();
   const sourceDetailUrl = new URL(page.url());
@@ -58,7 +58,7 @@ test("Duplicate from Transaction Detail creates an independent Transaction and p
 
   // Review: change Title so the new Transaction is distinct; source stays intact.
   await dupForm.getByLabel("Title").fill(copyTitle);
-  await dupForm.getByRole("button", { name: "Add expense" }).click();
+  await dupForm.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByRole("heading", { level: 2, name: copyTitle })).toBeVisible();
   const newDetail = new URL(page.url());

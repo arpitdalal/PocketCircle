@@ -51,7 +51,7 @@ async function seedSourceTransaction(
   await createForm.getByLabel("Title").fill(opts.sourceTitle);
   await createForm.getByLabel(/Amount/).fill(opts.amount);
   await inlineCreateFormCategory(page, createForm, opts.categoryName);
-  await createForm.getByRole("button", { name: "Add expense" }).click();
+  await createForm.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("heading", { level: 2, name: opts.sourceTitle })).toBeVisible();
 }
 
@@ -92,7 +92,7 @@ test("Feature Announcement CTA reaches focused Duplicate and preserves the retur
     await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
     const dupForm = page.getByRole("form", { name: /add expense/i });
     await dupForm.getByLabel("Title").fill(copyTitle);
-    await dupForm.getByRole("button", { name: "Add expense" }).click();
+    await dupForm.getByRole("button", { name: "Save" }).click();
     await expect(page.getByRole("heading", { level: 2, name: copyTitle })).toBeVisible();
 
     await returnFromTransactionDetail(page);

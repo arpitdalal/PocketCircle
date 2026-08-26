@@ -78,7 +78,7 @@ test("category archived mid-creation — keep visible, block, recover", async ({
   );
 
   // A: submit blocked — alert persists; ledger (Owner B's view) never gains the Transaction.
-  await aForm.getByRole("button", { name: "Add expense" }).click();
+  await aForm.getByRole("button", { name: "Save" }).click();
   await expect(aForm.getByRole("alert")).toHaveText(
     `"${catPick}" was archived and can't be added to a expense. Remove it to continue.`,
   );
@@ -95,7 +95,7 @@ test("category archived mid-creation — keep visible, block, recover", async ({
     ),
   ).toHaveCount(0);
   await pickFormCategory(aPage, aForm, catSpare);
-  await aForm.getByRole("button", { name: "Add expense" }).click();
+  await aForm.getByRole("button", { name: "Save" }).click();
   const row = aPage.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
 

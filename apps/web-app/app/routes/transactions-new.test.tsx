@@ -125,7 +125,7 @@ async function fillAndSubmit(
   await user.type(within(form).getByLabelText("Title"), title);
   await user.type(within(form).getByLabelText(/Amount/), amount);
   await pickTransactionFormCategory(user, form, "Groceries");
-  await user.click(within(form).getByRole("button", { name: "Add expense" }));
+  await user.click(within(form).getByRole("button", { name: "Save" }));
 }
 
 beforeEach(() => {
@@ -192,6 +192,10 @@ describe("TransactionsNew — initial states", () => {
     expect(screen.getByRole("form", { name: /add expense/i })).toBeInTheDocument();
     expect(within(screen.getByRole("form")).getByLabelText("Title")).toBeEnabled();
     expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toBeDisabled();
+    expect(within(screen.getByRole("form")).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(
+      within(screen.getByRole("form")).getByRole("button", { name: "Save & new" }),
+    ).toBeDisabled();
   });
 
   it("opens the form when a deep-linked Circle is eligible", async () => {
@@ -693,7 +697,8 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
         "Paid By was cleared because the Circle is no longer available.",
       ),
     ).toBeInTheDocument();
-    expect(within(invalidated).getByRole("button", { name: /Add expense/i })).toBeDisabled();
+    expect(within(invalidated).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(invalidated).getByRole("button", { name: "Save & new" })).toBeDisabled();
 
     // Invalidating must clear once the URL has no Circle — otherwise later
     // selections stay ignored forever.
@@ -702,8 +707,9 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
       expect(view.location()).toContain(encodeURIComponent(CIRCLE_B.ref));
       expect(within(screen.getByRole("form")).getByLabelText(/Amount/)).toBeEnabled();
     });
+    expect(within(screen.getByRole("form")).getByRole("button", { name: "Save" })).toBeEnabled();
     expect(
-      within(screen.getByRole("form")).getByRole("button", { name: /Add expense/i }),
+      within(screen.getByRole("form")).getByRole("button", { name: "Save & new" }),
     ).toBeEnabled();
   });
 
@@ -739,7 +745,7 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     await user.type(within(form).getByLabelText(/Amount/), "9");
     await pickTransactionFormCategory(user, form, "Groceries");
     createTransaction.mockRejectedValueOnce(new Error("network down"));
-    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(
       await screen.findByText("Couldn't save the transaction. Please try again."),
     ).toBeInTheDocument();
@@ -761,7 +767,7 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
     await user.type(within(form).getByLabelText("Title"), "Keep me");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(await within(form).findByText("Amount is required")).toBeInTheDocument();
 
     rerenderWith(view, { circles: [{ ...CIRCLE_A, currency: "EUR" }, CIRCLE_B] });
@@ -799,7 +805,7 @@ describe("TransactionsNew — reactive invalidation and resets", () => {
     await waitFor(() => expect(within(form).getByLabelText(/Amount/)).toBeEnabled());
     await user.type(within(form).getByLabelText(/Amount/), "9");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(await within(form).findByText("Title is required")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Circle" }), CIRCLE_B.id);
@@ -926,7 +932,7 @@ describe("TransactionsNew — submission", () => {
     await user.type(within(form).getByLabelText("Title"), "In flight");
     await user.type(within(form).getByLabelText(/Amount/), "4");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(createTransaction).toHaveBeenCalled());
     expect(screen.getByRole("combobox", { name: "Circle" })).toBeDisabled();
@@ -946,7 +952,7 @@ describe("TransactionsNew — submission", () => {
     await user.type(within(form).getByLabelText("Title"), "Left mid-save");
     await user.type(within(form).getByLabelText(/Amount/), "4");
     await pickTransactionFormCategory(user, form, "Groceries");
-    await user.click(within(form).getByRole("button", { name: /Add expense/i }));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(createTransaction).toHaveBeenCalled());
 
     // Surrounding nav / Back can leave while destination controls stay locked —
@@ -1107,7 +1113,7 @@ describe("TransactionsNew — returns and success navigation", () => {
     view.rerenderRoutes(ROUTES);
 
     const retained = screen.getByRole("form");
-    await user.click(within(retained).getByRole("button", { name: "Add expense" }));
+    await user.click(within(retained).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(createTransaction).not.toHaveBeenCalled());
     // The invalid selection stays visible as a retained chip rather than silently resetting.
     expect(retained).toHaveTextContent(/categories/i);
@@ -1428,7 +1434,7 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
       precedingEntries: [SOURCE_DETAIL_RETURN],
     });
     await screen.findByRole("form");
-    await user.click(screen.getByRole("button", { name: "Add expense" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(view.location()).toContain(`/circles/${CIRCLE_A.ref}/transactions/`),
@@ -1439,6 +1445,73 @@ describe("TransactionsNew — Duplicate initialization (issue #299)", () => {
       "transaction_added",
       expect.objectContaining({ surface: "global", method: "duplicate" }),
     );
+  });
+
+  it("Save & new strips source params, stays on create, then next Save is method manual", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: duplicateUrl(),
+      transactionDetail: SOURCE_TXN,
+      precedingEntries: [SOURCE_DETAIL_RETURN],
+    });
+    const form = await screen.findByRole("form");
+    expect(within(form).getByRole("button", { name: "Save & new" })).toBeInTheDocument();
+
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Transaction added. Ready for another.")).toBeInTheDocument();
+    const afterStay = new URL(view.location(), "http://t");
+    expect(afterStay.pathname).toBe(GLOBAL_ADD_PATH);
+    expect(afterStay.searchParams.get("sourceCircle")).toBeNull();
+    expect(afterStay.searchParams.get("sourceTransaction")).toBeNull();
+    expect(afterStay.searchParams.get("circle")).toBe(CIRCLE_A.ref);
+    expect(afterStay.searchParams.get(RETURN_TO_PARAM)).toBe(SOURCE_DETAIL_RETURN);
+    expect(posthogSdk.capture).toHaveBeenCalledWith(
+      "transaction_added",
+      expect.objectContaining({ surface: "global", method: "duplicate" }),
+    );
+    expect(posthogSdk.capture).toHaveBeenCalledWith("save_and_new_clicked", {
+      entity: "transaction",
+      surface: "global",
+    });
+
+    await waitFor(() => expect(within(form).getByLabelText("Title")).toHaveValue(""));
+    await user.type(within(form).getByLabelText("Title"), "Second manual");
+    await user.type(within(form).getByLabelText(/Amount/), "3");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(view.location()).toContain(`/circles/${CIRCLE_A.ref}/transactions/`),
+    );
+    const detail = new URL(view.location(), "http://t");
+    expect(detail.searchParams.get(RETURN_TO_PARAM)).toBe(SOURCE_DETAIL_RETURN);
+    expect(posthogSdk.capture).toHaveBeenCalledWith(
+      "transaction_added",
+      expect.objectContaining({ surface: "global", method: "manual" }),
+    );
+  });
+
+  it("ordinary Global Add Save & new stays, snackbars, focuses Title, Cancel returns home", async () => {
+    const user = userEvent.setup();
+    const view = setup({
+      url: `${GLOBAL_ADD_PATH}?type=expense&circle=${encodeURIComponent(CIRCLE_A.ref)}&returnTo=${encodeURIComponent(HOME_ORIGIN)}`,
+    });
+    const form = await screen.findByRole("form", { name: /add expense/i });
+    await user.type(within(form).getByLabelText("Title"), "Stay first");
+    await user.type(within(form).getByLabelText(/Amount/), "4");
+    await pickTransactionFormCategory(user, form, "Groceries");
+    await user.click(within(form).getByRole("button", { name: "Save & new" }));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(view.location()).toContain(GLOBAL_ADD_PATH);
+    expect(await screen.findByText("Transaction added. Ready for another.")).toBeInTheDocument();
+    await waitFor(() => expect(within(form).getByLabelText("Title")).toHaveValue(""));
+    expect(within(form).getByLabelText("Title")).toHaveFocus();
+
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.location()).toBe(HOME_ORIGIN));
   });
 
   it("preserves source params across a voluntary Circle switch and does not recopy", async () => {

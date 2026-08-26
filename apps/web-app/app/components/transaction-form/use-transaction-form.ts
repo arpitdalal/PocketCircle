@@ -1,4 +1,5 @@
 import {
+  currentMonth,
   defaultDateInMonth,
   minorUnitsToMajorString,
   type PlainMonth,
@@ -16,6 +17,7 @@ import type {
   AnalyticsTransactionMethod,
   AnalyticsTransactionSurface,
 } from "~/lib/analytics-events.js";
+import { type CreateFormSubmitIntent, defaultCreateSubmitMeta } from "~/lib/create-form-submit.js";
 import {
   type Category,
   type Circle,
@@ -57,6 +59,8 @@ export type TransactionFormResult =
       kind: "created";
       transactionId: Transaction["id"];
       submitted: TransactionMutationArgs<Category["id"], Member["id"]>;
+      /** Ordinary Save leaves; Save & new stays for another independent create. */
+      intent: CreateFormSubmitIntent;
     }
   | { kind: "updated"; transactionId: Transaction["id"] };
 
@@ -159,9 +163,13 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   // Analytics context is route-owned and may flip after Duplicate initialization
   // (manual → duplicate) without remounting; submit must read the current value.
   const analyticsRef = useRef(inputs.kind === "create" ? inputs.analytics : null);
+  // Month for Save & new date defaults — Global Add passes currentMonth each render;
+  // Circle-scoped passes the URL month. Read at reset time, not mount time.
+  const selectedMonthRef = useRef(inputs.kind === "create" ? inputs.selectedMonth : null);
   useEffect(() => {
     if (inputs.kind === "create") {
       analyticsRef.current = inputs.analytics;
+      selectedMonthRef.current = inputs.selectedMonth;
     }
   }, [inputs]);
 
@@ -212,6 +220,17 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   }
 
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** Which create submit started the in-flight mutation (Saving… label + lock). */
+  const [activeSubmitIntent, setActiveSubmitIntent] = useState<CreateFormSubmitIntent | null>(null);
+  /**
+   * Bumped by the authoritative Save & new reset so Category combobox local state
+   * (query, inline error) remounts clean without hand-clearing those fields.
+   */
+  const [draftGeneration, setDraftGeneration] = useState(0);
+  const [resetWarnings, setResetWarnings] = useState<TransactionResetWarnings>({});
+  /** True while inline Category create is in flight — hosts must freeze destination
+   * / Type transitions so a late completion cannot attach to the wrong draft. */
+  const [destinationTransitionLocked, setDestinationTransitionLocked] = useState(false);
 
   const defaultValues: TransactionFormValues =
     inputs.kind === "create"
@@ -232,14 +251,17 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
 
   const form = useAppForm({
     ...transactionFormOptions(defaultValues),
-    onSubmit: async ({ value }) => {
+    onSubmitMeta: defaultCreateSubmitMeta,
+    onSubmit: async ({ value, meta, formApi }) => {
       setSubmitError(null);
+      setActiveSubmitIntent(meta.intent);
       const categoryResolution = resolveCategories(
         value.categoryIds,
         categoryById,
         alreadyAttached,
       );
       if (!categoryResolution.ok) {
+        setActiveSubmitIntent(null);
         return;
       }
       const categoryIds = categoryResolution.categoryIds;
@@ -282,7 +304,24 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
           if (!mountedRef.current) {
             return;
           }
-          onComplete({ kind: "created", transactionId, submitted });
+          if (meta.intent === "save_and_new") {
+            // Authoritative fresh-create reset (issue #287): preserve Type from the
+            // just-saved values; Date from the route month at reset time; clear draft
+            // meta/errors/warnings. Inline-created Categories stay available but
+            // unselected (categoryIds cleared; inlineCreatedCategories retained).
+            // Create always carries a selectedMonth; fall back to current month if the
+            // ref is somehow unset so a stay never completes without a clean draft.
+            const month = selectedMonthRef.current ?? currentMonth(new Date());
+            formApi.reset({
+              ...emptyTransactionFormValues,
+              type: value.type,
+              date: defaultDateInMonth(month, new Date()),
+            });
+            setSubmitError(null);
+            setResetWarnings({});
+            setDraftGeneration((generation) => generation + 1);
+          }
+          onComplete({ kind: "created", transactionId, submitted, intent: meta.intent });
         } else {
           const parsed = parseAmountToMinorUnits(value.amount);
           if (!parsed.ok) {
@@ -320,9 +359,31 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
         setSubmitError(
           mutationErrorMessageForUser(error, "Couldn't save the transaction. Please try again."),
         );
+      } finally {
+        if (mountedRef.current) {
+          setActiveSubmitIntent(null);
+        }
       }
     },
   });
+
+  /**
+   * Create-only: emit intent analytics then submit with save_and_new meta.
+   * Click-time capture runs before client validation (issue #287).
+   */
+  const requestSaveAndNew = () => {
+    if (inputs.kind !== "create" || activeSubmitIntent !== null) {
+      return;
+    }
+    const analytics = analyticsRef.current;
+    if (analytics) {
+      track("save_and_new_clicked", {
+        entity: "transaction",
+        surface: analytics.surface,
+      });
+    }
+    void form.handleSubmit({ intent: "save_and_new" });
+  };
 
   /**
    * Applies an APPROVED Type Change (PRD 29, 30): flips the Category read to the
@@ -353,10 +414,6 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
   // `destinationReady` is false. Scoped clears use per-field `resetField` so
   // portable submissionAttempts / Title meta survive Circle switches.
 
-  const [resetWarnings, setResetWarnings] = useState<TransactionResetWarnings>({});
-  /** True while inline Category create is in flight — hosts must freeze destination
-   * / Type transitions so a late completion cannot attach to the wrong draft. */
-  const [destinationTransitionLocked, setDestinationTransitionLocked] = useState(false);
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   /** Freeze Circle/Type for any in-flight write that must finish against the
    * destination that started it (inline create OR transaction save). */
@@ -454,6 +511,9 @@ export function useTransactionForm(inputs: UseTransactionFormInputs) {
     activeType,
     applyTypeChange,
     submitError,
+    activeSubmitIntent,
+    draftGeneration,
+    requestSaveAndNew,
     selfMemberId,
     paidByOptions,
     showPaidByLoadingPlaceholder: !isEdit && circle != null && selfMemberId === "",

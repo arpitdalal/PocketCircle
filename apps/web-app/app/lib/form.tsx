@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button.js";
 import { Field, FieldError, FieldLabel } from "~/components/ui/field.js";
 import { Input } from "~/components/ui/input.js";
 import { Textarea } from "~/components/ui/textarea.js";
+import type { CreateFormSubmitIntent } from "~/lib/create-form-submit.js";
 import { cn } from "~/lib/utils.js";
 
 const { fieldContext, formContext, useFieldContext, useFormContext } = createFormHookContexts();
@@ -244,28 +245,47 @@ function SelectField({
 
 function SubmitRow({
   isEdit,
-  activeTypeLabel,
   onCancel,
   disabled = false,
+  onSaveAndNew,
+  activeSubmitIntent = null,
 }: {
   isEdit: boolean;
-  activeTypeLabel: string;
   /** What Cancel means to the host — navigation stays outside the form kit. */
   onCancel: () => void;
   /** Host-level block (e.g. Global Add with no resolved destination). */
   disabled?: boolean;
+  /**
+   * Create-only alternate submit (issue #287). Omit in edit. Enter / native
+   * form submit never call this — only the visible Save & new control does.
+   */
+  onSaveAndNew?: () => void;
+  /** Which create submit started the in-flight mutation; drives Saving… label. */
+  activeSubmitIntent?: CreateFormSubmitIntent | null;
 }) {
   const form = useFormContext();
   const isSubmitting = useStore(form.store, (s: AnyFormState) => s.isSubmitting);
+  const actionsLocked = disabled || isSubmitting;
   return (
-    <div className="flex scroll-mb-28 items-center gap-2 pt-2">
-      <Button type="submit" disabled={disabled || isSubmitting} className="scroll-mb-28">
-        {isSubmitting
+    <div className="flex scroll-mb-28 flex-wrap items-center gap-2 pt-2">
+      <Button type="submit" disabled={actionsLocked} className="scroll-mb-28">
+        {isSubmitting && activeSubmitIntent === "save"
           ? "Saving…"
           : isEdit
             ? "Save changes"
-            : `Add ${activeTypeLabel.toLowerCase()}`}
+            : "Save"}
       </Button>
+      {!isEdit && onSaveAndNew ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={actionsLocked}
+          onClick={onSaveAndNew}
+          className="scroll-mb-28"
+        >
+          {isSubmitting && activeSubmitIntent === "save_and_new" ? "Saving…" : "Save & new"}
+        </Button>
+      ) : null}
       <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
         Cancel
       </Button>

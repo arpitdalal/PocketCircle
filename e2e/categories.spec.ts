@@ -37,6 +37,38 @@ test("a member creates a category and sees it in the live list", async ({ page }
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 });
 
+test("Save & new then Save creates two independent Categories on the list", async ({ page }) => {
+  const nonce = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const first = `E2E SN First ${nonce}`;
+  const second = `E2E SN Second ${nonce}`;
+
+  await openPersonalCircleFromHome(page);
+  await clickCircleChromeTab(page, "Categories");
+
+  await page.getByRole("link", { name: "New category" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const form = page.getByRole("form", { name: "New category" });
+  await form.getByLabel(/New expense category/).fill(first);
+  await form.getByRole("button", { name: "Save & new" }).click();
+
+  await expect(page.getByText("Category added. Ready for another.")).toBeVisible();
+  await expect(form.getByLabel(/New expense category/)).toHaveValue("");
+  await expect(form.getByLabel(/New expense category/)).toBeFocused();
+  expect(page.url()).toContain("/categories/new");
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+
+  await form.getByLabel(/New expense category/).fill(second);
+  await form.getByRole("button", { name: "Save" }).click();
+  await page.waitForURL(/\/categories(?:\?|$)/);
+
+  await expect(page.getByRole("listitem").filter({ hasText: first })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: second })).toBeVisible();
+});
+
 /**
  * Issue #138: the list shows all types together by default (no tab switch), the
  * in-form Type toggle picks the type, and each row is tagged with a type pill. One
@@ -84,7 +116,7 @@ test("the server rejects a duplicate name inline", async ({ page }) => {
   // which stays put (the one user-fixable error) rather than navigating back to the list.
   await page.getByRole("link", { name: "New category" }).click();
   await page.getByLabel(/New expense category/).fill(name.toUpperCase());
-  await page.getByRole("button", { name: "Add category" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("alert")).toHaveText(/already exists/i);
 });
 

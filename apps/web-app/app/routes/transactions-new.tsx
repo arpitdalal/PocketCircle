@@ -125,9 +125,27 @@ export default function TransactionsNew() {
   // URL so browser Back restores the original origin exactly (issue #290).
   // Duplicate's origin is the source Detail; its Back still reaches the prior
   // Ledger / Search / Dashboard / Home (issue #299).
+  // Save & new (issue #287) stays on create: strip Duplicate source params with
+  // replace, keep Circle/Type/returnTo, flip analytics to manual, snackbar + Title focus.
   const completeCreation = useCallback(
     (result: TransactionFormResult) => {
       if (!appliedCircle || result.kind !== "created") {
+        return;
+      }
+      if (result.intent === "save_and_new") {
+        if (urlState.sourcePair.kind !== "absent") {
+          setAnalyticsMethod("manual");
+          navigate(
+            canonicalGlobalAddUrl({
+              type: urlState.type,
+              circleRef: appliedCircle.ref,
+              returnTo: returnUrl,
+            }),
+            { replace: true },
+          );
+        }
+        show("Transaction added. Ready for another.");
+        document.getElementById("txn-title")?.focus();
         return;
       }
       setClosing("success");
@@ -141,7 +159,7 @@ export default function TransactionsNew() {
         { replace: true },
       );
     },
-    [appliedCircle, returnUrl, navigate],
+    [appliedCircle, returnUrl, navigate, show, urlState.sourcePair.kind, urlState.type],
   );
 
   // Ref bridges so submit-failure handlers (declared before these appliers) can

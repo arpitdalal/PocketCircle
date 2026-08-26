@@ -198,7 +198,7 @@ test("a removed member's transactions still show their frozen display name", asy
   await memberPage.getByRole("link", { name: "New category" }).click();
   const categoryForm = memberPage.getByRole("form", { name: "New category" });
   await categoryForm.getByLabel(/New expense category/).fill(categoryName);
-  await categoryForm.getByRole("button", { name: "Add category" }).click();
+  await categoryForm.getByRole("button", { name: "Save" }).click();
   await memberPage.waitForURL(/\/categories(?:\?|$)/);
 
   await clickCircleChromeTab(memberPage, "Transactions");
@@ -207,7 +207,7 @@ test("a removed member's transactions still show their frozen display name", asy
   await form.getByLabel("Title").fill(title);
   await form.getByLabel(/Amount/).fill("9.99");
   await pickFormCategory(memberPage, form, categoryName);
-  await form.getByRole("button", { name: "Add expense" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
   await expect(memberPage.getByRole("listitem").filter({ hasText: title })).toBeVisible();
 
   await page.goto(circleUrl);
