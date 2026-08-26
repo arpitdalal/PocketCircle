@@ -1,5 +1,4 @@
 import {
-  type CategoryFormValues,
   COLOR_PALETTE,
   categoryInputSchema,
   colorLabel,
@@ -53,13 +52,11 @@ export function NewCategoryForm({
   // One-shot Color + URL-seeded Type: useAppForm only reads defaultValues on mount,
   // but generating Color in render would re-roll on every parent render before mount
   // settles — and tests assert Color stability across field-driven rerenders.
-  const [defaultValues] = useState(
-    (): CategoryFormValues => ({
-      type: initialType,
-      name: "",
-      color: randomColorId(),
-    }),
-  );
+  const [defaultValues] = useState(() => ({
+    type: initialType,
+    name: "",
+    color: randomColorId(),
+  }));
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const form = useAppForm({
