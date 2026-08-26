@@ -1,4 +1,10 @@
-import { type CurrencyCode, type FeedbackType, isSupportedCurrency } from "@pocketcircle/domain";
+import {
+  type CurrencyCode,
+  type FeatureAnnouncementId,
+  type FeedbackType,
+  isFeatureAnnouncementId,
+  isSupportedCurrency,
+} from "@pocketcircle/domain";
 
 import type { LifecycleFilter, TypeFilter } from "./transaction-filter-url.js";
 
@@ -98,6 +104,9 @@ export type AnalyticsEventMap = {
   activation_checklist_skipped: { completedCount: number };
   activation_checklist_completed: Record<string, never>;
   whats_new_opened: { latestVersion: string };
+  feature_announcement_impression: { announcement: FeatureAnnouncementId };
+  feature_announcement_cta_clicked: { announcement: FeatureAnnouncementId };
+  feature_announcement_dismissed: { announcement: FeatureAnnouncementId };
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -131,6 +140,9 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   activation_checklist_skipped: new Set(["completedCount"]),
   activation_checklist_completed: new Set(),
   whats_new_opened: new Set(["latestVersion"]),
+  feature_announcement_impression: new Set(["announcement"]),
+  feature_announcement_cta_clicked: new Set(["announcement"]),
+  feature_announcement_dismissed: new Set(["announcement"]),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -258,6 +270,10 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
       return false;
     case "whats_new_opened":
       return key === "latestVersion" && isReleasedChangelogVersion(value);
+    case "feature_announcement_impression":
+    case "feature_announcement_cta_clicked":
+    case "feature_announcement_dismissed":
+      return key === "announcement" && typeof value === "string" && isFeatureAnnouncementId(value);
     default:
       return false;
   }
@@ -371,6 +387,16 @@ function isWhatsNewOpenedPayload(
   return isReleasedChangelogVersion(value.latestVersion) && Object.keys(value).length === 1;
 }
 
+function isFeatureAnnouncementPayload(
+  value: Record<string, unknown>,
+): value is { announcement: FeatureAnnouncementId } {
+  return (
+    typeof value.announcement === "string" &&
+    isFeatureAnnouncementId(value.announcement) &&
+    Object.keys(value).length === 1
+  );
+}
+
 function toValidatedPayload(
   event: "circle_created",
   sanitized: Record<string, unknown>,
@@ -416,6 +442,18 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["whats_new_opened"] | null;
 function toValidatedPayload(
+  event: "feature_announcement_impression",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["feature_announcement_impression"] | null;
+function toValidatedPayload(
+  event: "feature_announcement_cta_clicked",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["feature_announcement_cta_clicked"] | null;
+function toValidatedPayload(
+  event: "feature_announcement_dismissed",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["feature_announcement_dismissed"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -443,6 +481,10 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
       return isActivationChecklistCompletedPayload(sanitized) ? sanitized : null;
     case "whats_new_opened":
       return isWhatsNewOpenedPayload(sanitized) ? sanitized : null;
+    case "feature_announcement_impression":
+    case "feature_announcement_cta_clicked":
+    case "feature_announcement_dismissed":
+      return isFeatureAnnouncementPayload(sanitized) ? sanitized : null;
     default:
       return null;
   }

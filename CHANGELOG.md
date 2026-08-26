@@ -7,6 +7,15 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Duplicate a transaction from Transaction Detail: start from a recent
+  transaction, review the copy, and save it as a separate entry. Cancel and
+  success keep the Back chain through the source Detail.
+- A rare, dismissible Feature Announcement card can point existing Users at
+  Duplicate from Home, Circle Dashboard, Ledger, or Categories. Following the
+  CTA or closing the card acknowledges it across devices.
+
 ## [v0.2.0] - 2026-08-17
 
 ### Added

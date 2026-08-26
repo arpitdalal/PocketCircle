@@ -6,6 +6,7 @@ export * from "./data/activation.js";
 export * from "./data/categories.js";
 export * from "./data/circles.js";
 export * from "./data/dashboard.js";
+export * from "./data/feature-announcements.js";
 export * from "./data/feedback.js";
 export * from "./data/history.js";
 export * from "./data/home-summary.js";

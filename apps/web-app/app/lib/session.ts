@@ -22,6 +22,8 @@ export interface SessionUser {
   image?: string;
   onboardingComplete: boolean;
   analyticsEnabled: boolean;
+  createdAt: number;
+  acknowledgedFeatureAnnouncementIds: string[];
 }
 
 function useRealSession(): AppSession {
@@ -51,6 +53,8 @@ function useRealSession(): AppSession {
       image: user.image,
       onboardingComplete: user.onboardingComplete,
       analyticsEnabled: user.analyticsEnabled,
+      createdAt: user.createdAt,
+      acknowledgedFeatureAnnouncementIds: user.acknowledgedFeatureAnnouncementIds,
     },
   };
 }
@@ -68,6 +72,8 @@ function useMockSession(): AppSession {
       displayName: "Mock Member",
       onboardingComplete: true,
       analyticsEnabled: false,
+      createdAt: 0,
+      acknowledgedFeatureAnnouncementIds: [],
     },
   };
 }

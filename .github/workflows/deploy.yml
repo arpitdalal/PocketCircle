@@ -77,22 +77,23 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
-      # Worker before Convex: a new backend default (analyticsEnabled for new
-      # Users) must not go live while production still serves the previous client.
-      # This Worker must tolerate the previous Convex until the next step
-      # finishes. Additive Convex functions the client needs immediately belong
-      # in an earlier release.
+      # Convex before Worker: this release's web bundle needs additive Convex
+      # fields/functions (Feature Announcements, #282) immediately. Deploy the
+      # backward-compatible backend first. If Convex succeeds and the Worker
+      # fails, leave the additive backend deployed and retry the Worker. Old
+      # web code remains compatible with the new optional field and unused
+      # functions. Breaking Convex changes still use expand-contract releases.
+      - name: Deploy Convex production backend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
+
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
-
-      - name: Deploy Convex production backend
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
 
       - name: Sync Convex release and Sentry env
         env:

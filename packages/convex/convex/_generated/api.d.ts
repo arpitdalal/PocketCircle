@@ -23,6 +23,7 @@ import type * as e2e from "../e2e.js";
 import type * as e2eTesting from "../e2eTesting.js";
 import type * as email from "../email.js";
 import type * as export_ from "../export.js";
+import type * as featureAnnouncementSource from "../featureAnnouncementSource.js";
 import type * as feedback from "../feedback.js";
 import type * as guard from "../guard.js";
 import type * as history from "../history.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   e2eTesting: typeof e2eTesting;
   email: typeof email;
   export: typeof export_;
+  featureAnnouncementSource: typeof featureAnnouncementSource;
   feedback: typeof feedback;
   guard: typeof guard;
   history: typeof history;

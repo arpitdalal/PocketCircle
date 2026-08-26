@@ -1,4 +1,4 @@
-import { parseProfileUpdate } from "@pocketcircle/domain";
+import { isFeatureAnnouncementId, parseProfileUpdate } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
@@ -17,6 +17,8 @@ export function toCurrentUserView(user: Doc<"users">) {
     image: user.image,
     onboardingComplete: user.onboardingCompletedAt !== null,
     analyticsEnabled: user.analyticsEnabled,
+    createdAt: user.createdAt,
+    acknowledgedFeatureAnnouncementIds: user.acknowledgedFeatureAnnouncementIds ?? [],
   };
 }
 
@@ -84,5 +86,26 @@ export const setAnalyticsEnabled = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     await ctx.db.patch(user._id, { analyticsEnabled: args.enabled });
+  },
+});
+
+/**
+ * Permanently acknowledges a Feature Announcement (CTA or close). Idempotent;
+ * rejects unknown IDs. Preference lives on the User so Account Deletion clears it.
+ */
+export const acknowledgeFeatureAnnouncement = mutation({
+  args: { announcementId: v.string() },
+  handler: async (ctx, args) => {
+    if (!isFeatureAnnouncementId(args.announcementId)) {
+      throw new Error("Unknown feature announcement");
+    }
+    const user = await requireCurrentUser(ctx);
+    const existing = user.acknowledgedFeatureAnnouncementIds ?? [];
+    if (existing.includes(args.announcementId)) {
+      return;
+    }
+    await ctx.db.patch(user._id, {
+      acknowledgedFeatureAnnouncementIds: [...existing, args.announcementId],
+    });
   },
 });

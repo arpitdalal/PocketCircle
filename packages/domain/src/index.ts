@@ -3,6 +3,7 @@ export * from "./color.js";
 export * from "./currency.js";
 export * from "./date.js";
 export * from "./email-templates.js";
+export * from "./feature-announcements.js";
 export * from "./initials.js";
 export * from "./legal.js";
 export * from "./money.js";

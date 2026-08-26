@@ -12,6 +12,8 @@ const defaultAnalyticsUser: SessionUser = {
   displayName: "Analytics Test",
   onboardingComplete: true,
   analyticsEnabled: true,
+  createdAt: 1,
+  acknowledgedFeatureAnnouncementIds: [],
 };
 
 /** Stub Vite PostHog env so real `posthogKey()` / `posthogHost()` run (ADR 0006). */

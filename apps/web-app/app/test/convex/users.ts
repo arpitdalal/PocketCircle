@@ -21,10 +21,17 @@ export interface UsersState {
   completeOnboarding?: Mock;
   updateProfile?: Mock;
   setAnalyticsEnabled?: Mock;
+  acknowledgeFeatureAnnouncement?: Mock;
 }
 
 export function usersDouble(state: UsersState): EntityDouble {
-  const { currentUser, completeOnboarding, updateProfile, setAnalyticsEnabled } = state;
+  const {
+    currentUser,
+    completeOnboarding,
+    updateProfile,
+    setAnalyticsEnabled,
+    acknowledgeFeatureAnnouncement,
+  } = state;
   return {
     queries: {
       [getFunctionName(api.users.getCurrentUser)]: (args) => resolveWith(currentUser, args),
@@ -36,6 +43,12 @@ export function usersDouble(state: UsersState): EntityDouble {
       ...(updateProfile ? { [getFunctionName(api.users.updateProfile)]: updateProfile } : {}),
       ...(setAnalyticsEnabled
         ? { [getFunctionName(api.users.setAnalyticsEnabled)]: setAnalyticsEnabled }
+        : {}),
+      ...(acknowledgeFeatureAnnouncement
+        ? {
+            [getFunctionName(api.users.acknowledgeFeatureAnnouncement)]:
+              acknowledgeFeatureAnnouncement,
+          }
         : {}),
     },
   };
@@ -50,6 +63,8 @@ export function makeCurrentUserView(over: Partial<CurrentUserView> = {}): Curren
     image: undefined,
     onboardingComplete: true,
     analyticsEnabled: false,
+    createdAt: 1,
+    acknowledgedFeatureAnnouncementIds: [],
     ...over,
   };
 }

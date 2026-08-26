@@ -602,3 +602,79 @@ describe("setAnalyticsEnabled", () => {
     );
   });
 });
+
+describe("acknowledgeFeatureAnnouncement", () => {
+  it("treats a missing acknowledgment field as an empty list in the current-user view", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedOwner(t, {
+      email: "ada@example.com",
+      displayName: "Ada Lovelace",
+      onboarded: true,
+    });
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.acknowledgedFeatureAnnouncementIds).toBeUndefined();
+    });
+
+    const view = await t.query(api.users.getCurrentUser, {});
+    expect(view?.acknowledgedFeatureAnnouncementIds).toEqual([]);
+    expect(view?.createdAt).toBeTypeOf("number");
+  });
+
+  it("merges an allowed ID idempotently and preserves other IDs", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedOwner(t, {
+      email: "ada@example.com",
+      displayName: "Ada Lovelace",
+      onboarded: true,
+    });
+
+    await t.mutation(api.users.acknowledgeFeatureAnnouncement, {
+      announcementId: "duplicate-transaction",
+    });
+    await signInOwner(t, userId);
+    await t.mutation(api.users.acknowledgeFeatureAnnouncement, {
+      announcementId: "duplicate-transaction",
+    });
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.acknowledgedFeatureAnnouncementIds).toEqual(["duplicate-transaction"]);
+    });
+
+    const view = await t.query(api.users.getCurrentUser, {});
+    expect(view?.acknowledgedFeatureAnnouncementIds).toEqual(["duplicate-transaction"]);
+  });
+
+  it("rejects unknown IDs without mutating the User", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await seedOwner(t, {
+      email: "ada@example.com",
+      displayName: "Ada Lovelace",
+      onboarded: true,
+    });
+
+    await expect(
+      t.mutation(api.users.acknowledgeFeatureAnnouncement, {
+        announcementId: "not-a-real-campaign",
+      }),
+    ).rejects.toThrow(/Unknown feature announcement/i);
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.acknowledgedFeatureAnnouncementIds).toBeUndefined();
+    });
+  });
+
+  it("rejects unauthenticated callers", async () => {
+    const t = convexTest(schema, modules);
+    mockCurrentUser.mockResolvedValue(null);
+
+    await expect(
+      t.mutation(api.users.acknowledgeFeatureAnnouncement, {
+        announcementId: "duplicate-transaction",
+      }),
+    ).rejects.toThrow(/Not authenticated/i);
+  });
+});

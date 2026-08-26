@@ -1,16 +1,17 @@
 import { vi } from "vitest";
 
 /**
- * A promise that stays pending until the test calls {@link DeferredValue.resolve}.
- * Shared seam for in-flight mutation doubles (inline Category create, save, etc.)
- * so each suite does not redefine the same Promise + resolver scaffolding.
+ * A promise that stays pending until the test calls {@link DeferredValue.resolve}
+ * or {@link DeferredValue.reject}. Shared seam for in-flight mutation doubles.
  */
 export function deferredValue<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 /**
