@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAIN_CONTENT_ID } from "~/components/skip-navigation.js";
 import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import {
@@ -67,6 +68,59 @@ function ready() {
   // A bootstrapped User (session Ready) plus an empty Circle list for the switcher.
   configureConvex({ currentUser: makeCurrentUserView(), circles: [] });
 }
+
+describe("ProtectedLayout skip navigation", () => {
+  it("exposes a skip link as the first tab stop that focuses the main landmark", async () => {
+    ready();
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ index: true, Component: () => <h2>Home stub</h2> }],
+        },
+      ],
+      ["/"],
+    );
+
+    await screen.findByText("Home stub");
+    const user = userEvent.setup();
+    await user.tab();
+
+    const skip = screen.getByRole("link", { name: "Skip to main content" });
+    expect(skip).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    const main = screen.getByRole("main");
+    expect(main).toHaveFocus();
+    expect(main).toHaveAttribute("id", MAIN_CONTENT_ID);
+    expect(main).toHaveAttribute("tabIndex", "-1");
+  });
+
+  it("does not render the skip link while onboarding (no shell chrome to skip)", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView({ onboardingComplete: false }),
+      circles: [],
+    });
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [
+            { index: true, Component: () => <h2>Home stub</h2> },
+            { path: "onboarding", Component: OnboardingRoute },
+          ],
+        },
+      ],
+      ["/onboarding"],
+    );
+
+    await screen.findByRole("heading", { name: "Welcome" });
+    expect(screen.queryByRole("link", { name: "Skip to main content" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main")).not.toBeInTheDocument();
+  });
+});
 
 describe("ProtectedLayout shell skeleton", () => {
   it("shows the generic skeleton while a slow shell navigation loads, keeping the header", async () => {

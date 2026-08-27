@@ -10,6 +10,7 @@ import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
+import { MAIN_CONTENT_ID, SkipNavigation } from "~/components/skip-navigation.js";
 import { Splash } from "~/components/splash.js";
 import { initAnalytics, teardownAnalytics } from "~/lib/analytics.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
@@ -87,6 +88,8 @@ export default function ProtectedLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
+      {/* First tab stop: bypass the sticky header (WCAG 2.4.1 / issue #312). */}
+      <SkipNavigation />
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <Link
@@ -105,9 +108,12 @@ export default function ProtectedLayout() {
           <AccountMenu user={session.user} showSignOut={!MOCKS} />
         </div>
       </header>
+      {/* outline-none: APG skip-target; next Tab shows focus-visible on a real control. */}
       <main
+        id={MAIN_CONTENT_ID}
+        tabIndex={-1}
         className={cn(
-          "flex-1 px-4 pt-6 sm:pb-6",
+          "flex-1 px-4 pt-6 outline-none sm:pb-6",
           circleBarPainted
             ? mobileBottomNavClearanceClassName
             : "pb-[calc(1.5rem+var(--safe-area-bottom))]",
