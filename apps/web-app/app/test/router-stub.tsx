@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import { createRoutesStub } from "react-router";
+import { createRoutesStub, Outlet, ScrollRestoration } from "react-router";
 import { AppTestProviders } from "~/test/app-test-providers.js";
 import { deferredValue } from "~/test/deferred.js";
 
@@ -40,5 +40,31 @@ export function renderRouteStub(routes: StubRoutes, initialEntries: string[]) {
     <AppTestProviders>
       <Stub initialEntries={initialEntries} />
     </AppTestProviders>,
+  );
+}
+
+/**
+ * Like {@link renderRouteStub}, but wraps `children` under a root that mounts the real
+ * `<ScrollRestoration>` (issue #311). MemoryRouter ignores `preventScrollReset`; this
+ * data-router shell is the shared seam for asserting keep-scroll filter URL updates.
+ */
+export function renderRouteStubWithScrollRestoration(
+  children: StubRoutes,
+  initialEntries: string[],
+) {
+  return renderRouteStub(
+    [
+      {
+        path: "/",
+        Component: () => (
+          <>
+            <ScrollRestoration />
+            <Outlet />
+          </>
+        ),
+        children,
+      },
+    ],
+    initialEntries,
   );
 }

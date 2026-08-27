@@ -1,7 +1,7 @@
 import { currentMonth } from "@pocketcircle/domain";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route } from "react-router";
+import { Outlet, Route } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CategoryAnalytics,
@@ -10,6 +10,7 @@ import type {
   MonthlyComparison,
   Transaction,
 } from "~/lib/data.js";
+import type { CircleOutletContext } from "~/routes/layouts/circle-layout.js";
 import {
   configureConvex,
   makeActivationChecklistView,
@@ -20,6 +21,7 @@ import {
   testId,
 } from "~/test/convex-react.js";
 import { getHeadlineMoney } from "~/test/money.js";
+import { renderRouteStubWithScrollRestoration } from "~/test/router-stub.js";
 
 /**
  * Behavior test for the Dashboard route (jsdom). Doubles ONLY Convex's reactive client
@@ -341,6 +343,33 @@ describe("Dashboard URL state (range + type)", () => {
     await userEvent.selectOptions(screen.getByLabelText(/range/i), "6");
     await userEvent.selectOptions(screen.getByLabelText(/^type$/i), "expense");
     expect(view.location()).toBe("/circles/trip-c1");
+  });
+
+  it("does not scroll to top when chart filters change (issue #311)", async () => {
+    // Data-router + ScrollRestoration — MemoryRouter ignores preventScrollReset.
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    configureConvex({});
+    const circle = makeCircleView();
+
+    renderRouteStubWithScrollRestoration(
+      [
+        {
+          path: "circles/:circleRef",
+          Component: () => <Outlet context={{ circle } satisfies CircleOutletContext} />,
+          children: [{ index: true, Component: CircleDashboard }],
+        },
+      ],
+      ["/circles/trip-c1"],
+    );
+
+    expect(await screen.findByLabelText(/range/i)).toBeInTheDocument();
+    scrollTo.mockClear();
+
+    await userEvent.selectOptions(screen.getByLabelText(/range/i), "12");
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    await userEvent.selectOptions(screen.getByLabelText(/^type$/i), "income");
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
   it("falls back to the default range for an unsupported range param", () => {

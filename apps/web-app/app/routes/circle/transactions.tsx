@@ -25,6 +25,7 @@ import {
   useMonthlySummary,
 } from "~/lib/data.js";
 import { formatMonthLabel } from "~/lib/datetime.js";
+import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { transactionNewHref, withQuery } from "~/lib/ledger-url.js";
 import { historicalMemberStatusDetail } from "~/lib/member-status-label.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
@@ -106,7 +107,7 @@ export default function CircleTransactions() {
     const next = canonicalLedgerParams(filters, searchParams);
     next.delete("new");
     if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
+      setSearchParams(next, keepScrollSearchParamsOptions({ replace: true }));
     }
   }, [searchParams, filters, legacyCreateType, setSearchParams]);
 
@@ -127,9 +128,10 @@ export default function CircleTransactions() {
       cleaned.recordedBy.join(",") !== filters.recordedBy.join(",") ||
       cleaned.paidBy.join(",") !== filters.paidBy.join(",")
     ) {
-      setSearchParams(canonicalLedgerParams({ ...filters, ...cleaned }, searchParams), {
-        replace: true,
-      });
+      setSearchParams(
+        canonicalLedgerParams({ ...filters, ...cleaned }, searchParams),
+        keepScrollSearchParamsOptions({ replace: true }),
+      );
     }
   }, [panelOpen, filters, options, searchParams, setSearchParams]);
 
@@ -140,16 +142,17 @@ export default function CircleTransactions() {
         const canonical = defaultLedgerFilters(next);
         return canonicalLedgerParams(canonical, params);
       },
-      { replace: false },
+      keepScrollSearchParamsOptions({ replace: false }),
     );
   };
 
   const applyFilters = () => {
     const applied = { ...draft, month: filters.month };
     track("ledger_filter_applied", ledgerFilterAnalyticsProps(applied));
-    setSearchParams(canonicalLedgerParams(applied, searchParams), {
-      replace: false,
-    });
+    setSearchParams(
+      canonicalLedgerParams(applied, searchParams),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
     setPanelOpen(false);
   };
 
@@ -159,9 +162,10 @@ export default function CircleTransactions() {
   };
 
   const resetFilters = () => {
-    setSearchParams(canonicalLedgerParams(defaultLedgerFilters(filters.month), searchParams), {
-      replace: false,
-    });
+    setSearchParams(
+      canonicalLedgerParams(defaultLedgerFilters(filters.month), searchParams),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
     setPanelOpen(false);
   };
 

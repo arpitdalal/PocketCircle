@@ -28,6 +28,7 @@ import {
   useDashboard,
   useMonthlyComparison,
 } from "~/lib/data.js";
+import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
@@ -64,7 +65,10 @@ export default function CircleDashboard() {
   // react-doctor-disable-next-line react-doctor/no-event-handler -- legacy URL cleanup on mount/param change, not a discrete UI event.
   useEffect(() => {
     if (searchParams.has("paidBy")) {
-      setSearchParams(canonicalDashboardParams(selection, searchParams), { replace: true });
+      setSearchParams(
+        canonicalDashboardParams(selection, searchParams),
+        keepScrollSearchParamsOptions({ replace: true }),
+      );
     }
   }, [selection, searchParams, setSearchParams]);
 
@@ -79,7 +83,10 @@ export default function CircleDashboard() {
   });
 
   const select = (next: DashboardSelection) => {
-    setSearchParams(canonicalDashboardParams(next, searchParams), { replace: false });
+    setSearchParams(
+      canonicalDashboardParams(next, searchParams),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
   };
 
   return (

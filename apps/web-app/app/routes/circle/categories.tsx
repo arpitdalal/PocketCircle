@@ -20,6 +20,7 @@ import {
   type TypeFilter,
 } from "~/lib/categories-filter-url.js";
 import { type CategoriesPage, type Category, type Circle, useCategoriesPage } from "~/lib/data.js";
+import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { categoryDetailHref } from "~/lib/ledger-url.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
@@ -80,18 +81,24 @@ export default function CircleCategories() {
   useEffect(() => {
     const next = canonicalCategoriesParams(filters, searchParams);
     if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
+      setSearchParams(next, keepScrollSearchParamsOptions({ replace: true }));
     }
   }, [filters, searchParams, setSearchParams]);
 
   // Discrete control changes (type segment, status segment) PUSH a history entry.
   const applyFilters = (next: CategoriesFilters) => {
-    setSearchParams(canonicalCategoriesParams(next, searchParams), { replace: false });
+    setSearchParams(
+      canonicalCategoriesParams(next, searchParams),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
   };
 
   // The debounced search REPLACES — typing must not bury the back-stack.
   const applySearch = (q: string) => {
-    setSearchParams(canonicalCategoriesParams({ ...filters, q }, searchParams), { replace: true });
+    setSearchParams(
+      canonicalCategoriesParams({ ...filters, q }, searchParams),
+      keepScrollSearchParamsOptions({ replace: true }),
+    );
   };
 
   return (
