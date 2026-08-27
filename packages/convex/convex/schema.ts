@@ -334,8 +334,14 @@ export default defineSchema({
     principalId: v.string(),
     clientId: v.string(),
     /**
-     * Approved OAuth redirect URI. Cloudflare CIMD distinguishes grants by
-     * client + redirect URI; supersession must mirror that key.
+     * OAuth client registration kind. Cloudflare scopes default grant replacement
+     * to the same redirect URI only for CIMD clients; static/DCR clients replace
+     * by User+client across redirect URIs.
+     */
+    clientKind: v.union(v.literal("cimd"), v.literal("static")),
+    /**
+     * Approved OAuth redirect URI. Part of the CIMD supersession key; stored for
+     * all kinds so consent/Connections can display it.
      */
     redirectUri: v.string(),
     /** Safe display snapshot from consent time (label only, not proof of identity). */

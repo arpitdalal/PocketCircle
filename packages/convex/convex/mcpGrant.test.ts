@@ -59,6 +59,7 @@ async function createActiveGrant(
     circleIds: string[];
     scopes?: readonly string[];
     clientId?: string;
+    clientKind?: "cimd" | "static";
     redirectUri?: string;
     workerGrantId?: string;
   },
@@ -67,6 +68,7 @@ async function createActiveGrant(
     createPendingMcpGrant(ctx, {
       userId: args.userId,
       clientId: args.clientId ?? CLIENT,
+      clientKind: args.clientKind ?? "cimd",
       redirectUri: args.redirectUri ?? REDIRECT,
       clientDisplaySnapshot: { clientName: "Example Client" },
       scopes: args.scopes ?? READ_WRITE,
@@ -101,6 +103,7 @@ describe("createPendingMcpGrant", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         clientDisplaySnapshot: {
           clientName: "Courier",
@@ -151,6 +154,7 @@ describe("createPendingMcpGrant", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -160,6 +164,7 @@ describe("createPendingMcpGrant", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: `${CLIENT}#other`,
+        clientKind: "cimd",
         redirectUri: "https://mcp-client.example/other-callback",
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -181,6 +186,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          clientKind: "cimd",
           redirectUri: REDIRECT,
           scopes: ["openid"],
           allowedCircleIds: [personalId],
@@ -191,6 +197,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          clientKind: "cimd",
           redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [],
@@ -201,6 +208,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          clientKind: "cimd",
           redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [personalId, otherPersonalId],
@@ -211,6 +219,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: "  ",
+          clientKind: "cimd",
           redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [personalId],
@@ -221,6 +230,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          clientKind: "cimd",
           redirectUri: "  ",
           scopes: READ_WRITE,
           allowedCircleIds: [personalId],
@@ -239,6 +249,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -333,6 +344,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -342,6 +354,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: READ_WRITE,
         allowedCircleIds: [personalId, regularId],
@@ -368,7 +381,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     });
   });
 
-  it("does not supersede grants for the same client with a different redirect URI", async () => {
+  it("CIMD: does not supersede grants for the same client with a different redirect URI", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
     const otherRedirect = "https://mcp-client.example/other-callback";
@@ -376,6 +389,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     const otherRedirectGrant = await createActiveGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
+      clientKind: "cimd",
       redirectUri: otherRedirect,
       workerGrantId: "wg-other-redirect",
     });
@@ -383,6 +397,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -407,6 +422,49 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     });
   });
 
+  it("static clients supersede by User+client across redirect URIs", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+    const staticClient = "pocketcircle-dev-static";
+    const otherRedirect = "https://desktop.example/callback";
+
+    const older = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [personalId],
+      clientId: staticClient,
+      clientKind: "static",
+      redirectUri: otherRedirect,
+      workerGrantId: "wg-static-old",
+    });
+    const pending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: staticClient,
+        clientKind: "static",
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+      }),
+    );
+    if (!pending.ok) {
+      throw new Error(pending.error);
+    }
+
+    const activated = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: pending.value._id,
+        workerGrantId: "wg-static-new",
+        principalId: pending.value.principalId,
+      }),
+    );
+    expect(activated.ok).toBe(true);
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(older._id))?.status).toBe("revoked");
+      expect((await ctx.db.get(pending.value._id))?.status).toBe("active");
+    });
+  });
+
   it("does not revoke a newer pending flow when an older grant activates", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
@@ -415,6 +473,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -425,6 +484,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: READ_WRITE,
         allowedCircleIds: [personalId],
@@ -447,6 +507,48 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     await t.run(async (ctx) => {
       expect((await ctx.db.get(olderPending.value._id))?.status).toBe("active");
       expect((await ctx.db.get(newerPending.value._id))?.status).toBe("pending");
+    });
+  });
+
+  it("revokes a newer active sibling when an older pending completes later", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+
+    // Newer flow completes first (Worker replacement order).
+    const newerActive = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [personalId],
+      scopes: READ_WRITE,
+      workerGrantId: "wg-newer-first",
+    });
+    // Older consent that reaches token exchange later — createdAt earlier.
+    const olderPending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        clientKind: "cimd",
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+        now: newerActive.createdAt - 1_000,
+      }),
+    );
+    if (!olderPending.ok) {
+      throw new Error(olderPending.error);
+    }
+
+    const activated = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: olderPending.value._id,
+        workerGrantId: "wg-older-late",
+        principalId: olderPending.value.principalId,
+      }),
+    );
+    expect(activated.ok).toBe(true);
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(olderPending.value._id))?.status).toBe("active");
+      expect((await ctx.db.get(newerActive._id))?.status).toBe("revoked");
     });
   });
 
@@ -491,6 +593,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -535,6 +638,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -601,6 +705,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: `${CLIENT}#other`,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -631,6 +736,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
@@ -665,6 +771,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: READ_WRITE,
         allowedCircleIds: [personalId],
@@ -972,6 +1079,7 @@ describe("Account Deletion disables MCP grants", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: `${CLIENT}#pending`,
+        clientKind: "cimd",
         redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [ada.personalCircleId],

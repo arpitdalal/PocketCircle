@@ -29,9 +29,13 @@ export type McpClientDisplaySnapshot = {
   logoUri?: string;
 };
 
+/** Cloudflare registration kind — drives grant supersession keying. */
+export type McpClientKind = "cimd" | "static";
+
 export type CreatePendingMcpGrantArgs = {
   userId: Id<"users">;
   clientId: string;
+  clientKind: McpClientKind;
   /** Approved OAuth redirect URI — part of the Cloudflare CIMD supersession key. */
   redirectUri: string;
   clientDisplaySnapshot?: McpClientDisplaySnapshot;
@@ -43,6 +47,7 @@ export type CreatePendingMcpGrantArgs = {
 export type McpGrantTransitionError =
   | "user_not_found"
   | "invalid_client"
+  | "invalid_client_kind"
   | "invalid_redirect_uri"
   | "invalid_scopes"
   | "invalid_circles"
@@ -126,6 +131,9 @@ export async function createPendingMcpGrant(
   if (args.clientId.trim() === "") {
     return err("invalid_client");
   }
+  if (args.clientKind !== "cimd" && args.clientKind !== "static") {
+    return err("invalid_client_kind");
+  }
   const redirectUri = args.redirectUri.trim();
   if (redirectUri === "") {
     return err("invalid_redirect_uri");
@@ -145,6 +153,7 @@ export async function createPendingMcpGrant(
     userId: user._id,
     principalId,
     clientId: args.clientId,
+    clientKind: args.clientKind,
     redirectUri,
     clientDisplaySnapshot: {
       clientName: args.clientDisplaySnapshot?.clientName,
@@ -244,17 +253,16 @@ function isOlderSibling(candidate: Doc<"mcpGrants">, keep: Doc<"mcpGrants">) {
 }
 
 /**
- * Supersede older pending/active grants for the same User+client+redirect URI
- * when a grant activates (mirrors Cloudflare CIMD grant replacement). Newer
- * overlapping consent flows are left alone so they can still activate.
+ * Load live siblings that Cloudflare would replace for this activating grant.
+ * CIMD: same User+client+redirectUri. Static/DCR: same User+client (all redirects).
  */
-async function supersedeSiblingGrants(
+async function loadSupersessionSiblings(
   ctx: MutationCtx,
-  args: { keep: Doc<"mcpGrants">; now: number },
+  keep: Doc<"mcpGrants">,
+  status: "pending" | "active",
 ) {
-  const { keep, now } = args;
-  for (const status of ["pending", "active"] as const) {
-    const siblings = await ctx.db
+  if (keep.clientKind === "cimd") {
+    return await ctx.db
       .query("mcpGrants")
       .withIndex("by_user_client_redirect_and_status", (q) =>
         q
@@ -264,11 +272,34 @@ async function supersedeSiblingGrants(
           .eq("status", status),
       )
       .collect();
+  }
+  return await ctx.db
+    .query("mcpGrants")
+    .withIndex("by_user_client_and_status", (q) =>
+      q.eq("userId", keep.userId).eq("clientId", keep.clientId).eq("status", status),
+    )
+    .collect();
+}
+
+/**
+ * Mirror Cloudflare grant replacement when a Convex grant activates:
+ * - Always revoke other *active* siblings in the replacement key (Worker
+ *   replacement follows completion order, not consent creation order).
+ * - Revoke only *older* pending siblings; leave newer pending flows activatable.
+ * - CIMD keys include redirect URI; static clients key on User+client only.
+ */
+async function supersedeSiblingGrants(
+  ctx: MutationCtx,
+  args: { keep: Doc<"mcpGrants">; now: number },
+) {
+  const { keep, now } = args;
+  for (const status of ["pending", "active"] as const) {
+    const siblings = await loadSupersessionSiblings(ctx, keep, status);
     for (const sibling of siblings) {
       if (sibling._id === keep._id) {
         continue;
       }
-      if (!isOlderSibling(sibling, keep)) {
+      if (sibling.status === "pending" && !isOlderSibling(sibling, keep)) {
         continue;
       }
       await revokeMcpGrant(ctx, { grantId: sibling._id, now });
@@ -288,8 +319,9 @@ export type ActivateMcpGrantArgs = {
  * Activate a pending grant by linking the Worker OAuth grant. Fails closed on
  * wrong status, principal mismatch, empty Worker id, or Worker grant id already
  * linked to another Convex grant. Retries that repeat the same linkage after a
- * lost response are idempotent. On success only, supersedes older pending/
- * active grants for the same User+client+redirectUri.
+ * lost response are idempotent. On success only, supersedes siblings per
+ * Cloudflare replacement rules (active siblings in key; older pending only;
+ * CIMD redirect partitioning).
  */
 export async function activateMcpGrant(
   ctx: MutationCtx,
