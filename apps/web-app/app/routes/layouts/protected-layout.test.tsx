@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAIN_CONTENT_ID } from "~/components/skip-navigation.js";
 import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import {
@@ -92,7 +93,7 @@ describe("ProtectedLayout skip navigation", () => {
     await user.keyboard("{Enter}");
     const main = screen.getByRole("main");
     expect(main).toHaveFocus();
-    expect(main).toHaveAttribute("id", "main-content");
+    expect(main).toHaveAttribute("id", MAIN_CONTENT_ID);
     expect(main).toHaveAttribute("tabIndex", "-1");
   });
 

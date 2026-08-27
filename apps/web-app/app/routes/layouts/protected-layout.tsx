@@ -108,6 +108,7 @@ export default function ProtectedLayout() {
           <AccountMenu user={session.user} showSignOut={!MOCKS} />
         </div>
       </header>
+      {/* outline-none: APG skip-target; next Tab shows focus-visible on a real control. */}
       <main
         id={MAIN_CONTENT_ID}
         tabIndex={-1}
