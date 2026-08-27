@@ -19,18 +19,9 @@ import {
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
+import { generateOpaqueToken } from "./opaqueToken.js";
 import type { OperationReader } from "./operationReader.js";
 import { resolveUserById } from "./operations.js";
-
-/** Opaque principal / Worker grant id material (URL-safe, not a Convex id). */
-export function generateMcpOpaqueId() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
 
 export type McpClientDisplaySnapshot = {
   clientName?: string;
@@ -124,7 +115,7 @@ export async function createPendingMcpGrant(
   }
 
   const now = args.now ?? Date.now();
-  const principalId = generateMcpOpaqueId();
+  const principalId = generateOpaqueToken();
   const grantId = await ctx.db.insert("mcpGrants", {
     userId: user._id,
     principalId,
@@ -253,8 +244,9 @@ export type ActivateMcpGrantArgs = {
 /**
  * Activate a pending grant by linking the Worker OAuth grant. Fails closed on
  * wrong status, principal mismatch, empty Worker id, or Worker grant id already
- * linked to another Convex grant. Supersedes other pending/active grants for the
- * same User+client in the same mutation.
+ * linked to another Convex grant. On success only, supersedes other pending/
+ * active grants for the same User+client (Cloudflare-style replacement) so a
+ * failed activation never revokes siblings.
  */
 export async function activateMcpGrant(
   ctx: MutationCtx,
@@ -284,20 +276,14 @@ export async function activateMcpGrant(
     return err("worker_grant_conflict");
   }
 
-  const now = args.now ?? Date.now();
-  await supersedeSiblingGrants(ctx, {
-    userId: grant.userId,
-    clientId: grant.clientId,
-    keepGrantId: grant._id,
-    now,
-  });
-
-  // Re-read after supersede — concurrent revoke may have flipped this grant.
+  // Re-read immediately before the write — concurrent revoke must win without
+  // sibling side effects.
   const pending = await ctx.db.get(grant._id);
   if (pending?.status !== "pending") {
     return err("invalid_transition");
   }
 
+  const now = args.now ?? Date.now();
   await ctx.db.patch(grant._id, {
     status: "active",
     workerGrantId,
@@ -306,9 +292,17 @@ export async function activateMcpGrant(
     workerCleanupStatus: "none",
   });
   const active = await ctx.db.get(grant._id);
-  if (!active) {
-    return err("grant_not_found");
+  if (!active || active.status !== "active") {
+    return err("invalid_transition");
   }
+
+  await supersedeSiblingGrants(ctx, {
+    userId: active.userId,
+    clientId: active.clientId,
+    keepGrantId: active._id,
+    now,
+  });
+
   return { ok: true, value: active };
 }
 
@@ -364,7 +358,11 @@ function deny(denial: McpAuthzDenial): { ok: false; denial: McpAuthzDenial } {
   return { ok: false, denial };
 }
 
-async function authorizeActiveGrant(
+/**
+ * Authorize a non-Circle MCP operation (e.g. current User). Requires an active
+ * grant and the required scope on both the effective token and the live grant.
+ */
+export async function authorizeMcpGrant(
   ctx: OperationReader,
   args: {
     grantId: Id<"mcpGrants"> | string;
@@ -404,21 +402,6 @@ async function authorizeActiveGrant(
 }
 
 /**
- * Authorize a non-Circle MCP operation (e.g. current User). Requires an active
- * grant and the required scope on both the effective token and the live grant.
- */
-export async function authorizeMcpGrant(
-  ctx: OperationReader,
-  args: {
-    grantId: Id<"mcpGrants"> | string;
-    effectiveScopes: readonly string[];
-    requiredScope: McpScope;
-  },
-) {
-  return await authorizeActiveGrant(ctx, args);
-}
-
-/**
  * Authorize a Circle-scoped MCP operation. Failures for deselected, malformed,
  * missing, or membership-lost Circles share {@link McpAuthzDenial} `circle_inaccessible`
  * so callers cannot probe existence. Owner-only app denials are distinct and never
@@ -434,7 +417,7 @@ export async function authorizeMcpGrantForCircle(
     requiredPermission: McpCirclePermission;
   },
 ): Promise<McpAuthzResult<McpCircleAuthzSuccess>> {
-  const base = await authorizeActiveGrant(ctx, args);
+  const base = await authorizeMcpGrant(ctx, args);
   if (!base.ok) {
     return base;
   }

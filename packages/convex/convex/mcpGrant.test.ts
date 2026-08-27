@@ -446,6 +446,41 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     );
     expect(conflict).toEqual({ ok: false, error: "worker_grant_conflict" });
   });
+
+  it("failed activation does not revoke sibling grants", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+    const sibling = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [personalId],
+      workerGrantId: "wg-sibling",
+    });
+    const pending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+      }),
+    );
+    if (!pending.ok) {
+      throw new Error(pending.error);
+    }
+
+    const failed = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: pending.value._id,
+        workerGrantId: "wg-fail",
+        principalId: "wrong-principal",
+      }),
+    );
+    expect(failed).toEqual({ ok: false, error: "principal_mismatch" });
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(sibling._id))?.status).toBe("active");
+      expect((await ctx.db.get(pending.value._id))?.status).toBe("pending");
+    });
+  });
 });
 
 describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {

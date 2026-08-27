@@ -8,19 +8,8 @@ export const MCP_SCOPES = ["pocketcircle:read", "pocketcircle:write"] as const;
 
 export type McpScope = (typeof MCP_SCOPES)[number];
 
-export const MCP_GRANT_STATUSES = ["pending", "active", "revoked"] as const;
-
-export type McpGrantStatus = (typeof MCP_GRANT_STATUSES)[number];
-
-/** Worker-grant cleanup after Convex revocation (reconciliation, #330). */
-export const MCP_WORKER_CLEANUP_STATUSES = ["none", "pending_revoke"] as const;
-
-export type McpWorkerCleanupStatus = (typeof MCP_WORKER_CLEANUP_STATUSES)[number];
-
 /** Circle-level app permission an MCP operation may require (existing guard). */
-export const MCP_CIRCLE_PERMISSIONS = ["member", "owner"] as const;
-
-export type McpCirclePermission = (typeof MCP_CIRCLE_PERMISSIONS)[number];
+export type McpCirclePermission = "member" | "owner";
 
 const mcpScopeSet = new Set<string>(MCP_SCOPES);
 
