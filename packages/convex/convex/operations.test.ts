@@ -224,6 +224,43 @@ describe("getCircleForUser — missing ≡ inaccessible", () => {
     signInAs(null);
     expect(await t.query(api.circles.getCircle, { circleId: sharedId })).toBeNull();
   });
+
+  it("keeps Archived Circles readable for active Members on both paths", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, grace } = await seedOverlappingUsers(t);
+    const archivedId = (
+      await t.run((ctx) =>
+        seedOwnedCircle(ctx, ada.owner, {
+          name: "Archived Shared",
+          archived: true,
+          setupCompletedAt: Date.now(),
+        }),
+      )
+    ).circleId;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("members", {
+        circleId: archivedId,
+        userId: grace.owner._id,
+        role: "member",
+        status: "active",
+        displayName: grace.owner.displayName,
+        joinedAt: Date.now(),
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const explicit = await getCircleForUser(ctx, archivedId, grace.owner);
+      expect(explicit?.status).toBe("archived");
+      expect(explicit?.name).toBe("Archived Shared");
+    });
+
+    signInAs(grace.owner);
+    const browser = await t.query(api.circles.getCircle, { circleId: archivedId });
+    expect(browser?.status).toBe("archived");
+    await t.run(async (ctx) => {
+      expect(browser).toEqual(await getCircleForUser(ctx, archivedId, grace.owner));
+    });
+  });
 });
 
 describe("resolveUserById + ops without a browser session", () => {
