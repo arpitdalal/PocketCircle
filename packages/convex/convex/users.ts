@@ -1,38 +1,24 @@
 import { isFeatureAnnouncementId, parseProfileUpdate } from "@pocketcircle/domain";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
 import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { reconcilePersonalCircleFromDisplayName, setUserDisplayName } from "./model.js";
-
-/**
- * The current-user view the protected layout and settings read (ADR 0003). Derived
- * from the User row so the client cannot drift from the backend contract.
- */
-export function toCurrentUserView(user: Doc<"users">) {
-  return {
-    id: user._id,
-    email: user.email,
-    displayName: user.displayName,
-    image: user.image,
-    onboardingComplete: user.onboardingCompletedAt !== null,
-    analyticsEnabled: user.analyticsEnabled,
-    createdAt: user.createdAt,
-    acknowledgedFeatureAnnouncementIds: user.acknowledgedFeatureAnnouncementIds ?? [],
-  };
-}
+import { getCurrentUserForUser } from "./operations.js";
 
 /**
  * The current PocketCircle User, or null when the Google session exists but the
  * User record has not propagated yet. The protected layout uses this to choose
  * between the bootstrap splash and the app shell (ADR 0017). The User and
  * Personal Circle are created by the `onCreateUser` trigger in auth.ts.
+ *
+ * Resolves the User from the Better Auth session, then runs the shared
+ * current-User operation (#316) so trusted server callers can use the same view.
  */
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    return user ? toCurrentUserView(user) : null;
+    return user ? getCurrentUserForUser(user) : null;
   },
 });
 
