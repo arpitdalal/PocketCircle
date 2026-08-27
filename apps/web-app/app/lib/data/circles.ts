@@ -7,7 +7,7 @@ import { MOCK_CIRCLES, MOCK_TRANSACTIONS } from "../fixtures.js";
 /**
  * The single Circle view contract, derived from the Convex function's return
  * type so it cannot drift from the backend (ADR 0003). `toCircleView` in
- * `packages/convex/convex/circles.ts` is the one definition; both the real
+ * `packages/convex/convex/operations.ts` is the one definition; both the real
  * `useQuery` path and the mock fixtures conform to this same type, so a field
  * change there surfaces here at typecheck time rather than as a runtime mismatch
  * between the two paths. `id` is an `Id<"circles">` branded string — the real

@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { getCurrentUserOrNull } from "./auth.js";
+import type { OperationReader } from "./operationReader.js";
 
 /**
  * The single Circle-access module (ADR 0015). Every Convex function that
@@ -23,7 +24,12 @@ import { getCurrentUserOrNull } from "./auth.js";
  *
  * Boundary: this module is for operations on an EXISTING Circle. Circle-less
  * operations keep `requireCurrentUser` (auth.ts): `listMyCircles` (lists across
- * Circles), `createCircle` (no prior access), `users.setAnalyticsEnabled`.
+ * Circles via `listMyCirclesForUser`), `createCircle` (no prior access),
+ * `users.setAnalyticsEnabled`.
+ *
+ * Explicit-User path: `resolveCircleAccessForUser` takes an already-resolved
+ * User and only a DB reader (`OperationReader`). Session folding stays in
+ * `resolveCircleAccess` / `requireCircleAccess`.
  *
  * Capabilities here are Circle-level only (`isOwner`, `isWritable`,
  * `assertSetupComplete`). Entity-level permission — a Transaction editable only
@@ -89,7 +95,7 @@ export interface AuthorizedCircle {
 
 /** Returns the caller's active membership in a Circle, or null when not an active member. */
 export async function getActiveMembership(
-  ctx: QueryCtx | MutationCtx,
+  ctx: OperationReader,
   circleId: Id<"circles">,
   userId: Id<"users">,
 ): Promise<Doc<"members"> | null> {
@@ -131,11 +137,12 @@ function toAuthorizedCircle(
 
 /**
  * Resolves Circle access for a known User without re-reading auth. Callers that
- * already hold the current User (e.g. a batched notification page) use this so
- * membership/circle lookups can be memoized per `circleId`.
+ * already hold the current User (e.g. a batched notification page, shared domain
+ * ops, future MCP bridge) use this so membership/circle lookups can be
+ * memoized per `circleId`. Takes only a DB reader — no session.
  */
 export async function resolveCircleAccessForUser(
-  ctx: QueryCtx | MutationCtx,
+  ctx: OperationReader,
   circleId: Id<"circles">,
   user: Doc<"users">,
 ): Promise<AuthorizedCircle | null> {

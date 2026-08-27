@@ -1,5 +1,4 @@
 import {
-  buildRef,
   circleInputSchema,
   circleSetupAnswersSchema,
   colorLabel,
@@ -22,7 +21,7 @@ import {
   recomputeAccountDeletionBlockers,
 } from "./accountDeletionBlockers.js";
 import { markActivationMilestone } from "./activation.js";
-import { requireCurrentUser } from "./auth.js";
+import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { createCategoryForMember } from "./categories.js";
 import { circleSetupFields } from "./circleSetup.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
@@ -33,6 +32,7 @@ import { revokePendingInvitationsForCircle } from "./invitations.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { getPersonalCircleForOwner, reconcilePersonalCircleFromDisplayName } from "./model.js";
 import { notifyCircleLifecycleChange } from "./notify.js";
+import { getCircleForUser, listMyCirclesForUser } from "./operations.js";
 
 const circleSetupAnswers = v.object({
   purpose: v.optional(
@@ -49,60 +49,19 @@ const circleSetupAnswers = v.object({
   residenceType: v.optional(v.union(v.literal("leased"), v.literal("owned"))),
 });
 
-/** A Circle plus its canonical ref, shaped for the client. */
-function toCircleView(circle: Doc<"circles">) {
-  return {
-    id: circle._id,
-    ref: buildRef(circle.name, circle._id),
-    name: circle.name,
-    kind: circle.kind,
-    currency: circle.currency,
-    color: circle.color,
-    mark: circle.mark,
-    status: circle.status,
-    setupAnswers: circle.setupAnswers,
-    setupComplete: circle.setupCompletedAt !== null,
-    currencyLocked: circle.currencyLocked,
-    nameCustomized: circle.personalNameCustomizedAt !== undefined,
-  };
-}
-
 /** Circles the current User is an active Member of, Personal Circle first. */
 export const listMyCircles = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
-    const memberships = await ctx.db
-      .query("members")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .collect();
-
-    const circles: Doc<"circles">[] = [];
-    for (const membership of memberships) {
-      if (membership.status !== "active") {
-        continue;
-      }
-      const circle = await ctx.db.get(membership.circleId);
-      if (circle) {
-        circles.push(circle);
-      }
-    }
-
-    circles.sort((a, b) => {
-      if (a.kind !== b.kind) {
-        return a.kind === "personal" ? -1 : 1;
-      }
-      return a.createdAt - b.createdAt;
-    });
-
-    return circles.map(toCircleView);
+    return listMyCirclesForUser(ctx, user);
   },
 });
 
 /**
  * Resolves a single Circle by its authoritative ID for the staged route guard
  * (ADR 0016/0017). Returns null when missing or inaccessible without
- * distinguishing the two cases.
+ * distinguishing the two cases. Session → shared `getCircleForUser` (#316).
  */
 export const getCircle = query({
   // Accepts the raw trailing-segment ID from the route ref. A malformed ID
@@ -110,12 +69,11 @@ export const getCircle = query({
   // guard's fallback path stays uniform (ADR 0016).
   args: { circleId: v.string() },
   handler: async (ctx, args) => {
-    const circleId = ctx.db.normalizeId("circles", args.circleId);
-    if (!circleId) {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) {
       return null;
     }
-    const access = await resolveCircleAccess(ctx, circleId);
-    return access ? toCircleView(access.circle) : null;
+    return getCircleForUser(ctx, args.circleId, user);
   },
 });
 

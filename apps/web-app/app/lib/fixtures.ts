@@ -32,7 +32,7 @@ import type {
 /**
  * Mock fixture data for E2E renders without a live backend (ADR 0006). These are
  * typed against the derived {@link Circle} contract, so a field change to
- * `toCircleView` (packages/convex/convex/circles.ts) fails typecheck here rather
+ * `toCircleView` (packages/convex/convex/operations.ts) fails typecheck here rather
  * than letting the mock path silently drift from the real path at runtime. The
  * synthetic ids are cast to the `Id<"circles">` brand — they never reach Convex.
  */
