@@ -19,6 +19,7 @@ import {
   useTransactionSearch,
   useTransactionSearchOptions,
 } from "~/lib/data.js";
+import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { historicalMemberStatusDetail } from "~/lib/member-status-label.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import { useSnackbar } from "~/lib/snackbar.js";
@@ -74,7 +75,7 @@ export default function CircleSearch() {
   useEffect(() => {
     const next = canonicalSearchParams(filters);
     if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
+      setSearchParams(next, keepScrollSearchParamsOptions({ replace: true }));
     }
   }, [filters, searchParams, setSearchParams]);
 
@@ -84,13 +85,19 @@ export default function CircleSearch() {
     }
     if (results.totalCount === 0) {
       if (filters.page > 1) {
-        setSearchParams(canonicalSearchParams({ ...filters, page: 1 }), { replace: true });
+        setSearchParams(
+          canonicalSearchParams({ ...filters, page: 1 }),
+          keepScrollSearchParamsOptions({ replace: true }),
+        );
       }
       return;
     }
     const maxPage = searchResultTotalPages(results.totalCount, results.pageSize);
     if (filters.page > maxPage) {
-      setSearchParams(canonicalSearchParams({ ...filters, page: maxPage }), { replace: true });
+      setSearchParams(
+        canonicalSearchParams({ ...filters, page: maxPage }),
+        keepScrollSearchParamsOptions({ replace: true }),
+      );
     }
   }, [filters, results.isLoading, results.pageSize, results.totalCount, setSearchParams]);
 
@@ -111,9 +118,10 @@ export default function CircleSearch() {
       cleaned.recordedBy.join(",") !== filters.recordedBy.join(",") ||
       cleaned.paidBy.join(",") !== filters.paidBy.join(",")
     ) {
-      setSearchParams(canonicalSearchParams({ ...filters, ...cleaned, page: 1 }), {
-        replace: true,
-      });
+      setSearchParams(
+        canonicalSearchParams({ ...filters, ...cleaned, page: 1 }),
+        keepScrollSearchParamsOptions({ replace: true }),
+      );
     }
   }, [panelOpen, filters, options, setSearchParams]);
 
@@ -124,12 +132,18 @@ export default function CircleSearch() {
     }
     const applied = { ...draft, q: filters.q, page: 1 };
     track("transaction_search_submitted", searchFilterAnalyticsProps(applied));
-    setSearchParams(canonicalSearchParams(applied), { replace: false });
+    setSearchParams(
+      canonicalSearchParams(applied),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
     setPanelOpen(false);
   };
 
   const reset = () => {
-    setSearchParams(canonicalSearchParams(defaultSearchFilters()), { replace: false });
+    setSearchParams(
+      canonicalSearchParams(defaultSearchFilters()),
+      keepScrollSearchParamsOptions({ replace: false }),
+    );
     setPanelOpen(false);
   };
 
@@ -181,7 +195,10 @@ export default function CircleSearch() {
           onSearch={(q) => {
             const next = { ...filters, q, page: 1 };
             track("transaction_search_submitted", searchFilterAnalyticsProps(next));
-            setSearchParams(canonicalSearchParams(next), { replace: true });
+            setSearchParams(
+              canonicalSearchParams(next),
+              keepScrollSearchParamsOptions({ replace: true }),
+            );
           }}
           label="Search title or note"
           normalize={(raw) => cleanText(raw)}
@@ -215,6 +232,7 @@ export default function CircleSearch() {
         totalCountCapped={totalCountCapped}
         loading={results.isLoading}
         onSelectPage={(page) => {
+          // Intentionally scrolls to top: a new page is a new view of results.
           track("transaction_search_page_changed", { page });
           setSearchParams(canonicalSearchParams({ ...filters, page }), { replace: false });
         }}

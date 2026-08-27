@@ -30,6 +30,7 @@ import {
 } from "~/lib/data.js";
 import { globalAddHref } from "~/lib/global-add-url.js";
 import { canonicalHomeSummaryParams, readHomeSummarySelection } from "~/lib/home-summary-url.js";
+import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
@@ -71,7 +72,7 @@ export default function Home() {
           { currency: effectiveCurrency, range: effectiveRange },
           searchParams,
         ),
-        { replace: true },
+        keepScrollSearchParamsOptions({ replace: true }),
       );
     }
   }, [summary, isPending, selection.currency, selection.range, searchParams, setSearchParams]);
@@ -94,14 +95,14 @@ export default function Home() {
         },
         searchParams,
       ),
-      { replace: false },
+      keepScrollSearchParamsOptions({ replace: false }),
     );
   };
 
   const selectCurrency = (currency: string) => {
     setSearchParams(
       canonicalHomeSummaryParams({ currency, range: selection.range }, searchParams),
-      { replace: false },
+      keepScrollSearchParamsOptions({ replace: false }),
     );
   };
 
