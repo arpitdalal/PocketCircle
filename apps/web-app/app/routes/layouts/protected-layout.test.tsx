@@ -68,6 +68,59 @@ function ready() {
   configureConvex({ currentUser: makeCurrentUserView(), circles: [] });
 }
 
+describe("ProtectedLayout skip navigation", () => {
+  it("exposes a skip link as the first tab stop that focuses the main landmark", async () => {
+    ready();
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ index: true, Component: () => <h2>Home stub</h2> }],
+        },
+      ],
+      ["/"],
+    );
+
+    await screen.findByText("Home stub");
+    const user = userEvent.setup();
+    await user.tab();
+
+    const skip = screen.getByRole("link", { name: "Skip to main content" });
+    expect(skip).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    const main = screen.getByRole("main");
+    expect(main).toHaveFocus();
+    expect(main).toHaveAttribute("id", "main-content");
+    expect(main).toHaveAttribute("tabIndex", "-1");
+  });
+
+  it("does not render the skip link while onboarding (no shell chrome to skip)", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView({ onboardingComplete: false }),
+      circles: [],
+    });
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [
+            { index: true, Component: () => <h2>Home stub</h2> },
+            { path: "onboarding", Component: OnboardingRoute },
+          ],
+        },
+      ],
+      ["/onboarding"],
+    );
+
+    await screen.findByRole("heading", { name: "Welcome" });
+    expect(screen.queryByRole("link", { name: "Skip to main content" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main")).not.toBeInTheDocument();
+  });
+});
+
 describe("ProtectedLayout shell skeleton", () => {
   it("shows the generic skeleton while a slow shell navigation loads, keeping the header", async () => {
     const slow = deferred();
