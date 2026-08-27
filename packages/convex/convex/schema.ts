@@ -311,6 +311,48 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 
+  /**
+   * PocketCircle-owned MCP authorization grant (#317). The Worker issues tokens;
+   * Convex stores what the User approved and is the live enforcement point for
+   * every future tool call. Status is pending until Worker grant linkage activates
+   * it; revocation here blocks data access even before Worker token cleanup.
+   *
+   * `allowedCircleIds` is an authorization boundary — never auto-expanded when
+   * the User joins or creates Circles. `workerCleanupStatus` supports later
+   * reconciliation (#330) after Convex revoke + failed Worker cleanup.
+   */
+  mcpGrants: defineTable({
+    userId: v.id("users"),
+    /** Opaque MCP principal — Worker's OAuth `userId`; Convex maps it to `userId`. */
+    principalId: v.string(),
+    clientId: v.string(),
+    /** Safe display snapshot from consent time (label only, not proof of identity). */
+    clientDisplaySnapshot: v.object({
+      clientName: v.optional(v.string()),
+      clientUri: v.optional(v.string()),
+      logoUri: v.optional(v.string()),
+    }),
+    scopes: v.array(v.union(v.literal("pocketcircle:read"), v.literal("pocketcircle:write"))),
+    allowedCircleIds: v.array(v.id("circles")),
+    status: v.union(v.literal("pending"), v.literal("active"), v.literal("revoked")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    activatedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    /** Cloudflare Workers OAuth grant id — set on activation for coordinated revoke. */
+    workerGrantId: v.optional(v.string()),
+    workerCleanupStatus: v.union(v.literal("none"), v.literal("pending_revoke")),
+  })
+    .index("by_principal", ["principalId"])
+    .index("by_user", ["userId"])
+    .index("by_user_and_status", ["userId", "status"])
+    .index("by_user_client_and_status", ["userId", "clientId", "status"])
+    .index("by_client_and_status", ["clientId", "status"])
+    .index("by_status", ["status"])
+    .index("by_worker_grant", ["workerGrantId"])
+    .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
+
   // Durable Account Deletion cleanup state (USR-3 / ADR 0029). Deleted when done.
   accountDeletionJobs: defineTable({
     userId: v.id("users"),

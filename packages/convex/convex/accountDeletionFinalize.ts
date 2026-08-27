@@ -4,6 +4,7 @@ import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { betterAuthMappedUserSchema } from "./accountDeletionAuth.js";
+import { revokeAllMcpGrantsForUser } from "./mcpGrant.js";
 
 /** First cleanup phase — must match `USER_PHASES[0]` in accountDeletion.ts. */
 const INITIAL_CLEANUP_PHASE = "convertActiveMemberships" as const;
@@ -64,6 +65,10 @@ export async function finalizeOnUserDelete(ctx: MutationCtx, authUser: unknown) 
   }
 
   const finalizedAt = Date.now();
+  // Disable MCP grants before async cleanup / User row delete so the next
+  // authorization check fails closed even if Worker token cleanup lags (#317).
+  await revokeAllMcpGrantsForUser(ctx, { userId, now: finalizedAt });
+
   const jobId = await createAccountDeletionCleanupJob(ctx, {
     userId,
     emailLower: user.email,
