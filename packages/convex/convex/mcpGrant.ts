@@ -292,7 +292,7 @@ export async function activateMcpGrant(
     workerCleanupStatus: "none",
   });
   const active = await ctx.db.get(grant._id);
-  if (!active || active.status !== "active") {
+  if (active?.status !== "active") {
     return err("invalid_transition");
   }
 
