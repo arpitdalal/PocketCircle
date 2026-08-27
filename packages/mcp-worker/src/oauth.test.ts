@@ -254,18 +254,99 @@ describe("authorization handoff", () => {
         new RegExp(`^${REDIRECT_URI.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?`),
       ),
     });
-    if (typeof body === "object" && body !== null && "redirectTo" in body) {
-      const redirectTo = String(body.redirectTo);
-      expect(redirectTo).toContain("code=");
-      expect(redirectTo).toContain("state=approve-me");
-      // Approval token and grant/circle ids must not appear as query metadata.
-      // Provider encodes opaque principalId into the auth code (userId) — expected.
-      expect(redirectTo).not.toContain("approval-token");
-      expect(redirectTo).not.toContain("grant_test");
-      expect(redirectTo).not.toContain("circle_opaque");
+    if (typeof body !== "object" || body === null || !("redirectTo" in body)) {
+      throw new Error("missing redirectTo");
     }
+    const redirectTo = String(body.redirectTo);
+    expect(redirectTo).toContain("code=");
+    expect(redirectTo).toContain("state=approve-me");
+    // Approval token and grant/circle ids must not appear as query metadata.
+    // Provider encodes opaque principalId into the auth code (userId) — expected.
+    expect(redirectTo).not.toContain("approval-token");
+    expect(redirectTo).not.toContain("grant_test");
+    expect(redirectTo).not.toContain("circle_opaque");
+
+    const code = new URL(redirectTo).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    // RFC 7636 appendix B verifier matching the S256 challenge used above.
+    const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    const tokenResponse = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code ?? "",
+        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        code_verifier: codeVerifier,
+        resource: RESOURCE,
+      }),
+    });
+    expect(tokenResponse.status).toBe(200);
+    const tokens: unknown = await tokenResponse.json();
+    expect(tokens).toMatchObject({
+      token_type: "bearer",
+      access_token: expect.any(String),
+      refresh_token: expect.any(String),
+    });
+
+    // Refresh still validates live grant (stub Convex validate) and cannot broaden.
+    const refreshToken =
+      typeof tokens === "object" &&
+      tokens !== null &&
+      "refresh_token" in tokens &&
+      typeof tokens.refresh_token === "string"
+        ? tokens.refresh_token
+        : "";
+    expect(refreshToken.length).toBeGreaterThan(0);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/mcp/validate-grant")) {
+          return Response.json({ ok: true });
+        }
+        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+      }),
+    );
+
+    const refreshOk = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshOk.status).toBe(200);
+    // Scope-broadening on refresh is enforced in Convex `validateActiveGrant`
+    // (mcpApproval.test.ts); the provider only forwards scopes within the grant.
 
     // Handoff consumed — second complete with same redeem cannot finish OAuth.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/mcp/redeem-approval")) {
+          return Response.json({
+            ok: true,
+            value: {
+              grantId: "grant_test",
+              principalId: "principal_opaque",
+              clientId,
+              redirectUri: REDIRECT_URI,
+              resource: RESOURCE,
+              scopes: ["pocketcircle:read"],
+              allowedCircleIds: ["circle_opaque"],
+              handoffId: payload?.handoffId,
+            },
+          });
+        }
+        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+      }),
+    );
     const replay = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
