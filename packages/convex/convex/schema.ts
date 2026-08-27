@@ -47,6 +47,13 @@ export default defineSchema({
     // Feature Announcement IDs the User acknowledged via CTA or close (#282).
     // Missing ≡ none. Allowed values are the shared domain registry.
     acknowledgedFeatureAnnouncementIds: v.optional(v.array(v.string())),
+    /**
+     * Stable opaque MCP principal (Worker's OAuth `userId`) for this User (#317).
+     * One principal per User so Cloudflare grant replacement and coordinated
+     * revoke recognize reauthorizations as the same identity. Missing until the
+     * first pending MCP grant is created.
+     */
+    mcpPrincipalId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -323,9 +330,14 @@ export default defineSchema({
    */
   mcpGrants: defineTable({
     userId: v.id("users"),
-    /** Opaque MCP principal — Worker's OAuth `userId`; Convex maps it to `userId`. */
+    /** Opaque MCP principal — Worker's OAuth `userId`; stable per PocketCircle User. */
     principalId: v.string(),
     clientId: v.string(),
+    /**
+     * Approved OAuth redirect URI. Cloudflare CIMD distinguishes grants by
+     * client + redirect URI; supersession must mirror that key.
+     */
+    redirectUri: v.string(),
     /** Safe display snapshot from consent time (label only, not proof of identity). */
     clientDisplaySnapshot: v.object({
       clientName: v.optional(v.string()),
@@ -348,6 +360,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_and_status", ["userId", "status"])
     .index("by_user_client_and_status", ["userId", "clientId", "status"])
+    .index("by_user_client_redirect_and_status", ["userId", "clientId", "redirectUri", "status"])
     .index("by_client_and_status", ["clientId", "status"])
     .index("by_status", ["status"])
     .index("by_worker_grant", ["workerGrantId"])

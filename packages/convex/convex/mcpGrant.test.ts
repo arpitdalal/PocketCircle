@@ -19,6 +19,7 @@ const modules = import.meta.glob("./**/*.ts");
 type TestCtx = ReturnType<typeof convexTest>;
 
 const CLIENT = "https://mcp-client.example/client.json";
+const REDIRECT = "https://mcp-client.example/callback";
 const READ_WRITE = ["pocketcircle:read", "pocketcircle:write"] as const;
 
 async function seedUserWithCircles(t: TestCtx) {
@@ -58,6 +59,7 @@ async function createActiveGrant(
     circleIds: string[];
     scopes?: readonly string[];
     clientId?: string;
+    redirectUri?: string;
     workerGrantId?: string;
   },
 ) {
@@ -65,6 +67,7 @@ async function createActiveGrant(
     createPendingMcpGrant(ctx, {
       userId: args.userId,
       clientId: args.clientId ?? CLIENT,
+      redirectUri: args.redirectUri ?? REDIRECT,
       clientDisplaySnapshot: { clientName: "Example Client" },
       scopes: args.scopes ?? READ_WRITE,
       allowedCircleIds: args.circleIds,
@@ -98,6 +101,7 @@ describe("createPendingMcpGrant", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         clientDisplaySnapshot: {
           clientName: "Courier",
           clientUri: "https://courier.example",
@@ -114,6 +118,7 @@ describe("createPendingMcpGrant", () => {
       value: {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         clientDisplaySnapshot: {
           clientName: "Courier",
           clientUri: "https://courier.example",
@@ -133,9 +138,41 @@ describe("createPendingMcpGrant", () => {
     expect(result.value.principalId.length).toBeGreaterThan(20);
     expect(result.value.workerGrantId).toBeUndefined();
     expect(result.value.lastUsedAt).toBeUndefined();
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(ada.userId))?.mcpPrincipalId).toBe(result.value.principalId);
+    });
   });
 
-  it("rejects unknown scopes, empty Circles, inaccessible Circles, and empty client id", async () => {
+  it("reuses a stable Worker principal across grants for the same User", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+
+    const first = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+      }),
+    );
+    const second = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: `${CLIENT}#other`,
+        redirectUri: "https://mcp-client.example/other-callback",
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+      }),
+    );
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("setup failed");
+    }
+    expect(second.value.principalId).toBe(first.value.principalId);
+  });
+
+  it("rejects unknown scopes, empty Circles, inaccessible Circles, empty client id, and empty redirect URI", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, otherPersonalId } = await seedUserWithCircles(t);
 
@@ -144,6 +181,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          redirectUri: REDIRECT,
           scopes: ["openid"],
           allowedCircleIds: [personalId],
         }),
@@ -153,6 +191,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [],
         }),
@@ -162,6 +201,7 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: CLIENT,
+          redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [personalId, otherPersonalId],
         }),
@@ -171,10 +211,21 @@ describe("createPendingMcpGrant", () => {
         await createPendingMcpGrant(ctx, {
           userId: ada.userId,
           clientId: "  ",
+          redirectUri: REDIRECT,
           scopes: READ_WRITE,
           allowedCircleIds: [personalId],
         }),
       ).toEqual({ ok: false, error: "invalid_client" });
+
+      expect(
+        await createPendingMcpGrant(ctx, {
+          userId: ada.userId,
+          clientId: CLIENT,
+          redirectUri: "  ",
+          scopes: READ_WRITE,
+          allowedCircleIds: [personalId],
+        }),
+      ).toEqual({ ok: false, error: "invalid_redirect_uri" });
     });
   });
 });
@@ -188,6 +239,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -265,12 +317,12 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     expect(reactivate).toEqual({ ok: false, error: "invalid_transition" });
   });
 
-  it("supersedes older pending/active grants for the same User and client on activation", async () => {
+  it("supersedes older pending/active grants for the same User, client, and redirect URI", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, regularId } = await seedUserWithCircles(t);
 
     // Active first, then a later pending sibling — activation of a newer grant
-    // must revoke both (Cloudflare-style replacement for the same User+client).
+    // must revoke both (Cloudflare-style replacement for the same User+client+redirect).
     const olderActive = await createActiveGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
@@ -281,6 +333,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -289,6 +342,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: READ_WRITE,
         allowedCircleIds: [personalId, regularId],
       }),
@@ -314,6 +368,121 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     });
   });
 
+  it("does not supersede grants for the same client with a different redirect URI", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+    const otherRedirect = "https://mcp-client.example/other-callback";
+
+    const otherRedirectGrant = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [personalId],
+      redirectUri: otherRedirect,
+      workerGrantId: "wg-other-redirect",
+    });
+    const pending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+      }),
+    );
+    if (!pending.ok) {
+      throw new Error(pending.error);
+    }
+
+    const activated = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: pending.value._id,
+        workerGrantId: "wg-main",
+        principalId: pending.value.principalId,
+      }),
+    );
+    expect(activated.ok).toBe(true);
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(otherRedirectGrant._id))?.status).toBe("active");
+      expect((await ctx.db.get(pending.value._id))?.status).toBe("active");
+    });
+  });
+
+  it("does not revoke a newer pending flow when an older grant activates", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+
+    const olderPending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+        now: 1_700_000_000_000,
+      }),
+    );
+    const newerPending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        redirectUri: REDIRECT,
+        scopes: READ_WRITE,
+        allowedCircleIds: [personalId],
+        now: 1_700_000_000_100,
+      }),
+    );
+    if (!olderPending.ok || !newerPending.ok) {
+      throw new Error("setup failed");
+    }
+
+    const activated = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: olderPending.value._id,
+        workerGrantId: "wg-older",
+        principalId: olderPending.value.principalId,
+      }),
+    );
+    expect(activated.ok).toBe(true);
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(olderPending.value._id))?.status).toBe("active");
+      expect((await ctx.db.get(newerPending.value._id))?.status).toBe("pending");
+    });
+  });
+
+  it("treats repeated activation with the same Worker linkage as idempotent success", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+    const grant = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [personalId],
+      workerGrantId: "wg-retry",
+    });
+
+    const retry = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: grant._id,
+        workerGrantId: "wg-retry",
+        principalId: grant.principalId,
+      }),
+    );
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) {
+      throw new Error(retry.error);
+    }
+    expect(retry.value._id).toBe(grant._id);
+    expect(retry.value.workerGrantId).toBe("wg-retry");
+
+    const conflicting = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: grant._id,
+        workerGrantId: "wg-other",
+        principalId: grant.principalId,
+      }),
+    );
+    expect(conflicting).toEqual({ ok: false, error: "invalid_transition" });
+  });
+
   it("rejects concurrent second activation without leaving a non-active grant", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
@@ -322,6 +491,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -365,6 +535,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -430,6 +601,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: `${CLIENT}#other`,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -459,6 +631,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [personalId],
       }),
@@ -492,6 +665,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: CLIENT,
+        redirectUri: REDIRECT,
         scopes: READ_WRITE,
         allowedCircleIds: [personalId],
       }),
@@ -798,6 +972,7 @@ describe("Account Deletion disables MCP grants", () => {
       createPendingMcpGrant(ctx, {
         userId: ada.userId,
         clientId: `${CLIENT}#pending`,
+        redirectUri: REDIRECT,
         scopes: ["pocketcircle:read"],
         allowedCircleIds: [ada.personalCircleId],
       }),
@@ -889,8 +1064,12 @@ describe("mcpGrants indexes", () => {
         (
           await ctx.db
             .query("mcpGrants")
-            .withIndex("by_user_client_and_status", (q) =>
-              q.eq("userId", ada.userId).eq("clientId", CLIENT).eq("status", "revoked"),
+            .withIndex("by_user_client_redirect_and_status", (q) =>
+              q
+                .eq("userId", ada.userId)
+                .eq("clientId", CLIENT)
+                .eq("redirectUri", REDIRECT)
+                .eq("status", "revoked"),
             )
             .collect()
         ).map((g) => g._id),

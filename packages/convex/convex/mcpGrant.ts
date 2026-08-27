@@ -32,6 +32,8 @@ export type McpClientDisplaySnapshot = {
 export type CreatePendingMcpGrantArgs = {
   userId: Id<"users">;
   clientId: string;
+  /** Approved OAuth redirect URI — part of the Cloudflare CIMD supersession key. */
+  redirectUri: string;
   clientDisplaySnapshot?: McpClientDisplaySnapshot;
   scopes: readonly string[];
   allowedCircleIds: readonly string[];
@@ -41,6 +43,7 @@ export type CreatePendingMcpGrantArgs = {
 export type McpGrantTransitionError =
   | "user_not_found"
   | "invalid_client"
+  | "invalid_redirect_uri"
   | "invalid_scopes"
   | "invalid_circles"
   | "grant_not_found"
@@ -55,6 +58,24 @@ type TransitionResult<T> = TransitionOk<T> | TransitionErr;
 
 function err(error: McpGrantTransitionError): TransitionErr {
   return { ok: false, error };
+}
+
+/**
+ * Stable Worker OAuth `userId` for a PocketCircle User. Cloudflare grant
+ * replacement keys on this identity, so reauthorization must reuse it.
+ * Written on the User row under OCC so concurrent first grants converge.
+ */
+async function resolveStableMcpPrincipal(ctx: MutationCtx, user: Doc<"users">) {
+  if (user.mcpPrincipalId) {
+    return user.mcpPrincipalId;
+  }
+  const fresh = await ctx.db.get(user._id);
+  if (fresh?.mcpPrincipalId) {
+    return fresh.mcpPrincipalId;
+  }
+  const principalId = generateOpaqueToken();
+  await ctx.db.patch(user._id, { mcpPrincipalId: principalId });
+  return principalId;
 }
 
 /**
@@ -105,6 +126,10 @@ export async function createPendingMcpGrant(
   if (args.clientId.trim() === "") {
     return err("invalid_client");
   }
+  const redirectUri = args.redirectUri.trim();
+  if (redirectUri === "") {
+    return err("invalid_redirect_uri");
+  }
   const scopes = normalizeMcpScopes(args.scopes);
   if (!scopes) {
     return err("invalid_scopes");
@@ -115,11 +140,12 @@ export async function createPendingMcpGrant(
   }
 
   const now = args.now ?? Date.now();
-  const principalId = generateOpaqueToken();
+  const principalId = await resolveStableMcpPrincipal(ctx, user);
   const grantId = await ctx.db.insert("mcpGrants", {
     userId: user._id,
     principalId,
     clientId: args.clientId,
+    redirectUri,
     clientDisplaySnapshot: {
       clientName: args.clientDisplaySnapshot?.clientName,
       clientUri: args.clientDisplaySnapshot?.clientUri,
@@ -183,52 +209,69 @@ export async function revokeMcpGrant(
 }
 
 /**
- * Revoke every non-revoked grant for a User (Account Deletion). Must run in the
- * same mutation before async external cleanup so the next authz check fails closed.
+ * Revoke every live (pending/active) grant for a User (Account Deletion). Reads
+ * only non-revoked rows via `by_user_and_status` so revoked history cannot grow
+ * the finalization transaction without bound. Must run before async external
+ * cleanup so the next authz check fails closed.
  */
 export async function revokeAllMcpGrantsForUser(
   ctx: MutationCtx,
   args: { userId: Id<"users">; now?: number },
 ) {
   const now = args.now ?? Date.now();
-  const grants = await ctx.db
-    .query("mcpGrants")
-    .withIndex("by_user", (q) => q.eq("userId", args.userId))
-    .collect();
-
   const revoked: Doc<"mcpGrants">[] = [];
-  for (const grant of grants) {
-    if (grant.status === "revoked") {
-      continue;
-    }
-    const result = await revokeMcpGrant(ctx, { grantId: grant._id, now });
-    if (result.ok) {
-      revoked.push(result.value);
+  for (const status of ["pending", "active"] as const) {
+    const grants = await ctx.db
+      .query("mcpGrants")
+      .withIndex("by_user_and_status", (q) => q.eq("userId", args.userId).eq("status", status))
+      .collect();
+    for (const grant of grants) {
+      const result = await revokeMcpGrant(ctx, { grantId: grant._id, now });
+      if (result.ok) {
+        revoked.push(result.value);
+      }
     }
   }
   return revoked;
 }
 
+/** True when `candidate` was created before `keep` (creation-order supersession). */
+function isOlderSibling(candidate: Doc<"mcpGrants">, keep: Doc<"mcpGrants">) {
+  if (candidate.createdAt !== keep.createdAt) {
+    return candidate.createdAt < keep.createdAt;
+  }
+  return candidate._creationTime < keep._creationTime;
+}
+
 /**
- * Supersede older pending/active grants for the same User+client when a new
- * grant activates (mirrors Cloudflare default grant replacement).
+ * Supersede older pending/active grants for the same User+client+redirect URI
+ * when a grant activates (mirrors Cloudflare CIMD grant replacement). Newer
+ * overlapping consent flows are left alone so they can still activate.
  */
 async function supersedeSiblingGrants(
   ctx: MutationCtx,
-  args: { userId: Id<"users">; clientId: string; keepGrantId: Id<"mcpGrants">; now: number },
+  args: { keep: Doc<"mcpGrants">; now: number },
 ) {
+  const { keep, now } = args;
   for (const status of ["pending", "active"] as const) {
     const siblings = await ctx.db
       .query("mcpGrants")
-      .withIndex("by_user_client_and_status", (q) =>
-        q.eq("userId", args.userId).eq("clientId", args.clientId).eq("status", status),
+      .withIndex("by_user_client_redirect_and_status", (q) =>
+        q
+          .eq("userId", keep.userId)
+          .eq("clientId", keep.clientId)
+          .eq("redirectUri", keep.redirectUri)
+          .eq("status", status),
       )
       .collect();
     for (const sibling of siblings) {
-      if (sibling._id === args.keepGrantId) {
+      if (sibling._id === keep._id) {
         continue;
       }
-      await revokeMcpGrant(ctx, { grantId: sibling._id, now: args.now });
+      if (!isOlderSibling(sibling, keep)) {
+        continue;
+      }
+      await revokeMcpGrant(ctx, { grantId: sibling._id, now });
     }
   }
 }
@@ -236,7 +279,7 @@ async function supersedeSiblingGrants(
 export type ActivateMcpGrantArgs = {
   grantId: Id<"mcpGrants"> | string;
   workerGrantId: string;
-  /** Must match the pending grant's opaque principal (Worker OAuth userId). */
+  /** Must match the grant's opaque principal (Worker OAuth userId). */
   principalId: string;
   now?: number;
 };
@@ -244,9 +287,9 @@ export type ActivateMcpGrantArgs = {
 /**
  * Activate a pending grant by linking the Worker OAuth grant. Fails closed on
  * wrong status, principal mismatch, empty Worker id, or Worker grant id already
- * linked to another Convex grant. On success only, supersedes other pending/
- * active grants for the same User+client (Cloudflare-style replacement) so a
- * failed activation never revokes siblings.
+ * linked to another Convex grant. Retries that repeat the same linkage after a
+ * lost response are idempotent. On success only, supersedes older pending/
+ * active grants for the same User+client+redirectUri.
  */
 export async function activateMcpGrant(
   ctx: MutationCtx,
@@ -261,11 +304,20 @@ export async function activateMcpGrant(
   if (!grant) {
     return err("grant_not_found");
   }
-  if (grant.status !== "pending") {
-    return err("invalid_transition");
-  }
   if (grant.principalId !== args.principalId) {
     return err("principal_mismatch");
+  }
+
+  // Lost token-exchange response: same grantId/workerGrantId/principal already linked.
+  if (grant.status === "active") {
+    if (grant.workerGrantId === workerGrantId) {
+      await supersedeSiblingGrants(ctx, { keep: grant, now: args.now ?? Date.now() });
+      return { ok: true, value: grant };
+    }
+    return err("invalid_transition");
+  }
+  if (grant.status !== "pending") {
+    return err("invalid_transition");
   }
 
   const existingForWorkerGrant = await ctx.db
@@ -296,12 +348,7 @@ export async function activateMcpGrant(
     return err("invalid_transition");
   }
 
-  await supersedeSiblingGrants(ctx, {
-    userId: active.userId,
-    clientId: active.clientId,
-    keepGrantId: active._id,
-    now,
-  });
+  await supersedeSiblingGrants(ctx, { keep: active, now });
 
   return { ok: true, value: active };
 }
@@ -354,8 +401,8 @@ export type McpCircleAuthzSuccess = McpAuthzSuccess & {
 
 export type McpAuthzResult<T> = { ok: true; value: T } | { ok: false; denial: McpAuthzDenial };
 
-function deny(denial: McpAuthzDenial): { ok: false; denial: McpAuthzDenial } {
-  return { ok: false, denial };
+function deny(denial: McpAuthzDenial) {
+  return { ok: false as const, denial };
 }
 
 /**
@@ -369,7 +416,7 @@ export async function authorizeMcpGrant(
     effectiveScopes: readonly string[];
     requiredScope: McpScope;
   },
-): Promise<McpAuthzResult<McpAuthzSuccess>> {
+) {
   const grant = await loadGrant(ctx, args.grantId);
   if (!grant) {
     return deny({ kind: "grant_unavailable" });
@@ -398,7 +445,7 @@ export async function authorizeMcpGrant(
     return deny({ kind: "grant_unavailable", status: "revoked" });
   }
 
-  return { ok: true, value: { grant, user } };
+  return { ok: true as const, value: { grant, user } };
 }
 
 /**
@@ -416,7 +463,7 @@ export async function authorizeMcpGrantForCircle(
     circleId: string;
     requiredPermission: McpCirclePermission;
   },
-): Promise<McpAuthzResult<McpCircleAuthzSuccess>> {
+) {
   const base = await authorizeMcpGrant(ctx, args);
   if (!base.ok) {
     return base;
@@ -446,5 +493,5 @@ export async function authorizeMcpGrantForCircle(
     });
   }
 
-  return { ok: true, value: { grant, user, access } };
+  return { ok: true as const, value: { grant, user, access } };
 }
