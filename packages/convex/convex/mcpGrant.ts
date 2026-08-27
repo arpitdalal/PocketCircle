@@ -57,12 +57,8 @@ export type McpGrantTransitionError =
   | "principal_mismatch"
   | "worker_grant_conflict";
 
-type TransitionOk<T> = { ok: true; value: T };
-type TransitionErr = { ok: false; error: McpGrantTransitionError };
-type TransitionResult<T> = TransitionOk<T> | TransitionErr;
-
-function err(error: McpGrantTransitionError): TransitionErr {
-  return { ok: false, error };
+function err(error: McpGrantTransitionError) {
+  return { ok: false as const, error };
 }
 
 /**
@@ -120,15 +116,13 @@ async function resolveSelectableCircleIds(
  * Create a pending grant after User consent. Does not link a Worker grant yet —
  * activation happens at OAuth token exchange.
  */
-export async function createPendingMcpGrant(
-  ctx: MutationCtx,
-  args: CreatePendingMcpGrantArgs,
-): Promise<TransitionResult<Doc<"mcpGrants">>> {
+export async function createPendingMcpGrant(ctx: MutationCtx, args: CreatePendingMcpGrantArgs) {
   const user = await resolveUserById(ctx, args.userId);
   if (!user) {
     return err("user_not_found");
   }
-  if (args.clientId.trim() === "") {
+  const clientId = args.clientId.trim();
+  if (clientId === "") {
     return err("invalid_client");
   }
   if (args.clientKind !== "cimd" && args.clientKind !== "static") {
@@ -152,7 +146,7 @@ export async function createPendingMcpGrant(
   const grantId = await ctx.db.insert("mcpGrants", {
     userId: user._id,
     principalId,
-    clientId: args.clientId,
+    clientId,
     clientKind: args.clientKind,
     redirectUri,
     clientDisplaySnapshot: {
@@ -171,7 +165,7 @@ export async function createPendingMcpGrant(
   if (!grant) {
     return err("grant_not_found");
   }
-  return { ok: true, value: grant };
+  return { ok: true as const, value: grant };
 }
 
 async function loadGrant(ctx: OperationReader, grantId: Id<"mcpGrants"> | string) {
@@ -191,13 +185,13 @@ async function loadGrant(ctx: OperationReader, grantId: Id<"mcpGrants"> | string
 export async function revokeMcpGrant(
   ctx: MutationCtx,
   args: { grantId: Id<"mcpGrants"> | string; now?: number },
-): Promise<TransitionResult<Doc<"mcpGrants">>> {
+) {
   const grant = await loadGrant(ctx, args.grantId);
   if (!grant) {
     return err("grant_not_found");
   }
   if (grant.status === "revoked") {
-    return { ok: true, value: grant };
+    return { ok: true as const, value: grant };
   }
 
   const now = args.now ?? Date.now();
@@ -214,34 +208,61 @@ export async function revokeMcpGrant(
   if (!revoked) {
     return err("grant_not_found");
   }
-  return { ok: true, value: revoked };
+  return { ok: true as const, value: revoked };
 }
 
 /**
- * Revoke every live (pending/active) grant for a User (Account Deletion). Reads
- * only non-revoked rows via `by_user_and_status` so revoked history cannot grow
- * the finalization transaction without bound. Must run before async external
- * cleanup so the next authz check fails closed.
+ * Revoke up to `limit` live (active then pending) grants for a User. Returns
+ * whether another batch is needed — Account Deletion's first cleanup phase.
+ * Authz already fails closed once the User row is deleted.
+ */
+export async function revokeMcpGrantsBatchForUser(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; now?: number; limit: number },
+) {
+  const now = args.now ?? Date.now();
+  let revoked = 0;
+  for (const status of ["active", "pending"] as const) {
+    const remaining = args.limit - revoked;
+    if (remaining <= 0) {
+      break;
+    }
+    const grants = await ctx.db
+      .query("mcpGrants")
+      .withIndex("by_user_and_status", (q) => q.eq("userId", args.userId).eq("status", status))
+      .take(remaining);
+    for (const grant of grants) {
+      await revokeMcpGrant(ctx, { grantId: grant._id, now });
+      revoked += 1;
+    }
+  }
+  return revoked === args.limit;
+}
+
+/**
+ * Revoke every live grant for a User (tests / bounded callers). Account Deletion
+ * uses {@link revokeMcpGrantsBatchForUser} in a paginated cleanup phase instead.
  */
 export async function revokeAllMcpGrantsForUser(
   ctx: MutationCtx,
   args: { userId: Id<"users">; now?: number },
 ) {
   const now = args.now ?? Date.now();
-  const revoked: Doc<"mcpGrants">[] = [];
-  for (const status of ["pending", "active"] as const) {
-    const grants = await ctx.db
-      .query("mcpGrants")
-      .withIndex("by_user_and_status", (q) => q.eq("userId", args.userId).eq("status", status))
-      .collect();
-    for (const grant of grants) {
-      const result = await revokeMcpGrant(ctx, { grantId: grant._id, now });
-      if (result.ok) {
-        revoked.push(result.value);
-      }
+  for (;;) {
+    const hasMore = await revokeMcpGrantsBatchForUser(ctx, {
+      userId: args.userId,
+      now,
+      limit: 32,
+    });
+    if (!hasMore) {
+      break;
     }
   }
-  return revoked;
+  const rows = await ctx.db
+    .query("mcpGrants")
+    .withIndex("by_user", (q) => q.eq("userId", args.userId))
+    .collect();
+  return rows.filter((row) => row.status === "revoked");
 }
 
 /** True when `candidate` was created before `keep` (creation-order supersession). */
@@ -323,10 +344,7 @@ export type ActivateMcpGrantArgs = {
  * Cloudflare replacement rules (active siblings in key; older pending only;
  * CIMD redirect partitioning).
  */
-export async function activateMcpGrant(
-  ctx: MutationCtx,
-  args: ActivateMcpGrantArgs,
-): Promise<TransitionResult<Doc<"mcpGrants">>> {
+export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantArgs) {
   const workerGrantId = args.workerGrantId.trim();
   if (workerGrantId === "") {
     return err("worker_grant_required");
@@ -344,7 +362,7 @@ export async function activateMcpGrant(
   if (grant.status === "active") {
     if (grant.workerGrantId === workerGrantId) {
       await supersedeSiblingGrants(ctx, { keep: grant, now: args.now ?? Date.now() });
-      return { ok: true, value: grant };
+      return { ok: true as const, value: grant };
     }
     return err("invalid_transition");
   }
@@ -382,7 +400,7 @@ export async function activateMcpGrant(
 
   await supersedeSiblingGrants(ctx, { keep: active, now });
 
-  return { ok: true, value: active };
+  return { ok: true as const, value: active };
 }
 
 export async function recordMcpGrantUse(

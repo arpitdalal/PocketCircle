@@ -21,6 +21,7 @@ import { assertNoAccountDeletionBlockers } from "./accountDeletionFinalize.js";
 import { requireCurrentUser } from "./auth.js";
 import { emailPool, sendEmailOrReport } from "./email.js";
 import { circleEntity, recordEvent } from "./history.js";
+import { revokeMcpGrantsBatchForUser } from "./mcpGrant.js";
 import { reportTerminalFailure, sanitizeOperationalError } from "./terminalFailure.js";
 
 export {
@@ -33,6 +34,7 @@ export {
 export const ACCOUNT_DELETION_BATCH_SIZE = 32;
 
 const USER_PHASES = [
+  "revokeMcpGrants",
   "convertActiveMemberships",
   "convertRemovedMemberships",
   "revokeInvitesByInviter",
@@ -371,6 +373,11 @@ async function runUserPhaseBatch(
   phase: UserPhase,
 ) {
   switch (phase) {
+    case "revokeMcpGrants":
+      return await revokeMcpGrantsBatchForUser(ctx, {
+        userId: job.userId,
+        limit: ACCOUNT_DELETION_BATCH_SIZE,
+      });
     case "convertActiveMemberships":
       return await convertMembershipBatch(ctx, job.userId, "active");
     case "convertRemovedMemberships":

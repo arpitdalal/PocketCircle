@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
+import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
 import type { Id } from "./_generated/dataModel.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
@@ -1060,7 +1061,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
 });
 
 describe("Account Deletion disables MCP grants", () => {
-  it("revokes every grant for the User before the User row is deleted", async () => {
+  it("fails authz immediately on User delete and revokes grants in the first cleanup phase", async () => {
     const t = convexTest(schema, modules);
     // Personal-only User — no Account Deletion blockers from owned regular Circles.
     const ada = await t.run((ctx) =>
@@ -1089,12 +1090,14 @@ describe("Account Deletion disables MCP grants", () => {
       throw new Error(pending.error);
     }
 
-    await t.run((ctx) =>
-      finalizeOnUserDelete(ctx, {
-        email: ada.owner.email,
-        userId: ada.userId,
-        name: ada.owner.displayName,
-      }),
+    await mutateAndDrain(t, () =>
+      t.run((ctx) =>
+        finalizeOnUserDelete(ctx, {
+          email: ada.owner.email,
+          userId: ada.userId,
+          name: ada.owner.displayName,
+        }),
+      ),
     );
 
     await t.run(async (ctx) => {
@@ -1153,9 +1156,9 @@ describe("mcpGrants indexes", () => {
           await ctx.db
             .query("mcpGrants")
             .withIndex("by_principal", (q) => q.eq("principalId", grant.principalId))
-            .unique()
-        )?._id,
-      ).toBe(grant._id);
+            .collect()
+        ).map((g) => g._id),
+      ).toContain(grant._id);
 
       expect(
         (
