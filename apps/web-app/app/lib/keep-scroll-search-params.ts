@@ -1,3 +1,5 @@
+import type { NavigateOptions } from "react-router";
+
 /**
  * Options for same-view URL filter / selection updates.
  *
@@ -11,5 +13,5 @@ export function keepScrollSearchParamsOptions(options: { replace: boolean }) {
   return {
     replace: options.replace,
     preventScrollReset: true,
-  } as const;
+  } satisfies NavigateOptions;
 }
