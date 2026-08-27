@@ -1,0 +1,11 @@
+# Direct VAPID Web Push from Convex
+
+PocketCircle sends **Push Notifications** directly to standards-based browser push endpoints using per-device VAPID subscriptions. A pinned `web-push` package runs in Convex Node internal actions, with one delivery job per subscription through a dedicated Push Workpool; the **Notification Center** row is the source of truth and delivery identity, transient sends receive bounded retries, and permanent invalid-endpoint responses remove the subscription. Push concurrency is isolated from email delivery, and their combined configured concurrency remains below Convex's action limit.
+
+We chose direct Web Push over Firebase Cloud Messaging and OneSignal because all three support the required browsers, while direct VAPID avoids another client identity system, provider-specific send API, subscriber pricing, and revisit-dependent provider migration. Sign-out unsubscribes the browser before removing its User binding, and Account Deletion removes every subscription owned by the User. Disabling notifications performs the same local unsubscribe and binding removal but leaves browser permission granted, so a later explicit enable action can create a fresh subscription without another native permission prompt.
+
+Each User may have at most ten active subscriptions. Enabling another device first prunes invalid subscriptions, then replaces the least recently seen subscription if the User remains at the cap. Authenticated startup and focus reconciliation update `lastSeenAt`. This bounds per-notification delivery fan-out without requiring an account-wide device-management surface.
+
+VAPID rotation requires migration because the public key restricts each subscription to its matching private key. A rotation keeps both key pairs during a bounded transition, records which key owns each subscription, and resubscribes returning devices; a compromised key invalidates its subscriptions rather than silently rebinding them.
+
+The production service worker handles Push receipt, notification clicks, and subscription changes only. It has no fetch interception or caching, so this decision does not introduce offline loading or writes. Normal activity Pushes use a 24-hour TTL; Invitation Pushes never outlive their Invitation.
