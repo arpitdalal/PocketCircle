@@ -1,38 +1,59 @@
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
 import { seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
 import { api } from "./_generated/api.js";
-import type { Doc } from "./_generated/dataModel.js";
 import {
   getCircleForUser,
-  getCurrentUserForUser,
   listMyCirclesForUser,
   resolveUserById,
+  toCurrentUserView,
 } from "./operations.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
-vi.mock("./auth.js", () => ({
-  getCurrentUserOrNull: mockCurrentUser,
-  requireCurrentUser: async (ctx: unknown) => {
-    const user = await mockCurrentUser(ctx);
-    if (!user) {
-      throw new Error("Not authenticated");
-    }
-    return user;
-  },
-}));
+vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
 
 const modules = import.meta.glob("./**/*.ts");
 
 type TestCtx = ReturnType<typeof convexTest>;
 
 beforeEach(() => {
-  mockCurrentUser.mockReset();
+  resetMockCurrentUser();
 });
 
-async function signIn(user: Doc<"users">) {
-  mockCurrentUser.mockResolvedValue(user);
+/** Two onboarded Users; Grace is an active Member of Ada's shared regular Circle. */
+async function seedOverlappingUsers(t: TestCtx) {
+  const ada = await t.run((ctx) =>
+    seedPersonalCircleOwner(ctx, {
+      email: "ada@example.com",
+      displayName: "Ada Lovelace",
+      onboarded: true,
+    }),
+  );
+  const grace = await t.run((ctx) =>
+    seedPersonalCircleOwner(ctx, {
+      email: "grace@example.com",
+      displayName: "Grace Hopper",
+      onboarded: true,
+    }),
+  );
+  const sharedId = await t.run(async (ctx) => {
+    const owned = await seedOwnedCircle(ctx, ada.owner, {
+      name: "Shared Trip",
+      setupCompletedAt: Date.now(),
+      createdAt: Date.now() + 1,
+    });
+    await ctx.db.insert("members", {
+      circleId: owned.circleId,
+      userId: grace.owner._id,
+      role: "member",
+      status: "active",
+      displayName: grace.owner.displayName,
+      joinedAt: Date.now(),
+    });
+    return owned.circleId;
+  });
+  return { ada, grace, sharedId };
 }
 
 describe("resolveUserById", () => {
@@ -74,29 +95,15 @@ describe("resolveUserById", () => {
 describe("current-User operation — browser vs explicit User", () => {
   it("returns the same view for the same User and different views for different Users", async () => {
     const t = convexTest(schema, modules);
-    const ada = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada Lovelace",
-        onboarded: true,
-      }),
-    );
-    const grace = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "grace@example.com",
-        displayName: "Grace Hopper",
-        onboarded: true,
-      }),
-    );
+    const { ada, grace } = await seedOverlappingUsers(t);
 
-    const adaExplicit = getCurrentUserForUser(ada.owner);
-    await signIn(ada.owner);
+    const adaExplicit = toCurrentUserView(ada.owner);
+    signInAs(ada.owner);
     const adaBrowser = await t.query(api.users.getCurrentUser, {});
     expect(adaBrowser).toEqual(adaExplicit);
-    expect(adaBrowser?.email).toBe("ada@example.com");
 
-    const graceExplicit = getCurrentUserForUser(grace.owner);
-    await signIn(grace.owner);
+    const graceExplicit = toCurrentUserView(grace.owner);
+    signInAs(grace.owner);
     const graceBrowser = await t.query(api.users.getCurrentUser, {});
     expect(graceBrowser).toEqual(graceExplicit);
     expect(graceBrowser).not.toEqual(adaBrowser);
@@ -105,76 +112,44 @@ describe("current-User operation — browser vs explicit User", () => {
 
   it("returns null on the browser path when there is no session", async () => {
     const t = convexTest(schema, modules);
-    mockCurrentUser.mockResolvedValue(null);
+    signInAs(null);
     expect(await t.query(api.users.getCurrentUser, {})).toBeNull();
   });
 });
 
 describe("Circle-list operation — browser vs explicit User", () => {
-  async function seedTwoUsersWithOverlap(t: TestCtx) {
-    const ada = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    const grace = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "grace@example.com",
-        displayName: "Grace",
-        onboarded: true,
-      }),
-    );
-    const shared = await t.run(async (ctx) => {
-      const owned = await seedOwnedCircle(ctx, ada.owner, {
-        name: "Shared Trip",
-        setupCompletedAt: Date.now(),
-        createdAt: Date.now() + 1,
-      });
-      await ctx.db.insert("members", {
-        circleId: owned.circleId,
-        userId: grace.owner._id,
-        role: "member",
-        status: "active",
-        displayName: grace.owner.displayName,
-        joinedAt: Date.now(),
-      });
-      return owned.circleId;
-    });
-    const archived = await t.run((ctx) =>
-      seedOwnedCircle(ctx, ada.owner, {
-        name: "Old Trip",
-        archived: true,
-        setupCompletedAt: Date.now(),
-        createdAt: Date.now() + 2,
-      }),
-    );
-    return { ada, grace, shared, archivedId: archived.circleId };
-  }
-
   it("browser and explicit-User paths return the same authorized Circles for the same User", async () => {
     const t = convexTest(schema, modules);
-    const { ada, grace, shared, archivedId } = await seedTwoUsersWithOverlap(t);
+    const { ada, grace, sharedId } = await seedOverlappingUsers(t);
+    const archivedId = (
+      await t.run((ctx) =>
+        seedOwnedCircle(ctx, ada.owner, {
+          name: "Old Trip",
+          archived: true,
+          setupCompletedAt: Date.now(),
+          createdAt: Date.now() + 2,
+        }),
+      )
+    ).circleId;
 
     await t.run(async (ctx) => {
       const adaExplicit = await listMyCirclesForUser(ctx, ada.owner);
-      expect(adaExplicit.map((c) => c.id)).toEqual([ada.personalCircleId, shared, archivedId]);
+      expect(adaExplicit.map((c) => c.id)).toEqual([ada.personalCircleId, sharedId, archivedId]);
       expect(adaExplicit[0]?.kind).toBe("personal");
       expect(adaExplicit.find((c) => c.id === archivedId)?.status).toBe("archived");
 
       const graceExplicit = await listMyCirclesForUser(ctx, grace.owner);
-      expect(graceExplicit.map((c) => c.id)).toEqual([grace.personalCircleId, shared]);
+      expect(graceExplicit.map((c) => c.id)).toEqual([grace.personalCircleId, sharedId]);
       expect(graceExplicit.map((c) => c.id)).not.toEqual(adaExplicit.map((c) => c.id));
     });
 
-    await signIn(ada.owner);
+    signInAs(ada.owner);
     const adaBrowser = await t.query(api.circles.listMyCircles, {});
     await t.run(async (ctx) => {
       expect(adaBrowser).toEqual(await listMyCirclesForUser(ctx, ada.owner));
     });
 
-    await signIn(grace.owner);
+    signInAs(grace.owner);
     const graceBrowser = await t.query(api.circles.listMyCircles, {});
     await t.run(async (ctx) => {
       expect(graceBrowser).toEqual(await listMyCirclesForUser(ctx, grace.owner));
@@ -225,64 +200,36 @@ describe("Circle-list operation — browser vs explicit User", () => {
 describe("getCircleForUser — missing ≡ inaccessible", () => {
   it("matches the browser getCircle path and collapses missing/foreign/malformed to null", async () => {
     const t = convexTest(schema, modules);
-    const ada = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    const grace = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "grace@example.com",
-        displayName: "Grace",
-        onboarded: true,
-      }),
-    );
-    const shared = await t.run(async (ctx) => {
-      const owned = await seedOwnedCircle(ctx, ada.owner, {
-        name: "Shared",
-        setupCompletedAt: Date.now(),
-      });
-      await ctx.db.insert("members", {
-        circleId: owned.circleId,
-        userId: grace.owner._id,
-        role: "member",
-        status: "active",
-        displayName: grace.owner.displayName,
-        joinedAt: Date.now(),
-      });
-      return owned.circleId;
-    });
+    const { ada, grace, sharedId } = await seedOverlappingUsers(t);
 
     await t.run(async (ctx) => {
-      const adaView = await getCircleForUser(ctx, shared, ada.owner);
-      expect(adaView?.id).toBe(shared);
-      expect(adaView?.name).toBe("Shared");
+      const adaView = await getCircleForUser(ctx, sharedId, ada.owner);
+      expect(adaView?.id).toBe(sharedId);
+      expect(adaView?.name).toBe("Shared Trip");
 
-      expect(await getCircleForUser(ctx, shared, grace.owner)).toEqual(adaView);
+      expect(await getCircleForUser(ctx, sharedId, grace.owner)).toEqual(adaView);
       expect(await getCircleForUser(ctx, ada.personalCircleId, grace.owner)).toBeNull();
       expect(await getCircleForUser(ctx, "not-a-circle", ada.owner)).toBeNull();
       expect(await getCircleForUser(ctx, String(grace.personalCircleId), ada.owner)).toBeNull();
     });
 
-    await signIn(ada.owner);
-    const browser = await t.query(api.circles.getCircle, { circleId: shared });
+    signInAs(ada.owner);
+    const browser = await t.query(api.circles.getCircle, { circleId: sharedId });
     await t.run(async (ctx) => {
-      expect(browser).toEqual(await getCircleForUser(ctx, shared, ada.owner));
+      expect(browser).toEqual(await getCircleForUser(ctx, sharedId, ada.owner));
     });
 
-    await signIn(grace.owner);
+    signInAs(grace.owner);
     expect(await t.query(api.circles.getCircle, { circleId: ada.personalCircleId })).toBeNull();
-    mockCurrentUser.mockResolvedValue(null);
-    expect(await t.query(api.circles.getCircle, { circleId: shared })).toBeNull();
+    signInAs(null);
+    expect(await t.query(api.circles.getCircle, { circleId: sharedId })).toBeNull();
   });
 });
 
 describe("resolveUserById + ops without a browser session", () => {
-  it("trusted code can load a User by id and run ops with no auth mock", async () => {
+  it("trusted code can load a User by id and run ops with no session", async () => {
     const t = convexTest(schema, modules);
-    mockCurrentUser.mockResolvedValue(null);
+    signInAs(null);
     const { userId, personalCircleId } = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, {
         email: "solo@example.com",
@@ -297,12 +244,11 @@ describe("resolveUserById + ops without a browser session", () => {
       if (!user) {
         return;
       }
-      expect(getCurrentUserForUser(user).email).toBe("solo@example.com");
+      expect(toCurrentUserView(user).email).toBe("solo@example.com");
       expect((await listMyCirclesForUser(ctx, user)).map((c) => c.id)).toEqual([personalCircleId]);
       expect((await getCircleForUser(ctx, personalCircleId, user))?.id).toBe(personalCircleId);
     });
 
-    // Browser path still refuses without a session.
     await expect(t.query(api.circles.listMyCircles, {})).rejects.toThrow("Not authenticated");
     expect(await t.query(api.users.getCurrentUser, {})).toBeNull();
   });

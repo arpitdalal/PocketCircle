@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { reconcilePersonalCircleFromDisplayName, setUserDisplayName } from "./model.js";
-import { getCurrentUserForUser } from "./operations.js";
+import { toCurrentUserView } from "./operations.js";
 
 /**
  * The current PocketCircle User, or null when the Google session exists but the
@@ -18,7 +18,7 @@ export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    return user ? getCurrentUserForUser(user) : null;
+    return user ? toCurrentUserView(user) : null;
   },
 });
 

@@ -2,10 +2,13 @@
  * Shared domain operations for an already-resolved PocketCircle User (#316).
  *
  * Browser-authenticated public queries resolve the User from Better Auth, then
- * call these. Trusted server entry points (future MCP bridge) pass an explicit
- * User without a browser session. Ops take only the DB reader they need — not
- * public Convex functions and not a full server ctx — so a Worker never gets
- * raw DB access or browser auth APIs.
+ * call these. Trusted Convex server code (future MCP HTTP bridge) passes an
+ * explicit User without a browser session. Ops take only an `OperationReader`
+ * (DB reads) — not auth APIs, schedulers, or a full server ctx.
+ *
+ * The future Worker never imports or calls these functions: it hits a narrow
+ * Convex bridge that loads the grant's User and runs ops inside Convex. The
+ * Worker therefore never receives a DB handle or browser credentials.
  *
  * Explicit User resolution uses the stable PocketCircle User id (ADR 0024).
  * Never match a User by email.
@@ -22,10 +25,7 @@ export type { OperationReader } from "./operationReader.js";
  * Load a User by stable PocketCircle id. Malformed ids and missing rows are
  * null — never falls back to email lookup.
  */
-export async function resolveUserById(
-  ctx: OperationReader,
-  userId: Id<"users"> | string,
-): Promise<Doc<"users"> | null> {
+export async function resolveUserById(ctx: OperationReader, userId: Id<"users"> | string) {
   const id = typeof userId === "string" ? ctx.db.normalizeId("users", userId) : userId;
   if (!id) {
     return null;
@@ -35,7 +35,8 @@ export async function resolveUserById(
 
 /**
  * Current-User view the protected layout and settings read (ADR 0003). Derived
- * from the User row so the client cannot drift from the backend contract.
+ * from the User row so the client cannot drift from the backend contract. Also
+ * the shared current-User operation for an already-resolved User (#316).
  */
 export function toCurrentUserView(user: Doc<"users">) {
   return {
@@ -48,11 +49,6 @@ export function toCurrentUserView(user: Doc<"users">) {
     createdAt: user.createdAt,
     acknowledgedFeatureAnnouncementIds: user.acknowledgedFeatureAnnouncementIds ?? [],
   };
-}
-
-/** Current-User view for an already-resolved User (no session required). */
-export function getCurrentUserForUser(user: Doc<"users">) {
-  return toCurrentUserView(user);
 }
 
 /** A Circle plus its canonical ref, shaped for the client. */
