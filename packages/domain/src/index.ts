@@ -6,6 +6,7 @@ export * from "./email-templates.js";
 export * from "./feature-announcements.js";
 export * from "./initials.js";
 export * from "./legal.js";
+export * from "./mcp.js";
 export * from "./money.js";
 export * from "./mutation-errors.js";
 export * from "./notification-links.js";

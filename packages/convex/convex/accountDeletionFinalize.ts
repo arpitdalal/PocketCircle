@@ -6,7 +6,7 @@ import type { MutationCtx } from "./_generated/server.js";
 import { betterAuthMappedUserSchema } from "./accountDeletionAuth.js";
 
 /** First cleanup phase — must match `USER_PHASES[0]` in accountDeletion.ts. */
-const INITIAL_CLEANUP_PHASE = "convertActiveMemberships" as const;
+const INITIAL_CLEANUP_PHASE = "revokeMcpGrants" as const;
 
 export async function assertNoAccountDeletionBlockers(ctx: MutationCtx, ownerUserId: Id<"users">) {
   const blocker = await ctx.db
@@ -64,6 +64,9 @@ export async function finalizeOnUserDelete(ctx: MutationCtx, authUser: unknown) 
   }
 
   const finalizedAt = Date.now();
+  // User row delete is the immediate authz tombstone (resolveUserById → null).
+  // Live MCP grants are revoked in the first paginated cleanup phase so finalize
+  // cannot blow Convex transaction limits on abandoned consent history (#317).
   const jobId = await createAccountDeletionCleanupJob(ctx, {
     userId,
     emailLower: user.email,
