@@ -158,6 +158,26 @@ const mutationErrors = defineMutationErrorCatalog({
     "accountDeletion.blocked",
     "Archive or transfer Circles you own before deleting your account",
   ),
+  mcpHandoffInvalid: defineMutationError(
+    "mcp.handoffInvalid",
+    "This authorization request is no longer valid. Ask the app to connect again.",
+  ),
+  mcpScopesInvalid: defineMutationError(
+    "mcp.scopesInvalid",
+    "The requested access can't be granted",
+  ),
+  mcpCirclesInvalid: defineMutationError(
+    "mcp.circlesInvalid",
+    "Select at least one Circle you can access",
+  ),
+  mcpOnboardingRequired: defineMutationError(
+    "mcp.onboardingRequired",
+    "Finish setting up your account before connecting an app",
+  ),
+  mcpGrantFailed: defineMutationError(
+    "mcp.grantFailed",
+    "This authorization request couldn't be completed",
+  ),
 });
 
 export const MUTATION_ERRORS = mutationErrors.errors;

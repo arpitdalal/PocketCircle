@@ -17,6 +17,7 @@ import { type HistoryState, historyDouble } from "./history.js";
 import { type HomeSummaryState, homeSummaryDouble } from "./home-summary.js";
 import { type InvitationsState, invitationsDouble } from "./invitations.js";
 import { type LedgerState, ledgerDouble } from "./ledger.js";
+import { type McpState, mcpDouble } from "./mcp.js";
 import { type MembersState, membersDouble } from "./members.js";
 import { type NotificationsState, notificationsDouble } from "./notifications.js";
 import { type TransactionsState, transactionsDouble } from "./transactions.js";
@@ -36,7 +37,8 @@ export type ConvexState = CirclesState &
   AccountDeletionState &
   ActivationState &
   HomeSummaryState &
-  FeatureAnnouncementsState;
+  FeatureAnnouncementsState &
+  McpState;
 
 const ENTITY_DOUBLES = [
   circlesDouble,
@@ -54,6 +56,7 @@ const ENTITY_DOUBLES = [
   activationDouble,
   homeSummaryDouble,
   featureAnnouncementsDouble,
+  mcpDouble,
 ];
 function mergeEntityDoubles(state: ConvexState) {
   const queries: Record<string, (args: Record<string, unknown>) => unknown> = {};

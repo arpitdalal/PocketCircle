@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pocketcircle-mcp-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-11",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  // Custom domain intentionally disabled until #318 is verified end-to-end.
+  "workers_dev": true,
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" },
+    { "binding": "HANDOFF_KV", "id": "REPLACE_WITH_HANDOFF_KV_NAMESPACE_ID" }
+  ],
+  "vars": {
+    "APP_ORIGIN": "http://127.0.0.1:5173",
+    "CONVEX_SITE_URL": "http://127.0.0.1:3211"
+  }
+}

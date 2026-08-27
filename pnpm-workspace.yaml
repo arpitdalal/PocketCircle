@@ -10,13 +10,15 @@ overrides:
   "@better-fetch/fetch": 1.1.21
   # Keep kysely on 0.28 until a dedicated 0.29 bump (0.x minor; better-auth still accepts 0.28).
   kysely: 0.28.17
+  # Pin past pnpm 11.21's 24h minimumReleaseAge (5.20260827.1 published same day as #318).
+  "@cloudflare/workers-types": "5.20260826.1"
 
 allowBuilds:
   '@biomejs/biome': true
   # posthog-js → core-js (postinstall copies polyfill modules)
   core-js: true
+  core-js-pure: true
   esbuild: true
   lefthook: true
   msw: true
   workerd: true
-

@@ -1,0 +1,21 @@
+import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+
+/**
+ * Worker bindings. Declared on `Cloudflare.Env` so `getOAuthApi` / vitest pool
+ * types (defaulting to `Cloudflare.Env`) match application code.
+ */
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      OAUTH_KV: KVNamespace;
+      HANDOFF_KV: KVNamespace;
+      OAUTH_PROVIDER: OAuthHelpers;
+      APP_ORIGIN: string;
+      CONVEX_SITE_URL: string;
+      MCP_WORKER_HMAC_SECRET: string;
+      MCP_RESOURCE_URI?: string;
+    }
+  }
+}
+
+export type Env = Cloudflare.Env;

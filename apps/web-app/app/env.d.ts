@@ -8,6 +8,8 @@ declare const __APP_RELEASE__: string;
 interface ImportMetaEnv {
   readonly VITE_CONVEX_URL: string;
   readonly VITE_CONVEX_SITE_URL: string;
+  /** MCP Worker origin (consent complete/deny). Optional until Worker is running. */
+  readonly VITE_MCP_WORKER_ORIGIN?: string;
   /** When "true", enables mock mode: MSW vendor mocking + dev auth bypass. */
   readonly VITE_MOCKS?: string;
   /** When "true", true-E2E mode: real backend + real session + gated test-auth helper (ADR 0019). */

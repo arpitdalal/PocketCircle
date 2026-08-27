@@ -72,12 +72,18 @@ export async function seedPersonalCircleOwner(
     image: opts.image,
     currency: opts.currency,
   });
-  const owner = await ctx.db.get(userId);
+  let owner = await ctx.db.get(userId);
   if (!owner) {
     throw new Error("seed failed");
   }
   if (opts.onboarded) {
     await ctx.db.patch(userId, { onboardingCompletedAt: owner.createdAt });
+    // Re-read so callers mocking auth get the post-onboarding document, not a
+    // stale pre-patch snapshot (mcpConsent #318).
+    owner = await ctx.db.get(userId);
+    if (!owner) {
+      throw new Error("seed failed");
+    }
   }
   const personal = await ctx.db
     .query("circles")

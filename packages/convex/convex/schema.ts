@@ -372,6 +372,43 @@ export default defineSchema({
     .index("by_worker_grant", ["workerGrantId"])
     .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
 
+  /**
+   * Single-use bearer material bridging User consent to the Worker's token
+   * exchange (#318). Stored hashed like `invitations.tokenHash`; the plaintext
+   * lives only in the browser→Worker redirect. `handoffId` ties the row back to
+   * the Worker-signed authorization it approved; `consumedAt` makes redemption
+   * atomic under concurrent requests (first writer wins, OCC retries the rest).
+   */
+  mcpApprovalTokens: defineTable({
+    tokenHash: v.string(),
+    handoffId: v.string(),
+    grantId: v.id("mcpGrants"),
+    userId: v.id("users"),
+    principalId: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(v.union(v.literal("pocketcircle:read"), v.literal("pocketcircle:write"))),
+    allowedCircleIds: v.array(v.id("circles")),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_handoff", ["handoffId"])
+    .index("by_grant", ["grantId"])
+    .index("by_expires", ["expiresAt"]),
+
+  // Replay protection for signed Worker→Convex MCP bridge assertions (#318): one
+  // row per assertion `nonce`, so a captured/replayed request is rejected even
+  // within its short signature-validity window. Cleanup sweeps `by_expires`.
+  mcpWorkerNonces: defineTable({
+    nonce: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_nonce", ["nonce"])
+    .index("by_expires", ["expiresAt"]),
+
   // Durable Account Deletion cleanup state (USR-3 / ADR 0029). Deleted when done.
   accountDeletionJobs: defineTable({
     userId: v.id("users"),

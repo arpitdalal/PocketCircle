@@ -9,6 +9,7 @@
   "scripts": {
     "prepare": "lefthook install",
     "dev": "pnpm --filter @pocketcircle/web-app dev",
+    "dev:mcp": "pnpm --filter @pocketcircle/mcp-worker dev",
     "dev:mocks": "pnpm --filter @pocketcircle/web-app dev:mocks",
     "convex:dev": "pnpm --filter @pocketcircle/convex dev",
     "build": "pnpm --filter @pocketcircle/web-app build",

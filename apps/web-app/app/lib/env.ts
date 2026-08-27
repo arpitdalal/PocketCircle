@@ -21,6 +21,14 @@ function optionalEnvString(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
+/**
+ * MCP Worker origin for consent complete/deny POSTs (#318). Unset → consent
+ * UI shows a configuration error instead of posting approval material elsewhere.
+ */
+export function mcpWorkerOrigin() {
+  return optionalEnvString(import.meta.env.VITE_MCP_WORKER_ORIGIN);
+}
+
 /** Sentry DSN for client error monitoring (ADR 0012). Unset locally → init no-ops. */
 export const SENTRY_DSN = optionalEnvString(import.meta.env.VITE_SENTRY_DSN);
 

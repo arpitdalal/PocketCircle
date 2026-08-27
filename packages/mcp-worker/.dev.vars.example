@@ -1,0 +1,3 @@
+# Copy to .dev.vars (gitignored) for `wrangler dev` / local testing.
+# Must match the Convex deployment's MCP_WORKER_HMAC_SECRET (see ../convex/.env.example).
+MCP_WORKER_HMAC_SECRET=<random-secret>
