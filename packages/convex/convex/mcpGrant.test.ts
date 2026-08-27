@@ -329,12 +329,10 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     expect(reactivate).toEqual({ ok: false, error: "invalid_transition" });
   });
 
-  it("supersedes older pending/active grants for the same User, client, and redirect URI", async () => {
+  it("revokes older active grants on activation; leaves pending consent rows untouched", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, regularId } = await seedUserWithCircles(t);
 
-    // Active first, then a later pending sibling — activation of a newer grant
-    // must revoke both (Cloudflare-style replacement for the same User+client+redirect).
     const olderActive = await createActiveGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
@@ -375,7 +373,8 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     expect(activated.ok).toBe(true);
 
     await t.run(async (ctx) => {
-      expect((await ctx.db.get(olderPending.value._id))?.status).toBe("revoked");
+      // Pending history is not scanned/revoked on activate (transaction bound).
+      expect((await ctx.db.get(olderPending.value._id))?.status).toBe("pending");
       expect((await ctx.db.get(olderActive._id))?.status).toBe("revoked");
       expect((await ctx.db.get(olderActive._id))?.workerCleanupStatus).toBe("pending_revoke");
       expect((await ctx.db.get(newer.value._id))?.status).toBe("active");
@@ -856,6 +855,36 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
           requiredScope: "pocketcircle:read",
         }),
       ).toMatchObject({ ok: false, denial: { kind: "grant_unavailable", status: "revoked" } });
+    });
+  });
+
+  it("returns grant_unavailable for a deleted User before insufficient_scope", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      }),
+    );
+    const grant = await createActiveGrant(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+      scopes: ["pocketcircle:read"],
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete(ada.userId);
+      expect(
+        await authorizeMcpGrant(ctx, {
+          grantId: grant._id,
+          effectiveScopes: ["pocketcircle:read"],
+          requiredScope: "pocketcircle:write",
+        }),
+      ).toEqual({
+        ok: false,
+        denial: { kind: "grant_unavailable", status: "revoked" },
+      });
     });
   });
 

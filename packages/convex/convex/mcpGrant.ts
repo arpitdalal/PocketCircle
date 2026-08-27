@@ -265,23 +265,14 @@ export async function revokeAllMcpGrantsForUser(
   return rows.filter((row) => row.status === "revoked");
 }
 
-/** True when `candidate` was created before `keep` (creation-order supersession). */
-function isOlderSibling(candidate: Doc<"mcpGrants">, keep: Doc<"mcpGrants">) {
-  if (candidate.createdAt !== keep.createdAt) {
-    return candidate.createdAt < keep.createdAt;
-  }
-  return candidate._creationTime < keep._creationTime;
-}
+/** Max active siblings revoked per scan page during activation (pathological bound). */
+const ACTIVE_SUPERSESSION_BATCH = 32;
 
 /**
- * Load live siblings that Cloudflare would replace for this activating grant.
- * CIMD: same User+client+redirectUri. Static/DCR: same User+client (all redirects).
+ * Load active siblings Cloudflare would replace for this grant.
+ * CIMD: same User+client+redirectUri. Static: same User+client (all redirects).
  */
-async function loadSupersessionSiblings(
-  ctx: MutationCtx,
-  keep: Doc<"mcpGrants">,
-  status: "pending" | "active",
-) {
+async function loadActiveSupersessionSiblings(ctx: MutationCtx, keep: Doc<"mcpGrants">) {
   if (keep.clientKind === "cimd") {
     return await ctx.db
       .query("mcpGrants")
@@ -290,40 +281,41 @@ async function loadSupersessionSiblings(
           .eq("userId", keep.userId)
           .eq("clientId", keep.clientId)
           .eq("redirectUri", keep.redirectUri)
-          .eq("status", status),
+          .eq("status", "active"),
       )
-      .collect();
+      .take(ACTIVE_SUPERSESSION_BATCH);
   }
   return await ctx.db
     .query("mcpGrants")
     .withIndex("by_user_client_and_status", (q) =>
-      q.eq("userId", keep.userId).eq("clientId", keep.clientId).eq("status", status),
+      q.eq("userId", keep.userId).eq("clientId", keep.clientId).eq("status", "active"),
     )
-    .collect();
+    .take(ACTIVE_SUPERSESSION_BATCH);
 }
 
 /**
- * Mirror Cloudflare grant replacement when a Convex grant activates:
- * - Always revoke other *active* siblings in the replacement key (Worker
- *   replacement follows completion order, not consent creation order).
- * - Revoke only *older* pending siblings; leave newer pending flows activatable.
- * - CIMD keys include redirect URI; static clients key on User+client only.
+ * Revoke other *active* grants in the Cloudflare replacement key. Pending
+ * siblings are left alone so activation stays O(active) — abandoned pending
+ * rows cannot authorize and are cleaned by Account Deletion / reconciliation
+ * (#330), not by collecting unbounded history in token exchange.
  */
-async function supersedeSiblingGrants(
+async function revokeActiveSiblingGrants(
   ctx: MutationCtx,
   args: { keep: Doc<"mcpGrants">; now: number },
 ) {
   const { keep, now } = args;
-  for (const status of ["pending", "active"] as const) {
-    const siblings = await loadSupersessionSiblings(ctx, keep, status);
+  for (;;) {
+    const siblings = await loadActiveSupersessionSiblings(ctx, keep);
+    let revokedOther = false;
     for (const sibling of siblings) {
       if (sibling._id === keep._id) {
         continue;
       }
-      if (sibling.status === "pending" && !isOlderSibling(sibling, keep)) {
-        continue;
-      }
       await revokeMcpGrant(ctx, { grantId: sibling._id, now });
+      revokedOther = true;
+    }
+    if (siblings.length < ACTIVE_SUPERSESSION_BATCH || !revokedOther) {
+      break;
     }
   }
 }
@@ -340,9 +332,8 @@ export type ActivateMcpGrantArgs = {
  * Activate a pending grant by linking the Worker OAuth grant. Fails closed on
  * wrong status, principal mismatch, empty Worker id, or Worker grant id already
  * linked to another Convex grant. Retries that repeat the same linkage after a
- * lost response are idempotent. On success only, supersedes siblings per
- * Cloudflare replacement rules (active siblings in key; older pending only;
- * CIMD redirect partitioning).
+ * lost response are idempotent. On success only, revokes other active siblings
+ * in the Cloudflare replacement key (pending consent rows are not scanned).
  */
 export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantArgs) {
   const workerGrantId = args.workerGrantId.trim();
@@ -361,7 +352,7 @@ export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantA
   // Lost token-exchange response: same grantId/workerGrantId/principal already linked.
   if (grant.status === "active") {
     if (grant.workerGrantId === workerGrantId) {
-      await supersedeSiblingGrants(ctx, { keep: grant, now: args.now ?? Date.now() });
+      await revokeActiveSiblingGrants(ctx, { keep: grant, now: args.now ?? Date.now() });
       return { ok: true as const, value: grant };
     }
     return err("invalid_transition");
@@ -398,7 +389,7 @@ export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantA
     return err("invalid_transition");
   }
 
-  await supersedeSiblingGrants(ctx, { keep: active, now });
+  await revokeActiveSiblingGrants(ctx, { keep: active, now });
 
   return { ok: true as const, value: active };
 }
@@ -478,6 +469,13 @@ export async function authorizeMcpGrant(
     });
   }
 
+  // User row is the Account Deletion authz tombstone — check before scope so we
+  // never suggest OAuth step-up for a deleted account (#317).
+  const user = await resolveUserById(ctx, grant.userId);
+  if (!user) {
+    return deny({ kind: "grant_unavailable", status: "revoked" });
+  }
+
   const grantHasScope = mcpScopesInclude(grant.scopes, args.requiredScope);
   const tokenHasScope = mcpScopesInclude(args.effectiveScopes, args.requiredScope);
   if (!grantHasScope || !tokenHasScope) {
@@ -487,12 +485,6 @@ export async function authorizeMcpGrant(
       grantLacksScope: !grantHasScope,
       scopeCouldFix: true,
     });
-  }
-
-  const user = await resolveUserById(ctx, grant.userId);
-  if (!user) {
-    // User gone (deletion race) — treat as unavailable grant, not a Circle leak.
-    return deny({ kind: "grant_unavailable", status: "revoked" });
   }
 
   return { ok: true as const, value: { grant, user } };
