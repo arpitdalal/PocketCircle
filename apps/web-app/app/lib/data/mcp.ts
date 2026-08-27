@@ -11,7 +11,7 @@ import { MOCKS } from "../env.js";
 export type McpHandoffView = NonNullable<FunctionReturnType<typeof api.mcpConsent.parseMcpHandoff>>;
 
 /** Verified handoff display fields, or null when invalid/expired. undefined = loading. */
-export function useMcpHandoff(handoff: string | null): McpHandoffView | null | undefined {
+export function useMcpHandoff(handoff: string | null) {
   const queried = useQuery(
     api.mcpConsent.parseMcpHandoff,
     MOCKS || !handoff ? "skip" : { handoff },

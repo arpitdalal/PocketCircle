@@ -324,4 +324,63 @@ describe("authorization handoff", () => {
     expect(body).toMatchObject({ error: "handoff_grant_mismatch" });
     vi.unstubAllGlobals();
   });
+
+  it.each([
+    {
+      label: "wrong client",
+      override: { clientId: "https://other-client.example/client.json" },
+    },
+    {
+      label: "wrong redirect",
+      override: { redirectUri: "https://evil.example/callback" },
+    },
+  ])("complete rejects $label between handoff and redeemed grant", async ({ override }) => {
+    const start = await SELF.fetch(
+      authorizeUrl({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: REDIRECT_URI,
+        scope: "pocketcircle:read",
+        state: "mismatch",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        resource: RESOURCE,
+      }),
+      { redirect: "manual" },
+    );
+    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
+    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/mcp/redeem-approval")) {
+          return Response.json({
+            ok: true,
+            value: {
+              grantId: "grant_test",
+              principalId: "principal_opaque",
+              clientId,
+              redirectUri: REDIRECT_URI,
+              resource: RESOURCE,
+              scopes: ["pocketcircle:read"],
+              allowedCircleIds: ["circle_opaque"],
+              handoffId: payload?.handoffId,
+              ...override,
+            },
+          });
+        }
+        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+      }),
+    );
+
+    const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token" }),
+    });
+    expect(complete.status).toBe(400);
+    expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });
+    vi.unstubAllGlobals();
+  });
 });

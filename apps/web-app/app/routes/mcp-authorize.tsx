@@ -73,6 +73,26 @@ function scopeLabel(scope: string) {
   return scope;
 }
 
+/** POST to Worker authorize endpoints; returns redirectTo or null on any failure. */
+async function postWorkerRedirect(workerOrigin: string, path: string, body: unknown) {
+  const response = await fetch(new URL(path, workerOrigin), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    !response.ok ||
+    typeof payload !== "object" ||
+    payload === null ||
+    !("redirectTo" in payload) ||
+    typeof payload.redirectTo !== "string"
+  ) {
+    return null;
+  }
+  return payload.redirectTo;
+}
+
 function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView }) {
   const circles = useMyCircles();
   const approve = useApproveMcpAuthorization();
@@ -102,23 +122,14 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
     setSubmitting(true);
     setError(null);
     try {
-      const response = await fetch(new URL("/authorize/deny", workerOrigin), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ handoffId: view.handoffId }),
+      const redirectTo = await postWorkerRedirect(workerOrigin, "/authorize/deny", {
+        handoffId: view.handoffId,
       });
-      const payload: unknown = await response.json().catch(() => null);
-      if (
-        !response.ok ||
-        typeof payload !== "object" ||
-        payload === null ||
-        !("redirectTo" in payload) ||
-        typeof payload.redirectTo !== "string"
-      ) {
+      if (!redirectTo) {
         setError("Couldn't deny the request. Try again.");
         return;
       }
-      window.location.assign(payload.redirectTo);
+      window.location.assign(redirectTo);
     } catch {
       setError("Couldn't reach the authorization server.");
     } finally {
@@ -143,23 +154,14 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
         selectedCircleIds,
         grantedScopes,
       });
-      const response = await fetch(new URL("/authorize/complete", workerOrigin), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ approvalToken }),
+      const redirectTo = await postWorkerRedirect(workerOrigin, "/authorize/complete", {
+        approvalToken,
       });
-      const payload: unknown = await response.json().catch(() => null);
-      if (
-        !response.ok ||
-        typeof payload !== "object" ||
-        payload === null ||
-        !("redirectTo" in payload) ||
-        typeof payload.redirectTo !== "string"
-      ) {
+      if (!redirectTo) {
         setError("Couldn't finish authorization. Ask the app to connect again.");
         return;
       }
-      window.location.assign(payload.redirectTo);
+      window.location.assign(redirectTo);
     } catch (caught) {
       setError(mutationErrorMessageForUser(caught, "Couldn't approve this request"));
     } finally {

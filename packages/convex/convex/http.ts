@@ -78,73 +78,54 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
 }
 
 const redeemApprovalBodySchema = z.object({ token: z.string() });
-
-http.route({
-  path: "/mcp/redeem-approval",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const body = await verifyWorkerRequest(ctx, request, "/mcp/redeem-approval");
-    if (body === WORKER_AUTH_FAILED) {
-      return jsonResponse(401, { ok: false, error: "unauthorized" });
-    }
-    const parsedBody = redeemApprovalBodySchema.safeParse(body);
-    if (!parsedBody.success) {
-      return jsonResponse(400, { ok: false, error: "invalid_body" });
-    }
-    const result = await ctx.runMutation(internal.mcpApproval.redeemApprovalToken, {
-      token: parsedBody.data.token,
-    });
-    return jsonResponse(result.ok ? 200 : 400, result);
-  }),
-});
-
 const activateGrantBodySchema = z.object({
   grantId: z.string(),
   workerGrantId: z.string(),
   principalId: z.string(),
 });
-
-http.route({
-  path: "/mcp/activate-grant",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const body = await verifyWorkerRequest(ctx, request, "/mcp/activate-grant");
-    if (body === WORKER_AUTH_FAILED) {
-      return jsonResponse(401, { ok: false, error: "unauthorized" });
-    }
-    const parsedBody = activateGrantBodySchema.safeParse(body);
-    if (!parsedBody.success) {
-      return jsonResponse(400, { ok: false, error: "invalid_body" });
-    }
-    const result = await ctx.runMutation(
-      internal.mcpApproval.activateGrantFromWorker,
-      parsedBody.data,
-    );
-    return jsonResponse(result.ok ? 200 : 400, result);
-  }),
-});
-
 const validateGrantBodySchema = z.object({
   grantId: z.string(),
   principalId: z.string(),
   requestedScopes: z.array(z.string()),
 });
 
-http.route({
-  path: "/mcp/validate-grant",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const body = await verifyWorkerRequest(ctx, request, "/mcp/validate-grant");
-    if (body === WORKER_AUTH_FAILED) {
-      return jsonResponse(401, { ok: false, error: "unauthorized" });
-    }
-    const parsedBody = validateGrantBodySchema.safeParse(body);
-    if (!parsedBody.success) {
-      return jsonResponse(400, { ok: false, error: "invalid_body" });
-    }
-    const result = await ctx.runQuery(internal.mcpApproval.validateActiveGrant, parsedBody.data);
-    return jsonResponse(result.ok ? 200 : 400, result);
-  }),
-});
+/**
+ * Shared Worker-bridge HTTP shape: assert → parse body → run Convex → JSON.
+ * Keeps the three MCP routes identical so auth/400 handling cannot drift.
+ */
+function workerBridgeRoute<T extends z.ZodType>(
+  path: string,
+  bodySchema: T,
+  run: (ctx: ActionCtx, body: z.infer<T>) => Promise<{ ok: boolean } & Record<string, unknown>>,
+) {
+  http.route({
+    path,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const body = await verifyWorkerRequest(ctx, request, path);
+      if (body === WORKER_AUTH_FAILED) {
+        return jsonResponse(401, { ok: false, error: "unauthorized" });
+      }
+      const parsedBody = bodySchema.safeParse(body);
+      if (!parsedBody.success) {
+        return jsonResponse(400, { ok: false, error: "invalid_body" });
+      }
+      const result = await run(ctx, parsedBody.data);
+      return jsonResponse(result.ok ? 200 : 400, result);
+    }),
+  });
+}
+
+workerBridgeRoute("/mcp/redeem-approval", redeemApprovalBodySchema, async (ctx, body) =>
+  ctx.runMutation(internal.mcpApproval.redeemApprovalToken, { token: body.token }),
+);
+
+workerBridgeRoute("/mcp/activate-grant", activateGrantBodySchema, async (ctx, body) =>
+  ctx.runMutation(internal.mcpApproval.activateGrantFromWorker, body),
+);
+
+workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, body) =>
+  ctx.runQuery(internal.mcpApproval.validateActiveGrant, body),
+);
 
 export default http;
