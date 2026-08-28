@@ -30,7 +30,10 @@ export default function ProtectedLayout() {
   const session = useAppSession();
   const location = useLocation();
   const onOnboarding = location.pathname === "/onboarding";
-  const signinRedirect = withReturnTo(href("/signin"), location.pathname + location.search);
+  const signinRedirect =
+    location.pathname === "/" && !location.search
+      ? href("/signin")
+      : withReturnTo(href("/signin"), location.pathname + location.search);
   const onboardingRedirect = withReturnTo(href("/onboarding"), location.pathname + location.search);
   const postOnboardingTarget = parseReturnTo(
     new URLSearchParams(location.search).get(RETURN_TO_PARAM),
