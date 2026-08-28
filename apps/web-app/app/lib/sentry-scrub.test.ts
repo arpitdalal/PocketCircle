@@ -66,6 +66,19 @@ describe("scrubUrlForSentry", () => {
     expect(scrubbed).not.toContain("#");
     expect(scrubbed).toBe(`/circles/c1abc/search`);
   });
+
+  it("drops signed MCP handoff tokens, including when nested in returnTo", () => {
+    const token = "eyJhbGciOiJIUzI1NiJ9.handoff-payload.signature";
+    const nested = `/mcp/authorize?handoff=${token}`;
+    const scrubbed = scrubUrlForSentry(
+      `/mcp/authorize?handoff=${token}&returnTo=${encodeURIComponent(nested)}`,
+    );
+
+    expect(scrubbed).not.toContain(token);
+    expect(scrubbed).not.toContain("handoff=");
+    expect(scrubbed).toContain("returnTo=");
+    expect(scrubbed).toContain("%2Fmcp%2Fauthorize");
+  });
 });
 
 describe("scrubAppErrorExtra", () => {

@@ -6,7 +6,7 @@ import { type AccountDeletionState, accountDeletionDouble } from "./account-dele
 import { type ActivationState, activationDouble } from "./activation.js";
 import { type CategoriesState, categoriesDouble } from "./categories.js";
 import { type CirclesState, circlesDouble } from "./circles.js";
-import type { PaginatedPage } from "./contract.js";
+import type { EntityDouble, PaginatedPage } from "./contract.js";
 import { type DashboardState, dashboardDouble } from "./dashboard.js";
 import {
   type FeatureAnnouncementsState,
@@ -40,7 +40,7 @@ export type ConvexState = CirclesState &
   FeatureAnnouncementsState &
   McpState;
 
-const ENTITY_DOUBLES = [
+const ENTITY_DOUBLES: Array<(state: ConvexState) => EntityDouble> = [
   circlesDouble,
   categoriesDouble,
   membersDouble,

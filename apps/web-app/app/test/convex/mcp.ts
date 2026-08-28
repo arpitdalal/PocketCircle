@@ -10,7 +10,7 @@ export interface McpState {
   approveMcpAuthorization?: Mock;
 }
 
-export function mcpDouble(state: McpState): EntityDouble {
+export function mcpDouble(state: McpState) {
   const { mcpHandoff, approveMcpAuthorization } = state;
   return {
     queries: {
@@ -21,20 +21,19 @@ export function mcpDouble(state: McpState): EntityDouble {
         ? { [getFunctionName(api.mcpConsent.approveMcpAuthorization)]: approveMcpAuthorization }
         : {}),
     },
-  };
+  } satisfies EntityDouble;
 }
 
-export function makeMcpHandoffView(over: Partial<McpHandoffView> = {}): McpHandoffView {
+export function makeMcpHandoffView(over: Partial<McpHandoffView> = {}) {
   return {
-    handoffId: "handoff-1",
-    clientId: "https://client.example/client.json",
-    clientName: "Example Client",
-    clientUri: "https://client.example",
-    logoUri: undefined,
-    redirectUri: "https://client.example/callback",
-    resource: "https://mcp.pocketcircle.app/mcp",
-    scopes: ["pocketcircle:read"],
-    refreshDurationLabel: "30 days",
-    ...over,
-  };
+    handoffId: over.handoffId ?? "handoff-1",
+    clientId: over.clientId ?? "https://client.example/client.json",
+    clientName: over.clientName ?? "Example Client",
+    clientUri: over.clientUri ?? "https://client.example",
+    logoUri: over.logoUri,
+    redirectUri: over.redirectUri ?? "https://client.example/callback",
+    resource: over.resource ?? "https://mcp.pocketcircle.app/mcp",
+    scopes: over.scopes ?? ["pocketcircle:read"],
+    refreshDurationLabel: over.refreshDurationLabel ?? "30 days",
+  } satisfies McpHandoffView;
 }

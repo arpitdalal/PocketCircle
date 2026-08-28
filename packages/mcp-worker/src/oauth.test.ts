@@ -206,6 +206,63 @@ describe("authorization handoff", () => {
     expect(replay.status).toBe(400);
   });
 
+  it("lets exactly one of concurrent complete and deny consume the handoff", async () => {
+    const start = await SELF.fetch(
+      authorizeUrl({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: REDIRECT_URI,
+        scope: "pocketcircle:read",
+        state: "race-me",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        resource: RESOURCE,
+      }),
+      { redirect: "manual" },
+    );
+    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
+    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
+    expect(payload?.handoffId).toBeTruthy();
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_test",
+            principalId: "principal_opaque",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId: payload?.handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const [complete, deny] = await Promise.all([
+      SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approvalToken: "approval-token" }),
+      }),
+      SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handoffId: payload?.handoffId }),
+      }),
+    ]);
+    const statuses = [complete.status, deny.status];
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    expect(statuses.filter((status) => status === 400)).toHaveLength(1);
+  });
+
   it("complete rejects when Convex redeem fails (grant logic stays on Convex)", async () => {
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {

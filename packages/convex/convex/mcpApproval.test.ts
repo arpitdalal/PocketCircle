@@ -1,12 +1,14 @@
 import {
   MCP_APPROVAL_TTL_MS,
   MCP_RESOURCE_URI,
+  type McpApprovalPayload,
   type McpWorkerAssertionPayload,
   sha256Hex,
   signMcpWorkerAssertion,
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { seedPersonalCircleOwner } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
@@ -255,6 +257,29 @@ describe("cleanupExpiredWorkerNonces", () => {
       expect(remaining).toHaveLength(0);
     });
   });
+
+  it("reschedules until expired nonces beyond the per-run cap are gone", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 6; i++) {
+        await ctx.db.insert("mcpWorkerNonces", {
+          nonce: `n-cap-${i}`,
+          expiresAt: now - 1_000,
+        });
+      }
+    });
+
+    const first = await mutateAndDrain(t, () =>
+      t.mutation(internal.mcpApproval.cleanupExpiredWorkerNonces, { now, limit: 4 }),
+    );
+    expect(first).toBe(4);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpWorkerNonces").collect();
+      expect(remaining).toHaveLength(0);
+    });
+  });
 });
 
 describe("cleanupExpiredApprovalTokens", () => {
@@ -282,6 +307,31 @@ describe("cleanupExpiredApprovalTokens", () => {
       const remaining = await ctx.db.query("mcpApprovalTokens").collect();
       expect(remaining).toHaveLength(1);
       expect(remaining[0]?.expiresAt).toBeGreaterThan(now);
+    });
+  });
+
+  it("reschedules until expired approval tokens beyond the per-run cap are gone", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const now = Date.now();
+    for (let i = 0; i < 3; i++) {
+      await seedApprovalToken(t, {
+        userId: ada.userId,
+        circleIds: [ada.personalCircleId],
+        expiresAt: now - 10_000 - i,
+      });
+    }
+
+    const first = await mutateAndDrain(t, () =>
+      t.mutation(internal.mcpApproval.cleanupExpiredApprovalTokens, { now, limit: 2 }),
+    );
+    expect(first).toBe(2);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpApprovalTokens").collect();
+      expect(remaining).toHaveLength(0);
     });
   });
 });

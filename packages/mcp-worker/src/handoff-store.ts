@@ -1,8 +1,9 @@
+import { DurableObject } from "cloudflare:workers";
 import { MCP_HANDOFF_TTL_MS } from "@pocketcircle/domain";
 import { z } from "zod";
 
 // Mirrors `AuthRequest` from @cloudflare/workers-oauth-provider so we can
-// validate the KV round-trip without an `as` cast.
+// validate the round-trip without an `as` cast.
 const authRequestSchema = z.object({
   responseType: z.string(),
   clientId: z.string(),
@@ -17,29 +18,44 @@ const authRequestSchema = z.object({
 
 export type StoredAuthRequest = z.infer<typeof authRequestSchema>;
 
-const HANDOFF_TTL_SECONDS = Math.ceil(MCP_HANDOFF_TTL_MS / 1000);
+/**
+ * Per-handoff Durable Object. Requests to the same object are serialized, so
+ * get-then-delete in `consumeAuthRequest` is atomic under concurrent complete
+ * and deny.
+ */
+export class HandoffStore extends DurableObject {
+  async storeAuthRequest(authRequest: StoredAuthRequest) {
+    await this.ctx.storage.put("authRequest", authRequest);
+    await this.ctx.storage.setAlarm(Date.now() + MCP_HANDOFF_TTL_MS);
+  }
 
-function handoffKey(handoffId: string) {
-  return `handoff:${handoffId}`;
+  async consumeAuthRequest() {
+    const raw = await this.ctx.storage.get("authRequest");
+    if (raw === undefined) {
+      return null;
+    }
+    await this.ctx.storage.delete("authRequest");
+    await this.ctx.storage.deleteAlarm();
+    const parsed = authRequestSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
+  }
+
+  override async alarm() {
+    await this.ctx.storage.deleteAll();
+  }
 }
 
 export async function storeHandoffAuthRequest(
-  kv: KVNamespace,
+  ns: DurableObjectNamespace<HandoffStore>,
   handoffId: string,
   authRequest: StoredAuthRequest,
 ) {
-  await kv.put(handoffKey(handoffId), JSON.stringify(authRequest), {
-    expirationTtl: HANDOFF_TTL_SECONDS,
-  });
+  await ns.getByName(handoffId).storeAuthRequest(authRequest);
 }
 
-export async function loadHandoffAuthRequest(kv: KVNamespace, handoffId: string) {
-  const raw = await kv.get(handoffKey(handoffId));
-  if (raw === null) return null;
-  const parsed = authRequestSchema.safeParse(JSON.parse(raw));
-  return parsed.success ? parsed.data : null;
-}
-
-export async function deleteHandoffAuthRequest(kv: KVNamespace, handoffId: string) {
-  await kv.delete(handoffKey(handoffId));
+export async function consumeHandoffAuthRequest(
+  ns: DurableObjectNamespace<HandoffStore>,
+  handoffId: string,
+) {
+  return ns.getByName(handoffId).consumeAuthRequest();
 }

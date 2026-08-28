@@ -7,7 +7,8 @@
 
 import { mcpScopesInclude, normalizeMcpScopes, verifyMcpApproval } from "@pocketcircle/domain";
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server.js";
+import { internal } from "./_generated/api.js";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
 import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
 import { activateMcpGrant } from "./mcpGrant.js";
 
@@ -155,64 +156,72 @@ export const consumeWorkerNonce = internalMutation({
   },
 });
 
+const EXPIRED_CLEANUP_BATCH = 100;
+const EXPIRED_CLEANUP_CAP = 500;
+
+async function deleteExpiredRows(
+  ctx: MutationCtx,
+  table: "mcpWorkerNonces" | "mcpApprovalTokens",
+  now: number,
+  maxTotal: number,
+) {
+  let totalDeleted = 0;
+  while (totalDeleted < maxTotal) {
+    const takeCount = Math.min(EXPIRED_CLEANUP_BATCH, maxTotal - totalDeleted);
+    const expired = await ctx.db
+      .query(table)
+      .withIndex("by_expires", (q) => q.lte("expiresAt", now))
+      .take(takeCount);
+    if (expired.length === 0) {
+      break;
+    }
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+    totalDeleted += expired.length;
+    if (expired.length < takeCount) {
+      break;
+    }
+  }
+  return totalDeleted;
+}
+
 /**
  * Deletes expired Worker assertion nonces using the `by_expires` index.
- * Loops in batches to drain accumulated backlog.
+ * Hits the per-run cap → schedules another batch until the expired set is empty.
  */
 export const cleanupExpiredWorkerNonces = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const maxTotal = args.limit ?? 500;
-    let totalDeleted = 0;
-    while (totalDeleted < maxTotal) {
-      const takeCount = Math.min(100, maxTotal - totalDeleted);
-      const expired = await ctx.db
-        .query("mcpWorkerNonces")
-        .withIndex("by_expires", (q) => q.lte("expiresAt", now))
-        .take(takeCount);
-      if (expired.length === 0) {
-        break;
-      }
-      for (const row of expired) {
-        await ctx.db.delete(row._id);
-      }
-      totalDeleted += expired.length;
-      if (expired.length < takeCount) {
-        break;
-      }
+    const maxTotal = args.limit ?? EXPIRED_CLEANUP_CAP;
+    const deleted = await deleteExpiredRows(ctx, "mcpWorkerNonces", now, maxTotal);
+    if (deleted === maxTotal) {
+      await ctx.scheduler.runAfter(0, internal.mcpApproval.cleanupExpiredWorkerNonces, {
+        now,
+        limit: maxTotal,
+      });
     }
-    return totalDeleted;
+    return deleted;
   },
 });
 
 /**
  * Deletes expired MCP approval tokens using the `by_expires` index.
- * Loops in batches to drain accumulated backlog.
+ * Hits the per-run cap → schedules another batch until the expired set is empty.
  */
 export const cleanupExpiredApprovalTokens = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const maxTotal = args.limit ?? 500;
-    let totalDeleted = 0;
-    while (totalDeleted < maxTotal) {
-      const takeCount = Math.min(100, maxTotal - totalDeleted);
-      const expired = await ctx.db
-        .query("mcpApprovalTokens")
-        .withIndex("by_expires", (q) => q.lte("expiresAt", now))
-        .take(takeCount);
-      if (expired.length === 0) {
-        break;
-      }
-      for (const row of expired) {
-        await ctx.db.delete(row._id);
-      }
-      totalDeleted += expired.length;
-      if (expired.length < takeCount) {
-        break;
-      }
+    const maxTotal = args.limit ?? EXPIRED_CLEANUP_CAP;
+    const deleted = await deleteExpiredRows(ctx, "mcpApprovalTokens", now, maxTotal);
+    if (deleted === maxTotal) {
+      await ctx.scheduler.runAfter(0, internal.mcpApproval.cleanupExpiredApprovalTokens, {
+        now,
+        limit: maxTotal,
+      });
     }
-    return totalDeleted;
+    return deleted;
   },
 });

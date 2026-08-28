@@ -7,11 +7,7 @@ import {
 } from "@pocketcircle/domain";
 import { redeemApproval } from "./convex-bridge.js";
 import type { Env } from "./env.js";
-import {
-  deleteHandoffAuthRequest,
-  loadHandoffAuthRequest,
-  storeHandoffAuthRequest,
-} from "./handoff-store.js";
+import { consumeHandoffAuthRequest, storeHandoffAuthRequest } from "./handoff-store.js";
 
 function corsHeaders(env: Env) {
   return {
@@ -118,7 +114,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
   }
 
   const handoffId = crypto.randomUUID();
-  await storeHandoffAuthRequest(env.HANDOFF_KV, handoffId, authRequest);
+  await storeHandoffAuthRequest(env.HANDOFF_STORE, handoffId, authRequest);
 
   const now = Date.now();
   const payload: McpHandoffPayload = {
@@ -143,11 +139,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
 }
 
 async function consumeHandoff(env: Env, handoffId: string) {
-  const authRequest = await loadHandoffAuthRequest(env.HANDOFF_KV, handoffId);
-  if (authRequest) {
-    await deleteHandoffAuthRequest(env.HANDOFF_KV, handoffId);
-  }
-  return authRequest;
+  return consumeHandoffAuthRequest(env.HANDOFF_STORE, handoffId);
 }
 
 async function handleComplete(request: Request, env: Env) {

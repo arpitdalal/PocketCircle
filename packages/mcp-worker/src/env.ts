@@ -1,4 +1,5 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import type { HandoffStore } from "./handoff-store.js";
 
 /**
  * Worker bindings. Declared on `Cloudflare.Env` so `getOAuthApi` / vitest pool
@@ -8,7 +9,7 @@ declare global {
   namespace Cloudflare {
     interface Env {
       OAUTH_KV: KVNamespace;
-      HANDOFF_KV: KVNamespace;
+      HANDOFF_STORE: DurableObjectNamespace<HandoffStore>;
       OAUTH_PROVIDER: OAuthHelpers;
       APP_ORIGIN: string;
       CONVEX_SITE_URL: string;

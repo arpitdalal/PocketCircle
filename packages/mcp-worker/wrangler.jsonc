@@ -9,10 +9,11 @@
   "triggers": {
     "crons": ["0 3 * * *"]
   },
-  "kv_namespaces": [
-    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" },
-    { "binding": "HANDOFF_KV", "id": "REPLACE_WITH_HANDOFF_KV_NAMESPACE_ID" }
-  ],
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }],
+  "durable_objects": {
+    "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]
+  },
+  "migrations": [{ "tag": "v1-handoff-store", "new_sqlite_classes": ["HandoffStore"] }],
   "vars": {
     "APP_ORIGIN": "https://pocketcircle.app",
     "CONVEX_SITE_URL": "https://pocketcircle.convex.site"

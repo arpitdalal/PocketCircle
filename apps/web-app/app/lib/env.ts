@@ -45,7 +45,7 @@ export function mcpWorkerOrigin() {
     if (url.protocol === "https:") {
       return url.origin;
     }
-    if (url.protocol === "http:" && isLocalHostname(url.hostname)) {
+    if (url.protocol === "http:" && import.meta.env.DEV && isLocalHostname(url.hostname)) {
       return url.origin;
     }
     return undefined;
