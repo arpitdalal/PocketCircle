@@ -9,7 +9,11 @@
   "triggers": {
     "crons": ["0 3 * * *"]
   },
-  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }],
+  "kv_namespaces": [
+    // Production deploy.yml substitutes MCP_OAUTH_KV_NAMESPACE_ID. Local wrangler
+    // dev / vitest provision a namespace from this binding without Cloudflare.
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]
   },

@@ -15,12 +15,12 @@ import {
 
 const SECRET = "test-shared-secret";
 
-function handoffPayload(overrides: Partial<McpHandoffPayload> = {}): McpHandoffPayload {
+function handoffPayload(overrides: Partial<McpHandoffPayload> = {}) {
   return {
-    v: 1,
+    v: 1 as const,
     handoffId: "handoff-1",
     clientId: "https://client.example/client.json",
-    clientKind: "cimd",
+    clientKind: "cimd" as const,
     redirectUri: "https://client.example/callback",
     resource: MCP_RESOURCE_URI,
     scopes: ["pocketcircle:read", "pocketcircle:write"],
@@ -28,14 +28,12 @@ function handoffPayload(overrides: Partial<McpHandoffPayload> = {}): McpHandoffP
     iat: Date.now(),
     exp: Date.now() + 60_000,
     ...overrides,
-  };
+  } satisfies McpHandoffPayload;
 }
 
-function assertionPayload(
-  overrides: Partial<McpWorkerAssertionPayload> = {},
-): McpWorkerAssertionPayload {
+function assertionPayload(overrides: Partial<McpWorkerAssertionPayload> = {}) {
   return {
-    aud: "pocketcircle:mcp-worker",
+    aud: "pocketcircle:mcp-worker" as const,
     method: "POST",
     path: "/mcp/redeem-approval",
     bodySha256: "deadbeef",
@@ -43,7 +41,7 @@ function assertionPayload(
     exp: Date.now() + 60_000,
     nonce: "nonce-1",
     ...overrides,
-  };
+  } satisfies McpWorkerAssertionPayload;
 }
 
 describe("MCP handoff sign/verify", () => {
@@ -119,10 +117,10 @@ describe("MCP Worker assertion sign/verify", () => {
 });
 
 describe("MCP approval sign/verify", () => {
-  function approvalPayload(overrides: Partial<McpApprovalPayload> = {}): McpApprovalPayload {
+  function approvalPayload(overrides: Partial<McpApprovalPayload> = {}) {
     const now = Date.now();
     return {
-      v: 1,
+      v: 1 as const,
       jti: "jti-1",
       handoffId: "handoff-1",
       grantId: "grant-1",
@@ -136,7 +134,7 @@ describe("MCP approval sign/verify", () => {
       iat: now,
       exp: now + 60_000,
       ...overrides,
-    };
+    } satisfies McpApprovalPayload;
   }
 
   it("round-trips a valid payload", async () => {

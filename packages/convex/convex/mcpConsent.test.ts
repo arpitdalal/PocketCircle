@@ -27,13 +27,13 @@ const modules = import.meta.glob("./**/*.ts");
 const SECRET = "test-mcp-worker-secret";
 const READ_WRITE = ["pocketcircle:read", "pocketcircle:write"] as const;
 
-function handoffPayload(overrides: Partial<McpHandoffPayload> = {}): McpHandoffPayload {
+function handoffPayload(overrides: Partial<McpHandoffPayload> = {}) {
   const now = Date.now();
   return {
-    v: 1,
+    v: 1 as const,
     handoffId: "handoff-1",
     clientId: "https://client.example/client.json",
-    clientKind: "cimd",
+    clientKind: "cimd" as const,
     redirectUri: "https://client.example/callback",
     resource: MCP_RESOURCE_URI,
     scopes: READ_WRITE,
@@ -43,7 +43,7 @@ function handoffPayload(overrides: Partial<McpHandoffPayload> = {}): McpHandoffP
     iat: now,
     exp: now + 60_000,
     ...overrides,
-  };
+  } satisfies McpHandoffPayload;
 }
 
 beforeEach(() => {

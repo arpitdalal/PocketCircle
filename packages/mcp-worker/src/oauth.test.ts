@@ -87,6 +87,24 @@ describe("MCP Worker OAuth discovery", () => {
     expect(asBody).not.toHaveProperty("registration_endpoint");
   });
 
+  it("advertises the reachable Worker origin when the custom domain is not the request host", async () => {
+    const origin = "https://pocketcircle-mcp-worker.workers.dev";
+    const resourceMeta = await SELF.fetch(`${origin}/.well-known/oauth-protected-resource`);
+    expect(resourceMeta.status).toBe(200);
+    expect(await resourceMeta.json()).toMatchObject({
+      resource: `${origin}/mcp`,
+      authorization_servers: [origin],
+    });
+
+    const asMeta = await SELF.fetch(`${origin}/.well-known/oauth-authorization-server`);
+    expect(asMeta.status).toBe(200);
+    expect(await asMeta.json()).toMatchObject({
+      issuer: origin,
+      authorization_endpoint: `${origin}/authorize`,
+      token_endpoint: `${origin}/token`,
+    });
+  });
+
   it("does not expose a DCR registration route", async () => {
     const response = await SELF.fetch("https://mcp.pocketcircle.app/oauth/register", {
       method: "POST",

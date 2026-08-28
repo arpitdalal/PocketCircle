@@ -5,7 +5,6 @@ import OAuthProvider, {
 import {
   MCP_ACCESS_TOKEN_TTL_SECONDS,
   MCP_REFRESH_TOKEN_TTL_SECONDS,
-  MCP_RESOURCE_URI,
   MCP_SCOPES,
 } from "@pocketcircle/domain";
 import { z } from "zod";
@@ -13,25 +12,18 @@ import { defaultHandler } from "./authorize.js";
 import { activateGrant, validateGrant } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { mcpApiHandler } from "./mcp-api.js";
+import { mcpAuthorizationServerIssuer, mcpResourceUri } from "./reachable.js";
 
 const grantPropsSchema = z.object({ mcpGrantId: z.string().min(1) });
-
-function resourceUri(env: Env) {
-  return env.MCP_RESOURCE_URI ?? MCP_RESOURCE_URI;
-}
-
-function authorizationServerIssuer(env: Env) {
-  return env.MCP_ISSUER;
-}
 
 /**
  * Builds OAuthProvider options closed over the live Worker `env` so token-
  * exchange callbacks can call Convex. Shared by the Worker entry and tests
  * (`getOAuthApi`) — `tokenExchangeCallback` has no `env` argument.
  */
-export function oauthProviderOptions(env: Env): OAuthProviderOptions<Env> {
-  const resource = resourceUri(env);
-  const issuer = authorizationServerIssuer(env);
+export function oauthProviderOptions(env: Env, origin?: string): OAuthProviderOptions<Env> {
+  const resource = mcpResourceUri(env, origin);
+  const issuer = mcpAuthorizationServerIssuer(env, origin);
   return {
     apiRoute: "/mcp",
     apiHandler: mcpApiHandler,
@@ -92,6 +84,6 @@ export function oauthProviderOptions(env: Env): OAuthProviderOptions<Env> {
   };
 }
 
-export function createOAuthProvider(env: Env) {
-  return new OAuthProvider(oauthProviderOptions(env));
+export function createOAuthProvider(env: Env, origin?: string) {
+  return new OAuthProvider(oauthProviderOptions(env, origin));
 }

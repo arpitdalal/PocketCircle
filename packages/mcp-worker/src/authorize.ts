@@ -1,13 +1,9 @@
 import { AuthorizationError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
-import {
-  MCP_HANDOFF_TTL_MS,
-  MCP_RESOURCE_URI,
-  type McpHandoffPayload,
-  signMcpHandoff,
-} from "@pocketcircle/domain";
+import { MCP_HANDOFF_TTL_MS, type McpHandoffPayload, signMcpHandoff } from "@pocketcircle/domain";
 import { redeemApproval } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { consumeHandoffAuthRequest, storeHandoffAuthRequest } from "./handoff-store.js";
+import { mcpResourceUri, requestOrigin } from "./reachable.js";
 
 function corsHeaders(env: Env) {
   return {
@@ -45,11 +41,11 @@ function clientKindOf(clientId: string) {
     : ("static" as const);
 }
 
-function resourceOf(authRequest: AuthRequest, env: Env) {
+function resourceOf(authRequest: AuthRequest, env: Env, origin: string) {
   const requested = Array.isArray(authRequest.resource)
     ? authRequest.resource[0]
     : authRequest.resource;
-  return requested ?? env.MCP_RESOURCE_URI ?? MCP_RESOURCE_URI;
+  return requested ?? mcpResourceUri(env, origin);
 }
 
 /** Safe OAuth error redirect — only when `redirectUri` was validated by parseAuthRequest. */
@@ -123,7 +119,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
     clientId: authRequest.clientId,
     clientKind: clientKindOf(authRequest.clientId),
     redirectUri: authRequest.redirectUri,
-    resource: resourceOf(authRequest, env),
+    resource: resourceOf(authRequest, env, requestOrigin(request)),
     scopes: authRequest.scope,
     clientName: client.clientName,
     clientUri: client.clientUri,
@@ -161,7 +157,7 @@ async function handleComplete(request: Request, env: Env) {
   if (authRequest.clientId !== grant.clientId || authRequest.redirectUri !== grant.redirectUri) {
     return jsonResponse(400, { error: "handoff_grant_mismatch" }, env);
   }
-  const expectedResource = resourceOf(authRequest, env);
+  const expectedResource = resourceOf(authRequest, env, requestOrigin(request));
   if (grant.resource !== expectedResource) {
     return jsonResponse(400, { error: "handoff_grant_mismatch" }, env);
   }

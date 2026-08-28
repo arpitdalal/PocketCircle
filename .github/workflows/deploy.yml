@@ -55,6 +55,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          MCP_OAUTH_KV_NAMESPACE_ID: ${{ vars.MCP_OAUTH_KV_NAMESPACE_ID }}
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
@@ -62,6 +64,8 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
           test -n "$CONVEX_DEPLOY_KEY" || { echo "::error::Missing CONVEX_DEPLOY_KEY secret"; exit 1; }
+          test -n "$MCP_OAUTH_KV_NAMESPACE_ID" || { echo "::error::Missing MCP_OAUTH_KV_NAMESPACE_ID variable"; exit 1; }
+          test -n "$MCP_WORKER_HMAC_SECRET" || { echo "::error::Missing MCP_WORKER_HMAC_SECRET secret"; exit 1; }
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
           test -n "$VITE_CONVEX_SITE_URL" || { echo "::error::Missing VITE_CONVEX_SITE_URL variable"; exit 1; }
           test -n "$VITE_MCP_WORKER_ORIGIN" || { echo "::error::Missing VITE_MCP_WORKER_ORIGIN variable"; exit 1; }
@@ -98,15 +102,48 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
 
+      - name: Bind MCP OAuth KV namespace
+        working-directory: packages/mcp-worker
+        env:
+          MCP_OAUTH_KV_NAMESPACE_ID: ${{ vars.MCP_OAUTH_KV_NAMESPACE_ID }}
+        run: |
+          python3 -c "
+          from pathlib import Path
+          import os
+          kv_id = os.environ['MCP_OAUTH_KV_NAMESPACE_ID']
+          path = Path('wrangler.jsonc')
+          needle = 'REPLACE_WITH_OAUTH_KV_NAMESPACE_ID'
+          if not kv_id or kv_id == needle:
+              raise SystemExit('MCP_OAUTH_KV_NAMESPACE_ID must be a real KV namespace id')
+          text = path.read_text()
+          if needle not in text:
+              raise SystemExit('wrangler.jsonc missing OAuth KV placeholder')
+          path.write_text(text.replace(needle, kv_id))
+          "
+
+      - name: Deploy MCP Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: "4.121.0"
+          workingDirectory: packages/mcp-worker
+          secrets: |
+            MCP_WORKER_HMAC_SECRET
+        env:
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+
       - name: Sync Convex release and Sentry env
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           APP_RELEASE_VERSION: ${{ steps.release.outputs.version }}
           APP_RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: |
           pnpm --filter @pocketcircle/convex exec convex env set APP_RELEASE "$APP_RELEASE_VERSION+$APP_RELEASE_SHA"
           pnpm --filter @pocketcircle/convex exec convex env set SENTRY_ENVIRONMENT production
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
           if [ -n "$VITE_SENTRY_DSN" ]; then
             pnpm --filter @pocketcircle/convex exec convex env set SENTRY_DSN "$VITE_SENTRY_DSN"
           else
