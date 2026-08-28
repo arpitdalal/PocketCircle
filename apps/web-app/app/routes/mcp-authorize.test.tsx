@@ -114,9 +114,9 @@ describe("MCP authorize consent", () => {
       }),
       circles: [makeCircleView()],
     });
-    renderAuthorize();
+    const { container } = renderAuthorize();
 
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("refuses to render when framed in an iframe", () => {
