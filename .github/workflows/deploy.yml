@@ -72,6 +72,7 @@ jobs:
           APP_RELEASE_SHA: ${{ steps.release.outputs.sha }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
           VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
           VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}

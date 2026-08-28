@@ -11,4 +11,12 @@ crons.interval(
   {},
 );
 
+// Clean up expired MCP approval tokens hourly.
+crons.interval(
+  "cleanup-expired-mcp-approval-tokens",
+  { hours: 1 },
+  internal.mcpApproval.cleanupExpiredApprovalTokens,
+  {},
+);
+
 export default crons;

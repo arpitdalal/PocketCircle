@@ -12,6 +12,7 @@
   ],
   "vars": {
     "APP_ORIGIN": "https://pocketcircle.app",
-    "CONVEX_SITE_URL": "https://pocketcircle.convex.site"
+    "CONVEX_SITE_URL": "https://pocketcircle.convex.site",
+    "MCP_ISSUER": "https://mcp.pocketcircle.app"
   }
 }

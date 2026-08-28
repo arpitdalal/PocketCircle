@@ -51,23 +51,21 @@ async function seedApprovalToken(
     const grant = pending.value;
     const now = Date.now();
     const expiresAt = args.expiresAt ?? now + MCP_APPROVAL_TTL_MS;
-    const { token, tokenHash } = await mintMcpApprovalToken(
-      {
-        jti: generateOpaqueToken(),
-        handoffId: "handoff-1",
-        grantId: grant._id,
-        userId: grant.userId,
-        principalId: grant.principalId,
-        clientId: grant.clientId,
-        redirectUri: grant.redirectUri,
-        resource: MCP_RESOURCE_URI,
-        scopes: grant.scopes,
-        allowedCircleIds: grant.allowedCircleIds,
-        iat: now,
-        exp: expiresAt,
-      },
-      SECRET,
-    );
+    const payload: McpApprovalPayload = {
+      jti: generateOpaqueToken(),
+      handoffId: "handoff-1",
+      grantId: grant._id,
+      userId: grant.userId,
+      principalId: grant.principalId,
+      clientId: grant.clientId,
+      redirectUri: grant.redirectUri,
+      resource: MCP_RESOURCE_URI,
+      scopes: grant.scopes,
+      allowedCircleIds: grant.allowedCircleIds,
+      iat: now,
+      exp: expiresAt,
+    };
+    const { token, tokenHash } = await mintMcpApprovalToken(payload, SECRET);
     await ctx.db.insert("mcpApprovalTokens", {
       tokenHash,
       handoffId: "handoff-1",
@@ -83,7 +81,7 @@ async function seedApprovalToken(
       createdAt: now,
       consumedAt: args.consumedAt,
     });
-    return { token, grant };
+    return { token, grant, payload };
   });
 }
 
@@ -234,6 +232,35 @@ describe("cleanupExpiredWorkerNonces", () => {
     await t.run(async (ctx) => {
       const remaining = await ctx.db.query("mcpWorkerNonces").collect();
       expect(remaining.map((r) => r.nonce)).toEqual(["n-valid-1"]);
+    });
+  });
+});
+
+describe("cleanupExpiredApprovalTokens", () => {
+  it("deletes expired approval tokens and preserves unexpired tokens", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const now = Date.now();
+    await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+      expiresAt: now - 10_000,
+    });
+    await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+      expiresAt: now + 300_000,
+    });
+
+    const deleted = await t.mutation(internal.mcpApproval.cleanupExpiredApprovalTokens, { now });
+    expect(deleted).toBe(1);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpApprovalTokens").collect();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.expiresAt).toBeGreaterThan(now);
     });
   });
 });
