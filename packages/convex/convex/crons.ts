@@ -19,4 +19,12 @@ crons.interval(
   {},
 );
 
+// Revoke pending MCP grants abandoned after the approval window.
+crons.interval(
+  "cleanup-expired-pending-mcp-grants",
+  { hours: 1 },
+  internal.mcpApproval.cleanupExpiredPendingMcpGrants,
+  {},
+);
+
 export default crons;

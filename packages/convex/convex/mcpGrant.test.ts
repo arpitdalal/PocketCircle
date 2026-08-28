@@ -1,3 +1,4 @@
+import { MCP_PENDING_GRANT_TTL_MS } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
@@ -329,6 +330,40 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     expect(reactivate).toEqual({ ok: false, error: "invalid_transition" });
   });
 
+  it("revokes a pending grant whose approval window elapsed instead of activating", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, personalId } = await seedUserWithCircles(t);
+    const createdAt = Date.now() - MCP_PENDING_GRANT_TTL_MS - 1;
+
+    const pending = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT,
+        clientKind: "cimd",
+        redirectUri: REDIRECT,
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [personalId],
+        now: createdAt,
+      }),
+    );
+    if (!pending.ok) {
+      throw new Error(pending.error);
+    }
+
+    const result = await t.run((ctx) =>
+      activateMcpGrant(ctx, {
+        grantId: pending.value._id,
+        workerGrantId: "wg-late",
+        principalId: pending.value.principalId,
+      }),
+    );
+    expect(result).toEqual({ ok: false, error: "invalid_transition" });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(pending.value._id);
+      expect(row?.status).toBe("revoked");
+    });
+  });
+
   it("revokes older active grants on activation; leaves pending consent rows untouched", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, regularId } = await seedUserWithCircles(t);
@@ -500,6 +535,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
         grantId: olderPending.value._id,
         workerGrantId: "wg-older",
         principalId: olderPending.value.principalId,
+        now: 1_700_000_000_200,
       }),
     );
     expect(activated.ok).toBe(true);
@@ -1210,6 +1246,17 @@ describe("mcpGrants indexes", () => {
                 .eq("clientId", CLIENT)
                 .eq("redirectUri", REDIRECT)
                 .eq("status", "revoked"),
+            )
+            .collect()
+        ).map((g) => g._id),
+      ).toContain(grant._id);
+
+      expect(
+        (
+          await ctx.db
+            .query("mcpGrants")
+            .withIndex("by_status_and_created", (q) =>
+              q.eq("status", "revoked").gte("createdAt", 0),
             )
             .collect()
         ).map((g) => g._id),

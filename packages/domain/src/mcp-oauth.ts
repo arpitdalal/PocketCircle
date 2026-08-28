@@ -22,6 +22,8 @@ export const MCP_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const MCP_REFRESH_DURATION_LABEL = "30 days";
 export const MCP_HANDOFF_TTL_MS = 10 * 60 * 1000;
 export const MCP_APPROVAL_TTL_MS = 5 * 60 * 1000;
+/** Pending grant abandoned if Worker never finishes token exchange in this window. */
+export const MCP_PENDING_GRANT_TTL_MS = MCP_APPROVAL_TTL_MS;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

@@ -1,5 +1,5 @@
 import { MUTATION_ERRORS } from "@pocketcircle/domain";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { SkeletonRegion } from "~/components/skeleton.js";
 import { Button } from "~/components/ui/button.js";
@@ -15,17 +15,72 @@ import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 
 /**
  * MCP OAuth consent (#318). Protected layout already enforced Google session +
- * onboarding. Shows Worker-signed handoff fields (client label only — not proof
- * of identity), requested scopes, refresh duration, and Circles the User may
- * select. Approval token returns to the Worker via POST body, never a URL.
+ * onboarding. Worker redirects here with `handoffId`; SPA loads the signed
+ * compact token from the Worker (never in the sign-in returnTo). Shows
+ * Worker-signed handoff fields (client label only — not proof of identity),
+ * requested scopes, refresh duration, and Circles the User may select.
+ * Approval token returns to the Worker via POST body, never a URL.
  */
-export default function McpAuthorize() {
+const HANDOFF_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Inline `handoff` (tests / old bookmarks) or Worker-stored token by `handoffId`. */
+function useHandoffToken() {
   const [params] = useSearchParams();
-  const handoff = params.get("handoff");
-  const view = useMcpHandoff(handoff);
+  const inline = params.get("handoff");
+  const handoffId = params.get("handoffId");
+  const [remote, setRemote] = useState<string | null | undefined>(() => {
+    if (inline) {
+      return inline;
+    }
+    if (handoffId && HANDOFF_ID.test(handoffId)) {
+      return undefined;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (inline) {
+      setRemote(inline);
+      return;
+    }
+    if (!handoffId || !HANDOFF_ID.test(handoffId)) {
+      setRemote(null);
+      return;
+    }
+    const origin = mcpWorkerOrigin();
+    if (!origin) {
+      setRemote(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchWorkerHandoff(origin, handoffId)
+      .then((token) => {
+        if (!cancelled) {
+          setRemote(token);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRemote(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inline, handoffId]);
+
+  return remote;
+}
+
+export default function McpAuthorize() {
+  const handoff = useHandoffToken();
+  const view = useMcpHandoff(handoff ?? null);
 
   if (typeof window !== "undefined" && window.self !== window.top) {
     return <ConsentFramed />;
+  }
+  if (handoff === undefined) {
+    return <ConsentLoading />;
   }
   if (!handoff) {
     return <ConsentInvalid />;
@@ -85,6 +140,24 @@ function scopeLabel(scope: string) {
     return "Create and edit Transactions and Categories";
   }
   return scope;
+}
+
+/** Load the Worker-stored signed handoff without consuming the AuthRequest. */
+async function fetchWorkerHandoff(workerOrigin: string, handoffId: string) {
+  const url = new URL("/authorize/handoff", workerOrigin);
+  url.searchParams.set("id", handoffId);
+  const response = await fetch(url);
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    !response.ok ||
+    typeof payload !== "object" ||
+    payload === null ||
+    !("handoff" in payload) ||
+    typeof payload.handoff !== "string"
+  ) {
+    return null;
+  }
+  return payload.handoff;
 }
 
 /** POST to Worker authorize endpoints; returns redirectTo or null on any failure. */

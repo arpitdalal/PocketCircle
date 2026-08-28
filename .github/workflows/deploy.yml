@@ -68,7 +68,28 @@ jobs:
           test -n "$MCP_WORKER_HMAC_SECRET" || { echo "::error::Missing MCP_WORKER_HMAC_SECRET secret"; exit 1; }
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
           test -n "$VITE_CONVEX_SITE_URL" || { echo "::error::Missing VITE_CONVEX_SITE_URL variable"; exit 1; }
-          test -n "$VITE_MCP_WORKER_ORIGIN" || { echo "::error::Missing VITE_MCP_WORKER_ORIGIN variable"; exit 1; }
+          node --input-type=module -e '
+            const raw = process.env.VITE_MCP_WORKER_ORIGIN?.trim() ?? "";
+            if (!raw) {
+              console.error("::error::Missing VITE_MCP_WORKER_ORIGIN variable");
+              process.exit(1);
+            }
+            let url;
+            try {
+              url = new URL(raw);
+            } catch {
+              console.error("::error::VITE_MCP_WORKER_ORIGIN is not a valid URL");
+              process.exit(1);
+            }
+            if (url.protocol !== "https:") {
+              console.error("::error::VITE_MCP_WORKER_ORIGIN must use HTTPS");
+              process.exit(1);
+            }
+            if (url.username || url.password) {
+              console.error("::error::VITE_MCP_WORKER_ORIGIN must not include credentials");
+              process.exit(1);
+            }
+          '
 
       - run: pnpm validate
 
@@ -94,6 +115,15 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: pnpm --filter @pocketcircle/convex exec convex deploy -y
+
+      # Convex must verify Worker-signed handoffs before this release's MCP Worker
+      # goes live. A rotated HMAC deployed on the Worker first would fail consent
+      # until the later env-sync step.
+      - name: Sync MCP Worker HMAC to Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+        run: pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4
@@ -138,12 +168,10 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           APP_RELEASE_VERSION: ${{ steps.release.outputs.version }}
           APP_RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: |
           pnpm --filter @pocketcircle/convex exec convex env set APP_RELEASE "$APP_RELEASE_VERSION+$APP_RELEASE_SHA"
           pnpm --filter @pocketcircle/convex exec convex env set SENTRY_ENVIRONMENT production
-          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
           if [ -n "$VITE_SENTRY_DSN" ]; then
             pnpm --filter @pocketcircle/convex exec convex env set SENTRY_DSN "$VITE_SENTRY_DSN"
           else

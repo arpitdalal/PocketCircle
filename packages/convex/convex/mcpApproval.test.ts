@@ -1,5 +1,6 @@
 import {
   MCP_APPROVAL_TTL_MS,
+  MCP_PENDING_GRANT_TTL_MS,
   MCP_RESOURCE_URI,
   type McpApprovalPayload,
   type McpWorkerAssertionPayload,
@@ -280,6 +281,24 @@ describe("cleanupExpiredWorkerNonces", () => {
       expect(remaining).toHaveLength(0);
     });
   });
+
+  it("rejects a non-positive limit without deleting or rescheduling", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("mcpWorkerNonces", { nonce: "n-zero", expiresAt: now - 1_000 });
+    });
+
+    const deleted = await mutateAndDrain(t, () =>
+      t.mutation(internal.mcpApproval.cleanupExpiredWorkerNonces, { now, limit: 0 }),
+    );
+    expect(deleted).toBe(0);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpWorkerNonces").collect();
+      expect(remaining).toHaveLength(1);
+    });
+  });
 });
 
 describe("cleanupExpiredApprovalTokens", () => {
@@ -332,6 +351,94 @@ describe("cleanupExpiredApprovalTokens", () => {
     await t.run(async (ctx) => {
       const remaining = await ctx.db.query("mcpApprovalTokens").collect();
       expect(remaining).toHaveLength(0);
+    });
+  });
+});
+
+describe("cleanupExpiredPendingMcpGrants", () => {
+  it("revokes abandoned pending grants and preserves live pending and active grants", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const now = Date.now();
+    const stale = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: CLIENT_ID,
+        clientKind: "cimd",
+        redirectUri: REDIRECT_URI,
+        scopes: READ_WRITE,
+        allowedCircleIds: [ada.personalCircleId],
+        now: now - MCP_PENDING_GRANT_TTL_MS - 1,
+      }),
+    );
+    const fresh = await t.run((ctx) =>
+      createPendingMcpGrant(ctx, {
+        userId: ada.userId,
+        clientId: `${CLIENT_ID}#fresh`,
+        clientKind: "cimd",
+        redirectUri: REDIRECT_URI,
+        scopes: READ_WRITE,
+        allowedCircleIds: [ada.personalCircleId],
+        now,
+      }),
+    );
+    expect(stale.ok && fresh.ok).toBe(true);
+    if (!stale.ok || !fresh.ok) {
+      throw new Error("seed failed");
+    }
+    const { grant: active } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+    });
+    await t.mutation(internal.mcpApproval.activateGrantFromWorker, {
+      grantId: active._id,
+      workerGrantId: "wg-live",
+      principalId: active.principalId,
+    });
+
+    const revoked = await t.mutation(internal.mcpApproval.cleanupExpiredPendingMcpGrants, { now });
+    expect(revoked).toBe(1);
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(stale.value._id))?.status).toBe("revoked");
+      expect((await ctx.db.get(fresh.value._id))?.status).toBe("pending");
+      expect((await ctx.db.get(active._id))?.status).toBe("active");
+    });
+  });
+
+  it("reschedules until expired pending grants beyond the per-run cap are gone", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const now = Date.now();
+    for (let i = 0; i < 3; i++) {
+      await t.run((ctx) =>
+        createPendingMcpGrant(ctx, {
+          userId: ada.userId,
+          clientId: `${CLIENT_ID}#stale-${i}`,
+          clientKind: "cimd",
+          redirectUri: REDIRECT_URI,
+          scopes: READ_WRITE,
+          allowedCircleIds: [ada.personalCircleId],
+          now: now - MCP_PENDING_GRANT_TTL_MS - 1 - i,
+        }),
+      );
+    }
+
+    const first = await mutateAndDrain(t, () =>
+      t.mutation(internal.mcpApproval.cleanupExpiredPendingMcpGrants, { now, limit: 2 }),
+    );
+    expect(first).toBe(2);
+
+    await t.run(async (ctx) => {
+      const pending = await ctx.db
+        .query("mcpGrants")
+        .withIndex("by_status", (q) => q.eq("status", "pending"))
+        .collect();
+      expect(pending).toHaveLength(0);
     });
   });
 });

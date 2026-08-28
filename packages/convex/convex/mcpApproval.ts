@@ -5,12 +5,17 @@
  * calling in. No plaintext token or bearer material is ever logged.
  */
 
-import { mcpScopesInclude, normalizeMcpScopes, verifyMcpApproval } from "@pocketcircle/domain";
+import {
+  MCP_PENDING_GRANT_TTL_MS,
+  mcpScopesInclude,
+  normalizeMcpScopes,
+  verifyMcpApproval,
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
 import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
-import { activateMcpGrant } from "./mcpGrant.js";
+import { activateMcpGrant, revokeMcpGrant } from "./mcpGrant.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
 
@@ -159,6 +164,20 @@ export const consumeWorkerNonce = internalMutation({
 const EXPIRED_CLEANUP_BATCH = 100;
 const EXPIRED_CLEANUP_CAP = 500;
 
+function resolvedCleanupLimit(limit: number | undefined) {
+  if (limit === undefined) {
+    return EXPIRED_CLEANUP_CAP;
+  }
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return null;
+  }
+  return limit;
+}
+
+function shouldContinueCleanup(deleted: number, maxTotal: number) {
+  return maxTotal > 0 && deleted === maxTotal;
+}
+
 async function deleteExpiredRows(
   ctx: MutationCtx,
   table: "mcpWorkerNonces" | "mcpApprovalTokens",
@@ -186,6 +205,29 @@ async function deleteExpiredRows(
   return totalDeleted;
 }
 
+async function revokeExpiredPendingGrants(ctx: MutationCtx, now: number, maxTotal: number) {
+  const cutoff = now - MCP_PENDING_GRANT_TTL_MS;
+  let totalRevoked = 0;
+  while (totalRevoked < maxTotal) {
+    const takeCount = Math.min(EXPIRED_CLEANUP_BATCH, maxTotal - totalRevoked);
+    const expired = await ctx.db
+      .query("mcpGrants")
+      .withIndex("by_status_and_created", (q) => q.eq("status", "pending").lte("createdAt", cutoff))
+      .take(takeCount);
+    if (expired.length === 0) {
+      break;
+    }
+    for (const row of expired) {
+      await revokeMcpGrant(ctx, { grantId: row._id, now });
+    }
+    totalRevoked += expired.length;
+    if (expired.length < takeCount) {
+      break;
+    }
+  }
+  return totalRevoked;
+}
+
 /**
  * Deletes expired Worker assertion nonces using the `by_expires` index.
  * Hits the per-run cap → schedules another batch until the expired set is empty.
@@ -194,9 +236,12 @@ export const cleanupExpiredWorkerNonces = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const maxTotal = args.limit ?? EXPIRED_CLEANUP_CAP;
+    const maxTotal = resolvedCleanupLimit(args.limit);
+    if (maxTotal === null) {
+      return 0;
+    }
     const deleted = await deleteExpiredRows(ctx, "mcpWorkerNonces", now, maxTotal);
-    if (deleted === maxTotal) {
+    if (shouldContinueCleanup(deleted, maxTotal)) {
       await ctx.scheduler.runAfter(0, internal.mcpApproval.cleanupExpiredWorkerNonces, {
         now,
         limit: maxTotal,
@@ -214,14 +259,40 @@ export const cleanupExpiredApprovalTokens = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const maxTotal = args.limit ?? EXPIRED_CLEANUP_CAP;
+    const maxTotal = resolvedCleanupLimit(args.limit);
+    if (maxTotal === null) {
+      return 0;
+    }
     const deleted = await deleteExpiredRows(ctx, "mcpApprovalTokens", now, maxTotal);
-    if (deleted === maxTotal) {
+    if (shouldContinueCleanup(deleted, maxTotal)) {
       await ctx.scheduler.runAfter(0, internal.mcpApproval.cleanupExpiredApprovalTokens, {
         now,
         limit: maxTotal,
       });
     }
     return deleted;
+  },
+});
+
+/**
+ * Revokes pending grants whose approval window elapsed without Worker activation.
+ * Hits the per-run cap → schedules another batch until the expired set is empty.
+ */
+export const cleanupExpiredPendingMcpGrants = internalMutation({
+  args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const maxTotal = resolvedCleanupLimit(args.limit);
+    if (maxTotal === null) {
+      return 0;
+    }
+    const revoked = await revokeExpiredPendingGrants(ctx, now, maxTotal);
+    if (shouldContinueCleanup(revoked, maxTotal)) {
+      await ctx.scheduler.runAfter(0, internal.mcpApproval.cleanupExpiredPendingMcpGrants, {
+        now,
+        limit: maxTotal,
+      });
+    }
+    return revoked;
   },
 });

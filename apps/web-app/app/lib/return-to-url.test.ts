@@ -59,6 +59,11 @@ describe("parseReturnTo", () => {
       "/mcp/authorize?handoff=payload.sig",
       "/mcp/authorize?handoff=payload.sig",
     ],
+    [
+      "honors MCP authorize with handoffId continuation",
+      "/mcp/authorize?handoffId=abc",
+      "/mcp/authorize?handoffId=abc",
+    ],
   ])("%s", (_name, raw, expected) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(expected);
   });
@@ -91,6 +96,7 @@ describe("parseReturnTo", () => {
     ["a mixed literal/encoded `.%2e` traversal", "/circles/trip-c1/.%2e/settings"],
     ["a mixed encoded/literal `%2e.` traversal", "/circles/trip-c1/%2e./settings"],
     ["an over-length value", `/circles/trip-c1/${"x".repeat(3000)}`],
+    ["an over-length MCP authorize handoff", `/mcp/authorize?handoff=${"x".repeat(2100)}`],
   ])("falls back for %s", (_name, raw) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(FALLBACK);
   });

@@ -34,6 +34,48 @@ function authorizeUrl(params: Record<string, string>) {
   return url;
 }
 
+const PKCE = {
+  code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+  code_challenge_method: "S256",
+} as const;
+
+async function startAuthorize(state: string) {
+  const start = await SELF.fetch(
+    authorizeUrl({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: REDIRECT_URI,
+      scope: "pocketcircle:read",
+      state,
+      ...PKCE,
+      resource: RESOURCE,
+    }),
+    { redirect: "manual" },
+  );
+  expect(start.status).toBe(302);
+  const consent = new URL(start.headers.get("Location") ?? "");
+  expect(consent.origin).toBe("https://pocketcircle.app");
+  expect(consent.pathname).toBe("/mcp/authorize");
+  const handoffId = consent.searchParams.get("handoffId");
+  expect(handoffId).toBeTruthy();
+  expect(consent.searchParams.get("handoff")).toBeNull();
+
+  const loaded = await SELF.fetch(`https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`);
+  expect(loaded.status).toBe(200);
+  const body: unknown = await loaded.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("handoff" in body) ||
+    typeof body.handoff !== "string"
+  ) {
+    throw new Error("missing handoff");
+  }
+  const payload = await verifyMcpHandoff(body.handoff, HMAC_SECRET);
+  expect(payload?.handoffId).toBe(handoffId);
+  return { handoffId: handoffId ?? "", handoff: body.handoff, payload };
+}
+
 function stubConvexFetch(handler: (path: string, body: unknown) => Response | Promise<Response>) {
   vi.stubGlobal(
     "fetch",
@@ -116,28 +158,10 @@ describe("MCP Worker OAuth discovery", () => {
 });
 
 describe("authorization handoff", () => {
-  it("stores AuthRequest server-side and redirects to SPA with signed handoff", async () => {
-    const response = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "client-state-1",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-
-    expect(response.status).toBe(302);
-    const location = response.headers.get("Location");
-    expect(location).toBeTruthy();
-    const consent = new URL(location ?? "");
-    expect(consent.origin).toBe("https://pocketcircle.app");
-    expect(consent.pathname).toBe("/mcp/authorize");
-    expect(consent.searchParams.get("handoff")).toBeTruthy();
+  it("stores AuthRequest server-side and redirects to SPA with handoffId", async () => {
+    const started = await startAuthorize("client-state-1");
+    expect(started.handoffId.length).toBeGreaterThan(0);
+    expect(started.handoff.length).toBeGreaterThan(0);
   });
 
   it("rejects plain PKCE with an OAuth error redirect", async () => {
@@ -182,29 +206,12 @@ describe("authorization handoff", () => {
   });
 
   it("deny returns access_denied redirect without Convex grant activation", async () => {
-    const start = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "deny-me",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
-    expect(handoff).toBeTruthy();
-
-    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
-    expect(payload?.handoffId).toBeTruthy();
+    const { handoffId } = await startAuthorize("deny-me");
 
     const deny = await SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handoffId: payload?.handoffId }),
+      body: JSON.stringify({ handoffId }),
     });
     expect(deny.status).toBe(200);
     const body: unknown = await deny.json();
@@ -219,28 +226,18 @@ describe("authorization handoff", () => {
     const replay = await SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handoffId: payload?.handoffId }),
+      body: JSON.stringify({ handoffId }),
     });
     expect(replay.status).toBe(400);
+
+    const afterConsume = await SELF.fetch(
+      `https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`,
+    );
+    expect(afterConsume.status).toBe(400);
   });
 
   it("lets exactly one of concurrent complete and deny consume the handoff", async () => {
-    const start = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "race-me",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
-    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
-    expect(payload?.handoffId).toBeTruthy();
+    const { handoffId } = await startAuthorize("race-me");
 
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {
@@ -254,7 +251,7 @@ describe("authorization handoff", () => {
             resource: RESOURCE,
             scopes: ["pocketcircle:read"],
             allowedCircleIds: ["circle_opaque"],
-            handoffId: payload?.handoffId,
+            handoffId,
           },
         });
       }
@@ -273,7 +270,7 @@ describe("authorization handoff", () => {
       SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ handoffId: payload?.handoffId }),
+        body: JSON.stringify({ handoffId }),
       }),
     ]);
     const statuses = [complete.status, deny.status];
@@ -298,22 +295,7 @@ describe("authorization handoff", () => {
   });
 
   it("complete redeems via Convex then finishes OAuth against the stored AuthRequest", async () => {
-    const start = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "approve-me",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
-    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
-    expect(payload?.handoffId).toBeTruthy();
+    const { handoffId } = await startAuthorize("approve-me");
 
     // Stub only the Worker→Convex HTTP boundary. AuthRequest + OAuth code path
     // use real Worker KV / OAuthProvider (grant mutations covered in Convex tests).
@@ -329,7 +311,7 @@ describe("authorization handoff", () => {
             resource: RESOURCE,
             scopes: ["pocketcircle:read"],
             allowedCircleIds: ["circle_opaque"],
-            handoffId: payload?.handoffId,
+            handoffId,
           },
         });
       }
@@ -430,7 +412,7 @@ describe("authorization handoff", () => {
             resource: RESOURCE,
             scopes: ["pocketcircle:read"],
             allowedCircleIds: ["circle_opaque"],
-            handoffId: payload?.handoffId,
+            handoffId,
           },
         });
       }
@@ -445,21 +427,7 @@ describe("authorization handoff", () => {
   });
 
   it("complete rejects resource mismatch between handoff and redeemed grant", async () => {
-    const start = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "bad-resource",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
-    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
+    const { handoffId } = await startAuthorize("bad-resource");
 
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {
@@ -473,7 +441,7 @@ describe("authorization handoff", () => {
             resource: "https://evil.example/mcp",
             scopes: ["pocketcircle:read"],
             allowedCircleIds: ["circle_opaque"],
-            handoffId: payload?.handoffId,
+            handoffId,
           },
         });
       }
@@ -500,21 +468,7 @@ describe("authorization handoff", () => {
       override: { redirectUri: "https://evil.example/callback" },
     },
   ])("complete rejects $label between handoff and redeemed grant", async ({ override }) => {
-    const start = await SELF.fetch(
-      authorizeUrl({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: REDIRECT_URI,
-        scope: "pocketcircle:read",
-        state: "mismatch",
-        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-        code_challenge_method: "S256",
-        resource: RESOURCE,
-      }),
-      { redirect: "manual" },
-    );
-    const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
-    const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
+    const { handoffId } = await startAuthorize("mismatch");
 
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {
@@ -528,7 +482,7 @@ describe("authorization handoff", () => {
             resource: RESOURCE,
             scopes: ["pocketcircle:read"],
             allowedCircleIds: ["circle_opaque"],
-            handoffId: payload?.handoffId,
+            handoffId,
             ...override,
           },
         });

@@ -369,6 +369,7 @@ export default defineSchema({
     .index("by_user_client_redirect_and_status", ["userId", "clientId", "redirectUri", "status"])
     .index("by_client_and_status", ["clientId", "status"])
     .index("by_status", ["status"])
+    .index("by_status_and_created", ["status", "createdAt"])
     .index("by_worker_grant", ["workerGrantId"])
     .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
 

@@ -21,12 +21,19 @@ export type StoredAuthRequest = z.infer<typeof authRequestSchema>;
 /**
  * Per-handoff Durable Object. Requests to the same object are serialized, so
  * get-then-delete in `consumeAuthRequest` is atomic under concurrent complete
- * and deny.
+ * and deny. The signed compact token lives here too — SPA loads it by
+ * `handoffId` so consent/sign-in URLs stay under the returnTo length cap.
  */
 export class HandoffStore extends DurableObject {
-  async storeAuthRequest(authRequest: StoredAuthRequest) {
+  async storeAuthRequest(authRequest: StoredAuthRequest, handoffToken: string) {
     await this.ctx.storage.put("authRequest", authRequest);
+    await this.ctx.storage.put("handoffToken", handoffToken);
     await this.ctx.storage.setAlarm(Date.now() + MCP_HANDOFF_TTL_MS);
+  }
+
+  async loadHandoffToken() {
+    const token = await this.ctx.storage.get("handoffToken");
+    return typeof token === "string" && token.length > 0 ? token : null;
   }
 
   async consumeAuthRequest() {
@@ -35,6 +42,7 @@ export class HandoffStore extends DurableObject {
       return null;
     }
     await this.ctx.storage.delete("authRequest");
+    await this.ctx.storage.delete("handoffToken");
     await this.ctx.storage.deleteAlarm();
     const parsed = authRequestSchema.safeParse(raw);
     return parsed.success ? parsed.data : null;
@@ -49,8 +57,16 @@ export async function storeHandoffAuthRequest(
   ns: DurableObjectNamespace<HandoffStore>,
   handoffId: string,
   authRequest: StoredAuthRequest,
+  handoffToken: string,
 ) {
-  await ns.getByName(handoffId).storeAuthRequest(authRequest);
+  await ns.getByName(handoffId).storeAuthRequest(authRequest, handoffToken);
+}
+
+export async function loadHandoffToken(
+  ns: DurableObjectNamespace<HandoffStore>,
+  handoffId: string,
+) {
+  return ns.getByName(handoffId).loadHandoffToken();
 }
 
 export async function consumeHandoffAuthRequest(

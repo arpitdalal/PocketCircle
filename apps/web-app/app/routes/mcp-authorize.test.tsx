@@ -46,6 +46,30 @@ describe("MCP authorize consent", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/no longer valid/i);
   });
 
+  it("loads the signed handoff from the Worker by handoffId", async () => {
+    const handoffId = "550e8400-e29b-41d4-a716-446655440000";
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/authorize/handoff")) {
+        return Response.json({ handoff: "signed-handoff" });
+      }
+      return Response.json({
+        redirectTo: "https://client.example/callback?error=access_denied",
+      });
+    });
+    configureConvex({
+      mcpHandoff: makeMcpHandoffView(),
+      circles: [makeCircleView({ name: "Ada", kind: "personal" })],
+    });
+    renderRoutes(<Route path="/mcp/authorize" element={<McpAuthorize />} />, {
+      initialEntries: [`/mcp/authorize?handoffId=${handoffId}`],
+    });
+
+    expect(await screen.findByText("Example Client")).toBeInTheDocument();
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe(
+      `${WORKER}/authorize/handoff?id=${handoffId}`,
+    );
+  });
+
   it("shows invalid copy when Convex rejects the handoff", () => {
     configureConvex({ mcpHandoff: null });
     renderAuthorize();
