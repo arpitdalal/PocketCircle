@@ -67,28 +67,39 @@ jobs:
           test -n "$MCP_OAUTH_KV_NAMESPACE_ID" || { echo "::error::Missing MCP_OAUTH_KV_NAMESPACE_ID variable"; exit 1; }
           test -n "$MCP_WORKER_HMAC_SECRET" || { echo "::error::Missing MCP_WORKER_HMAC_SECRET secret"; exit 1; }
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
-          test -n "$VITE_CONVEX_SITE_URL" || { echo "::error::Missing VITE_CONVEX_SITE_URL variable"; exit 1; }
           node --input-type=module -e '
-            const raw = process.env.VITE_MCP_WORKER_ORIGIN?.trim() ?? "";
-            if (!raw) {
-              console.error("::error::Missing VITE_MCP_WORKER_ORIGIN variable");
-              process.exit(1);
+            function requireHttpsOrigin(raw, name, { convexSite } = {}) {
+              if (!raw?.trim()) {
+                console.error(`::error::Missing ${name} variable`);
+                process.exit(1);
+              }
+              let url;
+              try {
+                url = new URL(raw.trim());
+              } catch {
+                console.error(`::error::${name} is not a valid URL`);
+                process.exit(1);
+              }
+              if (url.protocol !== "https:") {
+                console.error(`::error::${name} must use HTTPS`);
+                process.exit(1);
+              }
+              if (url.username || url.password) {
+                console.error(`::error::${name} must not include credentials`);
+                process.exit(1);
+              }
+              if (convexSite) {
+                const host = url.hostname;
+                if (host !== "convex.site" && !host.endsWith(".convex.site")) {
+                  console.error(`::error::${name} must be a Convex *.convex.site origin`);
+                  process.exit(1);
+                }
+              }
             }
-            let url;
-            try {
-              url = new URL(raw);
-            } catch {
-              console.error("::error::VITE_MCP_WORKER_ORIGIN is not a valid URL");
-              process.exit(1);
-            }
-            if (url.protocol !== "https:") {
-              console.error("::error::VITE_MCP_WORKER_ORIGIN must use HTTPS");
-              process.exit(1);
-            }
-            if (url.username || url.password) {
-              console.error("::error::VITE_MCP_WORKER_ORIGIN must not include credentials");
-              process.exit(1);
-            }
+            requireHttpsOrigin(process.env.VITE_MCP_WORKER_ORIGIN, "VITE_MCP_WORKER_ORIGIN");
+            requireHttpsOrigin(process.env.VITE_CONVEX_SITE_URL, "VITE_CONVEX_SITE_URL", {
+              convexSite: true,
+            });
           '
 
       - run: pnpm validate
@@ -132,23 +143,45 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
 
-      - name: Bind MCP OAuth KV namespace
+      - name: Bind MCP Worker production config
         working-directory: packages/mcp-worker
         env:
           MCP_OAUTH_KV_NAMESPACE_ID: ${{ vars.MCP_OAUTH_KV_NAMESPACE_ID }}
+          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
         run: |
           python3 -c "
           from pathlib import Path
+          from urllib.parse import urlparse
           import os
-          kv_id = os.environ['MCP_OAUTH_KV_NAMESPACE_ID']
+
           path = Path('wrangler.jsonc')
-          needle = 'REPLACE_WITH_OAUTH_KV_NAMESPACE_ID'
-          if not kv_id or kv_id == needle:
-              raise SystemExit('MCP_OAUTH_KV_NAMESPACE_ID must be a real KV namespace id')
           text = path.read_text()
-          if needle not in text:
+
+          kv_id = os.environ['MCP_OAUTH_KV_NAMESPACE_ID']
+          kv_needle = 'REPLACE_WITH_OAUTH_KV_NAMESPACE_ID'
+          if not kv_id or kv_id == kv_needle:
+              raise SystemExit('MCP_OAUTH_KV_NAMESPACE_ID must be a real KV namespace id')
+          if kv_needle not in text:
               raise SystemExit('wrangler.jsonc missing OAuth KV placeholder')
-          path.write_text(text.replace(needle, kv_id))
+
+          site_needle = 'https://placeholder.convex.site'
+          parsed = urlparse(os.environ['VITE_CONVEX_SITE_URL'].strip())
+          host = parsed.hostname or ''
+          if (
+              parsed.scheme != 'https'
+              or parsed.username
+              or parsed.password
+              or not host
+              or (host != 'convex.site' and not host.endswith('.convex.site'))
+          ):
+              raise SystemExit('VITE_CONVEX_SITE_URL must be a Convex *.convex.site HTTPS origin')
+          origin = f'https://{host}' + (f':{parsed.port}' if parsed.port else '')
+          if origin == site_needle:
+              raise SystemExit('VITE_CONVEX_SITE_URL must be the real production Convex site URL')
+          if site_needle not in text:
+              raise SystemExit('wrangler.jsonc missing CONVEX_SITE_URL placeholder')
+
+          path.write_text(text.replace(kv_needle, kv_id).replace(site_needle, origin))
           "
 
       - name: Deploy MCP Worker

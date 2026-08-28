@@ -146,6 +146,10 @@ VITE_CONVEX_URL=https://<production-deployment>.convex.cloud
 VITE_CONVEX_SITE_URL=https://<production-deployment>.convex.site
 ```
 
+The MCP Worker is bound to `VITE_CONVEX_SITE_URL` at deploy time (same origin the
+SPA uses). Do not hardcode a guessed `*.convex.site` host in
+`packages/mcp-worker/wrangler.jsonc`.
+
 These observability variables are optional for the first infrastructure deploy;
 set them and redeploy before beta monitoring begins:
 

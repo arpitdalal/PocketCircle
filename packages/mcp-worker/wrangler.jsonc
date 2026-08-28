@@ -20,6 +20,8 @@
   "migrations": [{ "tag": "v1-handoff-store", "new_sqlite_classes": ["HandoffStore"] }],
   "vars": {
     "APP_ORIGIN": "https://pocketcircle.app",
-    "CONVEX_SITE_URL": "https://pocketcircle.convex.site"
+    // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a
+    // *.convex.site host — Convex assigns the deployment subdomain.
+    "CONVEX_SITE_URL": "https://placeholder.convex.site"
   }
 }
