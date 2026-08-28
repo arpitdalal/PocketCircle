@@ -82,8 +82,8 @@ describe("MCP handoff sign/verify", () => {
   it("rejects a payload missing required fields", async () => {
     // Sign an object that is not a valid handoff payload — the schema must reject it.
     const token = await signMcpHandoff(
-      // biome-ignore lint/suspicious/noExplicitAny: constructing an intentionally invalid payload for the negative test
-      { v: 1, handoffId: "x" } as any,
+      // @ts-expect-error intentionally invalid payload for the negative test
+      { v: 1, handoffId: "x" },
       SECRET,
     );
     expect(await verifyMcpHandoff(token, SECRET)).toBeNull();
@@ -110,8 +110,8 @@ describe("MCP Worker assertion sign/verify", () => {
 
   it("rejects a wrong audience", async () => {
     const token = await signMcpWorkerAssertion(
-      // biome-ignore lint/suspicious/noExplicitAny: constructing an intentionally invalid payload for the negative test
-      { ...assertionPayload(), aud: "someone-else" } as any,
+      // @ts-expect-error intentionally invalid payload for the negative test
+      { ...assertionPayload(), aud: "someone-else" },
       SECRET,
     );
     expect(await verifyMcpWorkerAssertion(token, SECRET)).toBeNull();

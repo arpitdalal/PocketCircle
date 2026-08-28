@@ -11,7 +11,7 @@
     { "binding": "HANDOFF_KV", "id": "REPLACE_WITH_HANDOFF_KV_NAMESPACE_ID" }
   ],
   "vars": {
-    "APP_ORIGIN": "http://127.0.0.1:5173",
-    "CONVEX_SITE_URL": "http://127.0.0.1:3211"
+    "APP_ORIGIN": "https://pocketcircle.app",
+    "CONVEX_SITE_URL": "https://pocketcircle.convex.site"
   }
 }

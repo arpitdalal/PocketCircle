@@ -21,6 +21,10 @@ function resourceUri(env: Env) {
   return env.MCP_RESOURCE_URI ?? MCP_RESOURCE_URI;
 }
 
+function authorizationServerIssuer(env: Env) {
+  return env.MCP_ISSUER ?? MCP_ISSUER;
+}
+
 /**
  * Builds OAuthProvider options closed over the live Worker `env` so token-
  * exchange callbacks can call Convex. Shared by the Worker entry and tests
@@ -28,6 +32,7 @@ function resourceUri(env: Env) {
  */
 export function oauthProviderOptions(env: Env): OAuthProviderOptions<Env> {
   const resource = resourceUri(env);
+  const issuer = authorizationServerIssuer(env);
   return {
     apiRoute: "/mcp",
     apiHandler: mcpApiHandler,
@@ -43,7 +48,7 @@ export function oauthProviderOptions(env: Env): OAuthProviderOptions<Env> {
     scopesSupported: [...MCP_SCOPES],
     resourceMetadata: {
       resource,
-      authorization_servers: [MCP_ISSUER],
+      authorization_servers: [issuer],
       scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ["header"],
       resource_name: "PocketCircle",

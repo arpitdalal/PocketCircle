@@ -14,6 +14,7 @@ declare global {
       CONVEX_SITE_URL: string;
       MCP_WORKER_HMAC_SECRET: string;
       MCP_RESOURCE_URI?: string;
+      MCP_ISSUER?: string;
     }
   }
 }

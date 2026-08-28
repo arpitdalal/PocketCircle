@@ -53,6 +53,12 @@ describe("parseReturnTo", () => {
     ],
     ["honors Home with a hash fragment", "/#section", "/#section"],
     ["honors Home with query and hash", "/?currency=EUR&range=3#top", "/?currency=EUR&range=3#top"],
+    ["honors the bare MCP authorize path", "/mcp/authorize", "/mcp/authorize"],
+    [
+      "honors MCP authorize with handoff query",
+      "/mcp/authorize?handoff=payload.sig",
+      "/mcp/authorize?handoff=payload.sig",
+    ],
   ])("%s", (_name, raw, expected) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(expected);
   });

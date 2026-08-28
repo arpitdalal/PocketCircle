@@ -111,13 +111,18 @@ export function parseReturnTo(raw: string | null, { fallback }: { fallback: stri
     return raw;
   }
 
-  // Self-scoping (ADR 0016): only an in-Circle object path is a valid return origin —
-  // not a top-level `/settings`, not another app area.
-  if (!isCircleScopedPath(raw)) {
+  const isMcpAuthorize =
+    raw === "/mcp/authorize" ||
+    raw.startsWith("/mcp/authorize?") ||
+    raw.startsWith("/mcp/authorize#");
+
+  // Self-scoping (ADR 0016): only an in-Circle object path or the MCP consent route
+  // is a valid return origin — not a top-level `/settings`, not another app area.
+  if (!isMcpAuthorize && !isCircleScopedPath(raw)) {
     return fallback;
   }
-  // Reject `..` traversal that could climb out of the Circle scope after the browser
-  // normalizes the path — in literal OR percent-encoded form (`/circles/c1/../settings`,
+  // Reject `..` traversal that could climb out of scope after the browser normalizes
+  // the path — in literal OR percent-encoded form (`/circles/c1/../settings`,
   // `/circles/c1/%2e%2e/settings`). See {@link DOT_SEGMENT}.
   const [pathname = raw] = raw.split(/[?#]/, 1);
   if (pathname.split("/").some((segment) => DOT_SEGMENT.test(segment))) {

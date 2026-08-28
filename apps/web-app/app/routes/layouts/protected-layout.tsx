@@ -30,6 +30,7 @@ export default function ProtectedLayout() {
   const session = useAppSession();
   const location = useLocation();
   const onOnboarding = location.pathname === "/onboarding";
+  const signinRedirect = withReturnTo(href("/signin"), location.pathname + location.search);
   const onboardingRedirect = withReturnTo(href("/onboarding"), location.pathname + location.search);
   const postOnboardingTarget = parseReturnTo(
     new URLSearchParams(location.search).get(RETURN_TO_PARAM),
@@ -74,7 +75,7 @@ export default function ProtectedLayout() {
     return <Splash />;
   }
   if (session.state === "unauthenticated") {
-    return <Navigate to="/signin" replace />;
+    return <Navigate to={signinRedirect} replace />;
   }
   if (session.state === "bootstrap") {
     return onOnboarding ? <Outlet /> : <Navigate to={onboardingRedirect} replace />;

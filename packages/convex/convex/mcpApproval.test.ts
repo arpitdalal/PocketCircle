@@ -175,6 +175,67 @@ describe("redeemApprovalToken", () => {
       error: "expired",
     });
   });
+
+  it("rejects a forged token signed with a different secret", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const { payload } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+    });
+    const { signMcpApproval } = await import("@pocketcircle/domain");
+    const forgedToken = await signMcpApproval(payload, "forged-secret-different-key");
+    expect(
+      await t.mutation(internal.mcpApproval.redeemApprovalToken, { token: forgedToken }),
+    ).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+  });
+
+  it("rejects an approval token when stored claims mismatch", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const { token } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+    });
+    // Tamper the stored approval token's redirectUri
+    await t.run(async (ctx) => {
+      const stored = await ctx.db.query("mcpApprovalTokens").first();
+      if (stored) {
+        await ctx.db.patch(stored._id, { redirectUri: "https://tampered.example/cb" });
+      }
+    });
+    expect(await t.mutation(internal.mcpApproval.redeemApprovalToken, { token })).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+  });
+});
+
+describe("cleanupExpiredWorkerNonces", () => {
+  it("deletes expired nonces and preserves unexpired nonces", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("mcpWorkerNonces", { nonce: "n-expired-1", expiresAt: now - 10_000 });
+      await ctx.db.insert("mcpWorkerNonces", { nonce: "n-expired-2", expiresAt: now - 1_000 });
+      await ctx.db.insert("mcpWorkerNonces", { nonce: "n-valid-1", expiresAt: now + 30_000 });
+    });
+
+    const deleted = await t.mutation(internal.mcpApproval.cleanupExpiredWorkerNonces, { now });
+    expect(deleted).toBe(2);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpWorkerNonces").collect();
+      expect(remaining.map((r) => r.nonce)).toEqual(["n-valid-1"]);
+    });
+  });
 });
 
 describe("activateGrantFromWorker", () => {

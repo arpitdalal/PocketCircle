@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import { verifyMcpHandoff } from "@pocketcircle/domain";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { oauthProviderOptions } from "./oauth-options.js";
 
 const REDIRECT_URI = "https://mcp-client.example/callback";
@@ -9,6 +9,10 @@ const RESOURCE = "https://mcp.pocketcircle.app/mcp";
 const HMAC_SECRET = "test-mcp-worker-secret";
 
 let clientId = "";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 beforeAll(async () => {
   // OAUTH_PROVIDER is injected during fetch; tests create clients via getOAuthApi.
@@ -28,6 +32,33 @@ function authorizeUrl(params: Record<string, string>) {
     url.searchParams.set(key, value);
   }
   return url;
+}
+
+function stubConvexFetch(handler: (path: string, body: unknown) => Response | Promise<Response>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      let body: unknown;
+      if (init?.body && typeof init.body === "string") {
+        try {
+          body = JSON.parse(init.body);
+        } catch {
+          body = init.body;
+        }
+      }
+      for (const endpoint of [
+        "/mcp/redeem-approval",
+        "/mcp/activate-grant",
+        "/mcp/validate-grant",
+      ]) {
+        if (url.includes(endpoint)) {
+          return handler(endpoint, body);
+        }
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    }),
+  );
 }
 
 describe("MCP Worker OAuth discovery", () => {
@@ -86,7 +117,7 @@ describe("authorization handoff", () => {
     const location = response.headers.get("Location");
     expect(location).toBeTruthy();
     const consent = new URL(location ?? "");
-    expect(consent.origin).toBe("http://127.0.0.1:5173");
+    expect(consent.origin).toBe("https://pocketcircle.app");
     expect(consent.pathname).toBe("/mcp/authorize");
     expect(consent.searchParams.get("handoff")).toBeTruthy();
   });
@@ -176,16 +207,12 @@ describe("authorization handoff", () => {
   });
 
   it("complete rejects when Convex redeem fails (grant logic stays on Convex)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/mcp/redeem-approval")) {
-          return Response.json({ ok: false, error: "not_found" }, { status: 400 });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({ ok: false, error: "not_found" }, { status: 400 });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
 
     const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
@@ -193,7 +220,6 @@ describe("authorization handoff", () => {
       body: JSON.stringify({ approvalToken: "bogus-token" }),
     });
     expect(complete.status).toBe(400);
-    vi.unstubAllGlobals();
   });
 
   it("complete redeems via Convex then finishes OAuth against the stored AuthRequest", async () => {
@@ -216,31 +242,27 @@ describe("authorization handoff", () => {
 
     // Stub only the Worker→Convex HTTP boundary. AuthRequest + OAuth code path
     // use real Worker KV / OAuthProvider (grant mutations covered in Convex tests).
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/mcp/redeem-approval")) {
-          return Response.json({
-            ok: true,
-            value: {
-              grantId: "grant_test",
-              principalId: "principal_opaque",
-              clientId,
-              redirectUri: REDIRECT_URI,
-              resource: RESOURCE,
-              scopes: ["pocketcircle:read"],
-              allowedCircleIds: ["circle_opaque"],
-              handoffId: payload?.handoffId,
-            },
-          });
-        }
-        if (url.includes("/mcp/activate-grant")) {
-          return Response.json({ ok: true });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_test",
+            principalId: "principal_opaque",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId: payload?.handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
 
     const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
@@ -301,15 +323,12 @@ describe("authorization handoff", () => {
         : "";
     expect(refreshToken.length).toBeGreaterThan(0);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("/mcp/validate-grant")) {
-          return Response.json({ ok: true });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/validate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
 
     const refreshOk = await SELF.fetch("https://mcp.pocketcircle.app/token", {
       method: "POST",
@@ -322,38 +341,32 @@ describe("authorization handoff", () => {
       }),
     });
     expect(refreshOk.status).toBe(200);
-    // Scope-broadening on refresh is enforced in Convex `validateActiveGrant`
-    // (mcpApproval.test.ts); the provider only forwards scopes within the grant.
 
     // Handoff consumed — second complete with same redeem cannot finish OAuth.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("/mcp/redeem-approval")) {
-          return Response.json({
-            ok: true,
-            value: {
-              grantId: "grant_test",
-              principalId: "principal_opaque",
-              clientId,
-              redirectUri: REDIRECT_URI,
-              resource: RESOURCE,
-              scopes: ["pocketcircle:read"],
-              allowedCircleIds: ["circle_opaque"],
-              handoffId: payload?.handoffId,
-            },
-          });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_test",
+            principalId: "principal_opaque",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId: payload?.handoffId,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
     const replay = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ approvalToken: "approval-token" }),
     });
     expect(replay.status).toBe(400);
-    vi.unstubAllGlobals();
   });
 
   it("complete rejects resource mismatch between handoff and redeemed grant", async () => {
@@ -373,27 +386,24 @@ describe("authorization handoff", () => {
     const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
     const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("/mcp/redeem-approval")) {
-          return Response.json({
-            ok: true,
-            value: {
-              grantId: "grant_test",
-              principalId: "principal_opaque",
-              clientId,
-              redirectUri: REDIRECT_URI,
-              resource: "https://evil.example/mcp",
-              scopes: ["pocketcircle:read"],
-              allowedCircleIds: ["circle_opaque"],
-              handoffId: payload?.handoffId,
-            },
-          });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_test",
+            principalId: "principal_opaque",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: "https://evil.example/mcp",
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId: payload?.handoffId,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
 
     const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
@@ -403,7 +413,6 @@ describe("authorization handoff", () => {
     expect(complete.status).toBe(400);
     const body: unknown = await complete.json();
     expect(body).toMatchObject({ error: "handoff_grant_mismatch" });
-    vi.unstubAllGlobals();
   });
 
   it.each([
@@ -432,28 +441,25 @@ describe("authorization handoff", () => {
     const handoff = new URL(start.headers.get("Location") ?? "").searchParams.get("handoff");
     const payload = await verifyMcpHandoff(handoff ?? "", HMAC_SECRET);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("/mcp/redeem-approval")) {
-          return Response.json({
-            ok: true,
-            value: {
-              grantId: "grant_test",
-              principalId: "principal_opaque",
-              clientId,
-              redirectUri: REDIRECT_URI,
-              resource: RESOURCE,
-              scopes: ["pocketcircle:read"],
-              allowedCircleIds: ["circle_opaque"],
-              handoffId: payload?.handoffId,
-              ...override,
-            },
-          });
-        }
-        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-      }),
-    );
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_test",
+            principalId: "principal_opaque",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId: payload?.handoffId,
+            ...override,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
 
     const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
@@ -462,6 +468,5 @@ describe("authorization handoff", () => {
     });
     expect(complete.status).toBe(400);
     expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });
-    vi.unstubAllGlobals();
   });
 });

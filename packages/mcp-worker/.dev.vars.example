@@ -1,3 +1,5 @@
 # Copy to .dev.vars (gitignored) for `wrangler dev` / local testing.
 # Must match the Convex deployment's MCP_WORKER_HMAC_SECRET (see ../convex/.env.example).
 MCP_WORKER_HMAC_SECRET=<random-secret>
+APP_ORIGIN=http://127.0.0.1:5173
+CONVEX_SITE_URL=http://127.0.0.1:3211

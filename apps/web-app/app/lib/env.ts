@@ -21,12 +21,37 @@ function optionalEnvString(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
+function isLocalHostname(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 /**
- * MCP Worker origin for consent complete/deny POSTs (#318). Unset → consent
- * UI shows a configuration error instead of posting approval material elsewhere.
+ * MCP Worker origin for consent complete/deny POSTs (#318). Unset or invalid
+ * origin → consent UI shows a configuration error instead of posting approval
+ * material elsewhere. Non-HTTPS schemes are rejected except on local dev.
  */
 export function mcpWorkerOrigin() {
-  return optionalEnvString(import.meta.env.VITE_MCP_WORKER_ORIGIN);
+  const raw = optionalEnvString(import.meta.env.VITE_MCP_WORKER_ORIGIN);
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "https:") {
+      return url.origin;
+    }
+    if (url.protocol === "http:" && (import.meta.env.DEV || isLocalHostname(url.hostname))) {
+      return url.origin;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Sentry DSN for client error monitoring (ADR 0012). Unset locally → init no-ops. */

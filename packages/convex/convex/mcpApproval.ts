@@ -154,3 +154,22 @@ export const consumeWorkerNonce = internalMutation({
     return true;
   },
 });
+
+/**
+ * Deletes expired Worker assertion nonces using the `by_expires` index.
+ */
+export const cleanupExpiredWorkerNonces = internalMutation({
+  args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const limit = args.limit ?? 100;
+    const expired = await ctx.db
+      .query("mcpWorkerNonces")
+      .withIndex("by_expires", (q) => q.lte("expiresAt", now))
+      .take(limit);
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+    return expired.length;
+  },
+});
