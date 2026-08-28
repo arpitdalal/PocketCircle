@@ -28,48 +28,41 @@ function useHandoffToken() {
   const [params] = useSearchParams();
   const inline = params.get("handoff");
   const handoffId = params.get("handoffId");
-  const [remote, setRemote] = useState<string | null | undefined>(() => {
-    if (inline) {
-      return inline;
-    }
-    if (handoffId && HANDOFF_ID.test(handoffId)) {
-      return undefined;
-    }
-    return null;
-  });
+  const validHandoffId = handoffId && HANDOFF_ID.test(handoffId) ? handoffId : null;
+  const workerOrigin = inline || !validHandoffId ? undefined : mcpWorkerOrigin();
+  const [fetched, setFetched] = useState<{ id: string; token: string | null } | null>(null);
 
   useEffect(() => {
-    if (inline) {
-      setRemote(inline);
-      return;
-    }
-    if (!handoffId || !HANDOFF_ID.test(handoffId)) {
-      setRemote(null);
-      return;
-    }
-    const origin = mcpWorkerOrigin();
-    if (!origin) {
-      setRemote(null);
+    if (!validHandoffId || !workerOrigin) {
       return;
     }
     let cancelled = false;
-    void fetchWorkerHandoff(origin, handoffId)
+    void fetchWorkerHandoff(workerOrigin, validHandoffId)
       .then((token) => {
         if (!cancelled) {
-          setRemote(token);
+          setFetched({ id: validHandoffId, token });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRemote(null);
+          setFetched({ id: validHandoffId, token: null });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [inline, handoffId]);
+  }, [validHandoffId, workerOrigin]);
 
-  return remote;
+  if (inline) {
+    return inline;
+  }
+  if (!validHandoffId || !workerOrigin) {
+    return null;
+  }
+  if (fetched?.id !== validHandoffId) {
+    return undefined;
+  }
+  return fetched.token;
 }
 
 export default function McpAuthorize() {
