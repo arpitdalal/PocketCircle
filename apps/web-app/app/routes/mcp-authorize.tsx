@@ -24,6 +24,9 @@ export default function McpAuthorize() {
   const handoff = params.get("handoff");
   const view = useMcpHandoff(handoff);
 
+  if (typeof window !== "undefined" && window.self !== window.top) {
+    return <ConsentFramed />;
+  }
   if (!handoff) {
     return <ConsentInvalid />;
   }
@@ -35,6 +38,17 @@ export default function McpAuthorize() {
   }
 
   return <ConsentForm handoff={handoff} view={view} />;
+}
+
+function ConsentFramed() {
+  return (
+    <div className="mx-auto max-w-lg space-y-4">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
+      <p role="alert" className="text-sm text-destructive">
+        This authorization page cannot be loaded within a frame.
+      </p>
+    </div>
+  );
 }
 
 function ConsentLoading() {
@@ -182,8 +196,8 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
         <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{clientTitle}</span> wants to access
-          PocketCircle on your behalf. Client names and logos are provided by the app and are not
-          proof of identity — check the client ID below.
+          PocketCircle on your behalf. Client metadata is provided by the app and is not proof of
+          identity — check the client ID below.
         </p>
       </div>
 
@@ -198,18 +212,6 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
             <div>
               <dt className="text-muted-foreground">Homepage</dt>
               <dd className="break-all">{view.clientUri}</dd>
-            </div>
-          ) : null}
-          {view.logoUri ? (
-            <div>
-              <dt className="text-muted-foreground">Logo</dt>
-              <dd>
-                <img
-                  src={view.logoUri}
-                  alt=""
-                  className="mt-1 size-10 rounded-md border border-border object-contain"
-                />
-              </dd>
             </div>
           ) : null}
           <div>

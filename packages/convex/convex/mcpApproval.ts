@@ -157,38 +157,62 @@ export const consumeWorkerNonce = internalMutation({
 
 /**
  * Deletes expired Worker assertion nonces using the `by_expires` index.
+ * Loops in batches to drain accumulated backlog.
  */
 export const cleanupExpiredWorkerNonces = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const limit = args.limit ?? 100;
-    const expired = await ctx.db
-      .query("mcpWorkerNonces")
-      .withIndex("by_expires", (q) => q.lte("expiresAt", now))
-      .take(limit);
-    for (const row of expired) {
-      await ctx.db.delete(row._id);
+    const maxTotal = args.limit ?? 500;
+    let totalDeleted = 0;
+    while (totalDeleted < maxTotal) {
+      const takeCount = Math.min(100, maxTotal - totalDeleted);
+      const expired = await ctx.db
+        .query("mcpWorkerNonces")
+        .withIndex("by_expires", (q) => q.lte("expiresAt", now))
+        .take(takeCount);
+      if (expired.length === 0) {
+        break;
+      }
+      for (const row of expired) {
+        await ctx.db.delete(row._id);
+      }
+      totalDeleted += expired.length;
+      if (expired.length < takeCount) {
+        break;
+      }
     }
-    return expired.length;
+    return totalDeleted;
   },
 });
 
 /**
  * Deletes expired MCP approval tokens using the `by_expires` index.
+ * Loops in batches to drain accumulated backlog.
  */
 export const cleanupExpiredApprovalTokens = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const limit = args.limit ?? 100;
-    const expired = await ctx.db
-      .query("mcpApprovalTokens")
-      .withIndex("by_expires", (q) => q.lte("expiresAt", now))
-      .take(limit);
-    for (const row of expired) {
-      await ctx.db.delete(row._id);
+    const maxTotal = args.limit ?? 500;
+    let totalDeleted = 0;
+    while (totalDeleted < maxTotal) {
+      const takeCount = Math.min(100, maxTotal - totalDeleted);
+      const expired = await ctx.db
+        .query("mcpApprovalTokens")
+        .withIndex("by_expires", (q) => q.lte("expiresAt", now))
+        .take(takeCount);
+      if (expired.length === 0) {
+        break;
+      }
+      for (const row of expired) {
+        await ctx.db.delete(row._id);
+      }
+      totalDeleted += expired.length;
+      if (expired.length < takeCount) {
+        break;
+      }
     }
-    return expired.length;
+    return totalDeleted;
   },
 });

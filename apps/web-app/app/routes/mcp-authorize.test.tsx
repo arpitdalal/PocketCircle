@@ -107,23 +107,40 @@ describe("MCP authorize consent", () => {
     );
   });
 
-  it("denies by posting handoffId to the Worker (no Convex grant)", async () => {
-    const user = userEvent.setup();
+  it("does not render an image for client logo to avoid untrusted outbound requests", () => {
     configureConvex({
-      mcpHandoff: makeMcpHandoffView({ handoffId: "handoff-deny" }),
+      mcpHandoff: makeMcpHandoffView({
+        logoUri: "https://untrusted.example/logo.png",
+      }),
       circles: [makeCircleView()],
     });
     renderAuthorize();
 
-    await user.click(screen.getByRole("button", { name: "Deny" }));
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        new URL("/authorize/deny", WORKER),
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ handoffId: "handoff-deny" }),
-        }),
-      );
-    });
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("refuses to render when framed in an iframe", () => {
+    const originalTop = window.top;
+    try {
+      Object.defineProperty(window, "top", {
+        value: {},
+        writable: true,
+        configurable: true,
+      });
+      configureConvex({
+        mcpHandoff: makeMcpHandoffView(),
+        circles: [makeCircleView()],
+      });
+      renderAuthorize();
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/cannot be loaded within a frame/i);
+      expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "top", {
+        value: originalTop,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 });

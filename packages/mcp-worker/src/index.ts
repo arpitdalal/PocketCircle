@@ -7,4 +7,7 @@ export default {
     // (the callback API has no env arg).
     return createOAuthProvider(env).fetch(request, env, ctx);
   },
+  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
+    await createOAuthProvider(env).purgeExpiredData(env);
+  },
 } satisfies ExportedHandler<Env>;

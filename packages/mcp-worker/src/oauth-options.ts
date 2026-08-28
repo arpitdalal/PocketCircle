@@ -4,7 +4,6 @@ import OAuthProvider, {
 } from "@cloudflare/workers-oauth-provider";
 import {
   MCP_ACCESS_TOKEN_TTL_SECONDS,
-  MCP_ISSUER,
   MCP_REFRESH_TOKEN_TTL_SECONDS,
   MCP_RESOURCE_URI,
   MCP_SCOPES,
@@ -22,7 +21,7 @@ function resourceUri(env: Env) {
 }
 
 function authorizationServerIssuer(env: Env) {
-  return env.MCP_ISSUER ?? MCP_ISSUER;
+  return env.MCP_ISSUER;
 }
 
 /**
@@ -48,11 +47,12 @@ export function oauthProviderOptions(env: Env): OAuthProviderOptions<Env> {
     scopesSupported: [...MCP_SCOPES],
     resourceMetadata: {
       resource,
-      authorization_servers: [issuer],
+      ...(issuer ? { authorization_servers: [issuer] } : {}),
       scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ["header"],
       resource_name: "PocketCircle",
     },
+
     tokenExchangeCallback: async (options) => {
       const props = grantPropsSchema.safeParse(options.props);
       if (!props.success) {

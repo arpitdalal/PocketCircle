@@ -234,6 +234,27 @@ describe("cleanupExpiredWorkerNonces", () => {
       expect(remaining.map((r) => r.nonce)).toEqual(["n-valid-1"]);
     });
   });
+
+  it("drains backlogs larger than a single batch", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 150; i++) {
+        await ctx.db.insert("mcpWorkerNonces", {
+          nonce: `n-batch-${i}`,
+          expiresAt: now - 1_000,
+        });
+      }
+    });
+
+    const deleted = await t.mutation(internal.mcpApproval.cleanupExpiredWorkerNonces, { now });
+    expect(deleted).toBe(150);
+
+    await t.run(async (ctx) => {
+      const remaining = await ctx.db.query("mcpWorkerNonces").collect();
+      expect(remaining).toHaveLength(0);
+    });
+  });
 });
 
 describe("cleanupExpiredApprovalTokens", () => {

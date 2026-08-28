@@ -6,13 +6,15 @@
   "compatibility_flags": ["global_fetch_strictly_public"],
   // Custom domain intentionally disabled until #318 is verified end-to-end.
   "workers_dev": true,
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
   "kv_namespaces": [
     { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" },
     { "binding": "HANDOFF_KV", "id": "REPLACE_WITH_HANDOFF_KV_NAMESPACE_ID" }
   ],
   "vars": {
     "APP_ORIGIN": "https://pocketcircle.app",
-    "CONVEX_SITE_URL": "https://pocketcircle.convex.site",
-    "MCP_ISSUER": "https://mcp.pocketcircle.app"
+    "CONVEX_SITE_URL": "https://pocketcircle.convex.site"
   }
 }
