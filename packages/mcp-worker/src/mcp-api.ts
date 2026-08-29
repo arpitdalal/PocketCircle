@@ -13,15 +13,15 @@ function hostnameOf(urlString: string | undefined) {
   }
 }
 
-export function createMcpApiHandler(env: Env, origin?: string) {
+export function createMcpApiHandler(env: Env) {
   const allowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
   if (issuerHost) {
     allowedHostnames.add(issuerHost);
   }
-  const originHost = hostnameOf(origin);
-  if (originHost) {
-    allowedHostnames.add(originHost);
+  const resourceHost = hostnameOf(env.MCP_RESOURCE_URI);
+  if (resourceHost) {
+    allowedHostnames.add(resourceHost);
   }
 
   const allowedOriginHostnames = new Set(allowedHostnames);

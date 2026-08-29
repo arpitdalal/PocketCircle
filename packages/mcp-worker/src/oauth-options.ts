@@ -56,7 +56,7 @@ export function oauthProviderOptions(
   const issuer = mcpAuthorizationServerIssuer(env, origin);
   return {
     apiRoute: "/mcp",
-    apiHandler: createMcpApiHandler(env, origin),
+    apiHandler: createMcpApiHandler(env),
     defaultHandler,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",

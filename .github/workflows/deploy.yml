@@ -115,7 +115,7 @@ jobs:
               convexSite: true,
             });
 
-            function requireP256Key(key, { privateKey }) {
+            async function requireP256Key(key, { privateKey }) {
               const coordinate = /^[A-Za-z0-9_-]{43}$/;
               const allowed = new Set([
                 "kty", "crv", "x", "y", "kid", "alg", "use", "key_ops", "ext",
@@ -144,6 +144,18 @@ jobs:
                 console.error("::error::Invalid ES256 JWK configuration");
                 process.exit(1);
               }
+              try {
+                await crypto.subtle.importKey(
+                  "jwk",
+                  key,
+                  { name: "ECDSA", namedCurve: "P-256" },
+                  false,
+                  [expectedOperation],
+                );
+              } catch {
+                console.error("::error::Invalid ES256 key material");
+                process.exit(1);
+              }
             }
             let privateJwk;
             let jwks;
@@ -154,7 +166,7 @@ jobs:
               console.error("::error::MCP Worker JWK secrets must contain valid JSON");
               process.exit(1);
             }
-            requireP256Key(privateJwk, { privateKey: true });
+            await requireP256Key(privateJwk, { privateKey: true });
             if (
               !jwks ||
               Array.isArray(jwks) ||
@@ -166,7 +178,7 @@ jobs:
               console.error("::error::MCP_WORKER_VERIFYING_JWKS must contain one or two keys");
               process.exit(1);
             }
-            for (const key of jwks.keys) requireP256Key(key, { privateKey: false });
+            for (const key of jwks.keys) await requireP256Key(key, { privateKey: false });
             if (new Set(jwks.keys.map((key) => key.kid)).size !== jwks.keys.length) {
               console.error("::error::MCP_WORKER_VERIFYING_JWKS key ids must be unique");
               process.exit(1);

@@ -167,7 +167,7 @@ describe("MCP Worker OAuth discovery", () => {
   });
 
   it("rejects untrusted origin and host headers on MCP handler", async () => {
-    const handler = createMcpApiHandler(env, "https://mcp.pocketcircle.app");
+    const handler = createMcpApiHandler(env);
     const ctx = createExecutionContext();
     const untrustedOrigin = await handler.fetch(
       new Request("https://mcp.pocketcircle.app/mcp", {

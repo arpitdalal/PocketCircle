@@ -2,7 +2,7 @@ const keyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-
   "sign",
   "verify",
 ]);
-const kid = `mcp-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`;
+const kid = crypto.randomUUID();
 const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
 const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
 
