@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS } from "@pocketcircle/domain";
+import { MCP_HANDOFF_ID_REGEX, MUTATION_ERRORS } from "@pocketcircle/domain";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { SkeletonRegion } from "~/components/skeleton.js";
@@ -21,15 +21,12 @@ import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
  * requested scopes, refresh duration, and Circles the User may select.
  * Approval token returns to the Worker via POST body, never a URL.
  */
-const HANDOFF_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Inline `handoff` (tests / old bookmarks) or Worker-stored token by `handoffId`. */
+/** Load the Worker-stored token by opaque handoff ID. */
 function useHandoffToken() {
   const [params] = useSearchParams();
-  const inline = params.get("handoff");
   const handoffId = params.get("handoffId");
-  const validHandoffId = handoffId && HANDOFF_ID.test(handoffId) ? handoffId : null;
-  const workerOrigin = inline || !validHandoffId ? undefined : mcpWorkerOrigin();
+  const validHandoffId = handoffId && MCP_HANDOFF_ID_REGEX.test(handoffId) ? handoffId : null;
+  const workerOrigin = validHandoffId ? mcpWorkerOrigin() : undefined;
   const [fetched, setFetched] = useState<{ id: string; token: string | null } | null>(null);
 
   useEffect(() => {
@@ -38,9 +35,13 @@ function useHandoffToken() {
     }
     let cancelled = false;
     void fetchWorkerHandoff(workerOrigin, validHandoffId)
-      .then((token) => {
+      .then((result) => {
         if (!cancelled) {
-          setFetched({ id: validHandoffId, token });
+          if (result.redirectTo) {
+            window.location.assign(result.redirectTo);
+            return;
+          }
+          setFetched({ id: validHandoffId, token: result.handoff });
         }
       })
       .catch(() => {
@@ -53,9 +54,6 @@ function useHandoffToken() {
     };
   }, [validHandoffId, workerOrigin]);
 
-  if (inline) {
-    return inline;
-  }
   if (!validHandoffId || !workerOrigin) {
     return null;
   }
@@ -141,19 +139,19 @@ async function fetchWorkerHandoff(workerOrigin: string, handoffId: string) {
   url.searchParams.set("id", handoffId);
   const response = await fetch(url);
   const payload: unknown = await response.json().catch(() => null);
-  if (
-    !response.ok ||
-    typeof payload !== "object" ||
-    payload === null ||
-    !("handoff" in payload) ||
-    typeof payload.handoff !== "string"
-  ) {
-    return null;
+  if (!response.ok || typeof payload !== "object" || payload === null) {
+    return { handoff: null, redirectTo: null };
   }
-  return payload.handoff;
+  if ("redirectTo" in payload && typeof payload.redirectTo === "string") {
+    return { handoff: null, redirectTo: payload.redirectTo };
+  }
+  if ("handoff" in payload && typeof payload.handoff === "string") {
+    return { handoff: payload.handoff, redirectTo: null };
+  }
+  return { handoff: null, redirectTo: null };
 }
 
-/** POST to Worker authorize endpoints; returns redirectTo or null on any failure. */
+/** POST to Worker authorize endpoints without putting secrets in URLs. */
 async function postWorkerRedirect(workerOrigin: string, path: string, body: unknown) {
   const response = await fetch(new URL(path, workerOrigin), {
     method: "POST",
@@ -168,9 +166,15 @@ async function postWorkerRedirect(workerOrigin: string, path: string, body: unkn
     !("redirectTo" in payload) ||
     typeof payload.redirectTo !== "string"
   ) {
-    return null;
+    const retryable =
+      response.status >= 500 ||
+      (typeof payload === "object" &&
+        payload !== null &&
+        "retryable" in payload &&
+        payload.retryable === true);
+    return { redirectTo: null, retryable };
   }
-  return payload.redirectTo;
+  return { redirectTo: payload.redirectTo, retryable: false };
 }
 
 function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView }) {
@@ -180,6 +184,7 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
 
   const [selectedCircleIds, setSelectedCircleIds] = useState<string[]>([]);
   const [grantedScopes, setGrantedScopes] = useState(() => [...view.scopes]);
+  const [approvalToken, setApprovalToken] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -196,20 +201,20 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
   }
 
   async function handleDeny() {
-    if (submitting || !workerOrigin) {
+    if (submitting || !workerOrigin || approvalToken) {
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const redirectTo = await postWorkerRedirect(workerOrigin, "/authorize/deny", {
+      const result = await postWorkerRedirect(workerOrigin, "/authorize/deny", {
         handoffId: view.handoffId,
       });
-      if (!redirectTo) {
+      if (!result.redirectTo) {
         setError("Couldn't deny the request. Try again.");
         return;
       }
-      window.location.assign(redirectTo);
+      window.location.assign(result.redirectTo);
     } catch {
       setError("Couldn't reach the authorization server.");
     } finally {
@@ -229,19 +234,28 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
     setSubmitting(true);
     setError(null);
     try {
-      const { approvalToken } = await approve({
-        handoff,
-        selectedCircleIds,
-        grantedScopes,
+      let token = approvalToken;
+      if (!token) {
+        const approved = await approve({
+          handoff,
+          selectedCircleIds,
+          grantedScopes,
+        });
+        token = approved.approvalToken;
+        setApprovalToken(token);
+      }
+      const result = await postWorkerRedirect(workerOrigin, "/authorize/complete", {
+        approvalToken: token,
+        handoffId: view.handoffId,
       });
-      const redirectTo = await postWorkerRedirect(workerOrigin, "/authorize/complete", {
-        approvalToken,
-      });
-      if (!redirectTo) {
-        setError("Couldn't finish authorization. Ask the app to connect again.");
+      if (!result.redirectTo) {
+        if (!result.retryable) {
+          setApprovalToken(null);
+        }
+        setError("Couldn't finish authorization. Try again.");
         return;
       }
-      window.location.assign(redirectTo);
+      window.location.assign(result.redirectTo);
     } catch (caught) {
       setError(mutationErrorMessageForUser(caught, "Couldn't approve this request"));
     } finally {
@@ -304,6 +318,7 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
                 <input
                   type="checkbox"
                   checked={grantedScopes.includes(scope)}
+                  disabled={approvalToken !== null}
                   onChange={() => toggleScope(scope)}
                   className="mt-0.5 size-4 shrink-0 rounded border border-input accent-primary"
                 />
@@ -337,6 +352,7 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
                   <input
                     type="checkbox"
                     checked={selectedCircleIds.includes(circle.id)}
+                    disabled={approvalToken !== null}
                     onChange={() => toggleCircle(circle.id)}
                     className="size-4 shrink-0 rounded border border-input accent-primary"
                   />
@@ -367,7 +383,7 @@ function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView 
         <Button
           type="button"
           variant="outline"
-          disabled={submitting || !workerOrigin}
+          disabled={submitting || !workerOrigin || approvalToken !== null}
           onClick={() => void handleDeny()}
         >
           Deny

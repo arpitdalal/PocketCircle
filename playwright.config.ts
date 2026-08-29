@@ -49,6 +49,9 @@ export default defineConfig({
       VITE_POSTHOG_KEY: "",
       VITE_CONVEX_URL: process.env.VITE_CONVEX_URL ?? "http://127.0.0.1:3210",
       VITE_CONVEX_SITE_URL: process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211",
+      ...(process.env.MCP_E2E_WORKER_ORIGIN
+        ? { VITE_MCP_WORKER_ORIGIN: process.env.MCP_E2E_WORKER_ORIGIN }
+        : {}),
     },
   },
 });

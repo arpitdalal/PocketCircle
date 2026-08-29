@@ -1,4 +1,5 @@
 import OAuthProvider, {
+  getOAuthApi,
   OAuthError,
   type OAuthProviderOptions,
 } from "@cloudflare/workers-oauth-provider";
@@ -8,25 +9,54 @@ import {
   MCP_SCOPES,
 } from "@pocketcircle/domain";
 import { z } from "zod";
-import { defaultHandler } from "./authorize.js";
 import { activateGrant, validateGrant } from "./convex-bridge.js";
 import type { Env } from "./env.js";
-import { mcpApiHandler } from "./mcp-api.js";
+import { createMcpApiHandler } from "./mcp-api.js";
 import { mcpAuthorizationServerIssuer, mcpResourceUri } from "./reachable.js";
 
 const grantPropsSchema = z.object({ mcpGrantId: z.string().min(1) });
+
+async function rejectFailedActivation(
+  env: Env,
+  options: { grantId: string; userId: string },
+  retryable: boolean,
+) {
+  if (retryable) {
+    throw new OAuthError("temporarily_unavailable", {
+      description: "PocketCircle grant activation is temporarily unavailable",
+      statusCode: 503,
+      headers: { "Retry-After": "2" },
+    });
+  }
+  try {
+    await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
+  } catch {
+    throw new OAuthError("temporarily_unavailable", {
+      description: "PocketCircle grant cleanup is temporarily unavailable",
+      statusCode: 503,
+      headers: { "Retry-After": "2" },
+    });
+  }
+  throw new OAuthError("invalid_grant", {
+    description: "Failed to activate PocketCircle grant",
+  });
+}
 
 /**
  * Builds OAuthProvider options closed over the live Worker `env` so token-
  * exchange callbacks can call Convex. Shared by the Worker entry and tests
  * (`getOAuthApi`) — `tokenExchangeCallback` has no `env` argument.
  */
-export function oauthProviderOptions(env: Env, origin?: string): OAuthProviderOptions<Env> {
+export function oauthProviderOptions(
+  env: Env,
+  defaultHandler: ExportedHandler<Env>,
+  origin?: string,
+) {
   const resource = mcpResourceUri(env, origin);
   const issuer = mcpAuthorizationServerIssuer(env, origin);
   return {
     apiRoute: "/mcp",
-    apiHandler: mcpApiHandler,
+    apiHandler: createMcpApiHandler(env, origin),
     defaultHandler,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
@@ -61,9 +91,7 @@ export function oauthProviderOptions(env: Env, origin?: string): OAuthProviderOp
           principalId: options.userId,
         });
         if (!result.ok) {
-          throw new OAuthError("invalid_grant", {
-            description: "Failed to activate PocketCircle grant",
-          });
+          await rejectFailedActivation(env, options, result.retryable);
         }
         return;
       }
@@ -75,15 +103,36 @@ export function oauthProviderOptions(env: Env, origin?: string): OAuthProviderOp
           requestedScopes: options.requestedScope,
         });
         if (!result.ok) {
+          if (result.retryable) {
+            throw new OAuthError("temporarily_unavailable", {
+              description: "PocketCircle grant validation is temporarily unavailable",
+              statusCode: 503,
+              headers: { "Retry-After": "2" },
+            });
+          }
           throw new OAuthError("invalid_grant", {
             description: "PocketCircle grant no longer valid",
           });
         }
       }
     },
-  };
+  } satisfies OAuthProviderOptions<Env>;
 }
 
-export function createOAuthProvider(env: Env, origin?: string) {
-  return new OAuthProvider(oauthProviderOptions(env, origin));
+export function createOAuthProvider(
+  env: Env,
+  defaultHandler: ExportedHandler<Env>,
+  origin?: string,
+) {
+  return new OAuthProvider(oauthProviderOptions(env, defaultHandler, origin));
+}
+
+const oauthApiHandler = {
+  fetch() {
+    return new Response("Not found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;
+
+export function pocketCircleOAuthApi(env: Env, origin?: string) {
+  return getOAuthApi(oauthProviderOptions(env, oauthApiHandler, origin), env);
 }

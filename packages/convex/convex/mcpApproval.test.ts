@@ -1,9 +1,13 @@
 import {
   MCP_APPROVAL_TTL_MS,
+  MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
   MCP_RESOURCE_URI,
+  MCP_WORKER_ASSERTION_TTL_MS,
   type McpApprovalPayload,
   type McpWorkerAssertionPayload,
+  parseMcpWorkerJwks,
+  parseMcpWorkerPrivateJwk,
   sha256Hex,
   signMcpWorkerAssertion,
 } from "@pocketcircle/domain";
@@ -14,19 +18,35 @@ import { seedPersonalCircleOwner } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { mintMcpApprovalToken } from "./mcpApprovalToken.js";
-import { createPendingMcpGrant } from "./mcpGrant.js";
+import { activateMcpGrant, createPendingMcpGrant } from "./mcpGrant.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
 import schema from "./schema.js";
 
 const modules = import.meta.glob("./**/*.ts");
 const SECRET = "test-mcp-worker-secret";
+const PRIVATE_JWK_JSON =
+  '{"key_ops":["sign"],"ext":true,"kty":"EC","x":"pUT8Qgi_S3CzQeEpsVsOpOWQtHQffFeyQnrDn0Ez_hM","y":"ZJUnZqOxoZZmmnrivG1fFpw7BfeHBEfGGoVA2Y0Q7Vo","crv":"P-256","d":"HQgOJVhMah1F2_TIH_2T3tSXYMUxMCYx_0trUiMrpVI","kid":"test-current","alg":"ES256"}';
+const PUBLIC_JWKS_JSON =
+  '{"keys":[{"key_ops":["verify"],"ext":true,"kty":"EC","x":"pUT8Qgi_S3CzQeEpsVsOpOWQtHQffFeyQnrDn0Ez_hM","y":"ZJUnZqOxoZZmmnrivG1fFpw7BfeHBEfGGoVA2Y0Q7Vo","crv":"P-256","kid":"test-current","alg":"ES256"}]}';
+const OTHER_PRIVATE_JWK_JSON =
+  '{"key_ops":["sign"],"ext":true,"kty":"EC","x":"mTXikdKU_DzF10Is9wCtBKJ1e025uEd33NUAcZB5Yms","y":"UeeNalKrnJ4upxgbI2KJjLpyaL_-u-lCcCyd7mB953A","crv":"P-256","d":"ZfNAWUaB-1BOEqcv8mmH4zTsX-GKMNxOfdrrOCOGotU","kid":"test-other","alg":"ES256"}';
+const OTHER_PUBLIC_JWKS_JSON =
+  '{"keys":[{"key_ops":["verify"],"ext":true,"kty":"EC","x":"mTXikdKU_DzF10Is9wCtBKJ1e025uEd33NUAcZB5Yms","y":"UeeNalKrnJ4upxgbI2KJjLpyaL_-u-lCcCyd7mB953A","crv":"P-256","kid":"test-other","alg":"ES256"}]}';
 const READ_WRITE = ["pocketcircle:read", "pocketcircle:write"];
 const CLIENT_ID = "https://client.example/client.json";
 const REDIRECT_URI = "https://client.example/callback";
 
 beforeEach(() => {
   vi.stubEnv("MCP_WORKER_HMAC_SECRET", SECRET);
+  vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", "");
+  vi.stubEnv("MCP_WORKER_VERIFYING_JWKS", PUBLIC_JWKS_JSON);
 });
+
+function signingKey(value: string = PRIVATE_JWK_JSON) {
+  const key = parseMcpWorkerPrivateJwk(value);
+  if (!key) throw new Error("invalid test private JWK");
+  return key;
+}
 
 /** Seeds a pending grant (real `createPendingMcpGrant`, no auth needed) + its approval token row. */
 async function seedApprovalToken(
@@ -88,6 +108,15 @@ async function seedApprovalToken(
   });
 }
 
+function redeemApproval(
+  t: ReturnType<typeof convexTest>,
+  token: string,
+  claimId = "claim-1",
+  handoffId = "handoff-1",
+) {
+  return t.mutation(internal.mcpApproval.redeemApprovalToken, { token, claimId, handoffId });
+}
+
 describe("redeemApprovalToken", () => {
   it("consumes atomically and returns the grant identifiers", async () => {
     const t = convexTest(schema, modules);
@@ -99,7 +128,7 @@ describe("redeemApprovalToken", () => {
       circleIds: [ada.personalCircleId],
     });
 
-    const result = await t.mutation(internal.mcpApproval.redeemApprovalToken, { token });
+    const result = await redeemApproval(t, token);
     expect(result).toEqual({
       ok: true,
       value: {
@@ -115,7 +144,7 @@ describe("redeemApprovalToken", () => {
     });
   });
 
-  it("rejects a second redeem of the same token as consumed", async () => {
+  it("returns the same grant when the same completion claim retries", async () => {
     const t = convexTest(schema, modules);
     const ada = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
@@ -125,14 +154,38 @@ describe("redeemApprovalToken", () => {
       circleIds: [ada.personalCircleId],
     });
 
-    await t.mutation(internal.mcpApproval.redeemApprovalToken, { token });
-    expect(await t.mutation(internal.mcpApproval.redeemApprovalToken, { token })).toEqual({
-      ok: false,
-      error: "consumed",
+    const first = await redeemApproval(t, token);
+    expect(await redeemApproval(t, token)).toEqual(first);
+  });
+
+  it("extends pending activation through completion recovery and code exchange", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const { token, grant } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+    });
+    const claimedAt = Date.now();
+
+    expect(await redeemApproval(t, token)).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      const claimed = await ctx.db.get(grant._id);
+      expect(claimed?.activationExpiresAt).toBeGreaterThanOrEqual(
+        claimedAt + MCP_PENDING_ACTIVATION_TTL_MS,
+      );
+      const delayed = await activateMcpGrant(ctx, {
+        grantId: grant._id,
+        workerGrantId: "worker-delayed",
+        principalId: grant.principalId,
+        now: claimedAt + MCP_PENDING_GRANT_TTL_MS + 1,
+      });
+      expect(delayed.ok).toBe(true);
     });
   });
 
-  it("lets exactly one of two concurrent redeems win", async () => {
+  it("rejects a second completion claim for the same token", async () => {
     const t = convexTest(schema, modules);
     const ada = await t.run((ctx) =>
       seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
@@ -143,8 +196,8 @@ describe("redeemApprovalToken", () => {
     });
 
     const [first, second] = await Promise.all([
-      t.mutation(internal.mcpApproval.redeemApprovalToken, { token }),
-      t.mutation(internal.mcpApproval.redeemApprovalToken, { token }),
+      redeemApproval(t, token, "claim-1"),
+      redeemApproval(t, token, "claim-2"),
     ]);
     const outcomes = [first, second];
     expect(outcomes.filter((r) => r.ok)).toHaveLength(1);
@@ -153,9 +206,7 @@ describe("redeemApprovalToken", () => {
 
   it("rejects a token that doesn't exist", async () => {
     const t = convexTest(schema, modules);
-    expect(
-      await t.mutation(internal.mcpApproval.redeemApprovalToken, { token: "unknown-token" }),
-    ).toEqual({
+    expect(await redeemApproval(t, "unknown-token")).toEqual({
       ok: false,
       error: "not_found",
     });
@@ -171,7 +222,7 @@ describe("redeemApprovalToken", () => {
       circleIds: [ada.personalCircleId],
       expiresAt: Date.now() - 1,
     });
-    expect(await t.mutation(internal.mcpApproval.redeemApprovalToken, { token })).toEqual({
+    expect(await redeemApproval(t, token)).toEqual({
       ok: false,
       error: "expired",
     });
@@ -188,9 +239,7 @@ describe("redeemApprovalToken", () => {
     });
     const { signMcpApproval } = await import("@pocketcircle/domain");
     const forgedToken = await signMcpApproval(payload, "forged-secret-different-key");
-    expect(
-      await t.mutation(internal.mcpApproval.redeemApprovalToken, { token: forgedToken }),
-    ).toEqual({
+    expect(await redeemApproval(t, forgedToken)).toEqual({
       ok: false,
       error: "not_found",
     });
@@ -212,10 +261,33 @@ describe("redeemApprovalToken", () => {
         await ctx.db.patch(stored._id, { redirectUri: "https://tampered.example/cb" });
       }
     });
-    expect(await t.mutation(internal.mcpApproval.redeemApprovalToken, { token })).toEqual({
+    expect(await redeemApproval(t, token)).toEqual({
       ok: false,
       error: "not_found",
     });
+  });
+
+  it("accepts an approval signed by the previous rotation secret", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const oldSecret = "previous-worker-secret";
+    const seeded = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+    });
+    const { token, tokenHash } = await mintMcpApprovalToken(seeded.payload, oldSecret);
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("mcpApprovalTokens").first();
+      if (!row) {
+        throw new Error("expected approval row");
+      }
+      await ctx.db.patch(row._id, { tokenHash });
+    });
+    vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", oldSecret);
+
+    expect(await redeemApproval(t, token)).toMatchObject({ ok: true });
   });
 });
 
@@ -586,21 +658,22 @@ describe("MCP Worker bridge HTTP routes", () => {
   async function workerRequestInit(
     path: string,
     body: unknown,
-    overrides: Partial<McpWorkerAssertionPayload> & { secret?: string } = {},
+    overrides: Partial<McpWorkerAssertionPayload> & { privateJwkJson?: string } = {},
   ) {
     const bodyText = JSON.stringify(body);
     const now = Date.now();
+    const { privateJwkJson, ...claimOverrides } = overrides;
     const assertion: McpWorkerAssertionPayload = {
       aud: "pocketcircle:mcp-worker",
       method: "POST",
       path,
       bodySha256: await sha256Hex(bodyText),
       iat: now,
-      exp: now + 60_000,
+      exp: now + MCP_WORKER_ASSERTION_TTL_MS,
       nonce: `nonce-${Math.random()}`,
-      ...overrides,
+      ...claimOverrides,
     };
-    const token = await signMcpWorkerAssertion(assertion, overrides.secret ?? SECRET);
+    const token = await signMcpWorkerAssertion(assertion, signingKey(privateJwkJson));
     return {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `PocketCircleWorker ${token}` },
@@ -618,20 +691,24 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(await response.json()).toEqual({ ok: false, error: "unauthorized" });
   });
 
-  it("rejects a Worker assertion signed with the wrong secret", async () => {
+  it("rejects a Worker assertion signed with an untrusted private key", async () => {
     const t = convexTest(schema, modules);
     const init = await workerRequestInit(
       "/mcp/redeem-approval",
       { token: "x" },
-      { secret: "wrong-secret" },
+      { privateJwkJson: OTHER_PRIVATE_JWK_JSON },
     );
     expect((await t.fetch("/mcp/redeem-approval", init)).status).toBe(401);
   });
 
-  it("fails closed when MCP_WORKER_HMAC_SECRET is unset", async () => {
+  it("fails closed when MCP_WORKER_VERIFYING_JWKS is unset", async () => {
     const t = convexTest(schema, modules);
-    const init = await workerRequestInit("/mcp/redeem-approval", { token: "x" });
-    vi.stubEnv("MCP_WORKER_HMAC_SECRET", "");
+    const init = await workerRequestInit("/mcp/redeem-approval", {
+      token: "x",
+      claimId: "claim-1",
+      handoffId: "handoff-1",
+    });
+    vi.stubEnv("MCP_WORKER_VERIFYING_JWKS", "");
     expect((await t.fetch("/mcp/redeem-approval", init)).status).toBe(401);
   });
 
@@ -662,6 +739,35 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(replay.status).toBe(401);
   });
 
+  it("rejects assertions bound to a different path or body", async () => {
+    const t = convexTest(schema, modules);
+    const body = { token: "x", claimId: "claim-1", handoffId: "handoff-1" };
+    const wrongPath = await workerRequestInit("/mcp/activate-grant", body);
+    expect((await t.fetch("/mcp/redeem-approval", wrongPath)).status).toBe(401);
+
+    const wrongBody = await workerRequestInit("/mcp/redeem-approval", body);
+    wrongBody.body = JSON.stringify({ ...body, handoffId: "handoff-2" });
+    expect((await t.fetch("/mcp/redeem-approval", wrongBody)).status).toBe(401);
+  });
+
+  it("accepts a Worker assertion signed by the previous rotation key", async () => {
+    const t = convexTest(schema, modules);
+    const currentJwks = parseMcpWorkerJwks(OTHER_PUBLIC_JWKS_JSON);
+    const previousJwks = parseMcpWorkerJwks(PUBLIC_JWKS_JSON);
+    if (!currentJwks || !previousJwks) throw new Error("invalid test JWKS");
+    vi.stubEnv(
+      "MCP_WORKER_VERIFYING_JWKS",
+      JSON.stringify({ keys: [currentJwks.keys[0], previousJwks.keys[0]] }),
+    );
+    const init = await workerRequestInit("/mcp/redeem-approval", {
+      token: "x",
+      claimId: "claim-1",
+      handoffId: "handoff-1",
+    });
+
+    expect((await t.fetch("/mcp/redeem-approval", init)).status).toBe(400);
+  });
+
   it("redeems an approval token end-to-end", async () => {
     const t = convexTest(schema, modules);
     const ada = await t.run((ctx) =>
@@ -674,7 +780,11 @@ describe("MCP Worker bridge HTTP routes", () => {
 
     const response = await t.fetch(
       "/mcp/redeem-approval",
-      await workerRequestInit("/mcp/redeem-approval", { token }),
+      await workerRequestInit("/mcp/redeem-approval", {
+        token,
+        claimId: "claim-1",
+        handoffId: "handoff-1",
+      }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({

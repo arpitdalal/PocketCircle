@@ -6,6 +6,7 @@
  */
 
 import {
+  MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
   mcpScopesInclude,
   normalizeMcpScopes,
@@ -13,26 +14,50 @@ import {
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { internal } from "./_generated/api.js";
+import type { Doc } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
 import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
 import { activateMcpGrant, revokeMcpGrant } from "./mcpGrant.js";
+import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
 
 /**
- * Atomically consumes a single-use approval token. Verifies the HMAC first so
- * a forged compact token never reaches the lookup. Convex's OCC makes consume
- * race-safe under concurrent redemption.
+ * Atomically claims a single-use approval token. The same durable Worker claim
+ * may retry after a lost response; another claim is rejected as consumed.
+ * Convex's OCC makes competing claims race-safe.
  */
+function redeemedApprovalValue(row: Doc<"mcpApprovalTokens">) {
+  return {
+    grantId: row.grantId,
+    principalId: row.principalId,
+    clientId: row.clientId,
+    redirectUri: row.redirectUri,
+    resource: row.resource,
+    scopes: row.scopes,
+    allowedCircleIds: row.allowedCircleIds,
+    handoffId: row.handoffId,
+  };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export const redeemApprovalToken = internalMutation({
-  args: { token: v.string(), now: v.optional(v.number()) },
+  args: {
+    token: v.string(),
+    handoffId: v.string(),
+    claimId: v.string(),
+    now: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const secret = process.env.MCP_WORKER_HMAC_SECRET;
-    if (!secret) {
+    const secrets = mcpWorkerVerificationSecrets();
+    if (secrets.length === 0 || args.claimId.trim() === "") {
       return { ok: false as const, error: "not_found" as const };
     }
-    const verified = await verifyMcpApproval(args.token, secret, now, { ignoreExpiry: true });
+    const verified = await verifyMcpApproval(args.token, secrets, now, { ignoreExpiry: true });
     if (!verified) {
       return { ok: false as const, error: "not_found" as const };
     }
@@ -45,6 +70,12 @@ export const redeemApprovalToken = internalMutation({
     if (!row) {
       return { ok: false as const, error: "not_found" as const };
     }
+    if (row.handoffId !== args.handoffId || verified.handoffId !== args.handoffId) {
+      return { ok: false as const, error: "not_found" as const };
+    }
+    if (row.consumedAt !== undefined && row.claimId === args.claimId) {
+      return { ok: true as const, value: redeemedApprovalValue(row) };
+    }
     if (row.consumedAt !== undefined) {
       return { ok: false as const, error: "consumed" as const };
     }
@@ -56,28 +87,31 @@ export const redeemApprovalToken = internalMutation({
     if (
       row.grantId !== verified.grantId ||
       row.handoffId !== verified.handoffId ||
+      row.userId !== verified.userId ||
       row.principalId !== verified.principalId ||
       row.clientId !== verified.clientId ||
       row.redirectUri !== verified.redirectUri ||
-      row.resource !== verified.resource
+      row.resource !== verified.resource ||
+      row.expiresAt !== verified.exp ||
+      !sameStrings(row.scopes, verified.scopes) ||
+      !sameStrings(row.allowedCircleIds, verified.allowedCircleIds)
     ) {
       return { ok: false as const, error: "not_found" as const };
     }
 
-    await ctx.db.patch(row._id, { consumedAt: now });
+    const grant = await ctx.db.get(row.grantId);
+    if (grant?.status !== "pending") {
+      return { ok: false as const, error: "not_found" as const };
+    }
+    await ctx.db.patch(grant._id, {
+      activationExpiresAt: now + MCP_PENDING_ACTIVATION_TTL_MS,
+      updatedAt: now,
+    });
+    await ctx.db.patch(row._id, { consumedAt: now, claimId: args.claimId });
 
     return {
       ok: true as const,
-      value: {
-        grantId: row.grantId,
-        principalId: row.principalId,
-        clientId: row.clientId,
-        redirectUri: row.redirectUri,
-        resource: row.resource,
-        scopes: row.scopes,
-        allowedCircleIds: row.allowedCircleIds,
-        handoffId: row.handoffId,
-      },
+      value: redeemedApprovalValue(row),
     };
   },
 });
@@ -206,22 +240,30 @@ async function deleteExpiredRows(
 }
 
 async function revokeExpiredPendingGrants(ctx: MutationCtx, now: number, maxTotal: number) {
-  const cutoff = now - MCP_PENDING_GRANT_TTL_MS;
   let totalRevoked = 0;
   while (totalRevoked < maxTotal) {
     const takeCount = Math.min(EXPIRED_CLEANUP_BATCH, maxTotal - totalRevoked);
     const expired = await ctx.db
       .query("mcpGrants")
-      .withIndex("by_status_and_created", (q) => q.eq("status", "pending").lte("createdAt", cutoff))
+      .withIndex("by_status_and_activation_expires", (q) =>
+        q.eq("status", "pending").lte("activationExpiresAt", now),
+      )
       .take(takeCount);
     if (expired.length === 0) {
       break;
     }
+    let revokedThisBatch = 0;
     for (const row of expired) {
+      const activationExpiresAt =
+        row.activationExpiresAt ?? row.createdAt + MCP_PENDING_GRANT_TTL_MS;
+      if (activationExpiresAt > now) {
+        continue;
+      }
       await revokeMcpGrant(ctx, { grantId: row._id, now });
+      revokedThisBatch += 1;
     }
-    totalRevoked += expired.length;
-    if (expired.length < takeCount) {
+    totalRevoked += revokedThisBatch;
+    if (expired.length < takeCount || revokedThisBatch === 0) {
       break;
     }
   }

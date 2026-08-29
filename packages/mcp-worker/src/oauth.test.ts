@@ -1,7 +1,9 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import { verifyMcpHandoff } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { defaultHandler } from "./authorize.js";
+import { createMcpApiHandler } from "./mcp-api.js";
 import { oauthProviderOptions } from "./oauth-options.js";
 
 const REDIRECT_URI = "https://mcp-client.example/callback";
@@ -17,7 +19,7 @@ afterEach(() => {
 beforeAll(async () => {
   // OAUTH_PROVIDER is injected during fetch; tests create clients via getOAuthApi.
   // createClient always mints the clientId — use the returned value.
-  const created = await getOAuthApi(oauthProviderOptions(env), env).createClient({
+  const created = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).createClient({
     tokenEndpointAuthMethod: "none",
     redirectUris: [REDIRECT_URI],
     clientName: "PocketCircle Dev Client",
@@ -32,6 +34,12 @@ function authorizeUrl(params: Record<string, string>) {
     url.searchParams.set(key, value);
   }
   return url;
+}
+
+function browserFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  headers.set("origin", "https://pocketcircle.app");
+  return SELF.fetch(input, { ...init, headers });
 }
 
 const PKCE = {
@@ -60,7 +68,9 @@ async function startAuthorize(state: string) {
   expect(handoffId).toBeTruthy();
   expect(consent.searchParams.get("handoff")).toBeNull();
 
-  const loaded = await SELF.fetch(`https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`);
+  const loaded = await browserFetch(
+    `https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`,
+  );
   expect(loaded.status).toBe(200);
   const body: unknown = await loaded.json();
   if (
@@ -155,9 +165,127 @@ describe("MCP Worker OAuth discovery", () => {
     });
     expect(response.status).toBeGreaterThanOrEqual(400);
   });
+
+  it("rejects untrusted origin and host headers on MCP handler", async () => {
+    const handler = createMcpApiHandler(env, "https://mcp.pocketcircle.app");
+    const ctx = createExecutionContext();
+    const untrustedOrigin = await handler.fetch(
+      new Request("https://mcp.pocketcircle.app/mcp", {
+        headers: {
+          origin: "https://evil.example",
+        },
+      }),
+      env,
+      ctx,
+    );
+    expect(untrustedOrigin.status).toBe(403);
+
+    const untrustedHost = await handler.fetch(new Request("https://evil.example/mcp"), env, ctx);
+    expect(untrustedHost.status).toBe(403);
+  });
+});
+
+describe("static OAuth client provisioning", () => {
+  const metadata = {
+    clientName: "PocketCircle Launch Client",
+    clientUri: "https://launch-client.example",
+    redirectUris: ["https://launch-client.example/oauth/callback"],
+  };
+
+  function provisionClient(
+    body: unknown,
+    token = "test-client-provisioning-token-at-least-32-bytes",
+  ) {
+    return SELF.fetch("https://mcp.pocketcircle.app/admin/oauth/clients", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("requires the provisioning secret", async () => {
+    const response = await provisionClient(metadata, "wrong-token");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("creates one constrained public client and safely replays the request", async () => {
+    const created = await provisionClient(metadata);
+    expect(created.status).toBe(201);
+    const createdBody: unknown = await created.json();
+    if (
+      typeof createdBody !== "object" ||
+      createdBody === null ||
+      !("clientId" in createdBody) ||
+      typeof createdBody.clientId !== "string"
+    ) {
+      throw new Error("missing provisioned client id");
+    }
+    expect(createdBody).toEqual({ clientId: createdBody.clientId, created: true });
+
+    const repeated = await provisionClient({
+      ...metadata,
+      redirectUris: [
+        "https://launch-client.example/oauth/callback",
+        "https://launch-client.example/oauth/callback",
+      ],
+    });
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toEqual({ clientId: createdBody.clientId, created: false });
+
+    const stored = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).lookupClient(
+      createdBody.clientId,
+    );
+    expect(stored).toMatchObject({
+      ...metadata,
+      tokenEndpointAuthMethod: "none",
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+    });
+    expect(stored?.clientSecret).toBeUndefined();
+  });
+
+  it("rejects unsafe or unbounded metadata", async () => {
+    const unsafe = await provisionClient({
+      ...metadata,
+      redirectUris: ["javascript:alert(1)"],
+    });
+    expect(unsafe.status).toBe(400);
+
+    const oversized = await provisionClient({
+      ...metadata,
+      clientName: "x".repeat(9_000),
+    });
+    expect(oversized.status).toBe(400);
+  });
 });
 
 describe("authorization handoff", () => {
+  it("rejects invalid resource parameter during authorization", async () => {
+    const response = await SELF.fetch(
+      authorizeUrl({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: REDIRECT_URI,
+        scope: "pocketcircle:read",
+        state: "bad-res-start",
+        ...PKCE,
+        resource: "https://evil.example/mcp",
+      }),
+      { redirect: "manual" },
+    );
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    const redirect = new URL(location);
+    expect(redirect.origin).toBe("https://mcp-client.example");
+    expect(redirect.searchParams.get("error")).toBe("invalid_target");
+    expect(redirect.searchParams.get("state")).toBe("bad-res-start");
+  });
+
   it("stores AuthRequest server-side and redirects to SPA with handoffId", async () => {
     const started = await startAuthorize("client-state-1");
     expect(started.handoffId.length).toBeGreaterThan(0);
@@ -208,7 +336,7 @@ describe("authorization handoff", () => {
   it("deny returns access_denied redirect without Convex grant activation", async () => {
     const { handoffId } = await startAuthorize("deny-me");
 
-    const deny = await SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
+    const deny = await browserFetch("https://mcp.pocketcircle.app/authorize/deny", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ handoffId }),
@@ -222,18 +350,46 @@ describe("authorization handoff", () => {
       expect(redirectTo.startsWith(REDIRECT_URI)).toBe(true);
     }
 
-    // Replaying deny fails — handoff consumed.
-    const replay = await SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
+    // A lost browser response can retry denial without rebuilding OAuth state.
+    const replay = await browserFetch("https://mcp.pocketcircle.app/authorize/deny", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ handoffId }),
     });
-    expect(replay.status).toBe(400);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(body);
 
-    const afterConsume = await SELF.fetch(
+    const afterConsume = await browserFetch(
       `https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`,
     );
-    expect(afterConsume.status).toBe(400);
+    expect(afterConsume.status).toBe(200);
+    expect(await afterConsume.json()).toEqual(body);
+  });
+
+  it.each([
+    { label: "missing", origin: undefined },
+    { label: "foreign", origin: "https://attacker.example" },
+  ])("rejects $label browser origin on handoff endpoints", async ({ origin }) => {
+    const headers = new Headers({ "content-type": "application/json" });
+    if (origin) {
+      headers.set("origin", origin);
+    }
+    const response = await SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ handoffId: crypto.randomUUID() }),
+    });
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("rejects non-JSON authorization mutations", async () => {
+    const response = await browserFetch("https://mcp.pocketcircle.app/authorize/deny", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `handoffId=${encodeURIComponent(crypto.randomUUID())}`,
+    });
+    expect(response.status).toBe(400);
   });
 
   it("lets exactly one of concurrent complete and deny consume the handoff", async () => {
@@ -262,12 +418,12 @@ describe("authorization handoff", () => {
     });
 
     const [complete, deny] = await Promise.all([
-      SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+      browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ approvalToken: "approval-token" }),
+        body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
       }),
-      SELF.fetch("https://mcp.pocketcircle.app/authorize/deny", {
+      browserFetch("https://mcp.pocketcircle.app/authorize/deny", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ handoffId }),
@@ -278,6 +434,43 @@ describe("authorization handoff", () => {
     expect(statuses.filter((status) => status === 400)).toHaveLength(1);
   });
 
+  it("coalesces concurrent completion without a stealable timeout lease", async () => {
+    const { handoffId } = await startAuthorize("duplicate-completion");
+    let redemptions = 0;
+    stubConvexFetch(async (endpoint) => {
+      if (endpoint !== "/mcp/redeem-approval") {
+        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+      }
+      redemptions += 1;
+      await Promise.resolve();
+      return Response.json({
+        ok: true,
+        value: {
+          grantId: "grant_duplicate",
+          principalId: "principal_duplicate",
+          clientId,
+          redirectUri: REDIRECT_URI,
+          resource: RESOURCE,
+          scopes: ["pocketcircle:read"],
+          allowedCircleIds: ["circle_opaque"],
+          handoffId,
+        },
+      });
+    });
+    const request = () =>
+      browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approvalToken: "approval-duplicate", handoffId }),
+      });
+
+    const [first, second] = await Promise.all([request(), request()]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await first.json()).toEqual(await second.json());
+    expect(redemptions).toBe(1);
+  });
+
   it("complete rejects when Convex redeem fails (grant logic stays on Convex)", async () => {
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {
@@ -286,12 +479,81 @@ describe("authorization handoff", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approvalToken: "bogus-token" }),
+      body: JSON.stringify({
+        approvalToken: "bogus-token",
+        handoffId: "550e8400-e29b-41d4-a716-446655440000",
+      }),
     });
     expect(complete.status).toBe(400);
+  });
+
+  it.each([
+    { label: "definitive 400", status: 400, body: { ok: false, error: "expired" }, expected: 400 },
+    {
+      label: "unauthorized",
+      status: 401,
+      body: { ok: false, error: "unauthorized" },
+      expected: 503,
+    },
+    { label: "throttled", status: 429, body: { ok: false, error: "throttled" }, expected: 503 },
+    { label: "upstream outage", status: 503, body: { ok: false, error: "outage" }, expected: 503 },
+    {
+      label: "logical failure on 200",
+      status: 200,
+      body: { ok: false, error: "failed" },
+      expected: 503,
+    },
+    { label: "malformed success", status: 200, body: { ok: true }, expected: 503 },
+  ])(
+    "classifies Convex $label without consuming retryable claims",
+    async ({ status, body, expected }) => {
+      const { handoffId } = await startAuthorize(`bridge-${status}-${expected}`);
+      stubConvexFetch((endpoint) =>
+        endpoint === "/mcp/redeem-approval"
+          ? Response.json(body, { status })
+          : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+      );
+
+      const response = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approvalToken: `approval-${status}-${expected}`, handoffId }),
+      });
+      expect(response.status).toBe(expected);
+    },
+  );
+
+  it("treats a 400 success-shaped Convex response as retryable protocol failure", async () => {
+    const { handoffId } = await startAuthorize("bridge-inconsistent");
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/redeem-approval"
+        ? Response.json(
+            {
+              ok: true,
+              value: {
+                grantId: "grant_inconsistent",
+                principalId: "principal_inconsistent",
+                clientId,
+                redirectUri: REDIRECT_URI,
+                resource: RESOURCE,
+                scopes: ["pocketcircle:read"],
+                allowedCircleIds: ["circle_opaque"],
+                handoffId,
+              },
+            },
+            { status: 400 },
+          )
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
+    const response = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-inconsistent", handoffId }),
+    });
+    expect(response.status).toBe(503);
   });
 
   it("complete redeems via Convex then finishes OAuth against the stored AuthRequest", async () => {
@@ -321,10 +583,10 @@ describe("authorization handoff", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approvalToken: "approval-token" }),
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
     });
     expect(complete.status).toBe(200);
     const body: unknown = await complete.json();
@@ -382,11 +644,28 @@ describe("authorization handoff", () => {
 
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/validate-grant") {
-        return Response.json({ ok: true });
+        return Response.json({ ok: false, error: "temporarily_unavailable" }, { status: 503 });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
+    const refreshUnavailable = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshUnavailable.status).toBe(503);
+
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/validate-grant"
+        ? Response.json({ ok: true })
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
     const refreshOk = await SELF.fetch("https://mcp.pocketcircle.app/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -399,7 +678,8 @@ describe("authorization handoff", () => {
     });
     expect(refreshOk.status).toBe(200);
 
-    // Handoff consumed — second complete with same redeem cannot finish OAuth.
+    // Lost browser response: retry returns the same redirect and does not create
+    // another logical completion.
     stubConvexFetch((endpoint) => {
       if (endpoint === "/mcp/redeem-approval") {
         return Response.json({
@@ -418,12 +698,156 @@ describe("authorization handoff", () => {
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
-    const replay = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+    const replay = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approvalToken: "approval-token" }),
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
     });
-    expect(replay.status).toBe(400);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual({ redirectTo });
+  });
+
+  it("retains a claimed handoff when OAuth completion fails transiently", async () => {
+    const { handoffId } = await startAuthorize("retry-completion");
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_retry",
+            principalId: "principal_retry",
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+    const clientKey = `client:${clientId}`;
+    const storedClient = await env.OAUTH_KV.get(clientKey);
+    if (!storedClient) {
+      throw new Error("missing test OAuth client");
+    }
+    await env.OAUTH_KV.delete(clientKey);
+
+    const first = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token-retry", handoffId }),
+    });
+    expect(first.status).toBe(503);
+
+    await env.OAUTH_KV.put(clientKey, storedClient);
+    const retry = await browserFetch(
+      `https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`,
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({
+      redirectTo: expect.stringContaining("state=retry-completion"),
+    });
+  });
+
+  it("keeps an existing Worker grant until the replacement code is exchanged", async () => {
+    const principalId = `principal_parallel_${crypto.randomUUID()}`;
+    for (const index of [1, 2]) {
+      const { handoffId } = await startAuthorize(`parallel-${index}`);
+      stubConvexFetch((endpoint) =>
+        endpoint === "/mcp/redeem-approval"
+          ? Response.json({
+              ok: true,
+              value: {
+                grantId: `grant_parallel_${index}`,
+                principalId,
+                clientId,
+                redirectUri: REDIRECT_URI,
+                resource: RESOURCE,
+                scopes: ["pocketcircle:read"],
+                allowedCircleIds: ["circle_opaque"],
+                handoffId,
+              },
+            })
+          : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+      );
+      const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approvalToken: `approval-parallel-${index}`, handoffId }),
+      });
+      expect(complete.status).toBe(200);
+    }
+
+    const grants = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).listUserGrants(
+      principalId,
+    );
+    expect(grants.items).toHaveLength(2);
+  });
+
+  it("revokes the Worker grant when Convex definitively rejects activation", async () => {
+    const { handoffId } = await startAuthorize("activation-rejected");
+    const principalId = "principal_activation_rejected";
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId: "grant_activation_rejected",
+            principalId,
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_opaque"],
+            handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: false, error: "invalid_transition" }, { status: 400 });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token-rejected", handoffId }),
+    });
+    const completed: unknown = await complete.json();
+    if (
+      typeof completed !== "object" ||
+      completed === null ||
+      !("redirectTo" in completed) ||
+      typeof completed.redirectTo !== "string"
+    ) {
+      throw new Error("missing authorization redirect");
+    }
+    const code = new URL(completed.redirectTo).searchParams.get("code") ?? "";
+
+    const tokenResponse = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        resource: RESOURCE,
+      }),
+    });
+
+    expect(tokenResponse.status).toBe(400);
+    expect(await tokenResponse.json()).toMatchObject({ error: "invalid_grant" });
+    expect(
+      (
+        await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).listUserGrants(
+          principalId,
+        )
+      ).items,
+    ).toEqual([]);
   });
 
   it("complete rejects resource mismatch between handoff and redeemed grant", async () => {
@@ -448,10 +872,10 @@ describe("authorization handoff", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approvalToken: "approval-token" }),
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
     });
     expect(complete.status).toBe(400);
     const body: unknown = await complete.json();
@@ -490,10 +914,10 @@ describe("authorization handoff", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const complete = await SELF.fetch("https://mcp.pocketcircle.app/authorize/complete", {
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ approvalToken: "approval-token" }),
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
     });
     expect(complete.status).toBe(400);
     expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });

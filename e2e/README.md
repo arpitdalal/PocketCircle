@@ -29,21 +29,24 @@ and fails when any shard fails.
 Convex backend. With no backend on `127.0.0.1:3210`, the worker auth fixture fails with a
 fetch / sign-in error.
 
-Use the wrapper instead — it boots the backend, deploys, runs the suite, and tears
-the backend down:
+Use the wrapper instead. It boots Convex and the MCP Worker, deploys the backend,
+runs the suite, then tears both services down:
 
 ```sh
 pnpm test:e2e:local                          # full run
 pnpm test:e2e:local --headed                 # args pass through to `playwright test`
 pnpm test:e2e:local e2e/transactions.spec.ts # a single spec
+pnpm test:e2e:local e2e/mcp-oauth.spec.ts    # real local MCP OAuth path
 KEEP_BACKEND=1 pnpm test:e2e:local           # leave the backend up to debug
 ```
 
 Requires Docker running. The script ([`scripts/e2e-local.sh`](../scripts/e2e-local.sh))
-mirrors the CI **E2E** job ([`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml))
-step-for-step, so **when CI's E2E job goes red, reproduce it here** instead of pushing
-speculative fixes. It reads the SHA-pinned backend image straight out of the workflow,
-so it can't drift from CI.
+uses the same Convex setup as the CI **E2E** job
+([`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml)). It also starts Wrangler
+with local KV and Durable Object storage for [`mcp-oauth.spec.ts`](mcp-oauth.spec.ts).
+That spec skips when Playwright runs without the local Worker environment. The script
+reads the SHA-pinned backend image straight from the workflow, so the Convex versions
+cannot drift.
 
 ## The `.env.local` gotcha
 

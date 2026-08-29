@@ -109,9 +109,10 @@ Production uses the default provider URLs documented in ADR 0007:
 - Auth/HTTP actions: the same production deployment's `*.convex.site` URL
 
 `.github/workflows/deploy.yml` validates and builds the app, deploys the Convex
-backend, then publishes `apps/web-app/build/client` as Cloudflare Worker static
-assets. Cloudflare's `single-page-application` fallback in `wrangler.jsonc`
-serves `index.html` for direct navigation to client routes.
+backend, publishes `apps/web-app/build/client` as Cloudflare Worker static
+assets, then deploys and smoke-tests the MCP Worker. Cloudflare's
+`single-page-application` fallback in `wrangler.jsonc` serves `index.html` for
+direct navigation to client routes.
 
 Configure the GitHub `production` environment before the first deployment:
 
@@ -131,10 +132,27 @@ Configure these GitHub Actions secrets:
 CLOUDFLARE_ACCOUNT_ID
 CLOUDFLARE_API_TOKEN
 CONVEX_DEPLOY_KEY
+MCP_WORKER_HMAC_SECRET
+MCP_WORKER_SIGNING_PRIVATE_JWK
+MCP_WORKER_VERIFYING_JWKS
 ```
 
-The Cloudflare token needs `Account → Workers Scripts → Edit`, scoped to the
-deployment account, and `Zone → Workers Routes → Edit`, scoped to
+Generate `MCP_WORKER_HMAC_SECRET` with at least 32 random bytes. The workflow
+installs it on both services only for signed browser handoffs and approval
+tokens. Generate the Worker assertion key pair with:
+
+```sh
+node scripts/generate-mcp-worker-key.mjs
+```
+
+Store the printed private JWK as `MCP_WORKER_SIGNING_PRIVATE_JWK` and the public
+JWKS as `MCP_WORKER_VERIFYING_JWKS`. Convex receives only the public keys, so it
+cannot forge Worker service assertions. All three values are secrets, never
+GitHub Actions variables or committed configuration.
+
+The Cloudflare token needs `Account → Workers Scripts → Edit` and
+`Account → Workers KV Storage → Edit`, scoped to the deployment account. The
+root web Worker also needs `Zone → Workers Routes → Edit`, scoped to
 `pocketcircle.app`. The Convex key needs only `deployment:deploy`, scoped to the
 production deployment.
 
@@ -144,11 +162,79 @@ production deployment:
 ```text
 VITE_CONVEX_URL=https://<production-deployment>.convex.cloud
 VITE_CONVEX_SITE_URL=https://<production-deployment>.convex.site
+MCP_OAUTH_KV_NAMESPACE_ID=<cloudflare-kv-namespace-id>
+VITE_MCP_WORKER_ORIGIN=https://pocketcircle-mcp-worker.<workers-subdomain>.workers.dev
 ```
 
-The MCP Worker is bound to `VITE_CONVEX_SITE_URL` at deploy time (same origin the
-SPA uses). Do not hardcode a guessed `*.convex.site` host in
-`packages/mcp-worker/wrangler.jsonc`.
+Create the OAuth namespace once with the production Cloudflare account selected:
+
+```sh
+pnpm --filter @pocketcircle/mcp-worker exec wrangler kv namespace create OAUTH_KV
+```
+
+Copy the returned namespace ID into `MCP_OAUTH_KV_NAMESPACE_ID`. The MCP Worker
+name is `pocketcircle-mcp-worker`; use its assigned `workers.dev` origin for
+`VITE_MCP_WORKER_ORIGIN`. The custom `mcp.pocketcircle.app` domain stays disabled
+in this release. The first MCP deployment creates the Durable Object namespace
+and daily cleanup cron from `wrangler.jsonc`; KV is the only manually provisioned
+resource. The workflow binds the Worker to `VITE_CONVEX_SITE_URL`. Do not hardcode
+a guessed `*.convex.site` host in `packages/mcp-worker/wrangler.jsonc`.
+
+Pre-register a launch client through the OAuth provider API; never write its KV
+record by hand. Enable the provisioning route only for the operation, use a
+fresh token containing at least 32 random bytes, then remove the secret so the
+route returns `404`:
+
+```sh
+MCP_WORKER_ORIGIN="https://pocketcircle-mcp-worker.<workers-subdomain>.workers.dev"
+MCP_PROVISIONING_TOKEN="$(openssl rand -base64 32)"
+printf '%s' "${MCP_PROVISIONING_TOKEN}" \
+  | pnpm --filter @pocketcircle/mcp-worker exec wrangler secret put MCP_CLIENT_PROVISIONING_TOKEN
+printf '%s\n' \
+  "header = \"Authorization: Bearer ${MCP_PROVISIONING_TOKEN}\"" \
+  'header = "Content-Type: application/json"' \
+  'data = {"clientName":"<client-name>","clientUri":"https://<client-homepage>","redirectUris":["https://<client-callback>"]}' \
+  | curl --fail-with-body --silent --show-error \
+      --config - \
+      "${MCP_WORKER_ORIGIN}/admin/oauth/clients"
+unset MCP_PROVISIONING_TOKEN MCP_WORKER_ORIGIN
+pnpm --filter @pocketcircle/mcp-worker exec wrangler secret delete MCP_CLIENT_PROVISIONING_TOKEN
+```
+
+The response contains the pre-registered `clientId` to configure in that client.
+Repeating the exact metadata returns the same ID, so retrying a lost response is
+safe. The endpoint always creates a public authorization-code client with PKCE;
+it cannot create a client secret or enable another grant type. General clients
+should use CIMD, which remains enabled. DCR remains disabled.
+
+To rotate the browser-envelope HMAC without interrupting an authorization
+already in progress:
+
+1. Set `MCP_WORKER_HMAC_SECRET_PREVIOUS` to the old secret in the GitHub
+   `production` environment.
+2. Replace `MCP_WORKER_HMAC_SECRET` with the new secret and deploy a release.
+3. Wait through the operational rollback window (and at least ten minutes) after
+   the MCP Worker deployment.
+4. Remove `MCP_WORKER_HMAC_SECRET_PREVIOUS` and deploy another release.
+
+The workflow adds the previous Convex verifier before changing the current key.
+It removes that verifier when the optional secret is absent. Never add the
+previous secret to the Worker itself.
+
+For rollback, keep the previous HMAC verifier through the full operational
+rollback window, not only the ten-minute handoff lifetime. Across a key rotation,
+redeploy compatible old code with the current Worker secret; do not use
+`wrangler rollback` to restore a version bound to the retired secret. Do not
+recreate or rebind the OAuth KV namespace, and do not remove the Convex bridge
+while the MCP Worker is reachable; Cloudflare storage bindings and Durable
+Object migrations do not roll back with Worker code.
+
+To rotate the Worker assertion key pair, generate a new pair, set the private
+JWK secret to the new key, and set the public JWKS secret to `{ "keys": [new,
+old] }` before deploying. The workflow installs the public keys before the new
+Worker signer. Keep the old public key through the operational rollback window,
+then remove it and deploy again. JWKS accepts at most the current and previous
+P-256 public keys, identified by unique `kid` values.
 
 These observability variables are optional for the first infrastructure deploy;
 set them and redeploy before beta monitoring begins:

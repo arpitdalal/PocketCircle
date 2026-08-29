@@ -5,6 +5,7 @@ import { internal } from "./_generated/api.js";
 import type { ActionCtx } from "./_generated/server.js";
 import { httpAction } from "./_generated/server.js";
 import { authComponent, createAuth } from "./auth.js";
+import { mcpWorkerVerificationJwks } from "./mcpWorkerSecrets.js";
 
 // Mounts the Better Auth HTTP routes (e.g. /api/auth/callback/google) on this
 // deployment's site URL (ADR 0002). SPA mode has no app server, so auth is
@@ -36,8 +37,8 @@ const WORKER_AUTH_FAILED = Symbol("mcp_worker_auth_failed");
  * boundary for the MCP bridge routes below.
  */
 async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: string) {
-  const secret = process.env.MCP_WORKER_HMAC_SECRET;
-  if (!secret) {
+  const jwks = mcpWorkerVerificationJwks();
+  if (!jwks) {
     return WORKER_AUTH_FAILED;
   }
   const authHeader = request.headers.get("Authorization") ?? "";
@@ -46,7 +47,7 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
   }
   const token = authHeader.slice(WORKER_AUTH_PREFIX.length);
   const bodyText = await request.text();
-  const assertion = await verifyMcpWorkerAssertion(token, secret, Date.now());
+  const assertion = await verifyMcpWorkerAssertion(token, jwks, Date.now());
   if (!assertion) {
     return WORKER_AUTH_FAILED;
   }
@@ -77,7 +78,11 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
   }
 }
 
-const redeemApprovalBodySchema = z.object({ token: z.string() });
+const redeemApprovalBodySchema = z.object({
+  token: z.string(),
+  handoffId: z.string(),
+  claimId: z.string(),
+});
 const activateGrantBodySchema = z.object({
   grantId: z.string(),
   workerGrantId: z.string(),
@@ -117,7 +122,7 @@ function workerBridgeRoute<T extends z.ZodType>(
 }
 
 workerBridgeRoute("/mcp/redeem-approval", redeemApprovalBodySchema, async (ctx, body) =>
-  ctx.runMutation(internal.mcpApproval.redeemApprovalToken, { token: body.token }),
+  ctx.runMutation(internal.mcpApproval.redeemApprovalToken, body),
 );
 
 workerBridgeRoute("/mcp/activate-grant", activateGrantBodySchema, async (ctx, body) =>
