@@ -13,7 +13,9 @@ declare global {
       OAUTH_PROVIDER: OAuthHelpers;
       APP_ORIGIN: string;
       CONVEX_SITE_URL: string;
+      MCP_CLIENT_PROVISIONING_TOKEN?: string;
       MCP_WORKER_HMAC_SECRET: string;
+      MCP_WORKER_SIGNING_PRIVATE_JWK: string;
       MCP_RESOURCE_URI?: string;
       MCP_ISSUER?: string;
     }

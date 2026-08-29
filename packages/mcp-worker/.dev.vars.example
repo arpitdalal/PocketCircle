@@ -1,5 +1,9 @@
 # Copy to .dev.vars (gitignored) for `wrangler dev` / local testing.
-# Must match the Convex deployment's MCP_WORKER_HMAC_SECRET (see ../convex/.env.example).
+# Must match the Convex deployment's MCP_WORKER_HMAC_SECRET (see ../../.env.example).
 MCP_WORKER_HMAC_SECRET=<random-secret>
+# ES256 private JWK used only by the Worker for Worker→Convex assertions.
+MCP_WORKER_SIGNING_PRIVATE_JWK=<private-jwk-json>
+# Optional, temporary: enables POST /admin/oauth/clients. Remove after use.
+# MCP_CLIENT_PROVISIONING_TOKEN=<random-secret>
 APP_ORIGIN=http://127.0.0.1:5173
 CONVEX_SITE_URL=http://127.0.0.1:3211

@@ -355,6 +355,8 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("revoked")),
     createdAt: v.number(),
     updatedAt: v.number(),
+    /** Extended atomically when the Worker claims approval, covering code exchange. */
+    activationExpiresAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
@@ -370,6 +372,7 @@ export default defineSchema({
     .index("by_client_and_status", ["clientId", "status"])
     .index("by_status", ["status"])
     .index("by_status_and_created", ["status", "createdAt"])
+    .index("by_status_and_activation_expires", ["status", "activationExpiresAt"])
     .index("by_worker_grant", ["workerGrantId"])
     .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
 
@@ -378,7 +381,8 @@ export default defineSchema({
    * exchange (#318). Stored hashed like `invitations.tokenHash`; the plaintext
    * lives only in the browser→Worker redirect. `handoffId` ties the row back to
    * the Worker-signed authorization it approved; `consumedAt` makes redemption
-   * atomic under concurrent requests (first writer wins, OCC retries the rest).
+   * atomic under concurrent requests. One durable claim may retry after a lost
+   * response; a different claim remains a consumed-token replay.
    */
   mcpApprovalTokens: defineTable({
     tokenHash: v.string(),
@@ -394,6 +398,8 @@ export default defineSchema({
     expiresAt: v.number(),
     createdAt: v.number(),
     consumedAt: v.optional(v.number()),
+    /** Durable Worker completion claim. Exact-claim retries return the same grant. */
+    claimId: v.optional(v.string()),
   })
     .index("by_token_hash", ["tokenHash"])
     .index("by_handoff", ["handoffId"])

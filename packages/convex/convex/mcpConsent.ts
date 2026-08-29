@@ -19,15 +19,16 @@ import { mutation, query } from "./_generated/server.js";
 import { requireCurrentUser } from "./auth.js";
 import { mintMcpApprovalToken } from "./mcpApprovalToken.js";
 import { createPendingMcpGrant } from "./mcpGrant.js";
+import { currentMcpWorkerSecret, mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
 
 /** Verifies the handoff against the shared Worker secret. Fails closed (null) if unset, malformed, or expired. */
 async function verifyHandoff(handoff: string) {
-  const secret = process.env.MCP_WORKER_HMAC_SECRET;
-  if (!secret) {
+  const secrets = mcpWorkerVerificationSecrets();
+  if (secrets.length === 0) {
     return null;
   }
-  return await verifyMcpHandoff(handoff, secret, Date.now());
+  return await verifyMcpHandoff(handoff, secrets, Date.now());
 }
 
 /**
@@ -113,7 +114,7 @@ export const approveMcpAuthorization = mutation({
     }
     const grant = pending.value;
 
-    const secret = process.env.MCP_WORKER_HMAC_SECRET;
+    const secret = currentMcpWorkerSecret();
     if (!secret) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.mcpGrantFailed));
     }

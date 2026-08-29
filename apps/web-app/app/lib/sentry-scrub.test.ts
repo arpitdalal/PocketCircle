@@ -67,15 +67,18 @@ describe("scrubUrlForSentry", () => {
     expect(scrubbed).toBe(`/circles/c1abc/search`);
   });
 
-  it("drops signed MCP handoff tokens, including when nested in returnTo", () => {
+  it("drops MCP handoff credentials, including when nested in returnTo", () => {
     const token = "eyJhbGciOiJIUzI1NiJ9.handoff-payload.signature";
-    const nested = `/mcp/authorize?handoff=${token}`;
+    const handoffId = "550e8400-e29b-41d4-a716-446655440000";
+    const nested = `/mcp/authorize?handoff=${token}&handoffId=${handoffId}`;
     const scrubbed = scrubUrlForSentry(
-      `/mcp/authorize?handoff=${token}&returnTo=${encodeURIComponent(nested)}`,
+      `/mcp/authorize?handoff=${token}&handoffId=${handoffId}&returnTo=${encodeURIComponent(nested)}`,
     );
 
     expect(scrubbed).not.toContain(token);
+    expect(scrubbed).not.toContain(handoffId);
     expect(scrubbed).not.toContain("handoff=");
+    expect(scrubbed).not.toContain("handoffId=");
     expect(scrubbed).toContain("returnTo=");
     expect(scrubbed).toContain("%2Fmcp%2Fauthorize");
   });

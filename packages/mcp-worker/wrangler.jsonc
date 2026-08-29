@@ -6,6 +6,9 @@
   "compatibility_flags": ["global_fetch_strictly_public"],
   // Custom domain intentionally disabled until #318 is verified end-to-end.
   "workers_dev": true,
+  // OAuth metadata is derived from the request origin. Preview aliases would
+  // advertise alternate issuers and resources that are not production origins.
+  "preview_urls": false,
   "triggers": {
     "crons": ["0 3 * * *"]
   },

@@ -37,6 +37,7 @@ import type * as mcpApproval from "../mcpApproval.js";
 import type * as mcpApprovalToken from "../mcpApprovalToken.js";
 import type * as mcpConsent from "../mcpConsent.js";
 import type * as mcpGrant from "../mcpGrant.js";
+import type * as mcpWorkerSecrets from "../mcpWorkerSecrets.js";
 import type * as memberIdentity from "../memberIdentity.js";
 import type * as members from "../members.js";
 import type * as model from "../model.js";
@@ -89,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   mcpApprovalToken: typeof mcpApprovalToken;
   mcpConsent: typeof mcpConsent;
   mcpGrant: typeof mcpGrant;
+  mcpWorkerSecrets: typeof mcpWorkerSecrets;
   memberIdentity: typeof memberIdentity;
   members: typeof members;
   model: typeof model;

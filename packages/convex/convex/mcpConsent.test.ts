@@ -49,6 +49,7 @@ function handoffPayload(overrides: Partial<McpHandoffPayload> = {}) {
 beforeEach(() => {
   mockCurrentUser.mockReset();
   vi.stubEnv("MCP_WORKER_HMAC_SECRET", SECRET);
+  vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", "");
 });
 
 describe("parseMcpHandoff", () => {
@@ -80,6 +81,19 @@ describe("parseMcpHandoff", () => {
     const t = convexTest(schema, modules);
     const handoff = await signMcpHandoff(handoffPayload(), "wrong-secret");
     expect(await t.query(api.mcpConsent.parseMcpHandoff, { handoff })).toBeNull();
+  });
+
+  it("accepts a handoff signed by the previous rotation secret", async () => {
+    const t = convexTest(schema, modules);
+    const oldSecret = "previous-worker-secret";
+    const payload = handoffPayload();
+    const handoff = await signMcpHandoff(payload, oldSecret);
+    vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", oldSecret);
+
+    expect(await t.query(api.mcpConsent.parseMcpHandoff, { handoff })).toMatchObject({
+      handoffId: payload.handoffId,
+      clientId: payload.clientId,
+    });
   });
 
   it("returns null for a malformed token", async () => {

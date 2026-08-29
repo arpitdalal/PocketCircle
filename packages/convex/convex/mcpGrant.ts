@@ -160,6 +160,7 @@ export async function createPendingMcpGrant(ctx: MutationCtx, args: CreatePendin
     status: "pending",
     createdAt: now,
     updatedAt: now,
+    activationExpiresAt: now + MCP_PENDING_GRANT_TTL_MS,
     workerCleanupStatus: "none",
   });
   const grant = await ctx.db.get(grantId);
@@ -363,7 +364,9 @@ export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantA
   }
 
   const now = args.now ?? Date.now();
-  if (now - grant.createdAt >= MCP_PENDING_GRANT_TTL_MS) {
+  const activationExpiresAt =
+    grant.activationExpiresAt ?? grant.createdAt + MCP_PENDING_GRANT_TTL_MS;
+  if (activationExpiresAt <= now) {
     await revokeMcpGrant(ctx, { grantId: grant._id, now });
     return err("invalid_transition");
   }

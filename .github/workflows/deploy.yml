@@ -57,6 +57,9 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           MCP_OAUTH_KV_NAMESPACE_ID: ${{ vars.MCP_OAUTH_KV_NAMESPACE_ID }}
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
+          MCP_WORKER_SIGNING_PRIVATE_JWK: ${{ secrets.MCP_WORKER_SIGNING_PRIVATE_JWK }}
+          MCP_WORKER_VERIFYING_JWKS: ${{ secrets.MCP_WORKER_VERIFYING_JWKS }}
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
@@ -65,7 +68,14 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
           test -n "$CONVEX_DEPLOY_KEY" || { echo "::error::Missing CONVEX_DEPLOY_KEY secret"; exit 1; }
           test -n "$MCP_OAUTH_KV_NAMESPACE_ID" || { echo "::error::Missing MCP_OAUTH_KV_NAMESPACE_ID variable"; exit 1; }
+          [[ "$MCP_OAUTH_KV_NAMESPACE_ID" =~ ^[0-9a-fA-F]{32}$ ]] || { echo "::error::MCP_OAUTH_KV_NAMESPACE_ID must be a 32-character hexadecimal namespace id"; exit 1; }
           test -n "$MCP_WORKER_HMAC_SECRET" || { echo "::error::Missing MCP_WORKER_HMAC_SECRET secret"; exit 1; }
+          test -n "$MCP_WORKER_SIGNING_PRIVATE_JWK" || { echo "::error::Missing MCP_WORKER_SIGNING_PRIVATE_JWK secret"; exit 1; }
+          test -n "$MCP_WORKER_VERIFYING_JWKS" || { echo "::error::Missing MCP_WORKER_VERIFYING_JWKS secret"; exit 1; }
+          if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ] && [ "$MCP_WORKER_HMAC_SECRET_PREVIOUS" = "$MCP_WORKER_HMAC_SECRET" ]; then
+            echo "::error::MCP_WORKER_HMAC_SECRET_PREVIOUS must differ from MCP_WORKER_HMAC_SECRET"
+            exit 1
+          fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
@@ -88,6 +98,10 @@ jobs:
                 console.error(`::error::${name} must not include credentials`);
                 process.exit(1);
               }
+              if (url.pathname !== "/" || url.search || url.hash) {
+                console.error(`::error::${name} must be an origin without a path, query, or fragment`);
+                process.exit(1);
+              }
               if (convexSite) {
                 const host = url.hostname;
                 if (host !== "convex.site" && !host.endsWith(".convex.site")) {
@@ -100,6 +114,68 @@ jobs:
             requireHttpsOrigin(process.env.VITE_CONVEX_SITE_URL, "VITE_CONVEX_SITE_URL", {
               convexSite: true,
             });
+
+            function requireP256Key(key, { privateKey }) {
+              const coordinate = /^[A-Za-z0-9_-]{43}$/;
+              const allowed = new Set([
+                "kty", "crv", "x", "y", "kid", "alg", "use", "key_ops", "ext",
+                ...(privateKey ? ["d"] : []),
+              ]);
+              const expectedOperation = privateKey ? "sign" : "verify";
+              if (
+                !key ||
+                Array.isArray(key) ||
+                Object.keys(key).some((field) => !allowed.has(field)) ||
+                key.kty !== "EC" ||
+                key.crv !== "P-256" ||
+                key.alg !== "ES256" ||
+                typeof key.kid !== "string" ||
+                key.kid.length === 0 || key.kid.length > 128 ||
+                !coordinate.test(key.x) ||
+                !coordinate.test(key.y) ||
+                (privateKey ? !coordinate.test(key.d) : "d" in key) ||
+                (key.use !== undefined && key.use !== "sig") ||
+                (key.ext !== undefined && key.ext !== true) ||
+                (key.key_ops !== undefined &&
+                  (!Array.isArray(key.key_ops) ||
+                    key.key_ops.length !== 1 ||
+                    key.key_ops[0] !== expectedOperation))
+              ) {
+                console.error("::error::Invalid ES256 JWK configuration");
+                process.exit(1);
+              }
+            }
+            let privateJwk;
+            let jwks;
+            try {
+              privateJwk = JSON.parse(process.env.MCP_WORKER_SIGNING_PRIVATE_JWK);
+              jwks = JSON.parse(process.env.MCP_WORKER_VERIFYING_JWKS);
+            } catch {
+              console.error("::error::MCP Worker JWK secrets must contain valid JSON");
+              process.exit(1);
+            }
+            requireP256Key(privateJwk, { privateKey: true });
+            if (
+              !jwks ||
+              Array.isArray(jwks) ||
+              Object.keys(jwks).length !== 1 ||
+              !Array.isArray(jwks.keys) ||
+              jwks.keys.length < 1 ||
+              jwks.keys.length > 2
+            ) {
+              console.error("::error::MCP_WORKER_VERIFYING_JWKS must contain one or two keys");
+              process.exit(1);
+            }
+            for (const key of jwks.keys) requireP256Key(key, { privateKey: false });
+            if (new Set(jwks.keys.map((key) => key.kid)).size !== jwks.keys.length) {
+              console.error("::error::MCP_WORKER_VERIFYING_JWKS key ids must be unique");
+              process.exit(1);
+            }
+            const publicKey = jwks.keys.find((key) => key.kid === privateJwk.kid);
+            if (!publicKey || publicKey.x !== privateJwk.x || publicKey.y !== privateJwk.y) {
+              console.error("::error::Worker private JWK has no matching public JWKS key");
+              process.exit(1);
+            }
           '
 
       - run: pnpm validate
@@ -116,6 +192,25 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
+      # Install verification material before deploying code that requires it.
+      # Current + previous keys let in-flight handoffs and the previously
+      # deployed Worker remain valid while the new Worker rolls out.
+      - name: Sync MCP Worker verification keys to Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
+          MCP_WORKER_VERIFYING_JWKS: ${{ secrets.MCP_WORKER_VERIFYING_JWKS }}
+        run: |
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
+          if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET_PREVIOUS "$MCP_WORKER_HMAC_SECRET_PREVIOUS"
+          fi
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
+          if [ -z "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            pnpm --filter @pocketcircle/convex exec convex env remove MCP_WORKER_HMAC_SECRET_PREVIOUS
+          fi
+
       # Convex before Worker: this release's web bundle needs additive Convex
       # fields/functions (Feature Announcements, #282) immediately. Deploy the
       # backward-compatible backend first. If Convex succeeds and the Worker
@@ -126,15 +221,6 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: pnpm --filter @pocketcircle/convex exec convex deploy -y
-
-      # Convex must verify Worker-signed handoffs before this release's MCP Worker
-      # goes live. A rotated HMAC deployed on the Worker first would fail consent
-      # until the later env-sync step.
-      - name: Sync MCP Worker HMAC to Convex
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
-        run: pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v4
@@ -193,8 +279,61 @@ jobs:
           workingDirectory: packages/mcp-worker
           secrets: |
             MCP_WORKER_HMAC_SECRET
+            MCP_WORKER_SIGNING_PRIVATE_JWK
         env:
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+          MCP_WORKER_SIGNING_PRIVATE_JWK: ${{ secrets.MCP_WORKER_SIGNING_PRIVATE_JWK }}
+
+      - name: Verify MCP Worker discovery
+        env:
+          VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
+        run: |
+          node --input-type=module <<'EOF'
+          const origin = new URL(process.env.VITE_MCP_WORKER_ORIGIN).origin;
+          const expected = {
+            resource: `${origin}/mcp`,
+            authorizationEndpoint: `${origin}/authorize`,
+            tokenEndpoint: `${origin}/token`,
+          };
+
+          async function verify() {
+            const [resourceResponse, serverResponse] = await Promise.all([
+              fetch(`${origin}/.well-known/oauth-protected-resource`),
+              fetch(`${origin}/.well-known/oauth-authorization-server`),
+            ]);
+            if (!resourceResponse.ok || !serverResponse.ok) {
+              throw new Error(
+                `discovery returned ${resourceResponse.status}/${serverResponse.status}`,
+              );
+            }
+            const resource = await resourceResponse.json();
+            const server = await serverResponse.json();
+            if (
+              resource.resource !== expected.resource ||
+              resource.authorization_servers?.length !== 1 ||
+              resource.authorization_servers[0] !== origin ||
+              server.issuer !== origin ||
+              server.authorization_endpoint !== expected.authorizationEndpoint ||
+              server.token_endpoint !== expected.tokenEndpoint
+            ) {
+              throw new Error("discovery metadata does not match VITE_MCP_WORKER_ORIGIN");
+            }
+          }
+
+          let lastError;
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              await verify();
+              console.log(`MCP discovery verified at ${origin}`);
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              console.warn(`MCP discovery attempt ${attempt}/12 failed: ${error.message}`);
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+          }
+          throw lastError;
+          EOF
 
       - name: Sync Convex release and Sentry env
         env:
