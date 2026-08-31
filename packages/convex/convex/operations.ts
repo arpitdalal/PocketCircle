@@ -108,13 +108,21 @@ function compareCirclesPersonalFirst(a: Doc<"circles">, b: Doc<"circles">) {
  * Personal Circle first, then by creation time. Excludes inactive memberships
  * and missing Circles.
  */
-async function listActiveMembershipsWithCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
+export type ActiveMembershipWithCircle = {
+  membership: Doc<"members">;
+  circle: Doc<"circles">;
+};
+
+export async function listActiveMembershipsWithCirclesForUser(
+  ctx: OperationReader,
+  user: Doc<"users">,
+) {
   const memberships = await ctx.db
     .query("members")
     .withIndex("by_user", (q) => q.eq("userId", user._id))
     .collect();
 
-  const entries: { membership: Doc<"members">; circle: Doc<"circles"> }[] = [];
+  const entries: ActiveMembershipWithCircle[] = [];
   for (const membership of memberships) {
     if (membership.status !== "active") {
       continue;
@@ -148,8 +156,17 @@ export async function listAuthorizedCirclesForGrant(
   grant: Doc<"mcpGrants">,
   user: Doc<"users">,
 ) {
-  const allowedSet = new Set(grant.allowedCircleIds);
   const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
+
+  return listAuthorizedCirclesFromMemberships(grant, entries);
+}
+
+/** Filters a previously loaded membership set for one MCP grant. */
+export function listAuthorizedCirclesFromMemberships(
+  grant: Doc<"mcpGrants">,
+  entries: ActiveMembershipWithCircle[],
+) {
+  const allowedSet = new Set(grant.allowedCircleIds);
 
   return entries
     .filter((entry) => allowedSet.has(entry.circle._id))

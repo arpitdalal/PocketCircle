@@ -15,20 +15,21 @@ import { requireCurrentUser } from "./auth.js";
 import { revokeMcpGrant } from "./mcpGrant.js";
 import { currentMcpWorkerSecret } from "./mcpWorkerSecrets.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
-import type { OperationReader } from "./operationReader.js";
-import { listAuthorizedCirclesForGrant } from "./operations.js";
+import {
+  listActiveMembershipsWithCirclesForUser,
+  listAuthorizedCirclesFromMemberships,
+} from "./operations.js";
 
 function clientNameOf(clientName: string | undefined, clientId: string) {
   return clientName?.trim() || clientId;
 }
 
 /** Safe connection view: no User, principal, Worker grant, or credential fields. */
-async function toMcpConnectionView(
-  ctx: OperationReader,
+function toMcpConnectionView(
   grant: Doc<"mcpGrants">,
-  user: Doc<"users">,
+  memberships: Awaited<ReturnType<typeof listActiveMembershipsWithCirclesForUser>>,
 ) {
-  const selectedCircles = await listAuthorizedCirclesForGrant(ctx, grant, user);
+  const selectedCircles = listAuthorizedCirclesFromMemberships(grant, memberships);
   return {
     id: grant._id,
     clientId: grant.clientId,
@@ -49,19 +50,14 @@ export const listMcpConnections = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
+    const memberships = await listActiveMembershipsWithCirclesForUser(ctx, user);
     const grants = await ctx.db
       .query("mcpGrants")
       .withIndex("by_user_and_createdAt", (q) => q.eq("userId", user._id))
       .order("desc")
       .paginate(args.paginationOpts);
 
-    const connections = [];
-    for (const grant of grants.page) {
-      const connection = await toMcpConnectionView(ctx, grant, user);
-      if (connection) {
-        connections.push(connection);
-      }
-    }
+    const connections = grants.page.map((grant) => toMcpConnectionView(grant, memberships));
     return { ...grants, page: connections };
   },
 });
