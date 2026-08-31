@@ -2,7 +2,7 @@ import { api } from "@pocketcircle/convex";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { McpConnection, McpHandoffView } from "~/lib/data.js";
-import type { EntityDouble } from "./contract.js";
+import type { EntityDouble, PaginatedPage } from "./contract.js";
 import { testId } from "./ids.js";
 
 export interface McpState {
@@ -18,7 +18,14 @@ export function mcpDouble(state: McpState) {
   return {
     queries: {
       [getFunctionName(api.mcpConsent.parseMcpHandoff)]: () => mcpHandoff,
-      [getFunctionName(api.mcpConnections.listMcpConnections)]: () => mcpConnections,
+    },
+    paginatedQueries: {
+      [getFunctionName(api.mcpConnections.listMcpConnections)]: () =>
+        ({
+          results: mcpConnections ?? [],
+          status: "Exhausted",
+          loadMore: () => {},
+        }) satisfies PaginatedPage,
     },
     mutations: {
       ...(approveMcpAuthorization

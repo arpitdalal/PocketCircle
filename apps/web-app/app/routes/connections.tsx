@@ -37,11 +37,25 @@ export default function Connections() {
     }
     setBusyId(connection.id);
     setError(null);
+    let result: Awaited<ReturnType<typeof revoke>>;
     try {
-      const result = await revoke({ connectionId: connection.id });
-      if (!result.ok) {
-        throw new Error("Connection not found");
-      }
+      result = await revoke({ connectionId: connection.id });
+    } catch (caught) {
+      setError(
+        mutationErrorMessageForUser(
+          caught,
+          "Could not revoke this connection. PocketCircle access was not changed; try again.",
+        ),
+      );
+      setBusyId(null);
+      return;
+    }
+    if (!result.ok) {
+      setError("Could not revoke this connection. PocketCircle access was not changed; try again.");
+      setBusyId(null);
+      return;
+    }
+    try {
       if (result.value.cleanupToken) {
         const workerOrigin = mcpWorkerOrigin();
         if (!workerOrigin) {
@@ -50,7 +64,7 @@ export default function Connections() {
         await completeMcpConnectionRevocation(workerOrigin, result.value.cleanupToken);
       }
       show(
-        result.value.cleanupToken
+        result.value.cleanupToken || result.value.cleanupStatus !== "pending_revoke"
           ? "Connection revoked."
           : "PocketCircle access revoked; Worker cleanup is pending.",
       );
@@ -68,7 +82,7 @@ export default function Connections() {
     }
   }
 
-  if (connections === undefined) {
+  if (connections.status === "LoadingFirstPage") {
     return <ConnectionsLoading />;
   }
 
@@ -96,11 +110,11 @@ export default function Connections() {
         </div>
       ) : null}
 
-      {connections.length === 0 ? (
+      {connections.connections.length === 0 ? (
         <EmptyConnections />
       ) : (
         <section className="space-y-4" aria-label="MCP connections">
-          {connections.map((connection) => (
+          {connections.connections.map((connection) => (
             <ConnectionCard
               key={connection.id}
               connection={connection}
@@ -109,6 +123,16 @@ export default function Connections() {
               onRetry={() => void revokeConnection(connection)}
             />
           ))}
+          {connections.status === "CanLoadMore" || connections.status === "LoadingMore" ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={connections.loadMore}
+              disabled={connections.status === "LoadingMore"}
+            >
+              {connections.status === "LoadingMore" ? "Loading…" : "Load older connections"}
+            </Button>
+          ) : null}
         </section>
       )}
 

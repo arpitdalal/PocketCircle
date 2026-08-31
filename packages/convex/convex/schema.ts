@@ -370,6 +370,7 @@ export default defineSchema({
   })
     .index("by_principal", ["principalId"])
     .index("by_user", ["userId"])
+    .index("by_user_and_createdAt", ["userId", "createdAt"])
     .index("by_user_and_status", ["userId", "status"])
     .index("by_user_client_and_status", ["userId", "clientId", "status"])
     .index("by_user_client_redirect_and_status", ["userId", "clientId", "redirectUri", "status"])

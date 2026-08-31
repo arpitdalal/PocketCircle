@@ -7,6 +7,7 @@
  */
 
 import { MCP_REVOCATION_TTL_MS, signMcpRevocation } from "@pocketcircle/domain";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
@@ -45,23 +46,23 @@ async function toMcpConnectionView(
 }
 
 export const listMcpConnections = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const grants = await ctx.db
       .query("mcpGrants")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .collect();
-    grants.sort((a, b) => b.createdAt - a.createdAt || String(a._id).localeCompare(String(b._id)));
+      .withIndex("by_user_and_createdAt", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .paginate(args.paginationOpts);
 
     const connections = [];
-    for (const grant of grants) {
+    for (const grant of grants.page) {
       const connection = await toMcpConnectionView(ctx, grant, user);
       if (connection) {
         connections.push(connection);
       }
     }
-    return connections;
+    return { ...grants, page: connections };
   },
 });
 
@@ -85,7 +86,10 @@ export const revokeMcpConnection = mutation({
     const workerGrantId = revoked.value.workerGrantId;
     const secret = currentMcpWorkerSecret();
     if (!workerGrantId || revoked.value.workerCleanupStatus === "completed" || !secret) {
-      return { ok: true as const, value: { cleanupToken: null } };
+      return {
+        ok: true as const,
+        value: { cleanupToken: null, cleanupStatus: revoked.value.workerCleanupStatus },
+      };
     }
 
     const now = Date.now();
@@ -101,6 +105,9 @@ export const revokeMcpConnection = mutation({
       },
       secret,
     );
-    return { ok: true as const, value: { cleanupToken } };
+    return {
+      ok: true as const,
+      value: { cleanupToken, cleanupStatus: revoked.value.workerCleanupStatus },
+    };
   },
 });

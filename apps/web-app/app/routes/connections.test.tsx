@@ -48,9 +48,10 @@ describe("Connections", () => {
   });
 
   it("confirms the exact client, revokes Convex access, and completes Worker cleanup", async () => {
-    const revokeMcpConnection = vi
-      .fn()
-      .mockResolvedValue({ ok: true, value: { cleanupToken: "cleanup-token" } });
+    const revokeMcpConnection = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { cleanupToken: "cleanup-token", cleanupStatus: "pending_revoke" },
+    });
     const workerFetch = vi.fn().mockResolvedValue(Response.json({ revoked: true }));
     vi.spyOn(globalThis, "fetch").mockImplementation(workerFetch);
     const connection = makeMcpConnectionView();
@@ -75,5 +76,27 @@ describe("Connections", () => {
     expect(workerFetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
     expect(await screen.findByText("Connection revoked.")).toBeVisible();
     workerFetch.mockRestore();
+  });
+
+  it("does not claim access was revoked when Convex revocation fails", async () => {
+    const revokeMcpConnection = vi.fn().mockRejectedValue(new Error("Convex unavailable"));
+    const connection = makeMcpConnectionView();
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [connection],
+      revokeMcpConnection,
+    });
+    const user = userEvent.setup();
+    renderConnections();
+
+    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+    await user.click(screen.getByRole("button", { name: "Revoke connection" }));
+
+    expect(
+      await screen.findByText(
+        "Could not revoke this connection. PocketCircle access was not changed; try again.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("dialog")).toBeVisible();
   });
 });

@@ -70,10 +70,12 @@ describe("MCP Connections view", () => {
     const grant = await makeActiveGrant(t, ada.userId, extra.circleId);
 
     signInAs(ada.owner);
-    const connections = await t.query(api.mcpConnections.listMcpConnections, {});
+    const connections = await t.query(api.mcpConnections.listMcpConnections, {
+      paginationOpts: { numItems: 20, cursor: null },
+    });
 
-    expect(connections).toHaveLength(1);
-    expect(connections[0]).toMatchObject({
+    expect(connections.page).toHaveLength(1);
+    expect(connections.page[0]).toMatchObject({
       id: grant._id,
       clientId: CLIENT,
       clientName: "Ledger Assistant",
@@ -85,8 +87,8 @@ describe("MCP Connections view", () => {
       lastUsedAt: null,
       workerCleanupStatus: "none",
     });
-    expect(connections[0]).not.toHaveProperty("principalId");
-    expect(connections[0]).not.toHaveProperty("workerGrantId");
+    expect(connections.page[0]).not.toHaveProperty("principalId");
+    expect(connections.page[0]).not.toHaveProperty("workerGrantId");
   });
 
   it("rejects forged connection ids without touching another User's grant", async () => {
@@ -160,7 +162,10 @@ describe("MCP Connections view", () => {
     const repeated = await t.mutation(api.mcpConnections.revokeMcpConnection, {
       connectionId: String(grant._id),
     });
-    expect(repeated).toEqual({ ok: true, value: { cleanupToken: null } });
+    expect(repeated).toEqual({
+      ok: true,
+      value: { cleanupToken: null, cleanupStatus: "completed" },
+    });
     await t.run(async (ctx) => {
       expect((await ctx.db.get(grant._id))?.workerCleanupStatus).toBe("completed");
     });
@@ -182,7 +187,10 @@ describe("MCP Connections view", () => {
     const result = await t.mutation(api.mcpConnections.revokeMcpConnection, {
       connectionId: String(grant._id),
     });
-    expect(result).toEqual({ ok: true, value: { cleanupToken: null } });
+    expect(result).toEqual({
+      ok: true,
+      value: { cleanupToken: null, cleanupStatus: "pending_revoke" },
+    });
     await t.run(async (ctx) => {
       const revoked = await ctx.db.get(grant._id);
       expect(revoked?.status).toBe("revoked");
