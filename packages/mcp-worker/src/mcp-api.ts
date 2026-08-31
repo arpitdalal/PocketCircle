@@ -143,6 +143,46 @@ export function buildMcpServer(env: Env, request?: Request) {
   return server;
 }
 
+const READ_TOOL_NAMES = new Set(["get_current_user", "list_authorized_circles"]);
+
+const rpcCallSchema = z.object({
+  method: z.string(),
+  params: z
+    .object({
+      name: z.string().optional(),
+    })
+    .optional(),
+});
+
+async function detectReadToolCall(request: Request) {
+  const mcpMethod = request.headers.get("mcp-method");
+  const mcpName = request.headers.get("mcp-name");
+  if (mcpMethod === "tools/call" && mcpName && READ_TOOL_NAMES.has(mcpName)) {
+    return true;
+  }
+  if (request.method.toUpperCase() !== "POST") {
+    return false;
+  }
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return false;
+  }
+  try {
+    const json: unknown = await request.clone().json();
+    const parsed = rpcCallSchema.safeParse(json);
+    if (!parsed.success) {
+      return false;
+    }
+    return (
+      parsed.data.method === "tools/call" &&
+      typeof parsed.data.params?.name === "string" &&
+      READ_TOOL_NAMES.has(parsed.data.params.name)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function createMcpApiHandler(env: Env) {
   const allowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
@@ -169,12 +209,8 @@ export function createMcpApiHandler(env: Env) {
 
   return {
     fetch: async (request: Request, envArg: Env, ctx: ExecutionContext) => {
-      const mcpMethod = request.headers.get("mcp-method");
-      const mcpName = request.headers.get("mcp-name");
-      if (
-        mcpMethod === "tools/call" &&
-        (mcpName === "get_current_user" || mcpName === "list_authorized_circles")
-      ) {
+      const isReadTool = await detectReadToolCall(request);
+      if (isReadTool) {
         const caller = await resolveAuthorizedCaller(env, request);
         if (caller.ok && !caller.value.effectiveScopes.includes("pocketcircle:read")) {
           return bearerAuthChallengeResponse(

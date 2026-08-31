@@ -1179,13 +1179,50 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read", async () => {
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read (body-only JSON-RPC request)", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+    });
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "get_current_user",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:read"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read (header-mirrored request)", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
 
     const res = await sendMcpRequest(accessToken, {
       method: "tools/call",
       params: {
-        name: "get_current_user",
+        name: "list_authorized_circles",
         arguments: {},
       },
     });
