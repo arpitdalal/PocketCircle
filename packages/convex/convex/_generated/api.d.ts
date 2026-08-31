@@ -18,6 +18,7 @@ import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
 import type * as circleSetup from "../circleSetup.js";
 import type * as circles from "../circles.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as e2e from "../e2e.js";
 import type * as e2eTesting from "../e2eTesting.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   categories: typeof categories;
   circleSetup: typeof circleSetup;
   circles: typeof circles;
+  crons: typeof crons;
   dashboard: typeof dashboard;
   e2e: typeof e2e;
   e2eTesting: typeof e2eTesting;

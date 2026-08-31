@@ -54,6 +54,7 @@ export function oauthProviderOptions(
 ) {
   const resource = mcpResourceUri(env, origin);
   const issuer = mcpAuthorizationServerIssuer(env, origin);
+  const isHttpsIssuer = typeof issuer === "string" && issuer.startsWith("https://");
   return {
     apiRoute: "/mcp",
     apiHandler: createMcpApiHandler(env),
@@ -69,7 +70,7 @@ export function oauthProviderOptions(
     scopesSupported: [...MCP_SCOPES],
     resourceMetadata: {
       resource,
-      ...(issuer ? { authorization_servers: [issuer] } : {}),
+      ...(isHttpsIssuer ? { authorization_servers: [issuer] } : {}),
       scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ["header"],
       resource_name: "PocketCircle",

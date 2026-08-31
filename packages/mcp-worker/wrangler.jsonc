@@ -3,7 +3,7 @@
   "name": "pocketcircle-mcp-worker",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-11",
-  "compatibility_flags": ["global_fetch_strictly_public"],
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
   // Custom domain intentionally disabled until #318 is verified end-to-end.
   "workers_dev": true,
   // OAuth metadata is derived from the request origin. Preview aliases would
