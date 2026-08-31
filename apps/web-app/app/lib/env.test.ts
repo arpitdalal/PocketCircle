@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { posthogHost, posthogKey } from "./env.js";
+import { mcpWorkerOrigin, posthogHost, posthogKey } from "./env.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -24,6 +24,31 @@ function builtJs(result: Awaited<ReturnType<typeof build>>) {
   }
   return parts.join("\n");
 }
+
+describe("mcpWorkerOrigin", () => {
+  it("accepts HTTPS origins", () => {
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "https://mcp.pocketcircle.app/path");
+    expect(mcpWorkerOrigin()).toBe("https://mcp.pocketcircle.app");
+  });
+
+  it("accepts loopback HTTP only while Vite is in development", () => {
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "http://localhost:8787");
+    expect(mcpWorkerOrigin()).toBe("http://localhost:8787");
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "http://127.0.0.1:8787");
+    expect(mcpWorkerOrigin()).toBe("http://127.0.0.1:8787");
+  });
+
+  it("rejects non-local HTTP and invalid values", () => {
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "http://evil.example");
+    expect(mcpWorkerOrigin()).toBeUndefined();
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "ftp://localhost");
+    expect(mcpWorkerOrigin()).toBeUndefined();
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "not a url");
+    expect(mcpWorkerOrigin()).toBeUndefined();
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "");
+    expect(mcpWorkerOrigin()).toBeUndefined();
+  });
+});
 
 describe("posthog env", () => {
   it("reads VITE_POSTHOG_KEY at call time without mocking this module", () => {

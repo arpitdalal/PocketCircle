@@ -6,7 +6,7 @@ import { type AccountDeletionState, accountDeletionDouble } from "./account-dele
 import { type ActivationState, activationDouble } from "./activation.js";
 import { type CategoriesState, categoriesDouble } from "./categories.js";
 import { type CirclesState, circlesDouble } from "./circles.js";
-import type { PaginatedPage } from "./contract.js";
+import type { EntityDouble, PaginatedPage } from "./contract.js";
 import { type DashboardState, dashboardDouble } from "./dashboard.js";
 import {
   type FeatureAnnouncementsState,
@@ -17,6 +17,7 @@ import { type HistoryState, historyDouble } from "./history.js";
 import { type HomeSummaryState, homeSummaryDouble } from "./home-summary.js";
 import { type InvitationsState, invitationsDouble } from "./invitations.js";
 import { type LedgerState, ledgerDouble } from "./ledger.js";
+import { type McpState, mcpDouble } from "./mcp.js";
 import { type MembersState, membersDouble } from "./members.js";
 import { type NotificationsState, notificationsDouble } from "./notifications.js";
 import { type TransactionsState, transactionsDouble } from "./transactions.js";
@@ -36,9 +37,10 @@ export type ConvexState = CirclesState &
   AccountDeletionState &
   ActivationState &
   HomeSummaryState &
-  FeatureAnnouncementsState;
+  FeatureAnnouncementsState &
+  McpState;
 
-const ENTITY_DOUBLES = [
+const ENTITY_DOUBLES: Array<(state: ConvexState) => EntityDouble> = [
   circlesDouble,
   categoriesDouble,
   membersDouble,
@@ -54,6 +56,7 @@ const ENTITY_DOUBLES = [
   activationDouble,
   homeSummaryDouble,
   featureAnnouncementsDouble,
+  mcpDouble,
 ];
 function mergeEntityDoubles(state: ConvexState) {
   const queries: Record<string, (args: Record<string, unknown>) => unknown> = {};

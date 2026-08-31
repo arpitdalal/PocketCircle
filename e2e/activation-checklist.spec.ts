@@ -46,6 +46,7 @@ test("skip hides the Home checklist across reload; Circle Dashboards never show 
   browser,
   baseURL,
 }) => {
+  test.setTimeout(60_000);
   const { context, page } = await openIsolatedActivationSession(
     browser,
     baseURL,

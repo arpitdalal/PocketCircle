@@ -32,6 +32,10 @@ export default [
     route("settings", "routes/settings.tsx"),
     route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
+    // MCP client consent (#318). Protected so Google sign-in + onboarding gate
+    // apply; `handoffId` is the Worker-stored continuation (signed token is
+    // loaded from the Worker, not placed in sign-in returnTo).
+    route("mcp/authorize", "routes/mcp-authorize.tsx"),
 
     // Global Add Transaction (issue #298): the protected top-level create
     // route. A STATIC segment above the `circles` prefix — it owns its own URL

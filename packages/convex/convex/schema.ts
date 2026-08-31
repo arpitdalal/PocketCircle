@@ -355,6 +355,8 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("revoked")),
     createdAt: v.number(),
     updatedAt: v.number(),
+    /** Extended atomically when the Worker claims approval, covering code exchange. */
+    activationExpiresAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
@@ -369,8 +371,50 @@ export default defineSchema({
     .index("by_user_client_redirect_and_status", ["userId", "clientId", "redirectUri", "status"])
     .index("by_client_and_status", ["clientId", "status"])
     .index("by_status", ["status"])
+    .index("by_status_and_created", ["status", "createdAt"])
+    .index("by_status_and_activation_expires", ["status", "activationExpiresAt"])
     .index("by_worker_grant", ["workerGrantId"])
     .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
+
+  /**
+   * Single-use bearer material bridging User consent to the Worker's token
+   * exchange (#318). Stored hashed like `invitations.tokenHash`; the plaintext
+   * lives only in the browser→Worker redirect. `handoffId` ties the row back to
+   * the Worker-signed authorization it approved; `consumedAt` makes redemption
+   * atomic under concurrent requests. One durable claim may retry after a lost
+   * response; a different claim remains a consumed-token replay.
+   */
+  mcpApprovalTokens: defineTable({
+    tokenHash: v.string(),
+    handoffId: v.string(),
+    grantId: v.id("mcpGrants"),
+    userId: v.id("users"),
+    principalId: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(v.union(v.literal("pocketcircle:read"), v.literal("pocketcircle:write"))),
+    allowedCircleIds: v.array(v.id("circles")),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    /** Durable Worker completion claim. Exact-claim retries return the same grant. */
+    claimId: v.optional(v.string()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_handoff", ["handoffId"])
+    .index("by_grant", ["grantId"])
+    .index("by_expires", ["expiresAt"]),
+
+  // Replay protection for signed Worker→Convex MCP bridge assertions (#318): one
+  // row per assertion `nonce`, so a captured/replayed request is rejected even
+  // within its short signature-validity window. Cleanup sweeps `by_expires`.
+  mcpWorkerNonces: defineTable({
+    nonce: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_nonce", ["nonce"])
+    .index("by_expires", ["expiresAt"]),
 
   // Durable Account Deletion cleanup state (USR-3 / ADR 0029). Deleted when done.
   accountDeletionJobs: defineTable({

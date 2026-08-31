@@ -1,0 +1,229 @@
+import { AuthorizationError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
+import {
+  MCP_HANDOFF_ID_REGEX,
+  MCP_HANDOFF_TTL_MS,
+  type McpHandoffPayload,
+  signMcpHandoff,
+} from "@pocketcircle/domain";
+import { z } from "zod";
+import { handleClientProvisioning } from "./client-provisioning.js";
+import type { Env } from "./env.js";
+import {
+  completeHandoffAuthorization,
+  denyHandoffAuthorization,
+  loadOrResumeHandoff,
+  storeHandoffAuthRequest,
+} from "./handoff-store.js";
+import { mcpResourceUri, requestOrigin } from "./reachable.js";
+
+function corsHeaders(env: Env) {
+  return {
+    "access-control-allow-origin": env.APP_ORIGIN,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+    "cache-control": "no-store",
+  };
+}
+
+const completeRequestSchema = z.object({
+  approvalToken: z.string().min(1),
+  handoffId: z.string().regex(MCP_HANDOFF_ID_REGEX),
+});
+
+const denyRequestSchema = z.object({
+  handoffId: z.string().regex(MCP_HANDOFF_ID_REGEX),
+});
+
+function jsonResponse(status: number, body: unknown, env: Env) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...corsHeaders(env) },
+  });
+}
+
+function clientKindOf(clientId: string) {
+  return clientId.startsWith("https://") || clientId.startsWith("http://")
+    ? ("cimd" as const)
+    : ("static" as const);
+}
+
+/** Safe OAuth error redirect — only when `redirectUri` was validated by parseAuthRequest. */
+function authorizationErrorRedirect(error: AuthorizationError) {
+  if (!error.redirectUri) {
+    return new Response(error.description, { status: 400 });
+  }
+  const redirect = new URL(error.redirectUri);
+  redirect.searchParams.set("error", error.code);
+  redirect.searchParams.set("error_description", error.description);
+  if (error.state) {
+    redirect.searchParams.set("state", error.state);
+  }
+  if (error.issuer) {
+    redirect.searchParams.set("iss", error.issuer);
+  }
+  return Response.redirect(redirect.toString(), 302);
+}
+
+async function readBody(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return null;
+  }
+  return request.json().catch(() => null);
+}
+
+async function handleAuthorizeStart(request: Request, env: Env) {
+  let authRequest: AuthRequest;
+  try {
+    authRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return authorizationErrorRedirect(error);
+    }
+    throw error;
+  }
+
+  const client = await env.OAUTH_PROVIDER.lookupClient(authRequest.clientId);
+  if (!client) {
+    return authorizationErrorRedirect(
+      new AuthorizationError("access_denied", {
+        description: "Unknown client",
+        redirectUri: authRequest.redirectUri,
+        state: authRequest.state,
+        issuer: authRequest.issuer,
+      }),
+    );
+  }
+
+  const origin = requestOrigin(request);
+  const expectedResource = mcpResourceUri(env, origin);
+  const requestedResource = Array.isArray(authRequest.resource)
+    ? authRequest.resource[0]
+    : authRequest.resource;
+  if (requestedResource && requestedResource !== expectedResource) {
+    return authorizationErrorRedirect(
+      new AuthorizationError("invalid_target", {
+        description: "Unknown or invalid target resource",
+        redirectUri: authRequest.redirectUri,
+        state: authRequest.state,
+        issuer: authRequest.issuer,
+      }),
+    );
+  }
+
+  const handoffId = crypto.randomUUID();
+  const now = Date.now();
+  const payload: McpHandoffPayload = {
+    v: 1,
+    handoffId,
+    clientId: authRequest.clientId,
+    clientKind: clientKindOf(authRequest.clientId),
+    redirectUri: authRequest.redirectUri,
+    resource: requestedResource ?? expectedResource,
+    scopes: authRequest.scope,
+    clientName: client.clientName,
+    clientUri: client.clientUri,
+    logoUri: client.logoUri,
+    iat: now,
+    exp: now + MCP_HANDOFF_TTL_MS,
+  };
+  const handoff = await signMcpHandoff(payload, env.MCP_WORKER_HMAC_SECRET);
+  await storeHandoffAuthRequest(env.HANDOFF_STORE, handoffId, authRequest, handoff);
+
+  const consentUrl = new URL("/mcp/authorize", env.APP_ORIGIN);
+  consentUrl.searchParams.set("handoffId", handoffId);
+  return Response.redirect(consentUrl.toString(), 302);
+}
+
+async function handleLoadHandoff(request: Request, env: Env) {
+  const handoffId = new URL(request.url).searchParams.get("id");
+  if (!handoffId || !MCP_HANDOFF_ID_REGEX.test(handoffId)) {
+    return jsonResponse(400, { error: "missing_handoff_id" }, env);
+  }
+  const result = await loadOrResumeHandoff(env.HANDOFF_STORE, handoffId, requestOrigin(request));
+  if (result.kind === "handoff") {
+    return jsonResponse(200, { handoff: result.handoff }, env);
+  }
+  if (result.kind === "completed") {
+    return jsonResponse(200, { redirectTo: result.redirectTo }, env);
+  }
+  if (result.kind === "failed") {
+    return jsonResponse(result.retryable ? 503 : 400, result, env);
+  }
+  return jsonResponse(400, { error: "handoff_expired_or_replayed" }, env);
+}
+
+async function handleComplete(request: Request, env: Env) {
+  const parsed = completeRequestSchema.safeParse(await readBody(request));
+  if (!parsed.success) {
+    return jsonResponse(400, { error: "missing_authorization_completion" }, env);
+  }
+  const { approvalToken, handoffId } = parsed.data;
+
+  const completion = await completeHandoffAuthorization(
+    env.HANDOFF_STORE,
+    handoffId,
+    approvalToken,
+    requestOrigin(request),
+  );
+  if (completion.kind === "completed") {
+    return jsonResponse(200, { redirectTo: completion.redirectTo }, env);
+  }
+  const error =
+    completion.kind === "expired"
+      ? "handoff_expired_or_replayed"
+      : completion.kind === "failed"
+        ? completion.error
+        : completion.kind;
+  const retryable = completion.kind === "failed" && completion.retryable;
+  return jsonResponse(retryable ? 503 : 400, { error, retryable }, env);
+}
+
+async function handleDeny(request: Request, env: Env) {
+  const parsed = denyRequestSchema.safeParse(await readBody(request));
+  if (!parsed.success) {
+    return jsonResponse(400, { error: "missing_handoff_id" }, env);
+  }
+  const { handoffId } = parsed.data;
+
+  const denied = await denyHandoffAuthorization(env.HANDOFF_STORE, handoffId);
+  if (!denied.ok) {
+    return jsonResponse(400, { error: denied.error }, env);
+  }
+
+  return jsonResponse(200, { redirectTo: denied.redirectTo }, env);
+}
+
+export const defaultHandler = {
+  async fetch(request: Request, env: Env) {
+    const provisioning = await handleClientProvisioning(request, env);
+    if (provisioning) {
+      return provisioning;
+    }
+    const url = new URL(request.url);
+    const browserEndpoint =
+      url.pathname === "/authorize/complete" ||
+      url.pathname === "/authorize/deny" ||
+      url.pathname === "/authorize/handoff";
+    if (browserEndpoint && request.headers.get("origin") !== env.APP_ORIGIN) {
+      return new Response("Forbidden", { status: 403, headers: { "cache-control": "no-store" } });
+    }
+    if (browserEndpoint && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(env) });
+    }
+    if (url.pathname === "/authorize" && request.method === "GET") {
+      return handleAuthorizeStart(request, env);
+    }
+    if (url.pathname === "/authorize/handoff" && request.method === "GET") {
+      return handleLoadHandoff(request, env);
+    }
+    if (url.pathname === "/authorize/complete" && request.method === "POST") {
+      return handleComplete(request, env);
+    }
+    if (url.pathname === "/authorize/deny" && request.method === "POST") {
+      return handleDeny(request, env);
+    }
+    return new Response("Not found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;

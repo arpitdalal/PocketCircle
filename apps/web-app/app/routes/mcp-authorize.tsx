@@ -1,0 +1,394 @@
+import { MCP_HANDOFF_ID_REGEX, MUTATION_ERRORS } from "@pocketcircle/domain";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+import { SkeletonRegion } from "~/components/skeleton.js";
+import { Button } from "~/components/ui/button.js";
+import {
+  type Circle,
+  type McpHandoffView,
+  useApproveMcpAuthorization,
+  useMcpHandoff,
+  useMyCircles,
+} from "~/lib/data.js";
+import { mcpWorkerOrigin } from "~/lib/env.js";
+import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
+
+/**
+ * MCP OAuth consent (#318). Protected layout already enforced Google session +
+ * onboarding. Worker redirects here with `handoffId`; SPA loads the signed
+ * compact token from the Worker (never in the sign-in returnTo). Shows
+ * Worker-signed handoff fields (client label only — not proof of identity),
+ * requested scopes, refresh duration, and Circles the User may select.
+ * Approval token returns to the Worker via POST body, never a URL.
+ */
+/** Load the Worker-stored token by opaque handoff ID. */
+function useHandoffToken() {
+  const [params] = useSearchParams();
+  const handoffId = params.get("handoffId");
+  const validHandoffId = handoffId && MCP_HANDOFF_ID_REGEX.test(handoffId) ? handoffId : null;
+  const workerOrigin = validHandoffId ? mcpWorkerOrigin() : undefined;
+  const [fetched, setFetched] = useState<{ id: string; token: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!validHandoffId || !workerOrigin) {
+      return;
+    }
+    let cancelled = false;
+    void fetchWorkerHandoff(workerOrigin, validHandoffId)
+      .then((result) => {
+        if (!cancelled) {
+          if (result.redirectTo) {
+            window.location.assign(result.redirectTo);
+            return;
+          }
+          setFetched({ id: validHandoffId, token: result.handoff });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFetched({ id: validHandoffId, token: null });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [validHandoffId, workerOrigin]);
+
+  if (!validHandoffId || !workerOrigin) {
+    return null;
+  }
+  if (fetched?.id !== validHandoffId) {
+    return undefined;
+  }
+  return fetched.token;
+}
+
+export default function McpAuthorize() {
+  const handoff = useHandoffToken();
+  const view = useMcpHandoff(handoff ?? null);
+
+  if (typeof window !== "undefined" && window.self !== window.top) {
+    return <ConsentFramed />;
+  }
+  if (handoff === undefined) {
+    return <ConsentLoading />;
+  }
+  if (!handoff) {
+    return <ConsentInvalid />;
+  }
+  if (view === undefined) {
+    return <ConsentLoading />;
+  }
+  if (view === null) {
+    return <ConsentInvalid />;
+  }
+
+  return <ConsentForm handoff={handoff} view={view} />;
+}
+
+function ConsentFramed() {
+  return (
+    <div className="mx-auto max-w-lg space-y-4">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
+      <p role="alert" className="text-sm text-destructive">
+        This authorization page cannot be loaded within a frame.
+      </p>
+    </div>
+  );
+}
+
+function ConsentLoading() {
+  return (
+    <div className="mx-auto max-w-lg space-y-6">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
+      <SkeletonRegion label="Loading authorization request" testId="mcp-authorize-skeleton">
+        <div className="space-y-3">
+          <span className="block h-4 w-48 animate-pulse-soft rounded-md bg-muted" />
+          <span className="block h-3 w-64 animate-pulse-soft rounded-md bg-muted" />
+          <span className="block h-24 w-full animate-pulse-soft rounded-md bg-muted" />
+        </div>
+      </SkeletonRegion>
+    </div>
+  );
+}
+
+function ConsentInvalid() {
+  return (
+    <div className="mx-auto max-w-lg space-y-4">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
+      <p role="alert" className="text-sm text-muted-foreground">
+        {MUTATION_ERRORS.mcpHandoffInvalid.message}
+      </p>
+    </div>
+  );
+}
+
+function scopeLabel(scope: string) {
+  if (scope === "pocketcircle:read") {
+    return "Read your Circles, Transactions, Categories, and reports";
+  }
+  if (scope === "pocketcircle:write") {
+    return "Create and edit Transactions and Categories";
+  }
+  return scope;
+}
+
+/** Load the Worker-stored signed handoff without consuming the AuthRequest. */
+async function fetchWorkerHandoff(workerOrigin: string, handoffId: string) {
+  const url = new URL("/authorize/handoff", workerOrigin);
+  url.searchParams.set("id", handoffId);
+  const response = await fetch(url);
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || typeof payload !== "object" || payload === null) {
+    return { handoff: null, redirectTo: null };
+  }
+  if ("redirectTo" in payload && typeof payload.redirectTo === "string") {
+    return { handoff: null, redirectTo: payload.redirectTo };
+  }
+  if ("handoff" in payload && typeof payload.handoff === "string") {
+    return { handoff: payload.handoff, redirectTo: null };
+  }
+  return { handoff: null, redirectTo: null };
+}
+
+/** POST to Worker authorize endpoints without putting secrets in URLs. */
+async function postWorkerRedirect(workerOrigin: string, path: string, body: unknown) {
+  const response = await fetch(new URL(path, workerOrigin), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    !response.ok ||
+    typeof payload !== "object" ||
+    payload === null ||
+    !("redirectTo" in payload) ||
+    typeof payload.redirectTo !== "string"
+  ) {
+    const retryable =
+      response.status >= 500 ||
+      (typeof payload === "object" &&
+        payload !== null &&
+        "retryable" in payload &&
+        payload.retryable === true);
+    return { redirectTo: null, retryable };
+  }
+  return { redirectTo: payload.redirectTo, retryable: false };
+}
+
+function ConsentForm({ handoff, view }: { handoff: string; view: McpHandoffView }) {
+  const circles = useMyCircles();
+  const approve = useApproveMcpAuthorization();
+  const workerOrigin = mcpWorkerOrigin();
+
+  const [selectedCircleIds, setSelectedCircleIds] = useState<string[]>([]);
+  const [grantedScopes, setGrantedScopes] = useState(() => [...view.scopes]);
+  const [approvalToken, setApprovalToken] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleCircle(id: string) {
+    setSelectedCircleIds((current) =>
+      current.includes(id) ? current.filter((c) => c !== id) : [...current, id],
+    );
+  }
+
+  function toggleScope(scope: string) {
+    setGrantedScopes((current) =>
+      current.includes(scope) ? current.filter((s) => s !== scope) : [...current, scope],
+    );
+  }
+
+  async function handleDeny() {
+    if (submitting || !workerOrigin || approvalToken) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await postWorkerRedirect(workerOrigin, "/authorize/deny", {
+        handoffId: view.handoffId,
+      });
+      if (!result.redirectTo) {
+        setError("Couldn't deny the request. Try again.");
+        return;
+      }
+      window.location.assign(result.redirectTo);
+    } catch {
+      setError("Couldn't reach the authorization server.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleApprove() {
+    if (
+      submitting ||
+      !workerOrigin ||
+      selectedCircleIds.length === 0 ||
+      grantedScopes.length === 0
+    ) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      let token = approvalToken;
+      if (!token) {
+        const approved = await approve({
+          handoff,
+          selectedCircleIds,
+          grantedScopes,
+        });
+        token = approved.approvalToken;
+        setApprovalToken(token);
+      }
+      const result = await postWorkerRedirect(workerOrigin, "/authorize/complete", {
+        approvalToken: token,
+        handoffId: view.handoffId,
+      });
+      if (!result.redirectTo) {
+        if (!result.retryable) {
+          setApprovalToken(null);
+        }
+        setError("Couldn't finish authorization. Try again.");
+        return;
+      }
+      window.location.assign(result.redirectTo);
+    } catch (caught) {
+      setError(mutationErrorMessageForUser(caught, "Couldn't approve this request"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const clientTitle = view.clientName?.trim() || view.clientId;
+  const canApprove =
+    Boolean(workerOrigin) &&
+    selectedCircleIds.length > 0 &&
+    grantedScopes.length > 0 &&
+    !submitting;
+
+  return (
+    <div className="mx-auto max-w-lg space-y-8">
+      <div className="space-y-2">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Authorize access</h1>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{clientTitle}</span> wants to access
+          PocketCircle on your behalf. Client metadata is provided by the app and is not proof of
+          identity — check the client ID below.
+        </p>
+      </div>
+
+      <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-sm font-medium">Requesting app</h2>
+        <dl className="space-y-2 text-sm">
+          <div>
+            <dt className="text-muted-foreground">Client ID</dt>
+            <dd className="break-all font-mono text-xs">{view.clientId}</dd>
+          </div>
+          {view.clientUri ? (
+            <div>
+              <dt className="text-muted-foreground">Homepage</dt>
+              <dd className="break-all">{view.clientUri}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt className="text-muted-foreground">Redirect</dt>
+            <dd className="break-all font-mono text-xs">{view.redirectUri}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Resource</dt>
+            <dd className="break-all font-mono text-xs">{view.resource}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Refresh token lifetime</dt>
+            <dd>{view.refreshDurationLabel}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Permissions</h2>
+        <ul className="space-y-2">
+          {view.scopes.map((scope) => (
+            <li key={scope}>
+              <label className="flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={grantedScopes.includes(scope)}
+                  disabled={approvalToken !== null}
+                  onChange={() => toggleScope(scope)}
+                  className="mt-0.5 size-4 shrink-0 rounded border border-input accent-primary"
+                />
+                <span>
+                  <span className="font-medium">{scope}</span>
+                  <span className="mt-0.5 block text-muted-foreground">{scopeLabel(scope)}</span>
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Circles</h2>
+        <p className="text-sm text-muted-foreground">
+          Choose which Circles this app may access. New Circles you join later are not included
+          automatically.
+        </p>
+        {circles === undefined ? (
+          <SkeletonRegion label="Loading Circles" testId="mcp-circles-skeleton">
+            <span className="block h-16 w-full animate-pulse-soft rounded-md bg-muted" />
+          </SkeletonRegion>
+        ) : circles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">You have no Circles to authorize.</p>
+        ) : (
+          <ul className="space-y-2">
+            {circles.map((circle: Circle) => (
+              <li key={circle.id}>
+                <label className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedCircleIds.includes(circle.id)}
+                    disabled={approvalToken !== null}
+                    onChange={() => toggleCircle(circle.id)}
+                    className="size-4 shrink-0 rounded border border-input accent-primary"
+                  />
+                  <span className="font-medium">{circle.name}</span>
+                  <span className="text-muted-foreground">({circle.kind})</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {!workerOrigin ? (
+        <p role="alert" className="text-sm text-destructive">
+          Authorization server is not configured (missing VITE_MCP_WORKER_ORIGIN).
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-3">
+        <Button type="button" disabled={!canApprove} onClick={() => void handleApprove()}>
+          {submitting ? "Working…" : "Approve"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={submitting || !workerOrigin || approvalToken !== null}
+          onClick={() => void handleDeny()}
+        >
+          Deny
+        </Button>
+      </div>
+    </div>
+  );
+}

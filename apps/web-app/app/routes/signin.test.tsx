@@ -133,6 +133,38 @@ describe("SignIn", () => {
     expect(screen.queryByRole("button", { name: "Continue with Google" })).not.toBeInTheDocument();
   });
 
+  it("redirects an already-signed-in visitor to the returnTo origin", () => {
+    configureConvex({ currentUser: makeCurrentUserView() });
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+
+    const view = renderRoutes(
+      <>
+        <Route path="/signin" element={<SignIn />} />
+        <Route path="/mcp/authorize" element={<div>mcp-consent</div>} />
+      </>,
+      { initialEntries: ["/signin?returnTo=%2Fmcp%2Fauthorize%3FhandoffId%3Dtest-id"] },
+    );
+
+    expect(view.location()).toBe("/mcp/authorize?handoffId=test-id");
+    expect(screen.getByText("mcp-consent")).toBeInTheDocument();
+  });
+
+  it("passes returnTo to signInWithGoogle when starting Google sign-in", async () => {
+    auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+    const user = userEvent.setup();
+
+    renderRoutes(<Route path="/signin" element={<SignIn />} />, {
+      initialEntries: ["/signin?returnTo=%2Fmcp%2Fauthorize%3FhandoffId%3Dtest-id"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Continue with Google" }));
+
+    expect(auth.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/mcp/authorize?handoffId=test-id",
+    });
+  });
+
   it("shows a splash, not the form, while auth is still resolving", () => {
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
 

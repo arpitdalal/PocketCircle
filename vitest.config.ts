@@ -9,6 +9,7 @@ export default defineConfig({
     projects: [
       "packages/domain/vitest.config.ts",
       "packages/convex/vitest.config.ts",
+      "packages/mcp-worker/vitest.config.ts",
       "apps/web-app/vitest.config.ts",
     ],
   },

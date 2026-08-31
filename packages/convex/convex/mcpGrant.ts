@@ -11,6 +11,7 @@
  */
 
 import {
+  MCP_PENDING_GRANT_TTL_MS,
   type McpCirclePermission,
   type McpScope,
   mcpScopesInclude,
@@ -159,6 +160,7 @@ export async function createPendingMcpGrant(ctx: MutationCtx, args: CreatePendin
     status: "pending",
     createdAt: now,
     updatedAt: now,
+    activationExpiresAt: now + MCP_PENDING_GRANT_TTL_MS,
     workerCleanupStatus: "none",
   });
   const grant = await ctx.db.get(grantId);
@@ -361,6 +363,14 @@ export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantA
     return err("invalid_transition");
   }
 
+  const now = args.now ?? Date.now();
+  const activationExpiresAt =
+    grant.activationExpiresAt ?? grant.createdAt + MCP_PENDING_GRANT_TTL_MS;
+  if (activationExpiresAt <= now) {
+    await revokeMcpGrant(ctx, { grantId: grant._id, now });
+    return err("invalid_transition");
+  }
+
   const existingForWorkerGrant = await ctx.db
     .query("mcpGrants")
     .withIndex("by_worker_grant", (q) => q.eq("workerGrantId", workerGrantId))
@@ -376,7 +386,6 @@ export async function activateMcpGrant(ctx: MutationCtx, args: ActivateMcpGrantA
     return err("invalid_transition");
   }
 
-  const now = args.now ?? Date.now();
   await ctx.db.patch(grant._id, {
     status: "active",
     workerGrantId,

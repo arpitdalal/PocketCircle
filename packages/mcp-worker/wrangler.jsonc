@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pocketcircle-mcp-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-11",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  // Custom domain intentionally disabled until #318 is verified end-to-end.
+  "workers_dev": true,
+  // OAuth metadata is derived from the request origin. Preview aliases would
+  // advertise alternate issuers and resources that are not production origins.
+  "preview_urls": false,
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
+  "kv_namespaces": [
+    // Production deploy.yml substitutes MCP_OAUTH_KV_NAMESPACE_ID. Local wrangler
+    // dev / vitest provision a namespace from this binding without Cloudflare.
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]
+  },
+  "migrations": [{ "tag": "v1-handoff-store", "new_sqlite_classes": ["HandoffStore"] }],
+  "vars": {
+    "APP_ORIGIN": "https://pocketcircle.app",
+    // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a
+    // *.convex.site host — Convex assigns the deployment subdomain.
+    "CONVEX_SITE_URL": "https://placeholder.convex.site"
+  }
+}

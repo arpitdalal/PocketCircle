@@ -21,6 +21,12 @@ dist/
 # scripts/e2e-local.sh moves .env.local aside under this name while the
 # self-hosted backend runs; it may hold cloud deploy config — never commit it.
 .env.local.e2e-local-bak
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Wrangler local state (packages/mcp-worker, root asset Worker)
+.wrangler/
 
 # Test artifacts
 coverage/
