@@ -17,7 +17,12 @@ import { internal } from "./_generated/api.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
 import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
-import { activateMcpGrant, authorizeMcpGrant, revokeMcpGrant } from "./mcpGrant.js";
+import {
+  activateMcpGrant,
+  authorizeMcpGrant,
+  recordMcpGrantUse,
+  revokeMcpGrant,
+} from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import { listAuthorizedCirclesForGrant, toMcpCurrentUserView } from "./operations.js";
 
@@ -180,7 +185,7 @@ export const validateActiveGrant = internalQuery({
   },
 });
 
-export const executeMcpReadOperation = internalQuery({
+export const executeMcpReadOperation = internalMutation({
   args: {
     grantId: v.string(),
     effectiveScopes: v.array(v.string()),
@@ -199,6 +204,8 @@ export const executeMcpReadOperation = internalQuery({
       return { ok: false as const, error: authz.denial.kind, denial: authz.denial };
     }
     const { grant, user } = authz.value;
+
+    await recordMcpGrantUse(ctx, { grantId: grant._id });
 
     if (args.operation.kind === "get_current_user") {
       return {

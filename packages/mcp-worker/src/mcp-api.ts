@@ -1,4 +1,9 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import {
+  bearerAuthChallengeResponse,
+  McpServer,
+  OAuthError,
+  OAuthErrorCode,
+} from "@modelcontextprotocol/server";
 import {
   type McpReadOperation,
   mcpCircleViewSchema,
@@ -157,11 +162,31 @@ export function createMcpApiHandler(env: Env) {
   }
 
   const mcpHandler = createMcpHandler((mcpContext) => buildMcpServer(env, mcpContext.requestInfo), {
+    legacy: "reject",
     allowedHostnames: Array.from(allowedHostnames),
     allowedOriginHostnames: Array.from(allowedOriginHostnames),
   });
 
   return {
-    fetch: mcpHandler,
+    fetch: async (request: Request, envArg: Env, ctx: ExecutionContext) => {
+      const mcpMethod = request.headers.get("mcp-method");
+      const mcpName = request.headers.get("mcp-name");
+      if (
+        mcpMethod === "tools/call" &&
+        (mcpName === "get_current_user" || mcpName === "list_authorized_circles")
+      ) {
+        const caller = await resolveAuthorizedCaller(env, request);
+        if (caller.ok && !caller.value.effectiveScopes.includes("pocketcircle:read")) {
+          return bearerAuthChallengeResponse(
+            new OAuthError(
+              OAuthErrorCode.InsufficientScope,
+              "The access token does not have required scope pocketcircle:read",
+            ),
+            { requiredScopes: ["pocketcircle:read"] },
+          );
+        }
+      }
+      return mcpHandler(request, envArg, ctx);
+    },
   } satisfies ExportedHandler<Env>;
 }

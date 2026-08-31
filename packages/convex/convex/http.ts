@@ -134,7 +134,7 @@ workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, bo
 );
 
 workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) =>
-  ctx.runQuery(internal.mcpApproval.executeMcpReadOperation, body),
+  ctx.runMutation(internal.mcpApproval.executeMcpReadOperation, body),
 );
 
 export default http;

@@ -1,6 +1,5 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { mcpOperationBodySchema, verifyMcpHandoff } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
@@ -995,39 +994,61 @@ describe("MCP tools execution", () => {
     return { accessToken: tokenJson.access_token, grantId, principalId };
   }
 
-  async function connectMcpClient(accessToken: string) {
-    const client = new Client({ name: "pocketcircle-test-client", version: "1.0.0" });
-    const transport = new StreamableHTTPClientTransport(
-      new URL("https://mcp.pocketcircle.app/mcp"),
-      {
-        fetch: (url, init) => {
-          const headers = new Headers(init?.headers);
-          if (!headers.has("host")) {
-            headers.set("host", "mcp.pocketcircle.app");
-          }
-          if (!headers.has("authorization")) {
-            headers.set("authorization", `Bearer ${accessToken}`);
-          }
-          return SELF.fetch(url, { ...init, headers });
+  async function sendMcpRequest(
+    accessToken: string,
+    body: {
+      id?: number | string;
+      method: string;
+      params?: Record<string, unknown>;
+    },
+  ) {
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": body.method,
+    });
+    if (body.params?.name && typeof body.params.name === "string") {
+      headers.set("mcp-name", body.params.name);
+    }
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id ?? 1,
+        method: body.method,
+        params: {
+          ...body.params,
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
         },
-      },
-    );
-    await client.connect(transport);
-    return client;
+      }),
+    });
+    return res;
   }
 
   it("lists get_current_user and list_authorized_circles tools", async () => {
     const { accessToken } = await obtainAccessToken();
-    const client = await connectMcpClient(accessToken);
-
-    const result = await client.listTools();
-    expect(result.tools).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "get_current_user" }),
-        expect.objectContaining({ name: "list_authorized_circles" }),
-      ]),
-    );
-    await client.close();
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/list",
+      params: {},
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        tools: [
+          expect.objectContaining({ name: "get_current_user" }),
+          expect.objectContaining({ name: "list_authorized_circles" }),
+        ],
+      },
+    });
   });
 
   it("calls get_current_user and returns safe user identity", async () => {
@@ -1054,21 +1075,26 @@ describe("MCP tools execution", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const client = await connectMcpClient(accessToken);
-    const result = await client.callTool({
-      name: "get_current_user",
-      arguments: {},
-    });
-
-    expect(result).toMatchObject({
-      structuredContent: {
-        id: "user_123",
-        displayName: "Ada Lovelace",
-        image: null,
-        createdAt: 1700000000000,
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_current_user",
+        arguments: {},
       },
     });
-    await client.close();
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          id: "user_123",
+          displayName: "Ada Lovelace",
+          image: null,
+          createdAt: 1700000000000,
+        },
+      },
+    });
   });
 
   it("calls list_authorized_circles and returns authorized circles", async () => {
@@ -1119,33 +1145,58 @@ describe("MCP tools execution", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const client = await connectMcpClient(accessToken);
-    const result = await client.callTool({
-      name: "list_authorized_circles",
-      arguments: {},
-    });
-
-    expect(result).toMatchObject({
-      structuredContent: {
-        circles: [
-          expect.objectContaining({
-            id: "circle_1",
-            ref: "my-home-circle_1",
-            name: "My Home",
-            kind: "personal",
-            isOwner: true,
-          }),
-          expect.objectContaining({
-            id: "circle_2",
-            ref: "trip-circle_2",
-            name: "Trip",
-            kind: "regular",
-            isOwner: false,
-          }),
-        ],
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "list_authorized_circles",
+        arguments: {},
       },
     });
-    await client.close();
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          circles: [
+            expect.objectContaining({
+              id: "circle_1",
+              ref: "my-home-circle_1",
+              name: "My Home",
+              kind: "personal",
+              isOwner: true,
+            }),
+            expect.objectContaining({
+              id: "circle_2",
+              ref: "trip-circle_2",
+              name: "Trip",
+              kind: "regular",
+              isOwner: false,
+            }),
+          ],
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_current_user",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:read"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
+    });
   });
 
   it("returns a tool error when bridge operation fails", async () => {
@@ -1164,21 +1215,26 @@ describe("MCP tools execution", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
-    const client = await connectMcpClient(accessToken);
-    const result = await client.callTool({
-      name: "get_current_user",
-      arguments: {},
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_current_user",
+        arguments: {},
+      },
     });
-
-    expect(result).toMatchObject({
-      isError: true,
-      content: [
-        expect.objectContaining({
-          type: "text",
-          text: expect.stringContaining("PocketCircle error: insufficient_scope"),
-        }),
-      ],
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        isError: true,
+        content: [
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("PocketCircle error: insufficient_scope"),
+          }),
+        ],
+      },
     });
-    await client.close();
   });
 });

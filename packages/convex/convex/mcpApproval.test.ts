@@ -931,6 +931,12 @@ describe("MCP Worker bridge HTTP routes", () => {
         ],
       },
     });
+
+    await t.run(async (ctx) => {
+      const updatedGrant = await ctx.db.get(grant._id);
+      expect(updatedGrant?.lastUsedAt).toBeTypeOf("number");
+      expect(updatedGrant?.lastUsedAt).toBeGreaterThan(0);
+    });
   });
 
   it("/mcp/operation rejects insufficient scope or inactive grant", async () => {
