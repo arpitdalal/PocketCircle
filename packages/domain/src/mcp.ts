@@ -52,7 +52,7 @@ export const mcpCircleViewSchema = z.object({
   id: z.string(),
   ref: z.string(),
   name: z.string(),
-  kind: z.enum(["personal", "shared"]),
+  kind: z.enum(["personal", "regular"]),
   currency: z.string(),
   color: z.string(),
   mark: z.string(),

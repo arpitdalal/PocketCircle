@@ -357,6 +357,7 @@ describe("MCP view and operation adapters", () => {
       expect(result.map((c) => c.id)).not.toContain(tripTwoId);
       expect(result[0]?.kind).toBe("personal");
       expect(result[0]?.isOwner).toBe(true);
+      expect(result[1]?.kind).toBe("regular");
       expect(result[1]?.isOwner).toBe(true);
 
       // Grace's grant only has sharedId
