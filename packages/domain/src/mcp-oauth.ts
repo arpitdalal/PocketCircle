@@ -199,7 +199,7 @@ const mcpWorkerAssertionPayloadSchema = z
   .object({
     aud: z.literal("pocketcircle:mcp-worker"),
     method: z.literal("POST"),
-    path: z.string().regex(/^\/mcp\/(redeem-approval|activate-grant|validate-grant)$/),
+    path: z.string().regex(/^\/mcp\/(redeem-approval|activate-grant|validate-grant|operation)$/),
     bodySha256: z.string().regex(/^[0-9a-f]{64}$/),
     iat: z.number().int().nonnegative(),
     exp: z.number().int().nonnegative(),

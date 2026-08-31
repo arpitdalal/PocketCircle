@@ -36,6 +36,11 @@ test.describe("local MCP OAuth", () => {
       throw new Error("Missing local MCP E2E configuration");
     }
 
+    const metadataRes = await request.get(
+      `${WORKER_ORIGIN}/.well-known/oauth-authorization-server`,
+    );
+    expect(metadataRes.status()).toBe(200);
+
     const provision = await request.post(`${WORKER_ORIGIN}/admin/oauth/clients`, {
       headers: { authorization: `Bearer ${PROVISIONING_TOKEN}` },
       data: {
@@ -109,7 +114,105 @@ test.describe("local MCP OAuth", () => {
         resource,
       },
     });
-    expect(refreshed.status()).toBe(200);
-    expect(requiredString(await refreshed.json(), "access_token")).not.toBe(accessToken);
+    const refreshedTokens: unknown = await refreshed.json();
+    const activeAccessToken = requiredString(refreshedTokens, "access_token");
+    expect(activeAccessToken).not.toBe(accessToken);
+
+    const mcpHeaders = {
+      authorization: `Bearer ${activeAccessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    };
+
+    const listToolsRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
+      headers: mcpHeaders,
+      data: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      },
+    });
+    expect(listToolsRes.status()).toBe(200);
+    const listToolsBody: unknown = await listToolsRes.json();
+    expect(listToolsBody).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        tools: [
+          expect.objectContaining({ name: "get_current_user" }),
+          expect.objectContaining({ name: "list_authorized_circles" }),
+        ],
+      },
+    });
+
+    const userToolRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
+      headers: mcpHeaders,
+      data: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "get_current_user",
+          arguments: {},
+        },
+      },
+    });
+    expect(userToolRes.status()).toBe(200);
+    const userToolBody: unknown = await userToolRes.json();
+    expect(userToolBody).toMatchObject({
+      jsonrpc: "2.0",
+      id: 2,
+      result: {
+        structuredContent: {
+          id: expect.any(String),
+          displayName: expect.any(String),
+        },
+      },
+    });
+    if (
+      typeof userToolBody === "object" &&
+      userToolBody !== null &&
+      "result" in userToolBody &&
+      typeof userToolBody.result === "object" &&
+      userToolBody.result !== null &&
+      "structuredContent" in userToolBody.result &&
+      typeof userToolBody.result.structuredContent === "object" &&
+      userToolBody.result.structuredContent !== null
+    ) {
+      expect("email" in userToolBody.result.structuredContent).toBe(false);
+    } else {
+      throw new Error("Missing structuredContent in user tool response");
+    }
+
+    const circlesToolRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
+      headers: mcpHeaders,
+      data: {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "list_authorized_circles",
+          arguments: {},
+        },
+      },
+    });
+    expect(circlesToolRes.status()).toBe(200);
+    const circlesToolBody: unknown = await circlesToolRes.json();
+    expect(circlesToolBody).toMatchObject({
+      jsonrpc: "2.0",
+      id: 3,
+      result: {
+        structuredContent: {
+          circles: expect.arrayContaining([
+            expect.objectContaining({
+              id: expect.any(String),
+              ref: expect.any(String),
+              name: expect.any(String),
+            }),
+          ]),
+        },
+      },
+    });
   });
 });

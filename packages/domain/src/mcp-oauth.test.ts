@@ -176,6 +176,16 @@ describe("MCP Worker assertion sign/verify", () => {
     }
   });
 
+  it("accepts /mcp/operation and rejects unknown bridge paths", async () => {
+    const validOp = assertionPayload({ path: "/mcp/operation" });
+    const validToken = await signMcpWorkerAssertion(validOp, privateJwk());
+    expect(await verifyMcpWorkerAssertion(validToken, publicJwks())).toEqual(validOp);
+
+    const invalidPath = { ...assertionPayload(), path: "/mcp/unknown" };
+    const invalidToken = await signMcpWorkerAssertion(invalidPath, privateJwk());
+    expect(await verifyMcpWorkerAssertion(invalidToken, publicJwks())).toBeNull();
+  });
+
   it("rejects a wrong audience", async () => {
     const token = await signMcpWorkerAssertion(
       // @ts-expect-error intentionally invalid payload for the negative test

@@ -51,6 +51,16 @@ export function toCurrentUserView(user: Doc<"users">) {
   };
 }
 
+/** Safe granted-User view for MCP (#319, omitting UI bookkeeping and email). */
+export function toMcpCurrentUserView(user: Doc<"users">) {
+  return {
+    id: user._id,
+    displayName: user.displayName,
+    image: user.image ?? null,
+    createdAt: user.createdAt,
+  };
+}
+
 /** A Circle plus its canonical ref, shaped for the client. */
 export function toCircleView(circle: Doc<"circles">) {
   return {
@@ -69,36 +79,81 @@ export function toCircleView(circle: Doc<"circles">) {
   };
 }
 
+/** An authorized Circle shaped for MCP consumers (#319). */
+export function toMcpCircleView(circle: Doc<"circles">, isOwner: boolean) {
+  return {
+    id: circle._id,
+    ref: buildRef(circle.name, circle._id),
+    name: circle.name,
+    kind: circle.kind,
+    currency: circle.currency,
+    color: circle.color,
+    mark: circle.mark,
+    status: circle.status,
+    setupComplete: circle.setupCompletedAt !== null,
+    currencyLocked: circle.currencyLocked,
+    isOwner,
+  };
+}
+
+function compareCirclesPersonalFirst(a: Doc<"circles">, b: Doc<"circles">) {
+  if (a.kind !== b.kind) {
+    return a.kind === "personal" ? -1 : 1;
+  }
+  return a.createdAt - b.createdAt;
+}
+
 /**
- * Circles the User is an active Member of (Circle Visibility): Personal Circle
- * first, then by creation time. Includes Archived Circles; excludes removed
- * memberships and missing Circles (missing ≡ inaccessible, not an error).
+ * Active Circle memberships with their loaded Circles for an active User.
+ * Personal Circle first, then by creation time. Excludes inactive memberships
+ * and missing Circles.
  */
-export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
+async function listActiveMembershipsWithCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
   const memberships = await ctx.db
     .query("members")
     .withIndex("by_user", (q) => q.eq("userId", user._id))
     .collect();
 
-  const circles: Doc<"circles">[] = [];
+  const entries: { membership: Doc<"members">; circle: Doc<"circles"> }[] = [];
   for (const membership of memberships) {
     if (membership.status !== "active") {
       continue;
     }
     const circle = await ctx.db.get(membership.circleId);
     if (circle) {
-      circles.push(circle);
+      entries.push({ membership, circle });
     }
   }
 
-  circles.sort((a, b) => {
-    if (a.kind !== b.kind) {
-      return a.kind === "personal" ? -1 : 1;
-    }
-    return a.createdAt - b.createdAt;
-  });
+  entries.sort((a, b) => compareCirclesPersonalFirst(a.circle, b.circle));
+  return entries;
+}
 
-  return circles.map(toCircleView);
+/**
+ * Circles the User is an active Member of (Circle Visibility): Personal Circle
+ * first, then by creation time. Includes Archived Circles; excludes removed
+ * memberships and missing Circles (missing ≡ inaccessible, not an error).
+ */
+export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
+  const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
+  return entries.map((entry) => toCircleView(entry.circle));
+}
+
+/**
+ * Circles the User is an active Member of AND that are permitted by the MCP grant.
+ * Personal Circle first, then by creation time (#319).
+ */
+export async function listAuthorizedCirclesForGrant(
+  ctx: OperationReader,
+  grant: Doc<"mcpGrants">,
+  user: Doc<"users">,
+) {
+  const allowedSet = new Set(grant.allowedCircleIds);
+  const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
+
+  return entries
+    .filter((entry) => allowedSet.has(entry.circle._id))
+    .map((entry) => toMcpCircleView(entry.circle, entry.membership.role === "owner"));
 }
 
 /**

@@ -1,5 +1,6 @@
 import {
   MCP_WORKER_ASSERTION_TTL_MS,
+  type McpOperationBody,
   type McpWorkerAssertionPayload,
   parseMcpWorkerPrivateJwk,
   sha256Hex,
@@ -175,4 +176,37 @@ export function validateGrant(
   args: { grantId: string; principalId: string; requestedScopes: readonly string[] },
 ) {
   return callSimpleBridgeEndpoint(env, "/mcp/validate-grant", args);
+}
+
+const operationResponseSchema = z.union([
+  z.object({ ok: z.literal(true), value: z.unknown() }),
+  failureSchema,
+]);
+
+export async function executeMcpOperation<T>(
+  env: Env,
+  args: McpOperationBody,
+  schema: z.ZodType<T>,
+) {
+  try {
+    const response = await signedConvexFetch(env, "/mcp/operation", args);
+    const parsed = operationResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return { ok: false, error: "operation_bad_response", retryable: true };
+    }
+    if (!response.ok) {
+      const error = parsed.data.ok ? "operation_http_error" : parsed.data.error;
+      return bridgeFailure(response, error, "operation_unavailable", !parsed.data.ok);
+    }
+    if (!parsed.data.ok) {
+      return { ok: false, error: parsed.data.error, retryable: false };
+    }
+    const parsedValue = schema.safeParse(parsed.data.value);
+    if (!parsedValue.success) {
+      return { ok: false, error: "operation_bad_payload", retryable: false };
+    }
+    return { ok: true, value: parsedValue.data };
+  } catch {
+    return { ok: false, error: "operation_request_failed", retryable: true };
+  }
 }

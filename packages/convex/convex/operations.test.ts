@@ -5,9 +5,11 @@ import { seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import {
   getCircleForUser,
+  listAuthorizedCirclesForGrant,
   listMyCirclesForUser,
   resolveUserById,
   toCurrentUserView,
+  toMcpCurrentUserView,
 } from "./operations.js";
 import schema from "./schema.js";
 
@@ -288,5 +290,98 @@ describe("resolveUserById + ops without a browser session", () => {
 
     await expect(t.query(api.circles.listMyCircles, {})).rejects.toThrow("Not authenticated");
     expect(await t.query(api.users.getCurrentUser, {})).toBeNull();
+  });
+});
+
+describe("MCP view and operation adapters", () => {
+  it("toMcpCurrentUserView omits email and UI bookkeeping fields", async () => {
+    const t = convexTest(schema, modules);
+    const { owner } = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada Lovelace",
+        onboarded: true,
+      }),
+    );
+
+    const mcpUser = toMcpCurrentUserView(owner);
+    expect(mcpUser).toEqual({
+      id: owner._id,
+      displayName: "Ada Lovelace",
+      image: null,
+      createdAt: owner.createdAt,
+    });
+    expect("email" in mcpUser).toBe(false);
+    expect("onboardingComplete" in mcpUser).toBe(false);
+    expect("analyticsEnabled" in mcpUser).toBe(false);
+    expect("acknowledgedFeatureAnnouncementIds" in mcpUser).toBe(false);
+  });
+
+  it("listAuthorizedCirclesForGrant returns only allowed and active circles in deterministic order", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, grace, sharedId } = await seedOverlappingUsers(t);
+
+    const tripTwoId = (
+      await t.run((ctx) =>
+        seedOwnedCircle(ctx, ada.owner, {
+          name: "Second Trip",
+          setupCompletedAt: Date.now(),
+          createdAt: Date.now() + 10,
+        }),
+      )
+    ).circleId;
+
+    await t.run(async (ctx) => {
+      // Grant includes personalCircleId and sharedId, but NOT tripTwoId.
+      const grantId = await ctx.db.insert("mcpGrants", {
+        userId: ada.owner._id,
+        principalId: "p1",
+        clientId: "client1",
+        clientKind: "static",
+        redirectUri: "https://example.com",
+        clientDisplaySnapshot: {},
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [ada.personalCircleId, sharedId],
+        status: "active",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        workerCleanupStatus: "none",
+      });
+      const mockGrant = await ctx.db.get(grantId);
+      if (!mockGrant) {
+        throw new Error("Missing seeded grant");
+      }
+
+      const result = await listAuthorizedCirclesForGrant(ctx, mockGrant, ada.owner);
+      expect(result.map((c) => c.id)).toEqual([ada.personalCircleId, sharedId]);
+      expect(result.map((c) => c.id)).not.toContain(tripTwoId);
+      expect(result[0]?.kind).toBe("personal");
+      expect(result[0]?.isOwner).toBe(true);
+      expect(result[1]?.kind).toBe("regular");
+      expect(result[1]?.isOwner).toBe(true);
+
+      // Grace's grant only has sharedId
+      const graceGrantId = await ctx.db.insert("mcpGrants", {
+        userId: grace.owner._id,
+        principalId: "p2",
+        clientId: "client1",
+        clientKind: "static",
+        redirectUri: "https://example.com",
+        clientDisplaySnapshot: {},
+        scopes: ["pocketcircle:read"],
+        allowedCircleIds: [sharedId],
+        status: "active",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        workerCleanupStatus: "none",
+      });
+      const graceGrant = await ctx.db.get(graceGrantId);
+      if (!graceGrant) {
+        throw new Error("Missing grace grant");
+      }
+      const graceResult = await listAuthorizedCirclesForGrant(ctx, graceGrant, grace.owner);
+      expect(graceResult.map((c) => c.id)).toEqual([sharedId]);
+      expect(graceResult[0]?.isOwner).toBe(false);
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
-import { verifyMcpHandoff } from "@pocketcircle/domain";
+import { mcpOperationBodySchema, verifyMcpHandoff } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
 import { createMcpApiHandler } from "./mcp-api.js";
@@ -103,6 +103,7 @@ function stubConvexFetch(handler: (path: string, body: unknown) => Response | Pr
         "/mcp/redeem-approval",
         "/mcp/activate-grant",
         "/mcp/validate-grant",
+        "/mcp/operation",
       ]) {
         if (url.includes(endpoint)) {
           return handler(endpoint, body);
@@ -921,5 +922,389 @@ describe("authorization handoff", () => {
     });
     expect(complete.status).toBe(400);
     expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });
+  });
+});
+
+describe("MCP tools execution", () => {
+  async function obtainAccessToken(scopes = ["pocketcircle:read"]) {
+    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`);
+    const principalId = `principal-${Math.random()}`;
+    const grantId = `grant-${Math.random()}`;
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId,
+            principalId,
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes,
+            allowedCircleIds: ["circle_1"],
+            handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
+    });
+    const completed: unknown = await complete.json();
+    if (
+      typeof completed !== "object" ||
+      completed === null ||
+      !("redirectTo" in completed) ||
+      typeof completed.redirectTo !== "string"
+    ) {
+      throw new Error("missing authorization redirect");
+    }
+    const code = new URL(completed.redirectTo).searchParams.get("code") ?? "";
+
+    const tokenResponse = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        resource: RESOURCE,
+      }),
+    });
+    expect(tokenResponse.status).toBe(200);
+    const tokenJson: unknown = await tokenResponse.json();
+    if (
+      typeof tokenJson !== "object" ||
+      tokenJson === null ||
+      !("access_token" in tokenJson) ||
+      typeof tokenJson.access_token !== "string"
+    ) {
+      throw new Error("missing access token");
+    }
+    return { accessToken: tokenJson.access_token, grantId, principalId };
+  }
+
+  async function sendMcpRequest(
+    accessToken: string,
+    body: {
+      id?: number | string;
+      method: string;
+      params?: Record<string, unknown>;
+    },
+  ) {
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": body.method,
+    });
+    if (body.params?.name && typeof body.params.name === "string") {
+      headers.set("mcp-name", body.params.name);
+    }
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id ?? 1,
+        method: body.method,
+        params: {
+          ...body.params,
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    return res;
+  }
+
+  it("lists get_current_user and list_authorized_circles tools", async () => {
+    const { accessToken } = await obtainAccessToken();
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/list",
+      params: {},
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        tools: [
+          expect.objectContaining({ name: "get_current_user" }),
+          expect.objectContaining({ name: "list_authorized_circles" }),
+        ],
+      },
+    });
+  });
+
+  it("calls get_current_user and returns safe user identity", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("get_current_user");
+        return Response.json({
+          ok: true,
+          value: {
+            id: "user_123",
+            displayName: "Ada Lovelace",
+            image: null,
+            createdAt: 1700000000000,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_current_user",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          id: "user_123",
+          displayName: "Ada Lovelace",
+          image: null,
+          createdAt: 1700000000000,
+        },
+      },
+    });
+  });
+
+  it("calls list_authorized_circles and returns authorized circles", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("list_authorized_circles");
+        return Response.json({
+          ok: true,
+          value: {
+            circles: [
+              {
+                id: "circle_1",
+                ref: "my-home-circle_1",
+                name: "My Home",
+                kind: "personal",
+                currency: "USD",
+                color: "sage",
+                mark: "home",
+                status: "active",
+                setupComplete: true,
+                currencyLocked: true,
+                isOwner: true,
+              },
+              {
+                id: "circle_2",
+                ref: "trip-circle_2",
+                name: "Trip",
+                kind: "regular",
+                currency: "EUR",
+                color: "ocean",
+                mark: "plane",
+                status: "active",
+                setupComplete: true,
+                currencyLocked: false,
+                isOwner: false,
+              },
+            ],
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "list_authorized_circles",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          circles: [
+            expect.objectContaining({
+              id: "circle_1",
+              ref: "my-home-circle_1",
+              name: "My Home",
+              kind: "personal",
+              isOwner: true,
+            }),
+            expect.objectContaining({
+              id: "circle_2",
+              ref: "trip-circle_2",
+              name: "Trip",
+              kind: "regular",
+              isOwner: false,
+            }),
+          ],
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read (body-only JSON-RPC request)", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+    });
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "get_current_user",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:read"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:read (header-mirrored request)", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "list_authorized_circles",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:read"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
+    });
+  });
+
+  it("does not emit 403 scope challenge when mirrored headers mismatch the body", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/call",
+      "mcp-name": "get_current_user", // Mismatched header naming a read tool
+    });
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "other_tool", // Body names a non-read tool
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    // Header mismatch should be rejected with 400 Bad Request by the MCP handler, not 403
+    expect(res.status).toBe(400);
+  });
+
+  it("returns a tool error when bridge operation fails", async () => {
+    const { accessToken } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/operation") {
+        return Response.json(
+          {
+            ok: false,
+            error: "insufficient_scope",
+          },
+          { status: 400 },
+        );
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_current_user",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        isError: true,
+        content: [
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("PocketCircle error: insufficient_scope"),
+          }),
+        ],
+      },
+    });
   });
 });
