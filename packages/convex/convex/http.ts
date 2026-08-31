@@ -1,4 +1,4 @@
-import { sha256Hex, verifyMcpWorkerAssertion } from "@pocketcircle/domain";
+import { mcpOperationBodySchema, sha256Hex, verifyMcpWorkerAssertion } from "@pocketcircle/domain";
 import { httpRouter } from "convex/server";
 import { z } from "zod";
 import { internal } from "./_generated/api.js";
@@ -131,6 +131,10 @@ workerBridgeRoute("/mcp/activate-grant", activateGrantBodySchema, async (ctx, bo
 
 workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, body) =>
   ctx.runQuery(internal.mcpApproval.validateActiveGrant, body),
+);
+
+workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) =>
+  ctx.runQuery(internal.mcpApproval.executeMcpReadOperation, body),
 );
 
 export default http;

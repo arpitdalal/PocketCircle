@@ -17,8 +17,9 @@ import { internal } from "./_generated/api.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
 import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
-import { activateMcpGrant, revokeMcpGrant } from "./mcpGrant.js";
+import { activateMcpGrant, authorizeMcpGrant, revokeMcpGrant } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
+import { listAuthorizedCirclesForGrant, toMcpCurrentUserView } from "./operations.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
 
@@ -176,6 +177,45 @@ export const validateActiveGrant = internalQuery({
         allowedCircleIds: grant.allowedCircleIds,
       },
     };
+  },
+});
+
+export const executeMcpReadOperation = internalQuery({
+  args: {
+    grantId: v.string(),
+    effectiveScopes: v.array(v.string()),
+    operation: v.union(
+      v.object({ kind: v.literal("get_current_user") }),
+      v.object({ kind: v.literal("list_authorized_circles") }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const authz = await authorizeMcpGrant(ctx, {
+      grantId: args.grantId,
+      effectiveScopes: args.effectiveScopes,
+      requiredScope: "pocketcircle:read",
+    });
+    if (!authz.ok) {
+      return { ok: false as const, error: authz.denial.kind, denial: authz.denial };
+    }
+    const { grant, user } = authz.value;
+
+    if (args.operation.kind === "get_current_user") {
+      return {
+        ok: true as const,
+        value: toMcpCurrentUserView(user),
+      };
+    }
+
+    if (args.operation.kind === "list_authorized_circles") {
+      const circles = await listAuthorizedCirclesForGrant(ctx, grant, user);
+      return {
+        ok: true as const,
+        value: { circles },
+      };
+    }
+
+    return { ok: false as const, error: "invalid_operation" as const };
   },
 });
 

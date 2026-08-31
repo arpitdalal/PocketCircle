@@ -51,6 +51,16 @@ export function toCurrentUserView(user: Doc<"users">) {
   };
 }
 
+/** Safe granted-User view for MCP (#319, omitting UI bookkeeping and email). */
+export function toMcpCurrentUserView(user: Doc<"users">) {
+  return {
+    id: user._id,
+    displayName: user.displayName,
+    image: user.image ?? null,
+    createdAt: user.createdAt,
+  };
+}
+
 /** A Circle plus its canonical ref, shaped for the client. */
 export function toCircleView(circle: Doc<"circles">) {
   return {
@@ -67,6 +77,30 @@ export function toCircleView(circle: Doc<"circles">) {
     currencyLocked: circle.currencyLocked,
     nameCustomized: circle.personalNameCustomizedAt !== undefined,
   };
+}
+
+/** An authorized Circle shaped for MCP consumers (#319). */
+export function toMcpCircleView(circle: Doc<"circles">, isOwner: boolean) {
+  return {
+    id: circle._id,
+    ref: buildRef(circle.name, circle._id),
+    name: circle.name,
+    kind: circle.kind,
+    currency: circle.currency,
+    color: circle.color,
+    mark: circle.mark,
+    status: circle.status,
+    setupComplete: circle.setupCompletedAt !== null,
+    currencyLocked: circle.currencyLocked,
+    isOwner,
+  };
+}
+
+function compareCirclesPersonalFirst(a: Doc<"circles">, b: Doc<"circles">) {
+  if (a.kind !== b.kind) {
+    return a.kind === "personal" ? -1 : 1;
+  }
+  return a.createdAt - b.createdAt;
 }
 
 /**
@@ -91,14 +125,43 @@ export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"user
     }
   }
 
-  circles.sort((a, b) => {
-    if (a.kind !== b.kind) {
-      return a.kind === "personal" ? -1 : 1;
-    }
-    return a.createdAt - b.createdAt;
-  });
+  circles.sort(compareCirclesPersonalFirst);
 
   return circles.map(toCircleView);
+}
+
+/**
+ * Circles the User is an active Member of AND that are permitted by the MCP grant.
+ * Personal Circle first, then by creation time (#319).
+ */
+export async function listAuthorizedCirclesForGrant(
+  ctx: OperationReader,
+  grant: Doc<"mcpGrants">,
+  user: Doc<"users">,
+) {
+  const allowedSet = new Set(grant.allowedCircleIds);
+  const memberships = await ctx.db
+    .query("members")
+    .withIndex("by_user", (q) => q.eq("userId", user._id))
+    .collect();
+
+  const entries: { circle: Doc<"circles">; isOwner: boolean }[] = [];
+  for (const membership of memberships) {
+    if (membership.status !== "active" || !allowedSet.has(membership.circleId)) {
+      continue;
+    }
+    const circle = await ctx.db.get(membership.circleId);
+    if (circle) {
+      entries.push({
+        circle,
+        isOwner: membership.role === "owner",
+      });
+    }
+  }
+
+  entries.sort((a, b) => compareCirclesPersonalFirst(a.circle, b.circle));
+
+  return entries.map((entry) => toMcpCircleView(entry.circle, entry.isOwner));
 }
 
 /**

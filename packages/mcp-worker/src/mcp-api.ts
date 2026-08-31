@@ -1,6 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/server";
+import {
+  type McpReadOperation,
+  mcpCircleViewSchema,
+  mcpCurrentUserViewSchema,
+} from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
+import { z } from "zod";
+import { executeMcpOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
+import { pocketCircleOAuthApi } from "./oauth-options.js";
 
 function hostnameOf(urlString: string | undefined) {
   if (!urlString) {
@@ -11,6 +19,123 @@ function hostnameOf(urlString: string | undefined) {
   } catch {
     return null;
   }
+}
+
+const grantPropsSchema = z.object({ mcpGrantId: z.string().min(1) });
+
+async function resolveAuthorizedCaller(env: Env, req?: Request) {
+  const authHeader = req?.headers.get("authorization") ?? "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  if (!token) {
+    return { ok: false as const, error: "missing_bearer_token" };
+  }
+
+  const oauthProvider = env.OAUTH_PROVIDER ?? pocketCircleOAuthApi(env);
+  const summary = await oauthProvider.unwrapToken(token);
+  if (!summary) {
+    return { ok: false as const, error: "invalid_token" };
+  }
+  const parsedProps = grantPropsSchema.safeParse(summary.grant.props);
+  if (!parsedProps.success) {
+    return { ok: false as const, error: "missing_grant_props" };
+  }
+  return {
+    ok: true as const,
+    value: {
+      grantId: parsedProps.data.mcpGrantId,
+      effectiveScopes: summary.scope,
+    },
+  };
+}
+
+const listCirclesOutputSchema = z.object({
+  circles: z.array(mcpCircleViewSchema),
+});
+
+async function handleToolExecution<T>(
+  env: Env,
+  request: Request | undefined,
+  ctxReq: Request | undefined,
+  operation: McpReadOperation,
+  schema: z.ZodType<T>,
+) {
+  const caller = await resolveAuthorizedCaller(env, ctxReq ?? request);
+  if (!caller.ok) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Authorization failed: ${caller.error}` }],
+    };
+  }
+  const result = await executeMcpOperation(
+    env,
+    {
+      grantId: caller.value.grantId,
+      effectiveScopes: caller.value.effectiveScopes,
+      operation,
+    },
+    schema,
+  );
+  if (!result.ok) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `PocketCircle error: ${result.error}` }],
+    };
+  }
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(result.value) }],
+    structuredContent: result.value,
+  };
+}
+
+export function buildMcpServer(env: Env, request?: Request) {
+  const server = new McpServer({ name: "PocketCircle MCP", version: "0.1.0" });
+
+  server.registerTool(
+    "get_current_user",
+    {
+      title: "Get Current User",
+      description: "Get the authenticated PocketCircle user's identity",
+      inputSchema: z.object({}),
+      outputSchema: mcpCurrentUserViewSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (_args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        { kind: "get_current_user" },
+        mcpCurrentUserViewSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_authorized_circles",
+    {
+      title: "List Authorized Circles",
+      description: "List PocketCircle circles authorized by the user for this connection",
+      inputSchema: z.object({}),
+      outputSchema: listCirclesOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (_args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        { kind: "list_authorized_circles" },
+        listCirclesOutputSchema,
+      ),
+  );
+
+  return server;
 }
 
 export function createMcpApiHandler(env: Env) {
@@ -31,16 +156,10 @@ export function createMcpApiHandler(env: Env) {
     allowedOriginHostnames.add(appOriginHost);
   }
 
-  // Tools land in #319. `legacy: "reject"` refuses the old SSE transport so we
-  // only support the current Streamable HTTP MCP transport.
-  const mcpHandler = createMcpHandler(
-    () => new McpServer({ name: "PocketCircle MCP", version: "0.1.0" }),
-    {
-      legacy: "reject",
-      allowedHostnames: Array.from(allowedHostnames),
-      allowedOriginHostnames: Array.from(allowedOriginHostnames),
-    },
-  );
+  const mcpHandler = createMcpHandler((mcpContext) => buildMcpServer(env, mcpContext.requestInfo), {
+    allowedHostnames: Array.from(allowedHostnames),
+    allowedOriginHostnames: Array.from(allowedOriginHostnames),
+  });
 
   return {
     fetch: mcpHandler,

@@ -870,4 +870,99 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ ok: false, error: "invalid_body" });
   });
+
+  it("executes get_current_user and list_authorized_circles via /mcp/operation", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada Lovelace" }),
+    );
+    const { grant } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+      scopes: ["pocketcircle:read"],
+    });
+    await t.mutation(internal.mcpApproval.activateGrantFromWorker, {
+      grantId: grant._id,
+      workerGrantId: "worker-grant-op-1",
+      principalId: grant.principalId,
+    });
+
+    const userOpBody = {
+      grantId: grant._id,
+      effectiveScopes: ["pocketcircle:read"],
+      operation: { kind: "get_current_user" as const },
+    };
+    const userRes = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", userOpBody),
+    );
+    expect(userRes.status).toBe(200);
+    expect(await userRes.json()).toEqual({
+      ok: true,
+      value: {
+        id: ada.userId,
+        displayName: "Ada Lovelace",
+        image: null,
+        createdAt: expect.any(Number),
+      },
+    });
+
+    const circlesOpBody = {
+      grantId: grant._id,
+      effectiveScopes: ["pocketcircle:read"],
+      operation: { kind: "list_authorized_circles" as const },
+    };
+    const circlesRes = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", circlesOpBody),
+    );
+    expect(circlesRes.status).toBe(200);
+    const circlesJson: unknown = await circlesRes.json();
+    expect(circlesJson).toMatchObject({
+      ok: true,
+      value: {
+        circles: [
+          {
+            id: ada.personalCircleId,
+            kind: "personal",
+            isOwner: true,
+            status: "active",
+          },
+        ],
+      },
+    });
+  });
+
+  it("/mcp/operation rejects insufficient scope or inactive grant", async () => {
+    const t = convexTest(schema, modules);
+    const ada = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+    );
+    const { grant } = await seedApprovalToken(t, {
+      userId: ada.userId,
+      circleIds: [ada.personalCircleId],
+      scopes: ["pocketcircle:write"],
+    });
+    await t.mutation(internal.mcpApproval.activateGrantFromWorker, {
+      grantId: grant._id,
+      workerGrantId: "worker-grant-op-2",
+      principalId: grant.principalId,
+    });
+
+    // Grant only has write, but read is required
+    const missingScopeBody = {
+      grantId: grant._id,
+      effectiveScopes: ["pocketcircle:write"],
+      operation: { kind: "get_current_user" as const },
+    };
+    const missingScopeRes = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", missingScopeBody),
+    );
+    expect(missingScopeRes.status).toBe(400);
+    expect(await missingScopeRes.json()).toMatchObject({
+      ok: false,
+      error: "insufficient_scope",
+    });
+  });
 });

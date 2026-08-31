@@ -1,6 +1,7 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
-import { verifyMcpHandoff } from "@pocketcircle/domain";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { mcpOperationBodySchema, verifyMcpHandoff } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
 import { createMcpApiHandler } from "./mcp-api.js";
@@ -103,6 +104,7 @@ function stubConvexFetch(handler: (path: string, body: unknown) => Response | Pr
         "/mcp/redeem-approval",
         "/mcp/activate-grant",
         "/mcp/validate-grant",
+        "/mcp/operation",
       ]) {
         if (url.includes(endpoint)) {
           return handler(endpoint, body);
@@ -921,5 +923,241 @@ describe("authorization handoff", () => {
     });
     expect(complete.status).toBe(400);
     expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });
+  });
+});
+
+describe("MCP tools execution", () => {
+  async function obtainAccessToken(scopes = ["pocketcircle:read"]) {
+    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`);
+    const principalId = `principal-${Math.random()}`;
+    const grantId = `grant-${Math.random()}`;
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId,
+            principalId,
+            clientId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes,
+            allowedCircleIds: ["circle_1"],
+            handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
+    });
+    const completed: unknown = await complete.json();
+    if (
+      typeof completed !== "object" ||
+      completed === null ||
+      !("redirectTo" in completed) ||
+      typeof completed.redirectTo !== "string"
+    ) {
+      throw new Error("missing authorization redirect");
+    }
+    const code = new URL(completed.redirectTo).searchParams.get("code") ?? "";
+
+    const tokenResponse = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        resource: RESOURCE,
+      }),
+    });
+    expect(tokenResponse.status).toBe(200);
+    const tokenJson: unknown = await tokenResponse.json();
+    if (
+      typeof tokenJson !== "object" ||
+      tokenJson === null ||
+      !("access_token" in tokenJson) ||
+      typeof tokenJson.access_token !== "string"
+    ) {
+      throw new Error("missing access token");
+    }
+    return { accessToken: tokenJson.access_token, grantId, principalId };
+  }
+
+  async function connectMcpClient(accessToken: string) {
+    const client = new Client({ name: "pocketcircle-test-client", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://mcp.pocketcircle.app/mcp"),
+      {
+        fetch: (url, init) => {
+          const headers = new Headers(init?.headers);
+          if (!headers.has("host")) {
+            headers.set("host", "mcp.pocketcircle.app");
+          }
+          if (!headers.has("authorization")) {
+            headers.set("authorization", `Bearer ${accessToken}`);
+          }
+          return SELF.fetch(url, { ...init, headers });
+        },
+      },
+    );
+    await client.connect(transport);
+    return client;
+  }
+
+  it("lists get_current_user and list_authorized_circles tools", async () => {
+    const { accessToken } = await obtainAccessToken();
+    const client = await connectMcpClient(accessToken);
+
+    const result = await client.listTools();
+    expect(result.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "get_current_user" }),
+        expect.objectContaining({ name: "list_authorized_circles" }),
+      ]),
+    );
+    await client.close();
+  });
+
+  it("calls get_current_user and returns safe user identity", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("get_current_user");
+        return Response.json({
+          ok: true,
+          value: {
+            id: "user_123",
+            displayName: "Ada Lovelace",
+            image: null,
+            createdAt: 1700000000000,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const client = await connectMcpClient(accessToken);
+    const result = await client.callTool({
+      name: "get_current_user",
+      arguments: {},
+    });
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        id: "user_123",
+        displayName: "Ada Lovelace",
+        image: null,
+        createdAt: 1700000000000,
+      },
+    });
+    await client.close();
+  });
+
+  it("calls list_authorized_circles and returns authorized circles", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("list_authorized_circles");
+        return Response.json({
+          ok: true,
+          value: {
+            circles: [
+              {
+                id: "circle_1",
+                ref: "my-home-circle_1",
+                name: "My Home",
+                kind: "personal",
+                currency: "USD",
+                color: "sage",
+                mark: "home",
+                status: "active",
+                setupComplete: true,
+                currencyLocked: true,
+                isOwner: true,
+              },
+            ],
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const client = await connectMcpClient(accessToken);
+    const result = await client.callTool({
+      name: "list_authorized_circles",
+      arguments: {},
+    });
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        circles: [
+          expect.objectContaining({
+            id: "circle_1",
+            ref: "my-home-circle_1",
+            name: "My Home",
+            isOwner: true,
+          }),
+        ],
+      },
+    });
+    await client.close();
+  });
+
+  it("returns a tool error when bridge operation fails", async () => {
+    const { accessToken } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/operation") {
+        return Response.json(
+          {
+            ok: false,
+            error: "insufficient_scope",
+          },
+          { status: 400 },
+        );
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const client = await connectMcpClient(accessToken);
+    const result = await client.callTool({
+      name: "get_current_user",
+      arguments: {},
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("PocketCircle error: insufficient_scope"),
+        }),
+      ],
+    });
+    await client.close();
   });
 });
