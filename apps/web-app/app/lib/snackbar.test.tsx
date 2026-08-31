@@ -80,4 +80,17 @@ describe("snackbar lifetime (issue #287)", () => {
     expect(screen.queryByText("Custom copy")).not.toBeInTheDocument();
     vi.useRealTimers();
   });
+
+  it("cleans up pending dismiss timers on unmount", () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+    const { unmount } = renderHarness();
+    act(() => screen.getByText("show").click());
+    expect(screen.getByText("Custom copy")).toBeInTheDocument();
+
+    unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });

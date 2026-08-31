@@ -1,4 +1,13 @@
-import { createContext, type ReactNode, use, useCallback, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 /**
  * The closed vocabulary of non-revealing "unavailable" messages (ADR 0016/0017).
@@ -31,6 +40,12 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const generationRef = useRef(0);
   const dismissCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      dismissCleanupRef.current?.();
+    };
+  }, []);
 
   const show = useCallback((next: string) => {
     dismissCleanupRef.current?.();
