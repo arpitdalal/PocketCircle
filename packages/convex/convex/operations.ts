@@ -104,30 +104,39 @@ function compareCirclesPersonalFirst(a: Doc<"circles">, b: Doc<"circles">) {
 }
 
 /**
- * Circles the User is an active Member of (Circle Visibility): Personal Circle
- * first, then by creation time. Includes Archived Circles; excludes removed
- * memberships and missing Circles (missing ≡ inaccessible, not an error).
+ * Active Circle memberships with their loaded Circles for an active User.
+ * Personal Circle first, then by creation time. Excludes inactive memberships
+ * and missing Circles.
  */
-export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
+async function listActiveMembershipsWithCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
   const memberships = await ctx.db
     .query("members")
     .withIndex("by_user", (q) => q.eq("userId", user._id))
     .collect();
 
-  const circles: Doc<"circles">[] = [];
+  const entries: { membership: Doc<"members">; circle: Doc<"circles"> }[] = [];
   for (const membership of memberships) {
     if (membership.status !== "active") {
       continue;
     }
     const circle = await ctx.db.get(membership.circleId);
     if (circle) {
-      circles.push(circle);
+      entries.push({ membership, circle });
     }
   }
 
-  circles.sort(compareCirclesPersonalFirst);
+  entries.sort((a, b) => compareCirclesPersonalFirst(a.circle, b.circle));
+  return entries;
+}
 
-  return circles.map(toCircleView);
+/**
+ * Circles the User is an active Member of (Circle Visibility): Personal Circle
+ * first, then by creation time. Includes Archived Circles; excludes removed
+ * memberships and missing Circles (missing ≡ inaccessible, not an error).
+ */
+export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
+  const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
+  return entries.map((entry) => toCircleView(entry.circle));
 }
 
 /**
@@ -140,28 +149,11 @@ export async function listAuthorizedCirclesForGrant(
   user: Doc<"users">,
 ) {
   const allowedSet = new Set(grant.allowedCircleIds);
-  const memberships = await ctx.db
-    .query("members")
-    .withIndex("by_user", (q) => q.eq("userId", user._id))
-    .collect();
+  const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
 
-  const entries: { circle: Doc<"circles">; isOwner: boolean }[] = [];
-  for (const membership of memberships) {
-    if (membership.status !== "active" || !allowedSet.has(membership.circleId)) {
-      continue;
-    }
-    const circle = await ctx.db.get(membership.circleId);
-    if (circle) {
-      entries.push({
-        circle,
-        isOwner: membership.role === "owner",
-      });
-    }
-  }
-
-  entries.sort((a, b) => compareCirclesPersonalFirst(a.circle, b.circle));
-
-  return entries.map((entry) => toMcpCircleView(entry.circle, entry.isOwner));
+  return entries
+    .filter((entry) => allowedSet.has(entry.circle._id))
+    .map((entry) => toMcpCircleView(entry.circle, entry.membership.role === "owner"));
 }
 
 /**
