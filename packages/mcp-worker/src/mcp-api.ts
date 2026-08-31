@@ -155,11 +155,6 @@ const rpcCallSchema = z.object({
 });
 
 async function detectReadToolCall(request: Request) {
-  const mcpMethod = request.headers.get("mcp-method");
-  const mcpName = request.headers.get("mcp-name");
-  if (mcpMethod === "tools/call" && mcpName && READ_TOOL_NAMES.has(mcpName)) {
-    return true;
-  }
   if (request.method.toUpperCase() !== "POST") {
     return false;
   }
@@ -173,10 +168,23 @@ async function detectReadToolCall(request: Request) {
     if (!parsed.success) {
       return false;
     }
+    const bodyMethod = parsed.data.method;
+    const bodyName = parsed.data.params?.name;
+
+    const mcpMethod = request.headers.get("mcp-method");
+    const mcpName = request.headers.get("mcp-name");
+
+    // If mirrored headers are present, ensure they don't mismatch the body.
+    // Let SDK handler return 400 HeaderMismatch on invalid combinations.
+    if (mcpMethod && mcpMethod !== bodyMethod) {
+      return false;
+    }
+    if (mcpName && mcpName !== bodyName) {
+      return false;
+    }
+
     return (
-      parsed.data.method === "tools/call" &&
-      typeof parsed.data.params?.name === "string" &&
-      READ_TOOL_NAMES.has(parsed.data.params.name)
+      bodyMethod === "tools/call" && typeof bodyName === "string" && READ_TOOL_NAMES.has(bodyName)
     );
   } catch {
     return false;

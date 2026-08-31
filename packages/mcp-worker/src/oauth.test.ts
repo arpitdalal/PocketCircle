@@ -1236,6 +1236,39 @@ describe("MCP tools execution", () => {
     });
   });
 
+  it("does not emit 403 scope challenge when mirrored headers mismatch the body", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:write"]);
+
+    const headers = new Headers({
+      host: "mcp.pocketcircle.app",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/call",
+      "mcp-name": "get_current_user", // Mismatched header naming a read tool
+    });
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "other_tool", // Body names a non-read tool
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    // Header mismatch should be rejected with 400 Bad Request by the MCP handler, not 403
+    expect(res.status).toBe(400);
+  });
+
   it("returns a tool error when bridge operation fails", async () => {
     const { accessToken } = await obtainAccessToken();
 
