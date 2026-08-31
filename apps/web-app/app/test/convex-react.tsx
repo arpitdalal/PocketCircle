@@ -19,7 +19,7 @@ export { configureConvex, convexHelpersReactMock, convexReactMock } from "./conv
 export { makeHistoryEventView } from "./convex/history.js";
 export { makeHomeSummaryRecent, makeHomeSummaryView } from "./convex/home-summary.js";
 export { testId } from "./convex/ids.js";
-export { makeMcpHandoffView } from "./convex/mcp.js";
+export { makeMcpConnectionView, makeMcpHandoffView } from "./convex/mcp.js";
 export { makeMemberView } from "./convex/members.js";
 export { makeNotificationView } from "./convex/notifications.js";
 export {

@@ -93,6 +93,11 @@ const validateGrantBodySchema = z.object({
   principalId: z.string(),
   requestedScopes: z.array(z.string()),
 });
+const completeRevocationBodySchema = z.object({
+  grantId: z.string(),
+  workerGrantId: z.string(),
+  principalId: z.string(),
+});
 
 /**
  * Shared Worker-bridge HTTP shape: assert → parse body → run Convex → JSON.
@@ -135,6 +140,10 @@ workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, bo
 
 workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) =>
   ctx.runMutation(internal.mcpApproval.executeMcpReadOperation, body),
+);
+
+workerBridgeRoute("/mcp/complete-revocation", completeRevocationBodySchema, async (ctx, body) =>
+  ctx.runMutation(internal.mcpApproval.completeRevocationFromWorker, body),
 );
 
 export default http;

@@ -40,8 +40,23 @@ function createMemoryStorage() {
   };
 }
 
+function hasStorageApi(value: unknown) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "getItem" in value &&
+    typeof value.getItem === "function" &&
+    "setItem" in value &&
+    typeof value.setItem === "function" &&
+    "removeItem" in value &&
+    typeof value.removeItem === "function" &&
+    "clear" in value &&
+    typeof value.clear === "function"
+  );
+}
+
 for (const name of ["localStorage", "sessionStorage"] as const) {
-  if (typeof globalThis[name] === "undefined") {
+  if (!hasStorageApi(globalThis[name])) {
     Object.defineProperty(window, name, {
       configurable: true,
       enumerable: true,

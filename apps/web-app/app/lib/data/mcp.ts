@@ -9,6 +9,9 @@ import type { FunctionReturnType } from "convex/server";
 import { MOCKS } from "../env.js";
 
 export type McpHandoffView = NonNullable<FunctionReturnType<typeof api.mcpConsent.parseMcpHandoff>>;
+export type McpConnection = FunctionReturnType<
+  typeof api.mcpConnections.listMcpConnections
+>[number];
 
 /** Verified handoff display fields, or null when invalid/expired. undefined = loading. */
 export function useMcpHandoff(handoff: string | null) {
@@ -24,4 +27,38 @@ export function useMcpHandoff(handoff: string | null) {
 
 export function useApproveMcpAuthorization() {
   return useMutation(api.mcpConsent.approveMcpAuthorization);
+}
+
+/** Current User's MCP connections; mock mode keeps the shell renderable offline. */
+export function useMcpConnections() {
+  const queried = useQuery(api.mcpConnections.listMcpConnections, MOCKS ? "skip" : {});
+  return MOCKS ? [] : queried;
+}
+
+export function useRevokeMcpConnection() {
+  return useMutation(api.mcpConnections.revokeMcpConnection);
+}
+
+/** Sends the Convex-issued, single-connection cleanup capability to the Worker. */
+export async function completeMcpConnectionRevocation(
+  workerOrigin: string,
+  revocationToken: string,
+) {
+  const response = await fetch(new URL("/revoke", workerOrigin), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ revocationToken }),
+  });
+  if (!response.ok) {
+    throw new Error("MCP Worker cleanup failed");
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("revoked" in payload) ||
+    payload.revoked !== true
+  ) {
+    throw new Error("MCP Worker cleanup failed");
+  }
 }

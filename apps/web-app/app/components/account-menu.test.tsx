@@ -69,7 +69,7 @@ describe("AccountMenu", () => {
     expect(await screen.findByText("whats-new-screen")).toBeInTheDocument();
   });
 
-  it("orders Settings, What's new, Send feedback, then Sign out when install is unavailable", async () => {
+  it("orders Settings, Connections, What's new, Send feedback, then Sign out when install is unavailable", async () => {
     const u = userEvent.setup();
     renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
       initialEntries: ["/"],
@@ -77,6 +77,7 @@ describe("AccountMenu", () => {
     await openAccountMenu(u);
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
+      "Connections",
       "What's new",
       "Send feedback",
       "Sign out",

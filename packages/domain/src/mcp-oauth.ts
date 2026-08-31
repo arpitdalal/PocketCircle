@@ -19,6 +19,7 @@ export const MCP_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const MCP_REFRESH_DURATION_LABEL = "30 days";
 export const MCP_HANDOFF_TTL_MS = 10 * 60 * 1000;
 export const MCP_APPROVAL_TTL_MS = 5 * 60 * 1000;
+export const MCP_REVOCATION_TTL_MS = 5 * 60 * 1000;
 export const MCP_PENDING_ACTIVATION_TTL_MS = 20 * 60 * 1000;
 export const MCP_WORKER_ASSERTION_TTL_MS = 30_000;
 const MCP_WORKER_ASSERTION_CLOCK_SKEW_MS = 5_000;
@@ -199,7 +200,11 @@ const mcpWorkerAssertionPayloadSchema = z
   .object({
     aud: z.literal("pocketcircle:mcp-worker"),
     method: z.literal("POST"),
-    path: z.string().regex(/^\/mcp\/(redeem-approval|activate-grant|validate-grant|operation)$/),
+    path: z
+      .string()
+      .regex(
+        /^\/mcp\/(redeem-approval|activate-grant|validate-grant|operation|complete-revocation)$/,
+      ),
     bodySha256: z.string().regex(/^[0-9a-f]{64}$/),
     iat: z.number().int().nonnegative(),
     exp: z.number().int().nonnegative(),
@@ -337,6 +342,42 @@ export async function verifyMcpApproval(
     return null;
   }
   if (!options.ignoreExpiry && result.data.exp <= now) {
+    return null;
+  }
+  return result.data;
+}
+
+const mcpRevocationPayloadSchema = z
+  .object({
+    v: z.literal(1),
+    jti: z.string().min(1),
+    grantId: z.string().min(1),
+    principalId: z.string().min(1),
+    workerGrantId: z.string().min(1),
+    iat: z.number().int().nonnegative(),
+    exp: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type McpRevocationPayload = z.infer<typeof mcpRevocationPayloadSchema>;
+
+/** Signs a short-lived capability for the Worker to clean up one revoked grant. */
+export async function signMcpRevocation(payload: McpRevocationPayload, secret: string) {
+  return signCompactToken(payload, secret);
+}
+
+/** Verifies a Worker cleanup capability, including its bounded lifetime. */
+export async function verifyMcpRevocation(
+  token: string,
+  secrets: string | readonly string[],
+  now: number = Date.now(),
+) {
+  const parsed = await verifyCompactToken(token, secrets);
+  const result = mcpRevocationPayloadSchema.safeParse(parsed);
+  if (!result.success || result.data.exp <= now || result.data.exp <= result.data.iat) {
+    return null;
+  }
+  if (result.data.exp - result.data.iat > MCP_REVOCATION_TTL_MS) {
     return null;
   }
   return result.data;

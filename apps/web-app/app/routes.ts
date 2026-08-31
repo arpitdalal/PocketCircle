@@ -30,6 +30,7 @@ export default [
     index("routes/home.tsx"),
     route("onboarding", "routes/onboarding.tsx"),
     route("settings", "routes/settings.tsx"),
+    route("connections", "routes/connections.tsx"),
     route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
     // MCP client consent (#318). Protected so Google sign-in + onboarding gate

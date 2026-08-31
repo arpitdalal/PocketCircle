@@ -79,6 +79,13 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
             <Menu.LinkItem
               className={menuItemClass}
               closeOnClick
+              render={<Link to="/connections" prefetch="intent" />}
+            >
+              Connections
+            </Menu.LinkItem>
+            <Menu.LinkItem
+              className={menuItemClass}
+              closeOnClick
               render={<Link to="/whats-new" prefetch="intent" />}
             >
               What's new
