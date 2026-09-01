@@ -208,5 +208,49 @@ describe("MCP schemas", () => {
       },
     });
     expect(invalidComparisonRange.success).toBe(false);
+
+    const listCategoriesOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "list_categories",
+        circleRef: "trip-c123",
+        filters: { type: "expense", status: "archived", query: "gas" },
+      },
+    });
+    expect(listCategoriesOp.success).toBe(true);
+
+    const categoryDetailOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_category",
+        circleRef: "trip-c123",
+        categoryRef: "groceries-cat1",
+      },
+    });
+    expect(categoryDetailOp.success).toBe(true);
+
+    const categoryTransactionsOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "list_category_transactions",
+        circleRef: "trip-c123",
+        categoryRef: "groceries-cat1",
+      },
+    });
+    expect(categoryTransactionsOp.success).toBe(true);
+
+    const categoryHistoryOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "list_category_history",
+        circleRef: "trip-c123",
+        categoryRef: "groceries-cat1",
+      },
+    });
+    expect(categoryHistoryOp.success).toBe(true);
   });
 });

@@ -27,6 +27,14 @@ import {
 import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
+import {
+  type CategoryDetailView,
+  type CategoryView,
+  filterCategoriesForAccess,
+  getCategoryForAccess,
+  listCategoryHistoryForAccess,
+  listRecentCategoryTransactionsForAccess,
+} from "./categories.js";
 import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
@@ -367,6 +375,47 @@ export function toMcpCircleView(circle: Doc<"circles">, isOwner: boolean) {
     setupComplete: circle.setupCompletedAt !== null,
     currencyLocked: circle.currencyLocked,
     isOwner,
+  };
+}
+
+/** Resolves a canonical or bare Category reference without exposing lookup errors. */
+export function resolveCategoryRef(ctx: OperationReader, categoryRef: string) {
+  const parsed = parseRef(
+    categoryRef,
+    (candidate) => ctx.db.normalizeId("categories", candidate) !== null,
+  );
+  if (parsed) {
+    return ctx.db.normalizeId("categories", parsed.id);
+  }
+  return ctx.db.normalizeId("categories", categoryRef);
+}
+
+/** Maps a Category creator row to the MCP attribution shape. */
+function toMcpCategoryCreatorView(creator: CategoryView["creator"]) {
+  return {
+    displayName: creator.displayName,
+    image: normalizeMcpImage(creator.image ?? null),
+  };
+}
+
+/** Maps a Category list/detail view to the MCP summary contract. */
+function toMcpCategorySummaryView(category: CategoryView) {
+  return {
+    ref: category.ref,
+    name: category.name,
+    type: category.type,
+    color: category.color,
+    status: category.status,
+    creator: toMcpCategoryCreatorView(category.creator),
+  };
+}
+
+/** Maps a Category detail view to the MCP detail contract. */
+function toMcpCategoryDetailView(category: CategoryDetailView) {
+  return {
+    ...toMcpCategorySummaryView(category),
+    canEditFields: category.canEditFields,
+    canArchive: category.canArchive,
   };
 }
 
@@ -1264,5 +1313,105 @@ export async function getCategoryAnalyticsForUser(
       isDone: page.isDone,
       continueCursor: page.continueCursor,
     },
+  };
+}
+
+export type McpListCategoriesArgs = {
+  filters?: {
+    type?: "all" | "expense" | "income";
+    status?: "active" | "archived" | "all";
+    query?: string;
+  };
+  paginationOpts?: PaginationOptions;
+};
+
+/** Shared explicit-User Category list read for MCP (#324). */
+export async function listCategoriesForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: McpListCategoriesArgs,
+) {
+  const emptyPage = emptyPaginationPage();
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return emptyPage;
+  }
+  const filters = args.filters ?? {};
+  return filterCategoriesForAccess(ctx, access, {
+    type: filters.type ?? "all",
+    status: filters.status ?? "active",
+    ...(filters.query === undefined ? {} : { query: filters.query }),
+    paginationOpts: args.paginationOpts ?? { numItems: 50, cursor: null },
+  }).then((result) => ({
+    ...result,
+    page: result.page.map(toMcpCategorySummaryView),
+  }));
+}
+
+/** Shared explicit-User Category Detail read for MCP (#324). */
+export async function getCategoryForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  categoryRef: string,
+  user: Doc<"users">,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return null;
+  }
+  const categoryId = resolveCategoryRef(ctx, categoryRef);
+  if (!categoryId) {
+    return null;
+  }
+  const category = await getCategoryForAccess(ctx, access, categoryId);
+  return category ? toMcpCategoryDetailView(category) : null;
+}
+
+/** Shared explicit-User Category recent Transactions read for MCP (#324). */
+export async function listCategoryTransactionsForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  categoryRef: string,
+  user: Doc<"users">,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return [];
+  }
+  const categoryId = resolveCategoryRef(ctx, categoryRef);
+  if (!categoryId) {
+    return [];
+  }
+  const transactions = await listRecentCategoryTransactionsForAccess(ctx, access, categoryId);
+  return transactions.map((txn) => toMcpTransactionSummaryView(txn, access.circle.currency));
+}
+
+/** Shared explicit-User Category History read for MCP (#324). */
+export async function listCategoryHistoryForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  categoryRef: string,
+  user: Doc<"users">,
+  paginationOpts: PaginationOptions,
+) {
+  const emptyPage = emptyPaginationPage();
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return emptyPage;
+  }
+  const categoryId = resolveCategoryRef(ctx, categoryRef);
+  if (!categoryId) {
+    return emptyPage;
+  }
+  const history = await listCategoryHistoryForAccess(ctx, access, categoryId, paginationOpts);
+  return {
+    ...history,
+    page: history.page.map((event) => ({
+      ...event,
+      actor: event.actor
+        ? { ...event.actor, image: normalizeMcpImage(event.actor.image ?? null) }
+        : null,
+    })),
   };
 }

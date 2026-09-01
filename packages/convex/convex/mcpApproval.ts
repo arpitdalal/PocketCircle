@@ -9,10 +9,14 @@ import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
   mcpCategoryAnalyticsSchema,
+  mcpCategoryDetailSchema,
   mcpCircleViewSchema,
   mcpDashboardSchema,
+  mcpListCategoryTransactionsResultSchema,
   mcpMonthlyComparisonSchema,
   mcpMonthlyLedgerSchema,
+  mcpPaginatedCategoriesSchema,
+  mcpPaginatedCategoryHistorySchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
@@ -39,11 +43,15 @@ import {
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
   getCategoryAnalyticsForUser,
+  getCategoryForUser,
   getDashboardForUser,
   getMonthlyComparisonForUser,
   getMonthlyLedgerForUser,
   getTransactionForUser,
   listAuthorizedCirclesForGrant,
+  listCategoriesForUser,
+  listCategoryHistoryForUser,
+  listCategoryTransactionsForUser,
   listCircleHistoryForUser,
   listTransactionHistoryForUser,
   paginateMembersForUser,
@@ -347,6 +355,36 @@ export const executeMcpReadOperation = internalQuery({
         type: v.union(v.literal("expense"), v.literal("income")),
         paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
+      v.object({
+        kind: v.literal("list_categories"),
+        circleRef: v.string(),
+        filters: v.optional(
+          v.object({
+            type: v.optional(v.union(v.literal("all"), v.literal("expense"), v.literal("income"))),
+            status: v.optional(
+              v.union(v.literal("active"), v.literal("archived"), v.literal("all")),
+            ),
+            query: v.optional(v.string()),
+          }),
+        ),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
+      v.object({
+        kind: v.literal("get_category"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+      }),
+      v.object({
+        kind: v.literal("list_category_transactions"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+      }),
+      v.object({
+        kind: v.literal("list_category_history"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -525,6 +563,55 @@ export const executeMcpReadOperation = internalQuery({
         return { ok: false as const, error: analytics.error };
       }
       return validateMcpResult(mcpCategoryAnalyticsSchema, analytics.value);
+    }
+
+    if (args.operation.kind === "list_categories") {
+      const categories = await listCategoriesForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        {
+          ...(args.operation.filters === undefined ? {} : { filters: args.operation.filters }),
+          ...(args.operation.paginationOpts === undefined
+            ? {}
+            : { paginationOpts: args.operation.paginationOpts }),
+        },
+      );
+      return validateMcpResult(mcpPaginatedCategoriesSchema, categories);
+    }
+
+    if (args.operation.kind === "get_category") {
+      const value = await getCategoryForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        args.operation.categoryRef,
+        user,
+      );
+      if (!value) {
+        return { ok: false as const, error: "category_inaccessible" as const };
+      }
+      return validateMcpResult(mcpCategoryDetailSchema, value);
+    }
+
+    if (args.operation.kind === "list_category_transactions") {
+      const transactions = await listCategoryTransactionsForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        args.operation.categoryRef,
+        user,
+      );
+      return validateMcpResult(mcpListCategoryTransactionsResultSchema, { transactions });
+    }
+
+    if (args.operation.kind === "list_category_history") {
+      const history = await listCategoryHistoryForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        args.operation.categoryRef,
+        user,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      return validateMcpResult(mcpPaginatedCategoryHistorySchema, history);
     }
 
     return { ok: false as const, error: "invalid_operation" as const };
