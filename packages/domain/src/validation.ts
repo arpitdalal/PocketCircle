@@ -24,6 +24,7 @@ export const LIMITS = {
   circleNameMax: NAME_MAX,
   /** User display name (USR-1); same bound as circle names today, distinct concept. */
   displayNameMax: NAME_MAX,
+  emailMax: 254,
   categoryNameMax: 40,
   transactionTitleMax: 120,
   transactionNoteMax: 1_000,
@@ -105,7 +106,10 @@ export function canonicalEmail(email: string): string {
 
 /** Server-and-client-shared invite email input (MEM-2). Parsed `email` is canonical `emailLower`. */
 export const inviteEmailSchema = z.object({
-  email: z.preprocess(canonicalEmail, z.string().email("Enter a valid email address")),
+  email: z.preprocess(
+    canonicalEmail,
+    z.string().email("Enter a valid email address").max(LIMITS.emailMax, "Email is too long"),
+  ),
 });
 export type InviteEmailInput = z.infer<typeof inviteEmailSchema>;
 

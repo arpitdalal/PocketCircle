@@ -7,6 +7,7 @@ import {
   isSupportedCurrency,
   PERSONAL_CIRCLE_COLOR_ID,
   personalCircleName,
+  profileUpdateSchema,
 } from "@pocketcircle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
@@ -36,11 +37,12 @@ export async function createUserWithPersonalCircle(
   profile: NewUserProfile,
 ): Promise<Id<"users">> {
   const now = Date.now();
-  const personalName = personalCircleName(profile.displayName);
+  const displayName = profileUpdateSchema.parse({ displayName: profile.displayName }).displayName;
+  const personalName = personalCircleName(displayName);
 
   const userId = await ctx.db.insert("users", {
     email: canonicalEmail(profile.email),
-    displayName: profile.displayName,
+    displayName,
     image: profile.image,
     acceptedTermsVersion: CURRENT_TERMS_VERSION,
     acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
@@ -76,7 +78,7 @@ export async function createUserWithPersonalCircle(
     userId,
     role: "owner",
     status: "active",
-    displayName: profile.displayName,
+    displayName,
     image: profile.image,
     joinedAt: now,
   });

@@ -1,4 +1,9 @@
-import { CIRCLE_CAPACITY_LIMIT, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import {
+  CIRCLE_CAPACITY_LIMIT,
+  LIMITS,
+  MUTATION_ERRORS,
+  mutationErrorData,
+} from "@pocketcircle/domain";
 import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";
 import { ConvexError } from "convex/values";
 import { convexTest as createConvexTest } from "convex-test";
@@ -447,6 +452,20 @@ describe("createInvitation — email normalization", () => {
         .first();
       expect(invite?.emailLower).toBe("ada@example.com");
     });
+  });
+
+  it("rejects an email that cannot fit in Circle History", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.invitations.createInvitation, {
+        circleId,
+        email: `${"a".repeat(LIMITS.emailMax)}@example.com`,
+      }),
+    ).rejects.toThrow("Email is too long");
   });
 });
 

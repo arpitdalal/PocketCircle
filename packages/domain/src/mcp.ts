@@ -77,7 +77,7 @@ export type McpCircleView = z.infer<typeof mcpCircleViewSchema>;
 
 export const mcpMemberViewSchema = z.object({
   id: z.string().min(1).max(128),
-  displayName: z.string().min(1).max(60),
+  displayName: z.string().min(1).max(LIMITS.displayNameMax),
   image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
   role: z.enum(["owner", "member"]),
   status: z.enum(["active", "removed", "deleted"]),
@@ -106,7 +106,7 @@ export const mcpCircleHistoryEventSchema = z.object({
   createdAt: z.number(),
   actor: z
     .object({
-      displayName: z.string().min(1).max(60),
+      displayName: z.string().min(1).max(LIMITS.displayNameMax),
       image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
     })
     .nullable(),

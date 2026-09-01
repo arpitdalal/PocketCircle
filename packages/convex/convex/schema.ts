@@ -127,6 +127,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    .index("by_circle_and_joinedAt", ["circleId", "joinedAt"])
     .index("by_circle_and_role_joinedAt", ["circleId", "role", "joinedAt"])
     .index("by_circle_and_role_status_joinedAt", ["circleId", "role", "status", "joinedAt"])
     .index("by_circle_and_status", ["circleId", "status"])
