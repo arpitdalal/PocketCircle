@@ -117,6 +117,17 @@ export async function monthlyComparisonForAccess(
   return { series, currency: access.circle.currency };
 }
 
+function compareCategoryAnalyticsSort(
+  a: { taggedTotalMinor: number; name: string; ref: string },
+  b: { taggedTotalMinor: number; name: string; ref: string },
+) {
+  return (
+    b.taggedTotalMinor - a.taggedTotalMinor ||
+    a.name.localeCompare(b.name) ||
+    a.ref.localeCompare(b.ref)
+  );
+}
+
 export async function categoryAnalyticsForAccess(
   ctx: OperationReader,
   access: AuthorizedCircle,
@@ -170,7 +181,20 @@ export async function categoryAnalyticsForAccess(
     });
   }
 
-  rows.sort((a, b) => b.taggedTotalMinor - a.taggedTotalMinor || a.name.localeCompare(b.name));
+  rows.sort((a, b) =>
+    compareCategoryAnalyticsSort(
+      {
+        taggedTotalMinor: a.taggedTotalMinor,
+        name: a.name,
+        ref: buildRef(a.name, a.categoryId),
+      },
+      {
+        taggedTotalMinor: b.taggedTotalMinor,
+        name: b.name,
+        ref: buildRef(b.name, b.categoryId),
+      },
+    ),
+  );
 
   return { rows, currency: access.circle.currency };
 }
@@ -201,17 +225,6 @@ function computeCategoryAnalyticsRankingRevision(rows: readonly CategoryAnalytic
     }
   }
   return `${rows.length}:${hash >>> 0}`;
-}
-
-function compareCategoryAnalyticsSort(
-  a: Pick<CategoryAnalyticsPageRow, "taggedTotalMinor" | "name" | "ref">,
-  b: Pick<CategoryAnalyticsPageRow, "taggedTotalMinor" | "name" | "ref">,
-) {
-  return (
-    b.taggedTotalMinor - a.taggedTotalMinor ||
-    a.name.localeCompare(b.name) ||
-    a.ref.localeCompare(b.ref)
-  );
 }
 
 function parseCategoryAnalyticsCursor(cursor: string | null) {
@@ -271,7 +284,7 @@ function paginateSortedCategoryAnalyticsRows<T extends CategoryAnalyticsPageRow>
     ? rows.filter((row) => compareCategoryAnalyticsSort(cursor, row) < 0)
     : rows;
   const page = remaining.slice(0, numItems);
-  const isDone = page.length < numItems;
+  const isDone = page.length < numItems || page.length === remaining.length;
   const last = page.at(-1);
   return {
     stale: false as const,

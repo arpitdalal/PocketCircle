@@ -20,6 +20,7 @@ import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import {
   addMember,
+  makeCategory,
   searchTransactionPage,
   seedOwnedCircle,
   seedOwnedFixture,
@@ -1511,6 +1512,81 @@ describe("MCP financial report reads", () => {
       type: "expense",
     });
     expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  });
+
+  it("paginates tied category names with the same ref tiebreak as the ranked list", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Unicode" }));
+    const nfcName = "caf\u00e9";
+    const nfdName = "cafe\u0301";
+    expect(nfcName.localeCompare(nfdName)).toBe(0);
+
+    await t.run(async (ctx) => {
+      const nfcId = await makeCategory(ctx, f.circleId, {
+        name: nfcName,
+        type: "expense",
+        creatorUserId: owner.owner._id,
+      });
+      const nfdId = await makeCategory(ctx, f.circleId, {
+        name: nfdName,
+        type: "expense",
+        creatorUserId: owner.owner._id,
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-01",
+        categoryIds: [nfcId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-02",
+        categoryIds: [nfdId],
+      });
+    });
+
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Unicode", f.circleId);
+
+    const page1 = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(page1).toMatchObject({ ok: true });
+    if (!page1.ok || !("value" in page1)) {
+      throw new Error("expected analytics page 1");
+    }
+    expect(page1.value.page).toHaveLength(1);
+    expect(page1.value.isDone).toBe(false);
+
+    const page2 = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: page1.value.continueCursor },
+    });
+    expect(page2).toMatchObject({ ok: true });
+    if (!page2.ok || !("value" in page2)) {
+      throw new Error("expected analytics page 2");
+    }
+    expect(page2.value.page).toHaveLength(1);
+    expect(page2.value.isDone).toBe(true);
+    expect(new Set([page1.value.page[0]?.name, page2.value.page[0]?.name])).toEqual(
+      new Set([nfcName, nfdName]),
+    );
   });
 
   it("supports all comparison ranges and rejects insufficient scope", async () => {
