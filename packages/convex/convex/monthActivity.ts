@@ -1,6 +1,6 @@
 import { addMonths } from "@pocketcircle/domain";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import type { QueryCtx } from "./_generated/server.js";
+import type { OperationReader } from "./operationReader.js";
 
 /**
  * Circle month activity — the single home of "what one Circle-month contains" and
@@ -49,7 +49,7 @@ export function monthDateRange(month: string): { start: string; endExclusive: st
  * optimization if a single month's volume ever warrants it, deferred for v1.
  */
 export async function collectMonthActiveTransactions(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   circleId: Id<"circles">,
   month: string,
   paidByMemberId?: Id<"members">,

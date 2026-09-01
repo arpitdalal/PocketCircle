@@ -18,6 +18,8 @@ import {
   buildRef,
   clampSearchPage,
   clampSearchPageSize,
+  comparisonWindowMonths,
+  currentMonth,
   isValidPlainMonth,
   normalizeMcpImage,
   parseRef,
@@ -25,12 +27,14 @@ import {
 } from "@pocketcircle/domain";
 import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
+import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
+import { RECENT_TRANSACTIONS_LIMIT } from "./dashboard.js";
 import { resolveCircleAccessForUser } from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { toMemberView } from "./memberViews.js";
-import { monthDateRange } from "./monthActivity.js";
+import { collectMonthActiveTransactions, monthDateRange, sumMonthTotals } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
 import {
   collectTransactionViews,
@@ -44,6 +48,7 @@ import {
   type TransactionDetailView,
   type TransactionView,
   toTransactionDetailView,
+  toTransactionView,
 } from "./transactions.js";
 
 export type { OperationReader } from "./operationReader.js";
@@ -872,5 +877,208 @@ export async function listTransactionHistoryForUser(
         ? { ...event.actor, image: normalizeMcpImage(event.actor.image ?? null) }
         : null,
     })),
+  };
+}
+
+/** Shared explicit-User Monthly Ledger read for MCP (#323). */
+export async function getMonthlyLedgerForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: { month: string; paginationOpts?: PaginationOptions },
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return { ok: false as const, error: "circle_inaccessible" as const };
+  }
+  if (!isValidPlainMonth(args.month)) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
+
+  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, args.month);
+  const paginationOpts = args.paginationOpts ?? {
+    numItems: TRANSACTION_LIST_PAGE_SIZE,
+    cursor: null,
+  };
+  const range = monthDateRange(args.month);
+  const result = await ctx.db
+    .query("transactions")
+    .withIndex("by_circle_status_date", (q) =>
+      q
+        .eq("circleId", circleId)
+        .eq("status", "active")
+        .gte("date", range.start)
+        .lt("date", range.endExclusive),
+    )
+    .order("desc")
+    .paginate(paginationOpts);
+
+  const caches = newViewCaches();
+  const page = await Promise.all(
+    result.page.map((txn) =>
+      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
+    ),
+  );
+
+  return {
+    ok: true as const,
+    value: {
+      month: args.month,
+      totals: sumMonthTotals(monthTxns),
+      currency: access.circle.currency,
+      transactions: {
+        ...result,
+        page: page.map((txn) => toMcpTransactionSummaryView(txn, access.circle.currency)),
+      },
+    },
+  };
+}
+
+/** Shared explicit-User Dashboard read for MCP (#323). */
+export async function getDashboardForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: { month?: string },
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return { ok: false as const, error: "circle_inaccessible" as const };
+  }
+
+  const month = args.month ?? currentMonth(new Date());
+  if (!isValidPlainMonth(month)) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
+
+  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
+  const recentDocs = [...monthTxns]
+    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
+    .slice(0, RECENT_TRANSACTIONS_LIMIT);
+  const caches = newViewCaches();
+  const recent = await Promise.all(
+    recentDocs.map((txn) =>
+      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
+    ),
+  );
+
+  return {
+    ok: true as const,
+    value: {
+      month,
+      totals: sumMonthTotals(monthTxns),
+      recent: recent.map((txn) => toMcpTransactionSummaryView(txn, access.circle.currency)),
+      currency: access.circle.currency,
+    },
+  };
+}
+
+/** Shared explicit-User monthly comparison read for MCP (#323). */
+export async function getMonthlyComparisonForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: { endMonth?: string; rangeMonths: 1 | 3 | 6 | 12 },
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return { ok: false as const, error: "circle_inaccessible" as const };
+  }
+
+  const endMonth = args.endMonth ?? currentMonth(new Date());
+  if (!isValidPlainMonth(endMonth)) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
+
+  const series = await Promise.all(
+    comparisonWindowMonths(endMonth, args.rangeMonths).map(async (month) => {
+      const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
+      return { month, ...sumMonthTotals(monthTxns) };
+    }),
+  );
+
+  return {
+    ok: true as const,
+    value: {
+      series,
+      currency: access.circle.currency,
+    },
+  };
+}
+
+/** Shared explicit-User category analytics read for MCP (#323). */
+export async function getCategoryAnalyticsForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: { month?: string; type?: "expense" | "income" },
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return { ok: false as const, error: "circle_inaccessible" as const };
+  }
+
+  const month = args.month ?? currentMonth(new Date());
+  if (!isValidPlainMonth(month)) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
+
+  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
+  const scopedTxns = args.type ? monthTxns.filter((txn) => txn.type === args.type) : monthTxns;
+
+  const linkLoads = await asyncMapChunked(scopedTxns, DEFAULT_READ_CONCURRENCY, async (txn) => ({
+    txn,
+    links: await ctx.db
+      .query("transactionCategories")
+      .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
+      .collect(),
+  }));
+
+  const accum = new Map<Id<"categories">, { taggedTotalMinor: number; txnCount: number }>();
+  for (const { txn, links } of linkLoads) {
+    for (const link of links) {
+      const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
+      existing.taggedTotalMinor += txn.amountMinorUnits;
+      existing.txnCount += 1;
+      accum.set(link.categoryId, existing);
+    }
+  }
+
+  const categoryIds = [...accum.keys()];
+  const loadedCategories = await asyncMapChunked(
+    categoryIds,
+    DEFAULT_READ_CONCURRENCY,
+    (categoryId) => ctx.db.get(categoryId),
+  );
+  const rows = [];
+  for (const [index, categoryId] of categoryIds.entries()) {
+    const category = loadedCategories[index];
+    if (!category) {
+      continue;
+    }
+    const totals = accum.get(categoryId);
+    if (!totals) {
+      continue;
+    }
+    rows.push({
+      ref: buildRef(category.name, category._id),
+      name: category.name,
+      color: category.color,
+      status: category.status,
+      taggedTotalMinor: totals.taggedTotalMinor,
+      txnCount: totals.txnCount,
+    });
+  }
+
+  rows.sort((a, b) => b.taggedTotalMinor - a.taggedTotalMinor || a.name.localeCompare(b.name));
+
+  return {
+    ok: true as const,
+    value: {
+      month,
+      nonAdditive: true as const,
+      rows,
+      currency: access.circle.currency,
+    },
   };
 }

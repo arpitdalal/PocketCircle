@@ -1263,6 +1263,247 @@ describe("MCP Transaction search and inspect reads", () => {
   });
 });
 
+describe("MCP financial report reads", () => {
+  it("returns ledger, dashboard, comparison, and category analytics with active-only totals and bounded currency", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const eurCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, {
+        name: "Euro Trip",
+        currency: "EUR",
+        archived: true,
+      }),
+    );
+    const usdCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "USD Trip", currency: "USD" }),
+    );
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, eurCircle, {
+        type: "income",
+        title: "Salary",
+        amountMinorUnits: 100_000,
+        date: "2026-06-01",
+        categoryIds: [eurCircle.salaryId],
+      });
+      await seedTransaction(ctx, eurCircle, {
+        title: "Lunch",
+        amountMinorUnits: 2_500,
+        date: "2026-06-02",
+        categoryIds: [eurCircle.diningId, eurCircle.groceriesId],
+      });
+      await seedTransaction(ctx, eurCircle, {
+        title: "Archived lunch",
+        date: "2026-06-03",
+        status: "archived",
+        amountMinorUnits: 999,
+      });
+      await seedTransaction(ctx, eurCircle, { title: "July row", date: "2026-07-01" });
+      await seedTransaction(ctx, usdCircle, {
+        type: "income",
+        title: "USD pay",
+        amountMinorUnits: 50_000,
+        date: "2026-06-01",
+        categoryIds: [usdCircle.salaryId],
+      });
+    });
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [eurCircle.circleId, usdCircle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const eurRef = buildRef("Euro Trip", eurCircle.circleId);
+    const usdRef = buildRef("USD Trip", usdCircle.circleId);
+
+    const emptyLedger = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-05",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(emptyLedger).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-05",
+        totals: { incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+        currency: "EUR",
+        transactions: { page: [], isDone: true },
+      },
+    });
+
+    const ledger = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledger).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-06",
+        totals: { incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        currency: "EUR",
+      },
+    });
+    if (!ledger.ok || !("value" in ledger)) {
+      throw new Error("expected ledger");
+    }
+    expect(ledger.value.transactions.page.map((txn) => txn.title)).toEqual(["Lunch", "Salary"]);
+    expect(JSON.stringify(ledger.value)).not.toContain("archived lunch");
+
+    const dashboard = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: eurRef,
+      month: "2026-06",
+    });
+    expect(dashboard).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-06",
+        totals: { incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        currency: "EUR",
+      },
+    });
+    if (!dashboard.ok || !("value" in dashboard)) {
+      throw new Error("expected dashboard");
+    }
+    expect(dashboard.value.recent.map((txn) => txn.title)).toEqual(["Lunch", "Salary"]);
+
+    const comparison = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_comparison",
+      circleRef: eurRef,
+      endMonth: "2026-06",
+      rangeMonths: 3,
+    });
+    expect(comparison).toMatchObject({
+      ok: true,
+      value: {
+        currency: "EUR",
+        series: [
+          { month: "2026-04", incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+          { month: "2026-05", incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+          { month: "2026-06", incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        ],
+      },
+    });
+
+    const analytics = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+    });
+    expect(analytics).toMatchObject({ ok: true, value: { nonAdditive: true, currency: "EUR" } });
+    if (!analytics.ok || !("value" in analytics)) {
+      throw new Error("expected analytics");
+    }
+    expect(analytics.value.rows.map((row) => row.name)).toEqual(["Dining", "Groceries"]);
+    expect(analytics.value.rows.every((row) => row.taggedTotalMinor === 2_500)).toBe(true);
+    expect(JSON.stringify(analytics.value)).not.toMatch(/"categoryId":/);
+
+    const usdDashboard = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: usdRef,
+      month: "2026-06",
+    });
+    expect(usdDashboard).toMatchObject({
+      ok: true,
+      value: {
+        currency: "USD",
+        totals: { incomeMinor: 50_000, expenseMinor: 0, netMinor: 50_000 },
+      },
+    });
+
+    const deselected = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: buildRef("Other", other.circleId),
+      month: "2026-06",
+    });
+    expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const invalidMonth = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-13",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(invalidMonth).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    const invalidComparisonMonth = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_comparison",
+      circleRef: eurRef,
+      endMonth: "2026-13",
+      rangeMonths: 6,
+    });
+    expect(invalidComparisonMonth).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", eurCircle.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    const removed = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+    });
+    expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  });
+
+  it("supports all comparison ranges and rejects insufficient scope", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Ranges" }));
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Ranges", f.circleId);
+
+    for (const rangeMonths of [1, 3, 6, 12] as const) {
+      const comparison = await executeMcpRead(t, grant._id, {
+        kind: "get_monthly_comparison",
+        circleRef,
+        endMonth: "2026-06",
+        rangeMonths,
+      });
+      expect(comparison).toMatchObject({ ok: true });
+      if (!comparison.ok || !("value" in comparison)) {
+        throw new Error("expected comparison");
+      }
+      expect(comparison.value.series).toHaveLength(rangeMonths);
+    }
+
+    const scopeDenied = await executeMcpRead(
+      t,
+      grant._id,
+      {
+        kind: "get_dashboard",
+        circleRef,
+        month: "2026-06",
+      },
+      [],
+    );
+    expect(scopeDenied).toMatchObject({ ok: false, error: "insufficient_scope" });
+  });
+});
+
 describe("cleanupExpiredWorkerNonces", () => {
   it("deletes expired nonces and preserves unexpired nonces", async () => {
     const t = convexTest(schema, modules);

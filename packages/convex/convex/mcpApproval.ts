@@ -8,7 +8,11 @@
 import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
+  mcpCategoryAnalyticsSchema,
   mcpCircleViewSchema,
+  mcpDashboardSchema,
+  mcpMonthlyComparisonSchema,
+  mcpMonthlyLedgerSchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
@@ -34,6 +38,10 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
+  getCategoryAnalyticsForUser,
+  getDashboardForUser,
+  getMonthlyComparisonForUser,
+  getMonthlyLedgerForUser,
   getTransactionForUser,
   listAuthorizedCirclesForGrant,
   listCircleHistoryForUser,
@@ -315,6 +323,29 @@ export const executeMcpReadOperation = internalQuery({
         transactionRef: v.string(),
         paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
+      v.object({
+        kind: v.literal("get_monthly_ledger"),
+        circleRef: v.string(),
+        month: v.string(),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
+      v.object({
+        kind: v.literal("get_dashboard"),
+        circleRef: v.string(),
+        month: v.optional(v.string()),
+      }),
+      v.object({
+        kind: v.literal("get_monthly_comparison"),
+        circleRef: v.string(),
+        endMonth: v.optional(v.string()),
+        rangeMonths: v.union(v.literal(1), v.literal(3), v.literal(6), v.literal(12)),
+      }),
+      v.object({
+        kind: v.literal("get_category_analytics"),
+        circleRef: v.string(),
+        month: v.optional(v.string()),
+        type: v.optional(v.union(v.literal("expense"), v.literal("income"))),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -435,6 +466,64 @@ export const executeMcpReadOperation = internalQuery({
         args.operation.paginationOpts ?? { numItems: 50, cursor: null },
       );
       return validateMcpResult(mcpPaginatedTransactionHistorySchema, history);
+    }
+
+    if (args.operation.kind === "get_monthly_ledger") {
+      const ledger = await getMonthlyLedgerForUser(ctx, circleAuthz.value.access.circle._id, user, {
+        month: args.operation.month,
+        ...(args.operation.paginationOpts === undefined
+          ? {}
+          : { paginationOpts: args.operation.paginationOpts }),
+      });
+      if (!ledger.ok) {
+        return { ok: false as const, error: ledger.error };
+      }
+      return validateMcpResult(mcpMonthlyLedgerSchema, ledger.value);
+    }
+
+    if (args.operation.kind === "get_dashboard") {
+      const dashboard = await getDashboardForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        args.operation.month === undefined ? {} : { month: args.operation.month },
+      );
+      if (!dashboard.ok) {
+        return { ok: false as const, error: dashboard.error };
+      }
+      return validateMcpResult(mcpDashboardSchema, dashboard.value);
+    }
+
+    if (args.operation.kind === "get_monthly_comparison") {
+      const comparison = await getMonthlyComparisonForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        {
+          rangeMonths: args.operation.rangeMonths,
+          ...(args.operation.endMonth === undefined ? {} : { endMonth: args.operation.endMonth }),
+        },
+      );
+      if (!comparison.ok) {
+        return { ok: false as const, error: comparison.error };
+      }
+      return validateMcpResult(mcpMonthlyComparisonSchema, comparison.value);
+    }
+
+    if (args.operation.kind === "get_category_analytics") {
+      const analytics = await getCategoryAnalyticsForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        {
+          ...(args.operation.month === undefined ? {} : { month: args.operation.month }),
+          ...(args.operation.type === undefined ? {} : { type: args.operation.type }),
+        },
+      );
+      if (!analytics.ok) {
+        return { ok: false as const, error: analytics.error };
+      }
+      return validateMcpResult(mcpCategoryAnalyticsSchema, analytics.value);
     }
 
     return { ok: false as const, error: "invalid_operation" as const };

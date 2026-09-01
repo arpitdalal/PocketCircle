@@ -6,9 +6,14 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   type McpReadOperation,
+  mcpCategoryAnalyticsSchema,
   mcpCircleRefSchema,
   mcpCircleViewSchema,
+  mcpComparisonRangeMonthsSchema,
   mcpCurrentUserViewSchema,
+  mcpDashboardSchema,
+  mcpMonthlyComparisonSchema,
+  mcpMonthlyLedgerSchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
@@ -80,6 +85,21 @@ const transactionRefInputSchema = circleRefInputSchema.extend({
 });
 const listTransactionHistoryInputSchema = transactionRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const monthlyLedgerInputSchema = circleRefInputSchema.extend({
+  month: z.string().max(7),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const dashboardInputSchema = circleRefInputSchema.extend({
+  month: z.string().max(7).optional(),
+});
+const monthlyComparisonInputSchema = circleRefInputSchema.extend({
+  endMonth: z.string().max(7).optional(),
+  rangeMonths: mcpComparisonRangeMonthsSchema,
+});
+const categoryAnalyticsInputSchema = circleRefInputSchema.extend({
+  month: z.string().max(7).optional(),
+  type: z.enum(["expense", "income"]).optional(),
 });
 
 async function handleToolExecution<T>(
@@ -328,6 +348,117 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "get_monthly_ledger",
+    {
+      title: "Get Monthly Ledger",
+      description:
+        "Get one authorized Circle-month's active Income, Expense, and Net totals in minor units plus deterministically date-ordered active Transactions. Archived Transactions are excluded from totals and the list.",
+      inputSchema: monthlyLedgerInputSchema,
+      outputSchema: mcpMonthlyLedgerSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_monthly_ledger",
+          circleRef: args.circleRef,
+          month: args.month,
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpMonthlyLedgerSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_dashboard",
+    {
+      title: "Get Dashboard",
+      description:
+        "Get the selected month's active Income, Expense, and Net totals plus a bounded recent-activity feed for an authorized Circle. Defaults to the current month when month is omitted. Archived Transactions are excluded.",
+      inputSchema: dashboardInputSchema,
+      outputSchema: mcpDashboardSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_dashboard",
+          circleRef: args.circleRef,
+          ...(args.month === undefined ? {} : { month: args.month }),
+        },
+        mcpDashboardSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_monthly_comparison",
+    {
+      title: "Get Monthly Comparison",
+      description:
+        "Compare active Income, Expense, and Net in minor units across the supported 1, 3, 6, or 12 month Comparison Ranges ending at endMonth (current month when omitted). Archived Transactions are excluded.",
+      inputSchema: monthlyComparisonInputSchema,
+      outputSchema: mcpMonthlyComparisonSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_monthly_comparison",
+          circleRef: args.circleRef,
+          rangeMonths: args.rangeMonths,
+          ...(args.endMonth === undefined ? {} : { endMonth: args.endMonth }),
+        },
+        mcpMonthlyComparisonSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_category_analytics",
+    {
+      title: "Get Category Analytics",
+      description:
+        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded.",
+      inputSchema: categoryAnalyticsInputSchema,
+      outputSchema: mcpCategoryAnalyticsSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_category_analytics",
+          circleRef: args.circleRef,
+          ...(args.month === undefined ? {} : { month: args.month }),
+          ...(args.type === undefined ? {} : { type: args.type }),
+        },
+        mcpCategoryAnalyticsSchema,
+      ),
+  );
+
   return server;
 }
 
@@ -340,6 +471,10 @@ const READ_TOOL_NAMES = new Set([
   "search_transactions",
   "get_transaction",
   "list_transaction_history",
+  "get_monthly_ledger",
+  "get_dashboard",
+  "get_monthly_comparison",
+  "get_category_analytics",
 ]);
 
 const rpcCallSchema = z.object({

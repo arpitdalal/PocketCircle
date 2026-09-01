@@ -213,6 +213,78 @@ export const mcpSearchTransactionsResultSchema = z.discriminatedUnion("paginatio
 
 export type McpSearchTransactionsResult = z.infer<typeof mcpSearchTransactionsResultSchema>;
 
+export const mcpMonthTotalsSchema = z.object({
+  incomeMinor: z.number().int(),
+  expenseMinor: z.number().int(),
+  netMinor: z.number().int(),
+});
+
+export type McpMonthTotals = z.infer<typeof mcpMonthTotalsSchema>;
+
+export const mcpPaginatedTransactionSummariesSchema = mcpPaginatedSchema(
+  mcpTransactionSummarySchema,
+);
+
+export const mcpMonthlyLedgerSchema = z.object({
+  month: z.string().min(1).max(7),
+  totals: mcpMonthTotalsSchema,
+  currency: z.string().min(1).max(3),
+  transactions: mcpPaginatedTransactionSummariesSchema,
+});
+
+export type McpMonthlyLedger = z.infer<typeof mcpMonthlyLedgerSchema>;
+
+/** Dashboard recent feed cap — mirrors `dashboard.RECENT_TRANSACTIONS_LIMIT`. */
+const mcpDashboardRecentMax = 5;
+
+export const mcpDashboardSchema = z.object({
+  month: z.string().min(1).max(7),
+  totals: mcpMonthTotalsSchema,
+  recent: z.array(mcpTransactionSummarySchema).max(mcpDashboardRecentMax),
+  currency: z.string().min(1).max(3),
+});
+
+export type McpDashboard = z.infer<typeof mcpDashboardSchema>;
+
+export const mcpComparisonRangeMonthsSchema = z.union([
+  z.literal(1),
+  z.literal(3),
+  z.literal(6),
+  z.literal(12),
+]);
+
+export const mcpMonthlyComparisonPointSchema = mcpMonthTotalsSchema.extend({
+  month: z.string().min(1).max(7),
+});
+
+export const mcpMonthlyComparisonSchema = z.object({
+  series: z.array(mcpMonthlyComparisonPointSchema).max(12),
+  currency: z.string().min(1).max(3),
+});
+
+export type McpMonthlyComparison = z.infer<typeof mcpMonthlyComparisonSchema>;
+
+export const mcpCategoryAnalyticsRowSchema = z.object({
+  ref: z.string().min(1).max(300),
+  name: z.string().min(1).max(LIMITS.categoryNameMax),
+  color: z.string().min(1).max(64),
+  status: z.enum(["active", "archived"]),
+  taggedTotalMinor: z.number().int().min(0),
+  txnCount: z.number().int().min(0),
+});
+
+export type McpCategoryAnalyticsRow = z.infer<typeof mcpCategoryAnalyticsRowSchema>;
+
+export const mcpCategoryAnalyticsSchema = z.object({
+  month: z.string().min(1).max(7),
+  /** Multi-Category Transactions contribute their full amount to each Category row. */
+  nonAdditive: z.literal(true),
+  rows: z.array(mcpCategoryAnalyticsRowSchema).max(100),
+  currency: z.string().min(1).max(3),
+});
+
+export type McpCategoryAnalytics = z.infer<typeof mcpCategoryAnalyticsSchema>;
+
 const mcpTransactionFilterTypeSchema = z.enum(["all", "expense", "income"]);
 const mcpTransactionLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
 
@@ -298,6 +370,29 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
     circleRef: mcpCircleRefSchema,
     transactionRef: mcpTransactionRefSchema,
     paginationOpts: mcpPaginationOptsSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("get_monthly_ledger"),
+    circleRef: mcpCircleRefSchema,
+    month: z.string().max(7),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("get_dashboard"),
+    circleRef: mcpCircleRefSchema,
+    month: z.string().max(7).optional(),
+  }),
+  z.object({
+    kind: z.literal("get_monthly_comparison"),
+    circleRef: mcpCircleRefSchema,
+    endMonth: z.string().max(7).optional(),
+    rangeMonths: mcpComparisonRangeMonthsSchema,
+  }),
+  z.object({
+    kind: z.literal("get_category_analytics"),
+    circleRef: mcpCircleRefSchema,
+    month: z.string().max(7).optional(),
+    type: z.enum(["expense", "income"]).optional(),
   }),
 ]);
 

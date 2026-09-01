@@ -164,5 +164,38 @@ describe("MCP schemas", () => {
       },
     });
     expect(longSearchQuery.success).toBe(true);
+
+    const ledgerOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_ledger",
+        circleRef: "trip-c123",
+        month: "2026-06",
+      },
+    });
+    expect(ledgerOp.success).toBe(true);
+
+    const comparisonOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_comparison",
+        circleRef: "trip-c123",
+        rangeMonths: 6,
+      },
+    });
+    expect(comparisonOp.success).toBe(true);
+
+    const invalidComparisonRange = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_comparison",
+        circleRef: "trip-c123",
+        rangeMonths: 2,
+      },
+    });
+    expect(invalidComparisonRange.success).toBe(false);
   });
 });
