@@ -8,6 +8,7 @@ import {
   circleSettingsUpdateSchema,
   isTransactionType,
   LIMITS,
+  normalizeDisplayName,
   parseCircleSettingsUpdate,
   parseProfileUpdate,
   toMutationArgs,
@@ -40,6 +41,14 @@ describe("parseProfileUpdate (USR-1 profile edit contract)", () => {
 
   it("rejects a whitespace-only name", () => {
     expect(parseProfileUpdate({ displayName: "   " }).ok).toBe(false);
+  });
+});
+
+describe("normalizeDisplayName", () => {
+  it("does not split a provider-seeded Unicode character at the length bound", () => {
+    expect(normalizeDisplayName(`${"x".repeat(LIMITS.displayNameMax - 1)}😀`)).toBe(
+      "x".repeat(LIMITS.displayNameMax - 1),
+    );
   });
 });
 

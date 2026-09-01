@@ -101,7 +101,15 @@ export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 
 /** Bounds provider-controlled profile seeds before they enter app-owned storage. */
 export function normalizeDisplayName(displayName: string) {
-  return displayName.trim().slice(0, LIMITS.displayNameMax);
+  const trimmed = displayName.trim();
+  let length = 0;
+  for (const character of trimmed) {
+    if (length + character.length > LIMITS.displayNameMax) {
+      break;
+    }
+    length += character.length;
+  }
+  return trimmed.slice(0, length);
 }
 
 /** Canonical email for storage and comparison: trim + lowercase. */
