@@ -16,13 +16,13 @@ import { type IndexRange, paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { stream } from "convex-helpers/server/stream";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import type { QueryCtx } from "./_generated/server.js";
 import { query } from "./_generated/server.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { toCategoryView } from "./categories.js";
 import { resolveCircleAccess } from "./guard.js";
+import { toMemberView } from "./memberViews.js";
 import { monthDateRange } from "./monthActivity.js";
-import { toMemberView } from "./operations.js";
+import type { OperationReader } from "./operationReader.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
 
@@ -65,7 +65,7 @@ function selectedStatus(value: "active" | "archived" | "all") {
   return value === "all" ? undefined : value;
 }
 
-function normalizeCategoryIds(ctx: QueryCtx, values: string[] | undefined) {
+function normalizeCategoryIds(ctx: OperationReader, values: string[] | undefined) {
   const ids = new Set<Id<"categories">>();
   let sawValue = false;
   for (const value of values ?? []) {
@@ -78,7 +78,7 @@ function normalizeCategoryIds(ctx: QueryCtx, values: string[] | undefined) {
   return { ids, hasOnlyUnknown: sawValue && ids.size === 0 };
 }
 
-function normalizeMemberIds(ctx: QueryCtx, values: string[] | undefined) {
+function normalizeMemberIds(ctx: OperationReader, values: string[] | undefined) {
   const ids = new Set<Id<"members">>();
   let sawValue = false;
   for (const value of values ?? []) {
@@ -118,7 +118,7 @@ function nextPlainDate(date: string) {
 }
 
 export async function categoryLinksForTransaction(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   transactionId: Id<"transactions">,
   caches: SearchCaches,
 ) {
@@ -135,7 +135,7 @@ export async function categoryLinksForTransaction(
 }
 
 export async function matchesFilters(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   txn: Doc<"transactions">,
   filters: {
     type?: "expense" | "income";
@@ -198,7 +198,7 @@ function applyDateRange<
 }
 
 export function streamByWindow(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: {
     circleId: Id<"circles">;
     status?: "active" | "archived";
@@ -259,8 +259,8 @@ export function streamByWindow(
     .order("desc");
 }
 
-async function collectTransactionViews(
-  ctx: QueryCtx,
+export async function collectTransactionViews(
+  ctx: OperationReader,
   args: {
     circleId: Id<"circles">;
     viewerMemberId: Id<"members">;
@@ -330,7 +330,7 @@ function onlySelectedId<T>(ids: Set<T>) {
 }
 
 export function buildIndexedSearchSource(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: Omit<Parameters<typeof collectTransactionViews>[1], "paginationOpts">,
 ) {
   const paidByMemberId = onlySelectedId(args.paidByMemberIds);
@@ -404,7 +404,7 @@ export function buildIndexedSearchSource(
 }
 
 async function collectSearchTransactionViews(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: Parameters<typeof collectTransactionViews>[1],
   viewCaches: ReturnType<typeof newViewCaches>,
 ) {
@@ -431,8 +431,8 @@ async function collectSearchTransactionViews(
   };
 }
 
-async function searchTransactionsOffsetPage(
-  ctx: QueryCtx,
+export async function searchTransactionsOffsetPage(
+  ctx: OperationReader,
   args: Omit<Parameters<typeof collectTransactionViews>[1], "paginationOpts"> & {
     page: number;
     pageSize: number;
@@ -520,7 +520,7 @@ async function searchTransactionsOffsetPage(
 }
 
 export function normalizeCommonFilters(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: {
     type: "all" | "expense" | "income";
     status: "active" | "archived" | "all";

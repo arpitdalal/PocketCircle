@@ -11,7 +11,10 @@ import {
   mcpCircleViewSchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
+  mcpPaginatedTransactionHistorySchema,
   mcpScopesInclude,
+  mcpSearchTransactionsResultSchema,
+  mcpTransactionDetailSchema,
   normalizeMcpImage,
   normalizeMcpScopes,
   verifyMcpApproval,
@@ -31,10 +34,13 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
+  getTransactionForUser,
   listAuthorizedCirclesForGrant,
   listCircleHistoryForUser,
+  listTransactionHistoryForUser,
   paginateMembersForUser,
   resolveCircleRef,
+  searchTransactionsForUser,
   toMcpCircleView,
   toMcpCurrentUserView,
 } from "./operations.js";
@@ -243,7 +249,19 @@ export const validateActiveGrant = internalQuery({
   },
 });
 
-export const executeMcpReadOperation = internalMutation({
+export const recordMcpGrantUseFromWorker = internalMutation({
+  args: { grantId: v.string() },
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("mcpGrants", args.grantId);
+    if (!id) {
+      return { ok: false as const, error: "grant_not_found" as const };
+    }
+    await recordMcpGrantUse(ctx, { grantId: id });
+    return { ok: true as const };
+  },
+});
+
+export const executeMcpReadOperation = internalQuery({
   args: {
     grantId: v.string(),
     effectiveScopes: v.array(v.string()),
@@ -262,6 +280,41 @@ export const executeMcpReadOperation = internalMutation({
         circleRef: v.string(),
         paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
+      v.object({
+        kind: v.literal("search_transactions"),
+        circleRef: v.string(),
+        filters: v.optional(
+          v.object({
+            query: v.optional(v.string()),
+            type: v.optional(v.union(v.literal("all"), v.literal("expense"), v.literal("income"))),
+            status: v.optional(
+              v.union(v.literal("active"), v.literal("archived"), v.literal("all")),
+            ),
+            categoryRefs: v.optional(v.array(v.string())),
+            recordedByMemberIds: v.optional(v.array(v.string())),
+            paidByMemberIds: v.optional(v.array(v.string())),
+            dateFrom: v.optional(v.string()),
+            dateTo: v.optional(v.string()),
+            amountMin: v.optional(v.number()),
+            amountMax: v.optional(v.number()),
+            month: v.optional(v.string()),
+          }),
+        ),
+        page: v.optional(v.number()),
+        pageSize: v.optional(v.number()),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
+      v.object({
+        kind: v.literal("get_transaction"),
+        circleRef: v.string(),
+        transactionRef: v.string(),
+      }),
+      v.object({
+        kind: v.literal("list_transaction_history"),
+        circleRef: v.string(),
+        transactionRef: v.string(),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -274,8 +327,6 @@ export const executeMcpReadOperation = internalMutation({
       return { ok: false as const, error: authz.denial.kind, denial: authz.denial };
     }
     const { grant, user } = authz.value;
-
-    await recordMcpGrantUse(ctx, { grantId: grant._id });
 
     if (args.operation.kind === "get_current_user") {
       return {
@@ -340,6 +391,50 @@ export const executeMcpReadOperation = internalMutation({
         })),
       };
       return validateMcpResult(mcpPaginatedCircleHistorySchema, value);
+    }
+
+    if (args.operation.kind === "search_transactions") {
+      const search = await searchTransactionsForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        {
+          ...(args.operation.filters === undefined ? {} : { filters: args.operation.filters }),
+          ...(args.operation.page === undefined ? {} : { page: args.operation.page }),
+          ...(args.operation.pageSize === undefined ? {} : { pageSize: args.operation.pageSize }),
+          ...(args.operation.paginationOpts === undefined
+            ? {}
+            : { paginationOpts: args.operation.paginationOpts }),
+        },
+      );
+      if (!search.ok) {
+        return { ok: false as const, error: search.error };
+      }
+      return validateMcpResult(mcpSearchTransactionsResultSchema, search.value);
+    }
+
+    if (args.operation.kind === "get_transaction") {
+      const value = await getTransactionForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        args.operation.transactionRef,
+        user,
+      );
+      if (!value) {
+        return { ok: false as const, error: "transaction_inaccessible" as const };
+      }
+      return validateMcpResult(mcpTransactionDetailSchema, value);
+    }
+
+    if (args.operation.kind === "list_transaction_history") {
+      const history = await listTransactionHistoryForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        args.operation.transactionRef,
+        user,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      return validateMcpResult(mcpPaginatedTransactionHistorySchema, history);
     }
 
     return { ok: false as const, error: "invalid_operation" as const };

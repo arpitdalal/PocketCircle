@@ -134,6 +134,144 @@ export const mcpPaginatedMembersSchema = mcpPaginatedSchema(mcpMemberViewSchema)
 
 export const mcpPaginatedCircleHistorySchema = mcpPaginatedSchema(mcpCircleHistoryEventSchema);
 
+export const mcpTransactionRefSchema = z.string().min(1).max(300);
+
+export const mcpMemberAttributionSchema = z.object({
+  displayName: z.string().min(1).max(LIMITS.displayNameMax),
+  image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
+});
+
+export type McpMemberAttribution = z.infer<typeof mcpMemberAttributionSchema>;
+
+export const mcpCategoryAttributionSchema = z.object({
+  ref: z.string().min(1).max(300),
+  name: z.string().min(1).max(LIMITS.categoryNameMax),
+  color: z.string().min(1).max(64),
+});
+
+export type McpCategoryAttribution = z.infer<typeof mcpCategoryAttributionSchema>;
+
+export const mcpTransactionAuditSchema = z.object({
+  createdBy: mcpMemberAttributionSchema,
+  createdAt: z.number(),
+  updatedBy: mcpMemberAttributionSchema,
+  updatedAt: z.number(),
+});
+
+const mcpTransactionActionsSchema = z.object({
+  canEditFields: z.boolean(),
+  canArchive: z.boolean(),
+});
+
+export const mcpTransactionSummarySchema = z
+  .object({
+    ref: mcpTransactionRefSchema,
+    type: z.enum(["expense", "income"]),
+    title: z.string().min(1).max(LIMITS.transactionTitleMax),
+    note: z.string().max(LIMITS.transactionNoteMax).optional(),
+    amountMinorUnits: z.number().int().min(0),
+    currency: z.string().min(1).max(3),
+    date: z.string().min(1).max(10),
+    month: z.string().min(1).max(7),
+    status: z.enum(["active", "archived"]),
+    recordedBy: mcpMemberAttributionSchema,
+    paidBy: mcpMemberAttributionSchema,
+    categories: z.array(mcpCategoryAttributionSchema).max(20),
+  })
+  .merge(mcpTransactionActionsSchema);
+
+export type McpTransactionSummary = z.infer<typeof mcpTransactionSummarySchema>;
+
+export const mcpTransactionDetailSchema = mcpTransactionSummarySchema.extend({
+  audit: mcpTransactionAuditSchema,
+});
+
+export type McpTransactionDetail = z.infer<typeof mcpTransactionDetailSchema>;
+
+export const mcpPaginatedTransactionHistorySchema = mcpPaginatedSchema(mcpCircleHistoryEventSchema);
+
+export const mcpSearchTransactionsOffsetResultSchema = z.object({
+  pagination: z.literal("offset"),
+  transactions: z.array(mcpTransactionSummarySchema).max(100),
+  pageNumber: z.number().int().min(1).max(40),
+  pageSize: z.number().int().min(1).max(100),
+  totalCount: z.number().int().min(0),
+  totalCountCapped: z.boolean(),
+});
+
+export const mcpSearchTransactionsCursorResultSchema = z.object({
+  pagination: z.literal("cursor"),
+  page: z.array(mcpTransactionSummarySchema).max(100),
+  isDone: z.boolean(),
+  continueCursor: z.string().max(4096),
+});
+
+export const mcpSearchTransactionsResultSchema = z.discriminatedUnion("pagination", [
+  mcpSearchTransactionsOffsetResultSchema,
+  mcpSearchTransactionsCursorResultSchema,
+]);
+
+export type McpSearchTransactionsResult = z.infer<typeof mcpSearchTransactionsResultSchema>;
+
+const mcpTransactionFilterTypeSchema = z.enum(["all", "expense", "income"]);
+const mcpTransactionLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
+
+export const mcpSearchTransactionsFiltersSchema = z
+  .object({
+    query: z.string().max(LIMITS.transactionSearchQueryMax).optional(),
+    type: mcpTransactionFilterTypeSchema.optional(),
+    status: mcpTransactionLifecycleFilterSchema.optional(),
+    categoryRefs: z.array(z.string().min(1).max(300)).max(20).optional(),
+    recordedByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+    paidByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+    dateFrom: z.string().max(10).optional(),
+    dateTo: z.string().max(10).optional(),
+    amountMin: z.number().int().min(0).optional(),
+    amountMax: z.number().int().min(0).optional(),
+    month: z.string().max(7).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.month !== undefined && (value.dateFrom !== undefined || value.dateTo !== undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Provide either month or dateFrom/dateTo, not both",
+      });
+    }
+  });
+
+const mcpSearchTransactionsCoreSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  filters: mcpSearchTransactionsFiltersSchema.optional(),
+  page: z.number().int().min(1).max(40).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+
+function refineMcpSearchTransactionsPagination(
+  value: z.infer<typeof mcpSearchTransactionsCoreSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (
+    value.paginationOpts !== undefined &&
+    (value.page !== undefined || value.pageSize !== undefined)
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "search_transactions accepts either paginationOpts or page/pageSize, not both",
+    });
+  }
+}
+
+export const mcpSearchTransactionsInputSchema = mcpSearchTransactionsCoreSchema.superRefine(
+  refineMcpSearchTransactionsPagination,
+);
+
+const mcpSearchTransactionsOperationSchema = mcpSearchTransactionsCoreSchema
+  .extend({
+    kind: z.literal("search_transactions"),
+  })
+  .superRefine(refineMcpSearchTransactionsPagination);
+
 export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("get_current_user") }),
   z.object({ kind: z.literal("list_authorized_circles") }),
@@ -147,6 +285,18 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("list_circle_history"),
     circleRef: mcpCircleRefSchema,
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  }),
+  mcpSearchTransactionsOperationSchema,
+  z.object({
+    kind: z.literal("get_transaction"),
+    circleRef: mcpCircleRefSchema,
+    transactionRef: mcpTransactionRefSchema,
+  }),
+  z.object({
+    kind: z.literal("list_transaction_history"),
+    circleRef: mcpCircleRefSchema,
+    transactionRef: mcpTransactionRefSchema,
     paginationOpts: mcpPaginationOptsSchema.optional(),
   }),
 ]);

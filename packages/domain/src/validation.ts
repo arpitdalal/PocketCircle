@@ -28,6 +28,8 @@ export const LIMITS = {
   categoryNameMax: 40,
   transactionTitleMax: 120,
   transactionNoteMax: 1_000,
+  /** Full-text transaction search may match note text, not just titles. */
+  transactionSearchQueryMax: 1_000,
   feedbackMessageMax: 4_000,
   maxCategoriesPerTransaction: 10,
 } as const;

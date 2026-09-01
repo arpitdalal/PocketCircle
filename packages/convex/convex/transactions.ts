@@ -28,6 +28,7 @@ import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
 import { monthDateRange } from "./monthActivity.js";
 import { notifyPaidBySet, notifyTransactionLifecycleChange } from "./notify.js";
+import type { OperationReader } from "./operationReader.js";
 import { syncTransactionSearchDocument } from "./transactionSearchDocuments.js";
 
 const transactionType = v.union(v.literal("expense"), v.literal("income"));
@@ -66,7 +67,7 @@ export function newViewCaches(): ViewCaches {
  * later-removed Paid By keeps the name it had, with no join to live User rows.
  */
 async function memberRef(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   memberId: Id<"members">,
   caches: ViewCaches,
 ): Promise<MemberRef> {
@@ -114,7 +115,7 @@ export async function categoryDisplayName(
 
 /** Resolves a Category to its display fields, memoized per query. */
 async function categoryRef(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   categoryId: Id<"categories">,
   caches: ViewCaches,
 ): Promise<CategoryRef | null> {
@@ -148,7 +149,7 @@ async function categoryRef(
  * enforcement (ADR 0015), matching the `requireTransactionAccess` predicates in `guard.ts`.
  */
 export async function toTransactionView(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   txn: Doc<"transactions">,
   caches: ViewCaches,
   viewerMemberId: Id<"members">,
@@ -210,7 +211,7 @@ export type TransactionView = Awaited<ReturnType<typeof toTransactionView>>;
  * No raw IDs leak — only Display Names and timestamps appear.
  */
 export async function toTransactionDetailView(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   txn: Doc<"transactions">,
   caches: ViewCaches,
   viewerMemberId: Id<"members">,

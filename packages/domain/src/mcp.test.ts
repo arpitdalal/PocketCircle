@@ -118,5 +118,51 @@ describe("MCP schemas", () => {
       operation: { kind: "unknown_operation" },
     });
     expect(invalidOp.success).toBe(false);
+
+    const searchOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { status: "all", query: "coffee" },
+        page: 1,
+      },
+    });
+    expect(searchOp.success).toBe(true);
+
+    const mixedPagination = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        page: 2,
+        paginationOpts: { numItems: 10, cursor: null },
+      },
+    });
+    expect(mixedPagination.success).toBe(false);
+
+    const mixedDateWindows = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { month: "2026-06", dateFrom: "2026-06-01" },
+      },
+    });
+    expect(mixedDateWindows.success).toBe(false);
+
+    const longSearchQuery = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { query: "x".repeat(200) },
+      },
+    });
+    expect(longSearchQuery.success).toBe(true);
   });
 });

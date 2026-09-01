@@ -138,9 +138,17 @@ workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, bo
   ctx.runQuery(internal.mcpApproval.validateActiveGrant, body),
 );
 
-workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) =>
-  ctx.runMutation(internal.mcpApproval.executeMcpReadOperation, body),
-);
+workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) => {
+  const result = await ctx.runQuery(internal.mcpApproval.executeMcpReadOperation, body);
+  const grantDenied =
+    !result.ok && (result.error === "grant_unavailable" || result.error === "insufficient_scope");
+  if (!grantDenied) {
+    await ctx.runMutation(internal.mcpApproval.recordMcpGrantUseFromWorker, {
+      grantId: body.grantId,
+    });
+  }
+  return result;
+});
 
 workerBridgeRoute("/mcp/complete-revocation", completeRevocationBodySchema, async (ctx, body) =>
   ctx.runMutation(internal.mcpApproval.completeRevocationFromWorker, body),
