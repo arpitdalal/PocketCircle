@@ -1,4 +1,4 @@
-import type { PaginationOptions, PaginationResult } from "convex/server";
+import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import type { OperationReader } from "./operationReader.js";
@@ -126,7 +126,7 @@ export async function paginateEntityHistory(
   ctx: OperationReader,
   entity: HistoryEntity,
   paginationOpts: PaginationOptions,
-): Promise<PaginationResult<Doc<"histories">>> {
+) {
   return await ctx.db
     .query("histories")
     .withIndex("by_entity_and_createdAt", (q) => q.eq("entityId", entity.entityId))

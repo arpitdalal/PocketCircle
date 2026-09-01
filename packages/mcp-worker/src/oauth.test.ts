@@ -1196,6 +1196,11 @@ describe("MCP tools execution", () => {
           },
         });
       }
+      expect(parsed.data.operation.kind).toBe("list_circle_history");
+      expect(parsed.data.operation).toMatchObject({
+        circleRef: "trip-circle_1",
+        paginationOpts: { numItems: 10, cursor: null },
+      });
       return Response.json({
         ok: true,
         value: { page: [], isDone: true, continueCursor: "" },

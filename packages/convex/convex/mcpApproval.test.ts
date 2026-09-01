@@ -339,8 +339,15 @@ describe("MCP Circle, Member, and Circle History reads", () => {
         setupCompletedAt: Date.now(),
       }),
     );
+    const deletedBeforeMaya = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "deleted@example.com", "Deleted Member"),
+    );
+    await t.run((ctx) => ctx.db.delete(deletedBeforeMaya.user._id));
     const maya = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "maya@example.com", "Maya Member"),
+    );
+    const nora = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "nora@example.com", "Nora Member"),
     );
     const removed = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "bo@example.com", "Bo Removed", "removed"),
@@ -395,6 +402,16 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(activeSecondPage.value.page.map((member) => member.displayName)).toEqual([
       "Maya Member",
     ]);
+    const activeThirdPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: activeSecondPage.value.continueCursor },
+    });
+    expect(activeThirdPage).toMatchObject({ ok: true });
+    if (!activeThirdPage.ok || !("value" in activeThirdPage)) {
+      throw new Error("expected third active member page");
+    }
+    expect(activeThirdPage.value.page.map((member) => member.displayName)).toEqual(["Nora Member"]);
     expect(JSON.stringify(active.value)).not.toContain(owner.owner.email);
     expect(JSON.stringify(active.value)).not.toContain("userId");
 
@@ -410,13 +427,16 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     }
     expect(historical.value.page.map((member) => member.displayName)).toEqual([
       "Olive Owner",
+      "Deleted Member",
       "Maya Member",
+      "Nora Member",
       "Bo Removed",
     ]);
     expect(historical.value.page.find((member) => member.id === removed.memberId)?.status).toBe(
       "removed",
     );
     expect(maya.memberId).not.toBe(removed.memberId);
+    expect(nora.memberId).not.toBe(removed.memberId);
 
     await t.run((ctx) => ctx.db.delete(maya.user._id));
     const deleted = await execute(t, grant._id, {
