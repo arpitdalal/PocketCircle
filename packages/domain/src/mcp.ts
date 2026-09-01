@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LIMITS } from "./validation.js";
 
 /**
  * MCP grant vocabulary shared by Convex authorization and (later) the Worker
@@ -48,10 +49,12 @@ export const mcpCurrentUserViewSchema = z.object({
 
 export type McpCurrentUserView = z.infer<typeof mcpCurrentUserViewSchema>;
 
+const mcpCircleNameMax = LIMITS.circleNameMax + "'s Circle".length;
+
 export const mcpCircleViewSchema = z.object({
   id: z.string().min(1).max(128),
   ref: z.string().min(1).max(300),
-  name: z.string().min(1).max(60),
+  name: z.string().min(1).max(mcpCircleNameMax),
   kind: z.enum(["personal", "regular"]),
   currency: z.string().min(1).max(3),
   color: z.string().min(1).max(64),
