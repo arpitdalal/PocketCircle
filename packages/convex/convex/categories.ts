@@ -8,11 +8,12 @@ import {
   normalizeSearchText,
   textIncludes,
 } from "@pocketcircle/domain";
+import type { PaginationOptions } from "convex/server";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { mergedStream, stream } from "convex-helpers/server/stream";
-import type { Doc } from "./_generated/dataModel.js";
-import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/server.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
+import { type MutationCtx, mutation, query } from "./_generated/server.js";
 import { markActivationMilestone } from "./activation.js";
 import {
   type AuthorizedCircle,
@@ -29,6 +30,7 @@ import {
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { resolveMemberIdentity } from "./memberIdentity.js";
 import { notifyCategoryLifecycleChange } from "./notify.js";
+import type { OperationReader } from "./operationReader.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
 
@@ -62,7 +64,7 @@ export interface CategoryViewer {
  * enforcement (ADR 0015), matching `requireCategoryAccess` in `guard.ts`.
  */
 export async function toCategoryView(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   category: Doc<"categories">,
   viewer: CategoryViewer,
 ) {
@@ -98,7 +100,7 @@ export async function toCategoryView(
 export type CategoryView = Awaited<ReturnType<typeof toCategoryView>>;
 
 export async function toCategoryDetailView(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   category: Doc<"categories">,
   viewer: CategoryViewer,
 ) {
@@ -234,12 +236,7 @@ export const getCategory = query({
     if (!access) {
       return null;
     }
-    const category = await ctx.db.get(categoryId);
-    if (!category || category.circleId !== circleId) {
-      return null;
-    }
-    const viewer = { userId: access.user._id, isOwner: access.isOwner };
-    return toCategoryDetailView(ctx, category, viewer);
+    return getCategoryForAccess(ctx, access, categoryId);
   },
 });
 
@@ -262,27 +259,7 @@ export const listRecentCategoryTransactions = query({
     if (!access) {
       return [];
     }
-    const category = await ctx.db.get(categoryId);
-    if (!category || category.circleId !== circleId) {
-      return [];
-    }
-
-    const links = await ctx.db
-      .query("transactionCategories")
-      .withIndex("by_category_recent", (q) => q.eq("categoryId", categoryId))
-      .order("desc")
-      .take(5);
-
-    const caches = newViewCaches();
-    const rows = [];
-    for (const link of links) {
-      const txn = await ctx.db.get(link.transactionId);
-      if (!txn || txn.circleId !== circleId) {
-        continue;
-      }
-      rows.push(await toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner));
-    }
-    return rows;
+    return listRecentCategoryTransactionsForAccess(ctx, access, categoryId);
   },
 });
 
@@ -296,7 +273,7 @@ export const listRecentCategoryTransactions = query({
  * `mergedStream` needs to merge the two type streams on that same composite key
  * (see {@link streamCategoriesByStatus}). */
 function streamCategoriesOfType(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: {
     circleId: Doc<"circles">["_id"];
     type: "expense" | "income";
@@ -328,7 +305,7 @@ function streamCategoriesOfType(
  * existing indexes with no schema change. The merge is type-agnostic about
  * lifecycle: each side honors the `status` scope independently. */
 function streamCategoriesByStatus(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   args: {
     circleId: Doc<"circles">["_id"];
     type: "all" | "expense" | "income";
@@ -345,6 +322,104 @@ function streamCategoriesByStatus(
     ],
     ["createdAt", "_creationTime"],
   );
+}
+
+/** Category Detail recent-transaction preview cap (issue #240). */
+export const RECENT_CATEGORY_TRANSACTIONS_LIMIT = 5;
+
+const emptyCategoryHistoryPage = { page: [], isDone: true, continueCursor: "" };
+
+/** Shared explicit-User Category Filter read used by web and MCP (#324). */
+export async function filterCategoriesForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  args: {
+    type: "all" | "expense" | "income";
+    status: "active" | "archived" | "all";
+    query?: string;
+    paginationOpts: PaginationOptions;
+  },
+) {
+  const queryText = normalizeSearchText(args.query);
+  const source = streamCategoriesByStatus(ctx, {
+    circleId: access.circle._id,
+    type: args.type,
+    status: args.status,
+  });
+  const narrowed = queryText
+    ? source.filterWith(async (category) => textIncludes(category.name, queryText))
+    : source;
+  const result = await narrowed.paginate(args.paginationOpts);
+  const viewer = { userId: access.user._id, isOwner: access.isOwner };
+  return {
+    page: await Promise.all(result.page.map((category) => toCategoryView(ctx, category, viewer))),
+    isDone: result.isDone,
+    continueCursor: result.continueCursor,
+  };
+}
+
+/** Shared explicit-User Category Detail read used by web and MCP (#324). */
+export async function getCategoryForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  categoryId: Id<"categories">,
+) {
+  const category = await ctx.db.get(categoryId);
+  if (!category || category.circleId !== access.circle._id) {
+    return null;
+  }
+  const viewer = { userId: access.user._id, isOwner: access.isOwner };
+  return toCategoryDetailView(ctx, category, viewer);
+}
+
+/** Shared explicit-User Category Detail preview read used by web and MCP (#324). */
+export async function listRecentCategoryTransactionsForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  categoryId: Id<"categories">,
+) {
+  const category = await ctx.db.get(categoryId);
+  if (!category || category.circleId !== access.circle._id) {
+    return [];
+  }
+
+  const links = await ctx.db
+    .query("transactionCategories")
+    .withIndex("by_category_recent", (q) => q.eq("categoryId", categoryId))
+    .order("desc")
+    .take(RECENT_CATEGORY_TRANSACTIONS_LIMIT);
+
+  const caches = newViewCaches();
+  const rows = [];
+  for (const link of links) {
+    const txn = await ctx.db.get(link.transactionId);
+    if (!txn || txn.circleId !== access.circle._id) {
+      continue;
+    }
+    rows.push(await toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner));
+  }
+  return rows;
+}
+
+/** Shared explicit-User Category History read used by web and MCP (#324). */
+export async function listCategoryHistoryForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  categoryId: Id<"categories">,
+  paginationOpts: PaginationOptions,
+) {
+  const category = await ctx.db.get(categoryId);
+  if (!category || category.circleId !== access.circle._id) {
+    return emptyCategoryHistoryPage;
+  }
+  const result = await paginateEntityHistory(
+    ctx,
+    categoryEntity(categoryId, access.circle._id),
+    paginationOpts,
+  );
+  const cache = newActorCache();
+  const page = await Promise.all(result.page.map((event) => toHistoryEventView(ctx, event, cache)));
+  return { ...result, page };
 }
 
 /**
@@ -390,21 +465,7 @@ export const filterCategories = query({
       return { page: [], isDone: true, continueCursor: "" }; // missing ≡ inaccessible (ADR 0016)
     }
 
-    // Normalized once per request; empty/whitespace means no text narrowing.
-    const queryText = normalizeSearchText(args.query);
-
-    const source = streamCategoriesByStatus(ctx, args);
-    const narrowed = queryText
-      ? source.filterWith(async (category) => textIncludes(category.name, queryText))
-      : source;
-    const result = await narrowed.paginate(args.paginationOpts);
-
-    const viewer = { userId: access.user._id, isOwner: access.isOwner };
-    return {
-      page: await Promise.all(result.page.map((category) => toCategoryView(ctx, category, viewer))),
-      isDone: result.isDone,
-      continueCursor: result.continueCursor,
-    };
+    return filterCategoriesForAccess(ctx, access, args);
   },
 });
 
@@ -694,29 +755,15 @@ export const listCategoryHistory = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    const emptyPage = { page: [], isDone: true, continueCursor: "" };
     const categoryId = ctx.db.normalizeId("categories", args.categoryId);
     const circleId = ctx.db.normalizeId("circles", args.circleId);
     if (!categoryId || !circleId) {
-      return emptyPage;
+      return emptyCategoryHistoryPage;
     }
     const access = await resolveCircleAccess(ctx, circleId);
     if (!access) {
-      return emptyPage;
+      return emptyCategoryHistoryPage;
     }
-    const category = await ctx.db.get(categoryId);
-    if (!category || category.circleId !== circleId) {
-      return emptyPage;
-    }
-    const result = await paginateEntityHistory(
-      ctx,
-      categoryEntity(categoryId, circleId),
-      args.paginationOpts,
-    );
-    const cache = newActorCache();
-    const page = await Promise.all(
-      result.page.map((event) => toHistoryEventView(ctx, event, cache)),
-    );
-    return { ...result, page };
+    return listCategoryHistoryForAccess(ctx, access, categoryId, args.paginationOpts);
   },
 });

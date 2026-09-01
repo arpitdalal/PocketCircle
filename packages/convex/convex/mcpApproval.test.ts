@@ -1633,6 +1633,356 @@ describe("MCP financial report reads", () => {
   });
 });
 
+describe("MCP Category reads", () => {
+  it("lists with type, lifecycle, case-insensitive text, pagination, and omits internal ids", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Trip" }));
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const removedCreator = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "cleo@example.com", "Cleo Creator", "removed"),
+    );
+    const archivedId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Old Gas",
+        status: "archived",
+        creatorUserId: owner.userId,
+      }),
+    );
+    const removedCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Removed Cat",
+        creatorUserId: removedCreator.user._id,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Trip", f.circleId);
+
+    const activeDefault = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(activeDefault).toMatchObject({ ok: true });
+    if (!activeDefault.ok || !("value" in activeDefault)) {
+      throw new Error("expected active category list");
+    }
+    expect(activeDefault.value.page.map((category) => category.name).sort()).toEqual(
+      ["Dining", "Groceries", "Removed Cat", "Salary"].sort(),
+    );
+    expect(activeDefault.value.page.every((category) => category.status === "active")).toBe(true);
+    expect(JSON.stringify(activeDefault.value)).not.toMatch(/"id":/);
+
+    const archivedOnly = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { status: "archived" },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(archivedOnly.ok && archivedOnly.value.page.map((category) => category.name)).toEqual([
+      "Old Gas",
+    ]);
+
+    const expenseType = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { type: "expense", status: "all" },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(
+      expenseType.ok && expenseType.value.page.every((category) => category.type === "expense"),
+    ).toBe(true);
+    expect(
+      expenseType.ok && expenseType.value.page.some((category) => category.name === "Old Gas"),
+    ).toBe(true);
+
+    const incomeType = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { type: "income" },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(incomeType.ok && incomeType.value.page.map((category) => category.name)).toEqual([
+      "Salary",
+    ]);
+
+    const caseInsensitive = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { query: "gRoC" },
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(
+      caseInsensitive.ok && caseInsensitive.value.page.map((category) => category.name),
+    ).toEqual(["Groceries"]);
+
+    const page1 = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { status: "all" },
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(page1).toMatchObject({ ok: true });
+    if (!page1.ok || !("value" in page1)) {
+      throw new Error("expected category page 1");
+    }
+    expect(page1.value.page).toHaveLength(2);
+    expect(page1.value.isDone).toBe(false);
+
+    const page2 = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { status: "all" },
+      paginationOpts: { numItems: 2, cursor: page1.value.continueCursor },
+    });
+    expect(page2.ok && page2.value.page.length).toBeGreaterThan(0);
+
+    const deselected = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef: buildRef("Other", other.circleId),
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(deselected).toMatchObject({
+      ok: false,
+      error: "circle_inaccessible",
+    });
+
+    expect(archivedId).toBeTruthy();
+    expect(removedCategoryId).toBeTruthy();
+  });
+
+  it("returns category detail, recent transactions, history, removed creator attribution, and collapses inaccessible refs", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Selected" }));
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const removedCreator = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "cleo@example.com", "Cleo Creator", "removed"),
+    );
+    const removedCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Removed Cat",
+        creatorUserId: removedCreator.user._id,
+      }),
+    );
+    const olderTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Older shop",
+        date: "2026-05-01",
+        categoryIds: [f.groceriesId],
+        createdAt: 100,
+      }),
+    );
+    const newerTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Newer shop",
+        date: "2026-05-20",
+        categoryIds: [f.groceriesId],
+        createdAt: 200,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Selected", f.circleId);
+    const groceriesRef = buildRef("Groceries", f.groceriesId);
+    const removedCatRef = buildRef("Removed Cat", removedCategoryId);
+
+    const detail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: groceriesRef,
+    });
+    expect(detail).toMatchObject({
+      ok: true,
+      value: {
+        ref: groceriesRef,
+        name: "Groceries",
+        type: "expense",
+        status: "active",
+        canEditFields: true,
+        canArchive: true,
+      },
+    });
+    if (!detail.ok || !("value" in detail)) {
+      throw new Error("expected category detail");
+    }
+    expect(detail.value).not.toHaveProperty("id");
+    expect(detail.value.creator.displayName).toBe("Olive Owner");
+
+    mockCurrentUser.mockResolvedValue(owner.owner);
+    await t.mutation(api.categories.updateCategory, {
+      categoryId: f.groceriesId,
+      name: "Food",
+      color: "teal",
+    });
+    await t.mutation(api.categories.archiveCategory, { categoryId: f.groceriesId });
+    const archivedDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: groceriesRef,
+    });
+    expect(archivedDetail).toMatchObject({
+      ok: true,
+      value: {
+        status: "archived",
+        ref: buildRef("Food", f.groceriesId),
+        name: "Food",
+      },
+    });
+
+    const removedCreatorDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: removedCatRef,
+    });
+    expect(removedCreatorDetail).toMatchObject({
+      ok: true,
+      value: { creator: { displayName: "Cleo Creator" } },
+    });
+
+    const deletedCreator = await t.run(async (ctx) => {
+      const member = await addMember(
+        ctx,
+        f.circleId,
+        "deleted-creator@example.com",
+        "Deleted Creator",
+      );
+      const categoryId = await makeCategory(ctx, f.circleId, {
+        name: "Deleted Cat",
+        creatorUserId: member.user._id,
+      });
+      await ctx.db.delete(member.user._id);
+      return { categoryId };
+    });
+    const deletedCreatorDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: buildRef("Deleted Cat", deletedCreator.categoryId),
+    });
+    expect(deletedCreatorDetail).toMatchObject({
+      ok: true,
+      value: { creator: { displayName: "Deleted Creator" } },
+    });
+
+    const recent = await executeMcpRead(t, grant._id, {
+      kind: "list_category_transactions",
+      circleRef,
+      categoryRef: groceriesRef,
+    });
+    expect(recent).toMatchObject({ ok: true });
+    if (!recent.ok || !("value" in recent)) {
+      throw new Error("expected recent category transactions");
+    }
+    expect(recent.value.transactions.map((txn) => txn.title)).toEqual(["Newer shop", "Older shop"]);
+    expect(recent.value.transactions[0]?.ref).toBe(buildRef("Newer shop", newerTxnId));
+    expect(recent.value.transactions[1]?.ref).toBe(buildRef("Older shop", olderTxnId));
+
+    const history = await executeMcpRead(t, grant._id, {
+      kind: "list_category_history",
+      circleRef,
+      categoryRef: groceriesRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(history).toMatchObject({ ok: true });
+    if (!history.ok || !("value" in history)) {
+      throw new Error("expected category history");
+    }
+    expect(history.value.page.map((event) => event.action)).toEqual(
+      expect.arrayContaining(["edited", "archived"]),
+    );
+    const edited = history.value.page.find((event) => event.action === "edited");
+    expect(edited?.changes).toEqual(
+      expect.arrayContaining([
+        { field: "name", from: "Groceries", to: "Food" },
+        { field: "color", from: "Green", to: "Teal" },
+      ]),
+    );
+
+    const inaccessible = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: "not-a-category",
+    });
+    expect(inaccessible).toMatchObject({ ok: false, error: "category_inaccessible" });
+
+    const wrongCircle = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: buildRef("Salary", other.salaryId),
+    });
+    expect(wrongCircle).toMatchObject({ ok: false, error: "category_inaccessible" });
+
+    const deselectedDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef: buildRef("Other", other.circleId),
+      categoryRef: groceriesRef,
+    });
+    expect(deselectedDetail).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const emptyHistory = await executeMcpRead(t, grant._id, {
+      kind: "list_category_history",
+      circleRef: buildRef("Other", other.circleId),
+      categoryRef: groceriesRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(emptyHistory).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    const foodRef = buildRef("Food", f.groceriesId);
+    const removedList = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    const removedDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: foodRef,
+    });
+    const removedRecent = await executeMcpRead(t, grant._id, {
+      kind: "list_category_transactions",
+      circleRef,
+      categoryRef: foodRef,
+    });
+    const removedHistory = await executeMcpRead(t, grant._id, {
+      kind: "list_category_history",
+      circleRef,
+      categoryRef: foodRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(removedList).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(removedDetail).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(removedRecent).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(removedHistory).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  });
+});
+
 describe("cleanupExpiredWorkerNonces", () => {
   it("deletes expired nonces and preserves unexpired nonces", async () => {
     const t = convexTest(schema, modules);

@@ -7,13 +7,19 @@ import {
 import {
   type McpReadOperation,
   mcpCategoryAnalyticsSchema,
+  mcpCategoryDetailSchema,
+  mcpCategoryRefSchema,
   mcpCircleRefSchema,
   mcpCircleViewSchema,
   mcpComparisonRangeMonthsSchema,
   mcpCurrentUserViewSchema,
   mcpDashboardSchema,
+  mcpListCategoriesFiltersSchema,
+  mcpListCategoryTransactionsResultSchema,
   mcpMonthlyComparisonSchema,
   mcpMonthlyLedgerSchema,
+  mcpPaginatedCategoriesSchema,
+  mcpPaginatedCategoryHistorySchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
@@ -100,6 +106,16 @@ const monthlyComparisonInputSchema = circleRefInputSchema.extend({
 const categoryAnalyticsInputSchema = circleRefInputSchema.extend({
   month: z.string().max(7),
   type: z.enum(["expense", "income"]),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const listCategoriesInputSchema = circleRefInputSchema.extend({
+  filters: mcpListCategoriesFiltersSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const categoryRefInputSchema = circleRefInputSchema.extend({
+  categoryRef: mcpCategoryRefSchema,
+});
+const listCategoryHistoryInputSchema = categoryRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 
@@ -461,6 +477,116 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "list_categories",
+    {
+      title: "List Categories",
+      description:
+        "List Categories in an authorized Circle with optional Transaction type, lifecycle scope (active, archived, or all), and case-insensitive name filtering. Defaults to active Categories. Archived Categories remain readable for history but are not valid new Transaction selections. Results paginate via paginationOpts (default first 50 rows).",
+      inputSchema: listCategoriesInputSchema,
+      outputSchema: mcpPaginatedCategoriesSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_categories",
+          circleRef: args.circleRef,
+          ...(args.filters === undefined ? {} : { filters: args.filters }),
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpPaginatedCategoriesSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_category",
+    {
+      title: "Get Category",
+      description:
+        "Get one Category's name, Transaction type, color, lifecycle status, creator attribution, and permitted actions. Archived Categories remain readable because they stay attached to historical Transactions.",
+      inputSchema: categoryRefInputSchema,
+      outputSchema: mcpCategoryDetailSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_category",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+        },
+        mcpCategoryDetailSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_category_transactions",
+    {
+      title: "List Category Transactions",
+      description:
+        "List up to five recent Transactions linked to a Category, ordered by Transaction Date then creation time. Includes active and archived Transactions. Archived Categories remain readable.",
+      inputSchema: categoryRefInputSchema,
+      outputSchema: mcpListCategoryTransactionsResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_category_transactions",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+        },
+        mcpListCategoryTransactionsResultSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_category_history",
+    {
+      title: "List Category History",
+      description:
+        "List paginated immutable Category history with actor, changed fields, and display values. Archived Categories remain readable.",
+      inputSchema: listCategoryHistoryInputSchema,
+      outputSchema: mcpPaginatedCategoryHistorySchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_category_history",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpPaginatedCategoryHistorySchema,
+      ),
+  );
+
   return server;
 }
 
@@ -477,6 +603,10 @@ const READ_TOOL_NAMES = new Set([
   "get_dashboard",
   "get_monthly_comparison",
   "get_category_analytics",
+  "list_categories",
+  "get_category",
+  "list_category_transactions",
+  "list_category_history",
 ]);
 
 const rpcCallSchema = z.object({

@@ -290,6 +290,54 @@ export const mcpCategoryAnalyticsSchema = z.object({
 
 export type McpCategoryAnalytics = z.infer<typeof mcpCategoryAnalyticsSchema>;
 
+export const mcpCategoryRefSchema = z.string().min(1).max(300);
+
+const mcpCategoryCreatorSchema = z.object({
+  displayName: z.string().min(1).max(LIMITS.displayNameMax),
+  image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
+});
+
+const mcpCategoryActionsSchema = z.object({
+  canEditFields: z.boolean(),
+  canArchive: z.boolean(),
+});
+
+export const mcpCategorySummarySchema = z.object({
+  ref: mcpCategoryRefSchema,
+  name: z.string().min(1).max(LIMITS.categoryNameMax),
+  type: z.enum(["expense", "income"]),
+  color: z.string().min(1).max(64),
+  status: z.enum(["active", "archived"]),
+  creator: mcpCategoryCreatorSchema,
+});
+
+export type McpCategorySummary = z.infer<typeof mcpCategorySummarySchema>;
+
+export const mcpCategoryDetailSchema = mcpCategorySummarySchema.merge(mcpCategoryActionsSchema);
+
+export type McpCategoryDetail = z.infer<typeof mcpCategoryDetailSchema>;
+
+export const mcpPaginatedCategoriesSchema = mcpPaginatedSchema(mcpCategorySummarySchema);
+
+const mcpCategoryFilterTypeSchema = z.enum(["all", "expense", "income"]);
+const mcpCategoryLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
+
+export const mcpListCategoriesFiltersSchema = z.object({
+  type: mcpCategoryFilterTypeSchema.optional(),
+  status: mcpCategoryLifecycleFilterSchema.optional(),
+  query: z.string().max(LIMITS.categoryNameMax).optional(),
+});
+
+export const mcpListCategoryTransactionsResultSchema = z.object({
+  transactions: z.array(mcpTransactionSummarySchema).max(5),
+});
+
+export type McpListCategoryTransactionsResult = z.infer<
+  typeof mcpListCategoryTransactionsResultSchema
+>;
+
+export const mcpPaginatedCategoryHistorySchema = mcpPaginatedSchema(mcpCircleHistoryEventSchema);
+
 const mcpTransactionFilterTypeSchema = z.enum(["all", "expense", "income"]);
 const mcpTransactionLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
 
@@ -398,6 +446,28 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
     circleRef: mcpCircleRefSchema,
     month: z.string().max(7),
     type: z.enum(["expense", "income"]),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("list_categories"),
+    circleRef: mcpCircleRefSchema,
+    filters: mcpListCategoriesFiltersSchema.optional(),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("get_category"),
+    circleRef: mcpCircleRefSchema,
+    categoryRef: mcpCategoryRefSchema,
+  }),
+  z.object({
+    kind: z.literal("list_category_transactions"),
+    circleRef: mcpCircleRefSchema,
+    categoryRef: mcpCategoryRefSchema,
+  }),
+  z.object({
+    kind: z.literal("list_category_history"),
+    circleRef: mcpCircleRefSchema,
+    categoryRef: mcpCategoryRefSchema,
     paginationOpts: mcpPaginationOptsSchema.optional(),
   }),
 ]);
