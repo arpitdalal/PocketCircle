@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   type McpReadOperation,
+  mcpCircleRefSchema,
   mcpCircleViewSchema,
   mcpCurrentUserViewSchema,
   mcpPaginatedCircleHistorySchema,
@@ -61,7 +62,7 @@ const listCirclesOutputSchema = z.object({
   circles: z.array(mcpCircleViewSchema),
 });
 
-const circleRefInputSchema = z.object({ circleRef: z.string().min(1).max(300) });
+const circleRefInputSchema = z.object({ circleRef: mcpCircleRefSchema });
 const listMembersInputSchema = circleRefInputSchema.extend({
   includeHistorical: z.boolean().optional(),
   paginationOpts: mcpPaginationOptsSchema.optional(),

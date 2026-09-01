@@ -8,6 +8,9 @@
 import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
+  mcpCircleViewSchema,
+  mcpPaginatedCircleHistorySchema,
+  mcpPaginatedMembersSchema,
   mcpScopesInclude,
   normalizeMcpScopes,
   verifyMcpApproval,
@@ -26,11 +29,11 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
-  getMcpCircleForUser,
   listAuthorizedCirclesForGrant,
   listCircleHistoryForUser,
   paginateMembersForUser,
   resolveCircleRef,
+  toMcpCircleView,
   toMcpCurrentUserView,
 } from "./operations.js";
 
@@ -292,11 +295,14 @@ export const executeMcpReadOperation = internalMutation({
     }
 
     if (args.operation.kind === "get_circle") {
-      const circle = await getMcpCircleForUser(ctx, args.operation.circleRef, user);
-      if (!circle) {
-        return { ok: false as const, error: "circle_inaccessible" as const };
-      }
-      return { ok: true as const, value: circle };
+      const value = toMcpCircleView(
+        circleAuthz.value.access.circle,
+        circleAuthz.value.access.isOwner,
+      );
+      const parsed = mcpCircleViewSchema.safeParse(value);
+      return parsed.success
+        ? { ok: true as const, value: parsed.data }
+        : { ok: false as const, error: "invalid_result" as const };
     }
 
     if (args.operation.kind === "list_members") {
@@ -307,7 +313,10 @@ export const executeMcpReadOperation = internalMutation({
         args.operation.includeHistorical ?? false,
         args.operation.paginationOpts ?? { numItems: 50, cursor: null },
       );
-      return { ok: true as const, value: members };
+      const parsed = mcpPaginatedMembersSchema.safeParse(members);
+      return parsed.success
+        ? { ok: true as const, value: parsed.data }
+        : { ok: false as const, error: "invalid_result" as const };
     }
 
     if (args.operation.kind === "list_circle_history") {
@@ -317,16 +326,17 @@ export const executeMcpReadOperation = internalMutation({
         user,
         args.operation.paginationOpts ?? { numItems: 50, cursor: null },
       );
-      return {
-        ok: true as const,
-        value: {
-          ...history,
-          page: history.page.map((event) => ({
-            ...event,
-            actor: event.actor ? { ...event.actor, image: event.actor.image ?? null } : null,
-          })),
-        },
+      const value = {
+        ...history,
+        page: history.page.map((event) => ({
+          ...event,
+          actor: event.actor ? { ...event.actor, image: event.actor.image ?? null } : null,
+        })),
       };
+      const parsed = mcpPaginatedCircleHistorySchema.safeParse(value);
+      return parsed.success
+        ? { ok: true as const, value: parsed.data }
+        : { ok: false as const, error: "invalid_result" as const };
     }
 
     return { ok: false as const, error: "invalid_operation" as const };

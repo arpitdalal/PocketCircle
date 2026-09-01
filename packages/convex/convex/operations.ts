@@ -109,20 +109,6 @@ export function resolveCircleRef(ctx: OperationReader, circleRef: string) {
   return parsed ? ctx.db.normalizeId("circles", parsed.id) : null;
 }
 
-/** Loads one Circle through the explicit-User access path. */
-export async function getMcpCircleForUser(
-  ctx: OperationReader,
-  circleRef: string,
-  user: Doc<"users">,
-) {
-  const circleId = resolveCircleRef(ctx, circleRef);
-  if (!circleId) {
-    return null;
-  }
-  const access = await resolveCircleAccessForUser(ctx, circleId, user);
-  return access ? toMcpCircleView(access.circle, access.isOwner) : null;
-}
-
 export function toMcpMemberView(member: Awaited<ReturnType<typeof toMemberView>>) {
   return {
     ...member,
@@ -243,7 +229,9 @@ export async function paginateMembersForUser(
           q.eq("circleId", circleId).eq("userId", access.circle.ownerUserId),
         )
         .unique();
-  const ownerView = owner ? await toMemberView(ctx, owner, access.membership._id) : null;
+  const ownerIsVisible =
+    owner !== null && (includeHistorical || (await isEffectiveActiveMember(ctx, owner)));
+  const ownerView = ownerIsVisible ? await toMemberView(ctx, owner, access.membership._id) : null;
   const memberQuery = ctx.db
     .query("members")
     .withIndex("by_circle_and_role_joinedAt", (q) =>

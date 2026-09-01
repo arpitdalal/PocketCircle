@@ -14,6 +14,7 @@ import {
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { addMember, seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
@@ -36,38 +37,6 @@ const OTHER_PUBLIC_JWKS_JSON =
 const READ_WRITE = ["pocketcircle:read", "pocketcircle:write"];
 const CLIENT_ID = "https://client.example/client.json";
 const REDIRECT_URI = "https://client.example/callback";
-
-async function makeActiveReadGrant(
-  t: ReturnType<typeof convexTest>,
-  userId: Id<"users">,
-  circleId: Id<"circles">,
-  allowedCircleIds = [circleId],
-) {
-  const pending = await t.run((ctx) =>
-    createPendingMcpGrant(ctx, {
-      userId,
-      clientId: CLIENT_ID,
-      clientKind: "static",
-      redirectUri: REDIRECT_URI,
-      scopes: ["pocketcircle:read"],
-      allowedCircleIds,
-    }),
-  );
-  if (!pending.ok) {
-    throw new Error(`grant seed failed: ${pending.error}`);
-  }
-  const active = await t.run((ctx) =>
-    activateMcpGrant(ctx, {
-      grantId: pending.value._id,
-      workerGrantId: `worker-${pending.value._id}`,
-      principalId: pending.value.principalId,
-    }),
-  );
-  if (!active.ok) {
-    throw new Error(`grant activation failed: ${active.error}`);
-  }
-  return active.value;
-}
 
 beforeEach(() => {
   vi.stubEnv("MCP_WORKER_HMAC_SECRET", SECRET);
@@ -376,7 +345,14 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     const removed = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "bo@example.com", "Bo Removed", "removed"),
     );
-    const grant = await makeActiveReadGrant(t, owner.userId, circle.circleId);
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
 
     const safeCircle = await execute(t, grant._id, {
       kind: "get_circle",
@@ -488,7 +464,14 @@ describe("MCP Circle, Member, and Circle History reads", () => {
         });
       }
     });
-    const grant = await makeActiveReadGrant(t, maya.user._id, circle.circleId);
+    const grant = await createActiveMcpGrant(t, {
+      userId: maya.user._id,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
 
     const first = await execute(t, grant._id, {
       kind: "list_circle_history",
@@ -526,7 +509,14 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     );
     const selected = await t.run((ctx) => seedOwnedCircle(ctx, owner.owner, { name: "Selected" }));
     const other = await t.run((ctx) => seedOwnedCircle(ctx, owner.owner, { name: "Other" }));
-    const grant = await makeActiveReadGrant(t, owner.userId, selected.circleId);
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [selected.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
 
     const deselected = await execute(t, grant._id, {
       kind: "get_circle",

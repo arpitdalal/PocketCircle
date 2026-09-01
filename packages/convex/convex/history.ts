@@ -109,7 +109,7 @@ export async function recordEvent(ctx: MutationCtx, args: RecordEventArgs) {
 export async function listEntityHistory(ctx: OperationReader, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
-    .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))
+    .withIndex("by_entity_and_createdAt", (q) => q.eq("entityId", entity.entityId))
     .order("desc")
     .collect();
 }
@@ -129,7 +129,7 @@ export async function paginateEntityHistory(
 ): Promise<PaginationResult<Doc<"histories">>> {
   return await ctx.db
     .query("histories")
-    .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))
+    .withIndex("by_entity_and_createdAt", (q) => q.eq("entityId", entity.entityId))
     .order("desc")
     .paginate(paginationOpts);
 }
@@ -140,7 +140,7 @@ export async function paginateEntityHistory(
 export async function latestEntityEvent(ctx: OperationReader, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
-    .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))
+    .withIndex("by_entity_and_createdAt", (q) => q.eq("entityId", entity.entityId))
     .order("desc")
     .first();
 }

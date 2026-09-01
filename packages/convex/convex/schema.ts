@@ -530,5 +530,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_entity", ["entityId"])
+    .index("by_entity_and_createdAt", ["entityId", "createdAt"])
     .index("by_circle", ["circleId"]),
 });

@@ -49,13 +49,13 @@ export const mcpCurrentUserViewSchema = z.object({
 export type McpCurrentUserView = z.infer<typeof mcpCurrentUserViewSchema>;
 
 export const mcpCircleViewSchema = z.object({
-  id: z.string(),
-  ref: z.string(),
-  name: z.string(),
+  id: z.string().min(1).max(128),
+  ref: z.string().min(1).max(300),
+  name: z.string().min(1).max(60),
   kind: z.enum(["personal", "regular"]),
-  currency: z.string(),
-  color: z.string(),
-  mark: z.string(),
+  currency: z.string().min(1).max(3),
+  color: z.string().min(1).max(64),
+  mark: z.string().min(1).max(64),
   status: z.enum(["active", "archived"]),
   setupComplete: z.boolean(),
   currencyLocked: z.boolean(),
@@ -65,9 +65,9 @@ export const mcpCircleViewSchema = z.object({
 export type McpCircleView = z.infer<typeof mcpCircleViewSchema>;
 
 export const mcpMemberViewSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  image: z.string().nullable(),
+  id: z.string().min(1).max(128),
+  displayName: z.string().min(1).max(60),
+  image: z.string().max(2048).nullable(),
   role: z.enum(["owner", "member"]),
   status: z.enum(["active", "removed", "deleted"]),
   joinedAt: z.number(),
@@ -78,47 +78,47 @@ export type McpMemberView = z.infer<typeof mcpMemberViewSchema>;
 
 const mcpHistoryMoneySchema = z.object({
   minorUnits: z.number().int(),
-  currency: z.string(),
+  currency: z.string().min(1).max(3),
 });
 
 const mcpHistoryChangeSchema = z.object({
-  field: z.string(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  field: z.string().min(1).max(100),
+  from: z.string().max(2000).optional(),
+  to: z.string().max(2000).optional(),
   fromMoney: mcpHistoryMoneySchema.optional(),
   toMoney: mcpHistoryMoneySchema.optional(),
 });
 
 export const mcpCircleHistoryEventSchema = z.object({
-  id: z.string(),
-  action: z.string(),
+  id: z.string().min(1).max(128),
+  action: z.string().min(1).max(100),
   createdAt: z.number(),
   actor: z
     .object({
-      displayName: z.string(),
-      image: z.string().nullable(),
+      displayName: z.string().min(1).max(60),
+      image: z.string().max(2048).nullable(),
     })
     .nullable(),
-  changes: z.array(mcpHistoryChangeSchema),
+  changes: z.array(mcpHistoryChangeSchema).max(20),
 });
 
 export type McpCircleHistoryEvent = z.infer<typeof mcpCircleHistoryEventSchema>;
 
 export const mcpPaginationOptsSchema = z.object({
   numItems: z.number().int().min(1).max(100),
-  cursor: z.string().nullable(),
+  cursor: z.string().max(4096).nullable(),
 });
 
-const mcpCircleRefSchema = z.string().min(1).max(300);
+export const mcpCircleRefSchema = z.string().min(1).max(300);
 
 export const mcpPaginatedMembersSchema = z.object({
-  page: z.array(mcpMemberViewSchema),
+  page: z.array(mcpMemberViewSchema).max(100),
   isDone: z.boolean(),
   continueCursor: z.string(),
 });
 
 export const mcpPaginatedCircleHistorySchema = z.object({
-  page: z.array(mcpCircleHistoryEventSchema),
+  page: z.array(mcpCircleHistoryEventSchema).max(100),
   isDone: z.boolean(),
   continueCursor: z.string(),
 });
@@ -143,8 +143,8 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
 export type McpReadOperation = z.infer<typeof mcpReadOperationSchema>;
 
 export const mcpOperationBodySchema = z.object({
-  grantId: z.string(),
-  effectiveScopes: z.array(z.string()),
+  grantId: z.string().min(1).max(128),
+  effectiveScopes: z.array(z.string().max(64)).max(MCP_SCOPES.length),
   operation: mcpReadOperationSchema,
 });
 
