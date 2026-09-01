@@ -493,7 +493,7 @@ async function requireCurrentMember(
 ): Promise<Doc<"members">> {
   const member = await ctx.db.get(memberId);
   if (!member || member.circleId !== circleId || !(await isEffectiveActiveMember(ctx, member))) {
-    throw new Error("Paid By must be a current member of this circle");
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transactionPaidByInvalid));
   }
   return member;
 }
@@ -523,13 +523,13 @@ async function resolveCategories(
   for (const categoryId of opts.categoryIds) {
     const category = await ctx.db.get(categoryId);
     if (!category || category.circleId !== opts.circleId) {
-      throw new Error("Category not found in this circle");
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transactionCategoryNotFound));
     }
     if (category.type !== opts.type) {
-      throw new Error("Category type does not match the transaction type");
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transactionCategoryTypeMismatch));
     }
     if (category.status !== "active" && !opts.alreadyAttached.has(category._id)) {
-      throw new Error("Archived categories cannot be added to a transaction");
+      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.transactionCategoryArchived));
     }
     categories.push(category);
   }
@@ -579,6 +579,136 @@ async function syncTransactionCategoryOrderingFields(
   }
 }
 
+/** Args shared by the public mutation and explicit-User create paths. */
+export type PerformCreateTransactionArgs = {
+  type: TransactionType;
+  title: string;
+  note?: string;
+  amountMinorUnits: number;
+  date: string;
+  categoryIds: Id<"categories">[];
+  paidByMemberId?: Id<"members">;
+  expectedCurrency: string;
+};
+
+/**
+ * Core create-Transaction write shared by the browser mutation and MCP (#325).
+ * Caller must already hold {@link AuthorizedCircle} with writable, setup-complete
+ * checks applied.
+ */
+export async function performCreateTransaction(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: PerformCreateTransactionArgs,
+) {
+  const circleCurrency = toCurrencyCode(access.circle.currency);
+  if (!isSupportedCurrency(args.expectedCurrency)) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyUnsupported));
+  }
+  if (args.expectedCurrency !== circleCurrency) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyChanged));
+  }
+
+  const input = transactionCreateSchema.parse({
+    type: args.type,
+    title: args.title,
+    note: args.note,
+    amountMinorUnits: args.amountMinorUnits,
+    date: args.date,
+    categoryIds: args.categoryIds,
+    paidByMemberId: args.paidByMemberId,
+  });
+
+  const recordedByMemberId = access.membership._id;
+
+  let paidByMember = access.membership;
+  if (args.paidByMemberId && args.paidByMemberId !== recordedByMemberId) {
+    paidByMember = await requireCurrentMember(ctx, access.circle._id, args.paidByMemberId);
+  }
+
+  const categories = await resolveCategories(ctx, {
+    circleId: access.circle._id,
+    categoryIds: args.categoryIds,
+    type: input.type,
+    alreadyAttached: new Set<Id<"categories">>(),
+  });
+
+  const note = input.note && input.note.length > 0 ? input.note : undefined;
+  const now = Date.now();
+
+  const transactionId = await ctx.db.insert("transactions", {
+    circleId: access.circle._id,
+    type: input.type,
+    title: input.title,
+    ...(note ? { note } : {}),
+    amountMinorUnits: input.amountMinorUnits,
+    date: input.date,
+    month: monthOf(input.date),
+    recordedByMemberId,
+    paidByMemberId: paidByMember._id,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  for (const category of categories) {
+    await ctx.db.insert("transactionCategories", {
+      circleId: access.circle._id,
+      transactionId,
+      categoryId: category._id,
+      transactionDate: input.date,
+      transactionCreatedAt: now,
+    });
+  }
+  const createdTransaction = await ctx.db.get(transactionId);
+  if (!createdTransaction) {
+    throw new Error("Transaction not found");
+  }
+  await syncTransactionSearchDocument(ctx, createdTransaction, {
+    categoryIds: categories.map((category) => category._id),
+  });
+
+  if (!access.circle.currencyLocked) {
+    await ctx.db.patch(access.circle._id, { currencyLocked: true });
+  }
+
+  await markActivationMilestone(ctx, access.user._id, "transactionCreatedAt", now);
+
+  const changes: HistoryChange[] = [
+    { field: "type", to: input.type },
+    { field: "title", to: input.title },
+    moneyChange("amount", {
+      minorUnits: input.amountMinorUnits,
+      currency: toCurrencyCode(access.circle.currency),
+    }),
+    { field: "date", to: input.date },
+    { field: "paidBy", to: paidByMember.displayName },
+    { field: "categories", to: categories.map((category) => category.name).join(", ") },
+  ];
+  if (note) {
+    changes.push({ field: "note", to: note });
+  }
+
+  await recordEvent(ctx, {
+    entity: transactionEntity(transactionId, access.circle._id),
+    actor: access.membership,
+    action: "created",
+    changes,
+  });
+
+  if (paidByMember._id !== recordedByMemberId) {
+    await notifyPaidBySet(ctx, {
+      paidByUserId: paidByMember.userId,
+      actorUserId: access.user._id,
+      actorDisplayName: access.membership.displayName,
+      circle: access.circle,
+      transaction: createdTransaction,
+    });
+  }
+
+  return transactionId;
+}
+
 /**
  * Creates an Expense or Income Transaction in a Circle (the core write of the
  * product — PRD stories 27–37, 50–52). The money/date/identity/category
@@ -612,132 +742,9 @@ export const createTransaction = mutation({
   },
   handler: async (ctx, args) => {
     const access = await requireCircleAccess(ctx, args.circleId);
-    access.assertWritable(); // an archived Circle is read-only (PRD story 79)
+    access.assertWritable();
     access.assertSetupComplete();
-
-    const circleCurrency = toCurrencyCode(access.circle.currency);
-    if (!isSupportedCurrency(args.expectedCurrency)) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyUnsupported));
-    }
-    if (args.expectedCurrency !== circleCurrency) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.currencyChanged));
-    }
-
-    const input = transactionCreateSchema.parse({
-      type: args.type,
-      title: args.title,
-      note: args.note,
-      amountMinorUnits: args.amountMinorUnits,
-      date: args.date,
-      categoryIds: args.categoryIds,
-      paidByMemberId: args.paidByMemberId,
-    });
-
-    // Recorded By is the creator; only they can later edit the Transaction's
-    // fields (PRD story 35 — enforced by TXN-2).
-    const recordedByMemberId = access.membership._id;
-
-    // Paid By defaults to Recorded By; an explicit Paid By must be a CURRENT active
-    // Member of THIS Circle (PRD stories 36, 37).
-    let paidByMember = access.membership;
-    if (args.paidByMemberId && args.paidByMemberId !== recordedByMemberId) {
-      paidByMember = await requireCurrentMember(ctx, args.circleId, args.paidByMemberId);
-    }
-
-    // Each Category must belong to this Circle, match the type, and be active — an
-    // archived Category cannot be newly added (PRD story 57). On a create nothing is
-    // already attached, so every Category must be active.
-    const categories = await resolveCategories(ctx, {
-      circleId: args.circleId,
-      categoryIds: args.categoryIds,
-      type: input.type,
-      alreadyAttached: new Set<Id<"categories">>(),
-    });
-
-    // An empty trimmed note is no note at all.
-    const note = input.note && input.note.length > 0 ? input.note : undefined;
-    const now = Date.now();
-
-    const transactionId = await ctx.db.insert("transactions", {
-      circleId: args.circleId,
-      type: input.type,
-      title: input.title,
-      ...(note ? { note } : {}),
-      amountMinorUnits: input.amountMinorUnits,
-      date: input.date,
-      month: monthOf(input.date), // denormalized bucket for the Ledger/Dashboard
-      recordedByMemberId,
-      paidByMemberId: paidByMember._id,
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    for (const category of categories) {
-      await ctx.db.insert("transactionCategories", {
-        circleId: args.circleId,
-        transactionId,
-        categoryId: category._id,
-        transactionDate: input.date,
-        transactionCreatedAt: now,
-      });
-    }
-    const createdTransaction = await ctx.db.get(transactionId);
-    if (!createdTransaction) {
-      throw new Error("Transaction not found");
-    }
-    await syncTransactionSearchDocument(ctx, createdTransaction, {
-      categoryIds: categories.map((category) => category._id),
-    });
-
-    // Currency locks once a Circle has any Transaction (PRD story 9). CS-3 owns
-    // the enforcement + UI; creating a Transaction is the trigger, so we flip the
-    // flag here. Idempotent: only patch when it isn't already set.
-    if (!access.circle.currencyLocked) {
-      await ctx.db.patch(args.circleId, { currencyLocked: true });
-    }
-
-    // Mark activation milestone in any active setup-complete Circle (GH-273).
-    // assertSetupComplete() above already guarantees this is a setup-complete Circle.
-    await markActivationMilestone(ctx, access.user._id, "transactionCreatedAt", now);
-
-    // Record the create now (ADR 0018) even though the Transaction History view is
-    // TXN-4 — its view needs this row to exist. Textual values are frozen display
-    // strings (plain date, Paid By Display Name, Category names — never raw IDs);
-    // the amount freezes a typed money value, not a formatted string (ADR 0021).
-    const changes: HistoryChange[] = [
-      { field: "type", to: input.type },
-      { field: "title", to: input.title },
-      moneyChange("amount", {
-        minorUnits: input.amountMinorUnits,
-        currency: toCurrencyCode(access.circle.currency),
-      }),
-      { field: "date", to: input.date },
-      { field: "paidBy", to: paidByMember.displayName },
-      { field: "categories", to: categories.map((category) => category.name).join(", ") },
-    ];
-    if (note) {
-      changes.push({ field: "note", to: note });
-    }
-
-    await recordEvent(ctx, {
-      entity: transactionEntity(transactionId, access.circle._id),
-      actor: access.membership,
-      action: "created",
-      changes,
-    });
-
-    if (paidByMember._id !== recordedByMemberId) {
-      await notifyPaidBySet(ctx, {
-        paidByUserId: paidByMember.userId,
-        actorUserId: access.user._id,
-        actorDisplayName: access.membership.displayName,
-        circle: access.circle,
-        transaction: createdTransaction,
-      });
-    }
-
-    return transactionId;
+    return performCreateTransaction(ctx, access, args);
   },
 });
 

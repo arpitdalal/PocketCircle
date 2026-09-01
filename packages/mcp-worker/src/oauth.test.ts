@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import {
   MCP_REVOCATION_TTL_MS,
+  mcpCreateTransactionResultSchema,
   mcpOperationBodySchema,
   signMcpRevocation,
   verifyMcpHandoff,
@@ -52,13 +53,13 @@ const PKCE = {
   code_challenge_method: "S256",
 } as const;
 
-async function startAuthorize(state: string) {
+async function startAuthorize(state: string, scope = "pocketcircle:read") {
   const start = await SELF.fetch(
     authorizeUrl({
       response_type: "code",
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
-      scope: "pocketcircle:read",
+      scope,
       state,
       ...PKCE,
       resource: RESOURCE,
@@ -1012,8 +1013,34 @@ describe("MCP connection revocation", () => {
 });
 
 describe("MCP tools execution", () => {
+  const mockCreateTransactionMember = { displayName: "Ada Lovelace", image: null };
+  const mockCreateTransactionResult = mcpCreateTransactionResultSchema.parse({
+    ref: "coffee-txn1",
+    transaction: {
+      ref: "coffee-txn1",
+      type: "expense",
+      title: "Coffee",
+      amountMinorUnits: 500,
+      currency: "USD",
+      date: "2026-06-01",
+      month: "2026-06",
+      status: "active",
+      recordedBy: mockCreateTransactionMember,
+      paidBy: mockCreateTransactionMember,
+      categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
+      canEditFields: true,
+      canArchive: true,
+      audit: {
+        createdBy: mockCreateTransactionMember,
+        createdAt: 1_700_000_000_000,
+        updatedBy: mockCreateTransactionMember,
+        updatedAt: 1_700_000_000_000,
+      },
+    },
+  });
+
   async function obtainAccessToken(scopes = ["pocketcircle:read"]) {
-    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`);
+    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`, scopes.join(" "));
     const principalId = `principal-${Math.random()}`;
     const grantId = `grant-${Math.random()}`;
 
@@ -1366,6 +1393,131 @@ describe("MCP tools execution", () => {
           ],
         },
       },
+    });
+  });
+
+  it("calls create_transaction and returns the created transaction", async () => {
+    const { accessToken, grantId } = await obtainAccessToken([
+      "pocketcircle:read",
+      "pocketcircle:write",
+    ]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("create_transaction");
+        expect(opBody.data.operation).toMatchObject({
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        });
+        return Response.json({ ok: true, value: mockCreateTransactionResult });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          ref: "coffee-txn1",
+          transaction: expect.objectContaining({ title: "Coffee", type: "expense" }),
+        },
+      },
+    });
+  });
+
+  it("returns 429 when create_transaction exceeds the per-grant write rate limit", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.operation.kind).toBe("create_transaction");
+        return Response.json({ ok: true, value: mockCreateTransactionResult });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const toolCall = {
+      method: "tools/call" as const,
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    };
+
+    for (let i = 0; i < 30; i++) {
+      const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
+      expect(res.status).toBe(200);
+    }
+
+    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 31 });
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
     });
   });
 

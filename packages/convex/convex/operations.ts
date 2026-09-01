@@ -20,12 +20,16 @@ import {
   clampSearchPageSize,
   comparisonWindowMonths,
   isValidPlainMonth,
+  mutationErrorDataSchema,
   normalizeMcpImage,
   parseRef,
   TRANSACTION_LIST_PAGE_SIZE,
 } from "@pocketcircle/domain";
 import type { PaginationOptions } from "convex/server";
+import { ConvexError } from "convex/values";
+import { ZodError } from "zod";
 import type { Doc, Id } from "./_generated/dataModel.js";
+import type { MutationCtx } from "./_generated/server.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import {
   type CategoryDetailView,
@@ -52,6 +56,7 @@ import {
 import {
   newViewCaches,
   paginateCircleTransactionsForAccess,
+  performCreateTransaction,
   type TransactionDetailView,
   type TransactionView,
   toTransactionDetailView,
@@ -1413,5 +1418,133 @@ export async function listCategoryHistoryForUser(
         ? { ...event.actor, image: normalizeMcpImage(event.actor.image ?? null) }
         : null,
     })),
+  };
+}
+
+export type CreateTransactionForAccessArgs = {
+  type: "expense" | "income";
+  title: string;
+  note?: string;
+  amountMinorUnits: number;
+  date: string;
+  categoryRefs: string[];
+  paidByMemberId?: string;
+  expectedCurrency: string;
+};
+
+function mapCreateTransactionFailure(error: unknown) {
+  if (error instanceof ConvexError) {
+    const parsed = mutationErrorDataSchema.safeParse(error.data);
+    if (parsed.success) {
+      switch (parsed.data.code) {
+        case "circle.archived":
+          return "circle_archived" as const;
+        case "circle.setupIncomplete":
+          return "circle_setup_incomplete" as const;
+        case "currency.unsupported":
+          return "currency_unsupported" as const;
+        case "currency.changed":
+          return "currency_changed" as const;
+        case "transaction.paidByInvalid":
+          return "paid_by_invalid" as const;
+        case "transaction.categoryNotFound":
+        case "transaction.categoryTypeMismatch":
+        case "transaction.categoryArchived":
+          return "category_inaccessible" as const;
+        default:
+          return null;
+      }
+    }
+  }
+  if (error instanceof ZodError) {
+    return "validation_failed" as const;
+  }
+  return null;
+}
+
+function createTransactionFailureFrom(error: unknown) {
+  const mapped = mapCreateTransactionFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+function resolveCreateCategoryIds(ctx: OperationReader, refs: readonly string[]) {
+  const ids: Id<"categories">[] = [];
+  for (const ref of refs) {
+    const id = resolveCategoryRef(ctx, ref);
+    if (!id) {
+      return { ok: false as const, error: "category_inaccessible" as const };
+    }
+    ids.push(id);
+  }
+  return { ok: true as const, ids };
+}
+
+function resolvePaidByMemberId(ctx: OperationReader, memberId: string | undefined) {
+  if (memberId === undefined) {
+    return { ok: true as const, value: undefined };
+  }
+  const id = ctx.db.normalizeId("members", memberId);
+  if (!id) {
+    return { ok: false as const, error: "paid_by_invalid" as const };
+  }
+  return { ok: true as const, value: id };
+}
+
+/** Shared explicit-User create Transaction write for MCP (#325). */
+export async function createTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: CreateTransactionForAccessArgs,
+) {
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return createTransactionFailureFrom(error);
+  }
+
+  const categories = resolveCreateCategoryIds(ctx, args.categoryRefs);
+  if (!categories.ok) {
+    return categories;
+  }
+
+  const paidBy = resolvePaidByMemberId(ctx, args.paidByMemberId);
+  if (!paidBy.ok) {
+    return paidBy;
+  }
+
+  let transactionId: Id<"transactions">;
+  try {
+    transactionId = await performCreateTransaction(ctx, access, {
+      type: args.type,
+      title: args.title,
+      ...(args.note === undefined ? {} : { note: args.note }),
+      amountMinorUnits: args.amountMinorUnits,
+      date: args.date,
+      categoryIds: categories.ids,
+      ...(paidBy.value === undefined ? {} : { paidByMemberId: paidBy.value }),
+      expectedCurrency: args.expectedCurrency,
+    });
+  } catch (error) {
+    return createTransactionFailureFrom(error);
+  }
+
+  const created = await ctx.db.get(transactionId);
+  if (!created) {
+    throw new Error("Transaction not found");
+  }
+  const detail = await toTransactionDetailView(
+    ctx,
+    created,
+    newViewCaches(),
+    access.membership._id,
+    access.isOwner,
+  );
+  return {
+    ok: true as const,
+    value: toMcpTransactionDetailView(detail, access.circle.currency),
   };
 }

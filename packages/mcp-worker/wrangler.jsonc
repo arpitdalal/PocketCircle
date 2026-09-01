@@ -21,6 +21,16 @@
     "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]
   },
   "migrations": [{ "tag": "v1-handoff-store", "new_sqlite_classes": ["HandoffStore"] }],
+  "ratelimits": [
+    {
+      "name": "MCP_WRITE_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    }
+  ],
   "vars": {
     "APP_ORIGIN": "https://pocketcircle.app",
     // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a

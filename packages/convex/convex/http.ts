@@ -1,4 +1,11 @@
-import { mcpOperationBodySchema, sha256Hex, verifyMcpWorkerAssertion } from "@pocketcircle/domain";
+import {
+  type McpOperationBody,
+  type McpWriteOperationBody,
+  mcpOperationBodySchema,
+  mcpReadOperationBodySchema,
+  sha256Hex,
+  verifyMcpWorkerAssertion,
+} from "@pocketcircle/domain";
 import { httpRouter } from "convex/server";
 import { z } from "zod";
 import { internal } from "./_generated/api.js";
@@ -99,6 +106,22 @@ const completeRevocationBodySchema = z.object({
   principalId: z.string(),
 });
 
+function isMcpWriteOperationBody(body: McpOperationBody): body is McpWriteOperationBody {
+  return body.operation.kind === "create_transaction";
+}
+
+async function recordMcpGrantUseUnlessDenied(
+  ctx: ActionCtx,
+  grantId: string,
+  result: { ok: boolean; error?: string },
+) {
+  const grantDenied =
+    !result.ok && (result.error === "grant_unavailable" || result.error === "insufficient_scope");
+  if (!grantDenied) {
+    await ctx.runMutation(internal.mcpApproval.recordMcpGrantUseFromWorker, { grantId });
+  }
+}
+
 /**
  * Shared Worker-bridge HTTP shape: assert → parse body → run Convex → JSON.
  * Keeps the three MCP routes identical so auth/400 handling cannot drift.
@@ -139,14 +162,13 @@ workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, bo
 );
 
 workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) => {
-  const result = await ctx.runQuery(internal.mcpApproval.executeMcpReadOperation, body);
-  const grantDenied =
-    !result.ok && (result.error === "grant_unavailable" || result.error === "insufficient_scope");
-  if (!grantDenied) {
-    await ctx.runMutation(internal.mcpApproval.recordMcpGrantUseFromWorker, {
-      grantId: body.grantId,
-    });
+  if (isMcpWriteOperationBody(body)) {
+    return ctx.runMutation(internal.mcpApproval.executeMcpWriteOperation, body);
   }
+
+  const readBody = mcpReadOperationBodySchema.parse(body);
+  const result = await ctx.runQuery(internal.mcpApproval.executeMcpReadOperation, readBody);
+  await recordMcpGrantUseUnlessDenied(ctx, readBody.grantId, result);
   return result;
 });
 

@@ -154,6 +154,22 @@ const mutationErrors = defineMutationErrorCatalog({
     "Only the Circle owner can change the currency",
   ),
   currencyUnsupported: defineMutationError("currency.unsupported", "That currency isn't supported"),
+  transactionPaidByInvalid: defineMutationError(
+    "transaction.paidByInvalid",
+    "Paid By must be a current member of this circle",
+  ),
+  transactionCategoryNotFound: defineMutationError(
+    "transaction.categoryNotFound",
+    "Category not found in this circle",
+  ),
+  transactionCategoryTypeMismatch: defineMutationError(
+    "transaction.categoryTypeMismatch",
+    "Category type does not match the transaction type",
+  ),
+  transactionCategoryArchived: defineMutationError(
+    "transaction.categoryArchived",
+    "Archived categories cannot be added to a transaction",
+  ),
   accountDeletionBlocked: defineMutationError(
     "accountDeletion.blocked",
     "Archive or transfer Circles you own before deleting your account",

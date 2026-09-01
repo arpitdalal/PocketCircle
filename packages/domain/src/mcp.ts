@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { LIMITS } from "./validation.js";
+import { isValidMinorUnits } from "./money.js";
+import { LIMITS, transactionFieldSchemas } from "./validation.js";
 
 /**
  * MCP grant vocabulary shared by Convex authorization and (later) the Worker
@@ -474,10 +475,86 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
 
 export type McpReadOperation = z.infer<typeof mcpReadOperationSchema>;
 
-export const mcpOperationBodySchema = z.object({
+export const mcpReadOperationBodySchema = z.object({
   grantId: z.string().min(1).max(128),
   effectiveScopes: z.array(z.string().max(64)).max(MCP_SCOPES.length),
   operation: mcpReadOperationSchema,
 });
 
+export type McpReadOperationBody = z.infer<typeof mcpReadOperationBodySchema>;
+
+const mcpCreateTransactionCoreSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  type: z.enum(["expense", "income"]),
+  title: transactionFieldSchemas.title,
+  note: transactionFieldSchemas.note.optional(),
+  amountMinorUnits: z
+    .number()
+    .int()
+    .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" }),
+  date: transactionFieldSchemas.date,
+  categoryRefs: z.array(mcpCategoryRefSchema).min(1).max(LIMITS.maxCategoriesPerTransaction),
+  paidByMemberId: z.string().min(1).max(128).optional(),
+  expectedCurrency: z.string().min(1).max(3),
+});
+
+function refineUniqueCategoryRefs(
+  value: z.infer<typeof mcpCreateTransactionCoreSchema>,
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>();
+  for (const ref of value.categoryRefs) {
+    if (seen.has(ref)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Category references must be unique",
+        path: ["categoryRefs"],
+      });
+      return;
+    }
+    seen.add(ref);
+  }
+}
+
+export const mcpCreateTransactionInputSchema =
+  mcpCreateTransactionCoreSchema.superRefine(refineUniqueCategoryRefs);
+
+export type McpCreateTransactionInput = z.infer<typeof mcpCreateTransactionInputSchema>;
+
+export const mcpCreateTransactionResultSchema = z.object({
+  ref: mcpTransactionRefSchema,
+  transaction: mcpTransactionDetailSchema,
+});
+
+export type McpCreateTransactionResult = z.infer<typeof mcpCreateTransactionResultSchema>;
+
+const mcpCreateTransactionOperationSchema = mcpCreateTransactionCoreSchema
+  .extend({
+    kind: z.literal("create_transaction"),
+  })
+  .superRefine(refineUniqueCategoryRefs);
+
+export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
+  mcpCreateTransactionOperationSchema,
+]);
+
+export type McpWriteOperation = z.infer<typeof mcpWriteOperationSchema>;
+
+export const mcpOperationBodySchema = z.object({
+  grantId: z.string().min(1).max(128),
+  effectiveScopes: z.array(z.string().max(64)).max(MCP_SCOPES.length),
+  operation: z.discriminatedUnion("kind", [
+    ...mcpReadOperationSchema.options,
+    ...mcpWriteOperationSchema.options,
+  ]),
+});
+
 export type McpOperationBody = z.infer<typeof mcpOperationBodySchema>;
+
+export const mcpWriteOperationBodySchema = z.object({
+  grantId: z.string().min(1).max(128),
+  effectiveScopes: z.array(z.string().max(64)).max(MCP_SCOPES.length),
+  operation: mcpWriteOperationSchema,
+});
+
+export type McpWriteOperationBody = z.infer<typeof mcpWriteOperationBodySchema>;
