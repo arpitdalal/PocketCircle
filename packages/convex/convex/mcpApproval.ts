@@ -20,11 +20,19 @@ import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
 import {
   activateMcpGrant,
   authorizeMcpGrant,
+  authorizeMcpGrantForCircle,
   recordMcpGrantUse,
   revokeMcpGrant,
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
-import { listAuthorizedCirclesForGrant, toMcpCurrentUserView } from "./operations.js";
+import {
+  getMcpCircleForUser,
+  listAuthorizedCirclesForGrant,
+  listCircleHistoryForUser,
+  paginateMembersForUser,
+  resolveCircleRef,
+  toMcpCurrentUserView,
+} from "./operations.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
 
@@ -225,6 +233,22 @@ export const executeMcpReadOperation = internalMutation({
     operation: v.union(
       v.object({ kind: v.literal("get_current_user") }),
       v.object({ kind: v.literal("list_authorized_circles") }),
+      v.object({ kind: v.literal("get_circle"), circleRef: v.string() }),
+      v.object({
+        kind: v.literal("list_members"),
+        circleRef: v.string(),
+        includeHistorical: v.optional(v.boolean()),
+        paginationOpts: v.optional(
+          v.object({ numItems: v.number(), cursor: v.union(v.string(), v.null()) }),
+        ),
+      }),
+      v.object({
+        kind: v.literal("list_circle_history"),
+        circleRef: v.string(),
+        paginationOpts: v.optional(
+          v.object({ numItems: v.number(), cursor: v.union(v.string(), v.null()) }),
+        ),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -252,6 +276,56 @@ export const executeMcpReadOperation = internalMutation({
       return {
         ok: true as const,
         value: { circles },
+      };
+    }
+
+    const circleId = resolveCircleRef(ctx, args.operation.circleRef);
+    const circleAuthz = await authorizeMcpGrantForCircle(ctx, {
+      grantId: grant._id,
+      effectiveScopes: args.effectiveScopes,
+      requiredScope: "pocketcircle:read",
+      circleId: circleId ?? args.operation.circleRef,
+      requiredPermission: "member",
+    });
+    if (!circleAuthz.ok) {
+      return { ok: false as const, error: circleAuthz.denial.kind, denial: circleAuthz.denial };
+    }
+
+    if (args.operation.kind === "get_circle") {
+      const circle = await getMcpCircleForUser(ctx, args.operation.circleRef, user);
+      if (!circle) {
+        return { ok: false as const, error: "circle_inaccessible" as const };
+      }
+      return { ok: true as const, value: circle };
+    }
+
+    if (args.operation.kind === "list_members") {
+      const members = await paginateMembersForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        args.operation.includeHistorical ?? false,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      return { ok: true as const, value: members };
+    }
+
+    if (args.operation.kind === "list_circle_history") {
+      const history = await listCircleHistoryForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      return {
+        ok: true as const,
+        value: {
+          ...history,
+          page: history.page.map((event) => ({
+            ...event,
+            actor: event.actor ? { ...event.actor, image: event.actor.image ?? null } : null,
+          })),
+        },
       };
     }
 

@@ -14,9 +14,13 @@
  * Never match a User by email.
  */
 
-import { buildRef } from "@pocketcircle/domain";
+import { buildRef, parseRef } from "@pocketcircle/domain";
+import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { resolveCircleAccessForUser } from "./guard.js";
+import { circleEntity, paginateEntityHistory } from "./history.js";
+import { newActorCache, toHistoryEventView } from "./historyView.js";
+import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
 import type { OperationReader } from "./operationReader.js";
 
 export type { OperationReader } from "./operationReader.js";
@@ -93,6 +97,153 @@ export function toMcpCircleView(circle: Doc<"circles">, isOwner: boolean) {
     setupComplete: circle.setupCompletedAt !== null,
     currencyLocked: circle.currencyLocked,
     isOwner,
+  };
+}
+
+/** Resolves a canonical or bare Circle reference without exposing lookup errors. */
+export function resolveCircleRef(ctx: OperationReader, circleRef: string) {
+  const parsed = parseRef(
+    circleRef,
+    (candidate) => ctx.db.normalizeId("circles", candidate) !== null,
+  );
+  return parsed ? ctx.db.normalizeId("circles", parsed.id) : null;
+}
+
+/** Loads one Circle through the explicit-User access path. */
+export async function getMcpCircleForUser(
+  ctx: OperationReader,
+  circleRef: string,
+  user: Doc<"users">,
+) {
+  const circleId = resolveCircleRef(ctx, circleRef);
+  if (!circleId) {
+    return null;
+  }
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  return access ? toMcpCircleView(access.circle, access.isOwner) : null;
+}
+
+export function toMcpMemberView(
+  member: Doc<"members">,
+  identity: Awaited<ReturnType<typeof resolveMemberIdentity>>,
+  currentMemberId: Doc<"members">["_id"],
+) {
+  return {
+    id: member._id,
+    displayName: identity.displayName,
+    image: identity.image ?? null,
+    role: member.role,
+    status: identity.status,
+    joinedAt: member.joinedAt,
+    isSelf: member._id === currentMemberId,
+  };
+}
+
+/** Shared explicit-User Member List read used by the web path. */
+export async function listMembersForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  includeHistorical = false,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return null;
+  }
+
+  const members = await ctx.db
+    .query("members")
+    .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+    .collect();
+  const visible: Doc<"members">[] = [];
+  for (const member of members) {
+    if (includeHistorical || (await isEffectiveActiveMember(ctx, member))) {
+      visible.push(member);
+    }
+  }
+  visible.sort((a, b) => {
+    if (a.role !== b.role) {
+      return a.role === "owner" ? -1 : 1;
+    }
+    return a.joinedAt - b.joinedAt;
+  });
+
+  return await Promise.all(
+    visible.map(async (member) => {
+      const identity = await resolveMemberIdentity(ctx, member);
+      return {
+        id: member._id,
+        displayName: identity.displayName,
+        image: identity.image,
+        role: member.role,
+        status: identity.status,
+        joinedAt: member.joinedAt,
+        isSelf: member._id === access.membership._id,
+      };
+    }),
+  );
+}
+
+/** Bounded explicit-User Member List read for MCP. */
+export async function paginateMembersForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  includeHistorical: boolean,
+  paginationOpts: PaginationOptions,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  const emptyPage = { page: [], isDone: true, continueCursor: "" };
+  if (!access) {
+    return emptyPage;
+  }
+
+  const result = includeHistorical
+    ? await ctx.db
+        .query("members")
+        .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+        .order("asc")
+        .paginate(paginationOpts)
+    : await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_status", (q) => q.eq("circleId", circleId).eq("status", "active"))
+        .order("asc")
+        .paginate(paginationOpts);
+
+  const page = [];
+  for (const member of result.page) {
+    if (!includeHistorical && !(await isEffectiveActiveMember(ctx, member))) {
+      continue;
+    }
+    const identity = await resolveMemberIdentity(ctx, member);
+    page.push(toMcpMemberView(member, identity, access.membership._id));
+  }
+  return { ...result, page };
+}
+
+/** Shared explicit-User Circle History read used by web and MCP. */
+export async function listCircleHistoryForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  paginationOpts: PaginationOptions,
+) {
+  const emptyPage = { page: [], isDone: true, continueCursor: "" };
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return emptyPage;
+  }
+  const result = await paginateEntityHistory(ctx, circleEntity(circleId), paginationOpts);
+  const cache = newActorCache();
+  const page = await Promise.all(result.page.map((event) => toHistoryEventView(ctx, event, cache)));
+  return {
+    ...result,
+    page: access.isOwner
+      ? page
+      : page.map((event) => ({
+          ...event,
+          changes: event.changes.filter((change) => change.field !== "email"),
+        })),
   };
 }
 

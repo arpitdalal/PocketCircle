@@ -1,6 +1,7 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import type { MutationCtx, QueryCtx } from "./_generated/server.js";
+import type { MutationCtx } from "./_generated/server.js";
+import type { OperationReader } from "./operationReader.js";
 
 /**
  * The immutable history audit (ADR 0018). Every Circle, Transaction, and
@@ -105,7 +106,7 @@ export async function recordEvent(ctx: MutationCtx, args: RecordEventArgs) {
 }
 
 /** An entity's history, newest first — the canonical read for a detail surface (PRD story 80). */
-export async function listEntityHistory(ctx: QueryCtx | MutationCtx, entity: HistoryEntity) {
+export async function listEntityHistory(ctx: OperationReader, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
     .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))
@@ -122,7 +123,7 @@ export async function listEntityHistory(ctx: QueryCtx | MutationCtx, entity: His
  * Category/Circle History reuse it).
  */
 export async function paginateEntityHistory(
-  ctx: QueryCtx | MutationCtx,
+  ctx: OperationReader,
   entity: HistoryEntity,
   paginationOpts: PaginationOptions,
 ): Promise<PaginationResult<Doc<"histories">>> {
@@ -136,7 +137,7 @@ export async function paginateEntityHistory(
 /** The newest event recorded for an entity, or null when none exist yet. Backs the
  * Audit Metadata "updated-by / updated-at" (the last Member to change the record),
  * a single bounded `by_entity` lookup rather than collecting the whole history. */
-export async function latestEntityEvent(ctx: QueryCtx | MutationCtx, entity: HistoryEntity) {
+export async function latestEntityEvent(ctx: OperationReader, entity: HistoryEntity) {
   return await ctx.db
     .query("histories")
     .withIndex("by_entity", (q) => q.eq("entityId", entity.entityId))

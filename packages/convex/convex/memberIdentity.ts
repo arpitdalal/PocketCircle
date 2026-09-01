@@ -1,5 +1,5 @@
 import type { Doc } from "./_generated/dataModel.js";
-import type { MutationCtx, QueryCtx } from "./_generated/server.js";
+import type { OperationReader } from "./operationReader.js";
 
 /**
  * Effective Member identity for reads (USR-3 / ADR 0029). App User absence is
@@ -9,7 +9,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 
 export type EffectiveMemberStatus = "active" | "removed" | "deleted";
 
-export async function resolveMemberIdentity(ctx: QueryCtx | MutationCtx, member: Doc<"members">) {
+export async function resolveMemberIdentity(ctx: OperationReader, member: Doc<"members">) {
   const user = await ctx.db.get(member.userId);
   if (!user) {
     return {
@@ -26,7 +26,7 @@ export async function resolveMemberIdentity(ctx: QueryCtx | MutationCtx, member:
 }
 
 /** Stored status must be active AND the referenced app User must still exist. */
-export async function isEffectiveActiveMember(ctx: QueryCtx | MutationCtx, member: Doc<"members">) {
+export async function isEffectiveActiveMember(ctx: OperationReader, member: Doc<"members">) {
   if (member.status !== "active") {
     return false;
   }

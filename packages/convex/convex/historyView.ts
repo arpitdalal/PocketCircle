@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel.js";
-import type { QueryCtx } from "./_generated/server.js";
 import { resolveMemberIdentity } from "./memberIdentity.js";
+import type { OperationReader } from "./operationReader.js";
 
 /**
  * The client-facing shape of one immutable history event — the read-side
@@ -33,7 +33,7 @@ export function newActorCache(): ActorCache {
 }
 
 async function actorRef(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   memberId: Id<"members">,
   cache: ActorCache,
 ): Promise<ActorRef> {
@@ -58,7 +58,7 @@ async function actorRef(
 
 /** One history event shaped for the client. */
 export async function toHistoryEventView(
-  ctx: QueryCtx,
+  ctx: OperationReader,
   event: Doc<"histories">,
   cache: ActorCache,
 ) {
