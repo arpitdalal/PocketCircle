@@ -279,7 +279,7 @@ export const mcpCategoryAnalyticsSchema = z.object({
   month: z.string().min(1).max(7),
   /** Multi-Category Transactions contribute their full amount to each Category row. */
   nonAdditive: z.literal(true),
-  rows: z.array(mcpCategoryAnalyticsRowSchema).max(100),
+  rows: z.array(mcpCategoryAnalyticsRowSchema),
   currency: z.string().min(1).max(3),
 });
 

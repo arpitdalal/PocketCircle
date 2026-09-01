@@ -28,8 +28,7 @@ import {
 import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
-import { RECENT_TRANSACTIONS_LIMIT } from "./dashboard.js";
-import { resolveCircleAccessForUser } from "./guard.js";
+import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
@@ -52,6 +51,145 @@ import {
 } from "./transactions.js";
 
 export type { OperationReader } from "./operationReader.js";
+
+/** Dashboard recent feed cap (PRD story 75). Shared by web Dashboard and MCP. */
+export const RECENT_TRANSACTIONS_LIMIT = 5;
+
+export async function monthlyLedgerSummaryForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  month: string,
+) {
+  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
+  return {
+    totals: sumMonthTotals(monthTxns),
+    currency: access.circle.currency,
+  };
+}
+
+export async function paginateMonthlyLedgerTransactionsForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  month: string,
+  paginationOpts: PaginationOptions,
+) {
+  const range = monthDateRange(month);
+  const result = await ctx.db
+    .query("transactions")
+    .withIndex("by_circle_status_date", (q) =>
+      q
+        .eq("circleId", access.circle._id)
+        .eq("status", "active")
+        .gte("date", range.start)
+        .lt("date", range.endExclusive),
+    )
+    .order("desc")
+    .paginate(paginationOpts);
+
+  const caches = newViewCaches();
+  const page = await Promise.all(
+    result.page.map((txn) =>
+      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
+    ),
+  );
+  return { ...result, page };
+}
+
+export async function dashboardForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  month: string,
+) {
+  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
+  const recentDocs = [...monthTxns]
+    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
+    .slice(0, RECENT_TRANSACTIONS_LIMIT);
+  const caches = newViewCaches();
+  const recent = await Promise.all(
+    recentDocs.map((txn) =>
+      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
+    ),
+  );
+  return {
+    totals: sumMonthTotals(monthTxns),
+    recent,
+    currency: access.circle.currency,
+    month,
+  };
+}
+
+export async function monthlyComparisonForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  endMonth: string,
+  rangeMonths: 1 | 3 | 6 | 12,
+) {
+  const series = await Promise.all(
+    comparisonWindowMonths(endMonth, rangeMonths).map(async (month) => {
+      const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
+      return { month, ...sumMonthTotals(monthTxns) };
+    }),
+  );
+  return { series, currency: access.circle.currency };
+}
+
+export async function categoryAnalyticsForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  month: string,
+  type?: "expense" | "income",
+) {
+  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
+  const scopedTxns = type ? monthTxns.filter((txn) => txn.type === type) : monthTxns;
+
+  const linkLoads = await asyncMapChunked(scopedTxns, DEFAULT_READ_CONCURRENCY, async (txn) => ({
+    txn,
+    links: await ctx.db
+      .query("transactionCategories")
+      .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
+      .collect(),
+  }));
+
+  const accum = new Map<Id<"categories">, { taggedTotalMinor: number; txnCount: number }>();
+  for (const { txn, links } of linkLoads) {
+    for (const link of links) {
+      const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
+      existing.taggedTotalMinor += txn.amountMinorUnits;
+      existing.txnCount += 1;
+      accum.set(link.categoryId, existing);
+    }
+  }
+
+  const categoryIds = [...accum.keys()];
+  const loadedCategories = await asyncMapChunked(
+    categoryIds,
+    DEFAULT_READ_CONCURRENCY,
+    (categoryId) => ctx.db.get(categoryId),
+  );
+  const rows = [];
+  for (const [index, categoryId] of categoryIds.entries()) {
+    const category = loadedCategories[index];
+    if (!category) {
+      continue;
+    }
+    const totals = accum.get(categoryId);
+    if (!totals) {
+      continue;
+    }
+    rows.push({
+      categoryId,
+      name: category.name,
+      color: category.color,
+      status: category.status,
+      taggedTotalMinor: totals.taggedTotalMinor,
+      txnCount: totals.txnCount,
+    });
+  }
+
+  rows.sort((a, b) => b.taggedTotalMinor - a.taggedTotalMinor || a.name.localeCompare(b.name));
+
+  return { rows, currency: access.circle.currency };
+}
 
 /**
  * Load a User by stable PocketCircle id. Malformed ids and missing rows are
@@ -895,40 +1033,28 @@ export async function getMonthlyLedgerForUser(
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
-  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, args.month);
   const paginationOpts = args.paginationOpts ?? {
     numItems: TRANSACTION_LIST_PAGE_SIZE,
     cursor: null,
   };
-  const range = monthDateRange(args.month);
-  const result = await ctx.db
-    .query("transactions")
-    .withIndex("by_circle_status_date", (q) =>
-      q
-        .eq("circleId", circleId)
-        .eq("status", "active")
-        .gte("date", range.start)
-        .lt("date", range.endExclusive),
-    )
-    .order("desc")
-    .paginate(paginationOpts);
-
-  const caches = newViewCaches();
-  const page = await Promise.all(
-    result.page.map((txn) =>
-      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
-    ),
+  const summary = await monthlyLedgerSummaryForAccess(ctx, access, args.month);
+  const transactions = await paginateMonthlyLedgerTransactionsForAccess(
+    ctx,
+    access,
+    args.month,
+    paginationOpts,
   );
 
   return {
     ok: true as const,
     value: {
       month: args.month,
-      totals: sumMonthTotals(monthTxns),
-      currency: access.circle.currency,
+      ...summary,
       transactions: {
-        ...result,
-        page: page.map((txn) => toMcpTransactionSummaryView(txn, access.circle.currency)),
+        ...transactions,
+        page: transactions.page.map((txn) =>
+          toMcpTransactionSummaryView(txn, access.circle.currency),
+        ),
       },
     },
   };
@@ -951,24 +1077,14 @@ export async function getDashboardForUser(
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
-  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
-  const recentDocs = [...monthTxns]
-    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
-    .slice(0, RECENT_TRANSACTIONS_LIMIT);
-  const caches = newViewCaches();
-  const recent = await Promise.all(
-    recentDocs.map((txn) =>
-      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
-    ),
-  );
-
+  const dashboard = await dashboardForAccess(ctx, access, month);
   return {
     ok: true as const,
     value: {
-      month,
-      totals: sumMonthTotals(monthTxns),
-      recent: recent.map((txn) => toMcpTransactionSummaryView(txn, access.circle.currency)),
-      currency: access.circle.currency,
+      ...dashboard,
+      recent: dashboard.recent.map((txn) =>
+        toMcpTransactionSummaryView(txn, access.circle.currency),
+      ),
     },
   };
 }
@@ -990,19 +1106,9 @@ export async function getMonthlyComparisonForUser(
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
-  const series = await Promise.all(
-    comparisonWindowMonths(endMonth, args.rangeMonths).map(async (month) => {
-      const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
-      return { month, ...sumMonthTotals(monthTxns) };
-    }),
-  );
-
   return {
     ok: true as const,
-    value: {
-      series,
-      currency: access.circle.currency,
-    },
+    value: await monthlyComparisonForAccess(ctx, access, endMonth, args.rangeMonths),
   };
 }
 
@@ -1023,62 +1129,21 @@ export async function getCategoryAnalyticsForUser(
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
-  const monthTxns = await collectMonthActiveTransactions(ctx, circleId, month);
-  const scopedTxns = args.type ? monthTxns.filter((txn) => txn.type === args.type) : monthTxns;
-
-  const linkLoads = await asyncMapChunked(scopedTxns, DEFAULT_READ_CONCURRENCY, async (txn) => ({
-    txn,
-    links: await ctx.db
-      .query("transactionCategories")
-      .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
-      .collect(),
-  }));
-
-  const accum = new Map<Id<"categories">, { taggedTotalMinor: number; txnCount: number }>();
-  for (const { txn, links } of linkLoads) {
-    for (const link of links) {
-      const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
-      existing.taggedTotalMinor += txn.amountMinorUnits;
-      existing.txnCount += 1;
-      accum.set(link.categoryId, existing);
-    }
-  }
-
-  const categoryIds = [...accum.keys()];
-  const loadedCategories = await asyncMapChunked(
-    categoryIds,
-    DEFAULT_READ_CONCURRENCY,
-    (categoryId) => ctx.db.get(categoryId),
-  );
-  const rows = [];
-  for (const [index, categoryId] of categoryIds.entries()) {
-    const category = loadedCategories[index];
-    if (!category) {
-      continue;
-    }
-    const totals = accum.get(categoryId);
-    if (!totals) {
-      continue;
-    }
-    rows.push({
-      ref: buildRef(category.name, category._id),
-      name: category.name,
-      color: category.color,
-      status: category.status,
-      taggedTotalMinor: totals.taggedTotalMinor,
-      txnCount: totals.txnCount,
-    });
-  }
-
-  rows.sort((a, b) => b.taggedTotalMinor - a.taggedTotalMinor || a.name.localeCompare(b.name));
-
+  const analytics = await categoryAnalyticsForAccess(ctx, access, month, args.type);
   return {
     ok: true as const,
     value: {
       month,
       nonAdditive: true as const,
-      rows,
-      currency: access.circle.currency,
+      currency: analytics.currency,
+      rows: analytics.rows.map((row) => ({
+        ref: buildRef(row.name, row.categoryId),
+        name: row.name,
+        color: row.color,
+        status: row.status,
+        taggedTotalMinor: row.taggedTotalMinor,
+        txnCount: row.txnCount,
+      })),
     },
   };
 }
