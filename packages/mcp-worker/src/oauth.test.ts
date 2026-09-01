@@ -53,13 +53,13 @@ const PKCE = {
   code_challenge_method: "S256",
 } as const;
 
-async function startAuthorize(state: string) {
+async function startAuthorize(state: string, scope = "pocketcircle:read") {
   const start = await SELF.fetch(
     authorizeUrl({
       response_type: "code",
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
-      scope: "pocketcircle:read",
+      scope,
       state,
       ...PKCE,
       resource: RESOURCE,
@@ -1014,7 +1014,7 @@ describe("MCP connection revocation", () => {
 
 describe("MCP tools execution", () => {
   async function obtainAccessToken(scopes = ["pocketcircle:read"]) {
-    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`);
+    const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`, scopes.join(" "));
     const principalId = `principal-${Math.random()}`;
     const grantId = `grant-${Math.random()}`;
 

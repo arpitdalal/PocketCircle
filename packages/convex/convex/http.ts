@@ -163,9 +163,7 @@ workerBridgeRoute("/mcp/validate-grant", validateGrantBodySchema, async (ctx, bo
 
 workerBridgeRoute("/mcp/operation", mcpOperationBodySchema, async (ctx, body) => {
   if (isMcpWriteOperationBody(body)) {
-    const result = await ctx.runMutation(internal.mcpApproval.executeMcpWriteOperation, body);
-    await recordMcpGrantUseUnlessDenied(ctx, body.grantId, result);
-    return result;
+    return ctx.runMutation(internal.mcpApproval.executeMcpWriteOperation, body);
   }
 
   const readBody = mcpReadOperationBodySchema.parse(body);

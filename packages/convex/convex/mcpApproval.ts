@@ -661,6 +661,10 @@ export const executeMcpWriteOperation = internalMutation({
       return { ok: false as const, error: circleAuthz.denial.kind, denial: circleAuthz.denial };
     }
 
+    const trackGrantUse = async () => {
+      await recordMcpGrantUse(ctx, { grantId: authz.value.grant._id });
+    };
+
     if (args.operation.kind === "create_transaction") {
       const created = await createTransactionForAccess(ctx, circleAuthz.value.access, {
         type: args.operation.type,
@@ -675,6 +679,7 @@ export const executeMcpWriteOperation = internalMutation({
         expectedCurrency: args.operation.expectedCurrency,
       });
       if (!created.ok) {
+        await trackGrantUse();
         return { ok: false as const, error: created.error };
       }
       const value = {
@@ -683,8 +688,10 @@ export const executeMcpWriteOperation = internalMutation({
       };
       const validated = validateMcpResult(mcpCreateTransactionResultSchema, value);
       if (!validated.ok) {
+        await trackGrantUse();
         return { ok: false as const, error: validated.error };
       }
+      await trackGrantUse();
       return { ok: true as const, value: validated.value };
     }
 
