@@ -16,6 +16,7 @@ import {
   mcpSearchTransactionsInputSchema,
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
+  mcpTransactionRefSchema,
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
@@ -75,7 +76,7 @@ const listCircleHistoryInputSchema = circleRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 const transactionRefInputSchema = circleRefInputSchema.extend({
-  transactionRef: z.string().min(1).max(300),
+  transactionRef: mcpTransactionRefSchema,
 });
 const listTransactionHistoryInputSchema = transactionRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),

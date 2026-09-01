@@ -20,9 +20,9 @@ import { query } from "./_generated/server.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { toCategoryView } from "./categories.js";
 import { resolveCircleAccess } from "./guard.js";
+import { toMemberView } from "./memberViews.js";
 import { monthDateRange } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
-import { toMemberView } from "./operations.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
 

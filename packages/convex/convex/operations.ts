@@ -28,7 +28,8 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import { resolveCircleAccessForUser } from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
-import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
+import { toMemberView } from "./memberViews.js";
 import { monthDateRange } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
 import {
@@ -138,25 +139,7 @@ export function toMcpMemberView(member: Awaited<ReturnType<typeof toMemberView>>
   };
 }
 
-/** The shared Member List projection used by web, search, and MCP reads. */
-export async function toMemberView(
-  ctx: OperationReader,
-  member: Doc<"members">,
-  currentMemberId: Doc<"members">["_id"],
-) {
-  const identity = await resolveMemberIdentity(ctx, member);
-  return {
-    id: member._id,
-    displayName: identity.displayName,
-    image: identity.image,
-    role: member.role,
-    status: identity.status,
-    joinedAt: member.joinedAt,
-    isSelf: member._id === currentMemberId,
-  };
-}
-
-export type MemberView = Awaited<ReturnType<typeof toMemberView>>;
+export { type MemberView, toMemberView } from "./memberViews.js";
 
 function emptyPaginationPage() {
   return { page: [], isDone: true, continueCursor: "" };
