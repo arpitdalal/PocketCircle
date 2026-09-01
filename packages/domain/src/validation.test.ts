@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { COLOR_PALETTE, colorLabel, PERSONAL_CIRCLE_COLOR_ID } from "./color.js";
 import { MAX_AMOUNT_MINOR } from "./money.js";
 import {
+  canonicalEmail,
   categoryInputSchema,
   circleInputSchema,
   circleSettingsUpdateSchema,
   isTransactionType,
   LIMITS,
+  normalizeDisplayName,
   parseCircleSettingsUpdate,
   parseProfileUpdate,
   toMutationArgs,
@@ -14,6 +16,13 @@ import {
   transactionFormSchema,
   transactionUpdateSchema,
 } from "./validation.js";
+
+describe("canonicalEmail", () => {
+  it("leaves non-string preprocess input for schema validation", () => {
+    expect(canonicalEmail(42)).toBe(42);
+    expect(canonicalEmail("  Ada@Example.COM ")).toBe("ada@example.com");
+  });
+});
 
 describe("parseProfileUpdate (USR-1 profile edit contract)", () => {
   it("accepts and trims a display name", () => {
@@ -32,6 +41,14 @@ describe("parseProfileUpdate (USR-1 profile edit contract)", () => {
 
   it("rejects a whitespace-only name", () => {
     expect(parseProfileUpdate({ displayName: "   " }).ok).toBe(false);
+  });
+});
+
+describe("normalizeDisplayName", () => {
+  it("does not split a provider-seeded Unicode character at the length bound", () => {
+    expect(normalizeDisplayName(`${"x".repeat(LIMITS.displayNameMax - 1)}😀`)).toBe(
+      "x".repeat(LIMITS.displayNameMax - 1),
+    );
   });
 });
 

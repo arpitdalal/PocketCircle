@@ -3,10 +3,14 @@ import {
   isMcpScope,
   mcpCircleViewSchema,
   mcpCurrentUserViewSchema,
+  mcpMemberViewSchema,
   mcpOperationBodySchema,
   mcpScopesInclude,
+  normalizeMcpImage,
   normalizeMcpScopes,
 } from "./mcp.js";
+import { personalCircleName } from "./personal-circle-name.js";
+import { LIMITS } from "./validation.js";
 
 describe("normalizeMcpScopes", () => {
   it("dedupes, drops unknowns, and keeps stable MCP_SCOPES order", () => {
@@ -47,10 +51,30 @@ describe("MCP schemas", () => {
       createdAt: 123456789,
     });
     expect(valid.success).toBe(true);
+    expect(normalizeMcpImage("x".repeat(2049))).toBeNull();
+    expect(
+      mcpCurrentUserViewSchema.safeParse({
+        id: "u123",
+        displayName: "Alice",
+        image: "x".repeat(2049),
+        createdAt: 123456789,
+      }).success,
+    ).toBe(false);
+    expect(
+      mcpMemberViewSchema.safeParse({
+        id: "m123",
+        displayName: "Alice",
+        image: "x".repeat(2049),
+        role: "member",
+        status: "active",
+        joinedAt: 123456789,
+        isSelf: false,
+      }).success,
+    ).toBe(false);
   });
 
   it("validates mcpCircleViewSchema", () => {
-    const valid = mcpCircleViewSchema.safeParse({
+    const circle = {
       id: "c123",
       ref: "my-circle-c123",
       name: "My Circle",
@@ -62,8 +86,15 @@ describe("MCP schemas", () => {
       setupComplete: true,
       currencyLocked: true,
       isOwner: true,
-    });
-    expect(valid.success).toBe(true);
+    };
+    expect(mcpCircleViewSchema.safeParse(circle).success).toBe(true);
+
+    const longPersonalName = personalCircleName("x".repeat(LIMITS.displayNameMax));
+    expect(longPersonalName).toHaveLength(LIMITS.displayNameMax + "'s Circle".length);
+    expect(mcpCircleViewSchema.safeParse({ ...circle, name: longPersonalName }).success).toBe(true);
+    expect(mcpCircleViewSchema.safeParse({ ...circle, name: `${longPersonalName}x` }).success).toBe(
+      false,
+    );
   });
 
   it("validates mcpOperationBodySchema for read operations", () => {

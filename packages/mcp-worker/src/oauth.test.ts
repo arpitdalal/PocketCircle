@@ -1118,7 +1118,7 @@ describe("MCP tools execution", () => {
     return res;
   }
 
-  it("lists get_current_user and list_authorized_circles tools", async () => {
+  it("lists all read tools with read-only annotations", async () => {
     const { accessToken } = await obtainAccessToken();
     const res = await sendMcpRequest(accessToken, {
       method: "tools/list",
@@ -1129,11 +1129,115 @@ describe("MCP tools execution", () => {
     expect(body).toMatchObject({
       jsonrpc: "2.0",
       result: {
-        tools: [
-          expect.objectContaining({ name: "get_current_user" }),
-          expect.objectContaining({ name: "list_authorized_circles" }),
-        ],
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "get_circle",
+            annotations: { readOnlyHint: true, idempotentHint: true },
+          }),
+          expect.objectContaining({
+            name: "list_members",
+            annotations: { readOnlyHint: true, idempotentHint: true },
+          }),
+          expect.objectContaining({
+            name: "list_circle_history",
+            annotations: { readOnlyHint: true, idempotentHint: true },
+          }),
+        ]),
       },
+    });
+  });
+
+  it("calls Circle, Member, and Circle History reads with structured results", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint !== "/mcp/operation") {
+        return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+      }
+      const parsed = mcpOperationBodySchema.safeParse(body);
+      if (!parsed.success) {
+        return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+      }
+      expect(parsed.data.grantId).toBe(grantId);
+      if (parsed.data.operation.kind === "get_circle") {
+        return Response.json({
+          ok: true,
+          value: {
+            id: "circle_1",
+            ref: "trip-circle_1",
+            name: "Trip",
+            kind: "regular",
+            currency: "USD",
+            color: "blue",
+            mark: "T",
+            status: "active",
+            setupComplete: true,
+            currencyLocked: false,
+            isOwner: false,
+          },
+        });
+      }
+      if (parsed.data.operation.kind === "list_members") {
+        return Response.json({
+          ok: true,
+          value: {
+            page: [
+              {
+                id: "member_1",
+                displayName: "Ada Lovelace",
+                image: null,
+                role: "member",
+                status: "active",
+                joinedAt: 1700000000000,
+                isSelf: true,
+              },
+            ],
+            isDone: true,
+            continueCursor: "",
+          },
+        });
+      }
+      expect(parsed.data.operation.kind).toBe("list_circle_history");
+      expect(parsed.data.operation).toMatchObject({
+        circleRef: "trip-circle_1",
+        paginationOpts: { numItems: 10, cursor: null },
+      });
+      return Response.json({
+        ok: true,
+        value: { page: [], isDone: true, continueCursor: "" },
+      });
+    });
+
+    const circle = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: { name: "get_circle", arguments: { circleRef: "trip-circle_1" } },
+    });
+    expect(circle.status).toBe(200);
+    expect(await circle.json()).toMatchObject({
+      result: { structuredContent: { id: "circle_1", name: "Trip" } },
+    });
+
+    const members = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "list_members",
+        arguments: { circleRef: "trip-circle_1", paginationOpts: { numItems: 10, cursor: null } },
+      },
+    });
+    expect(members.status).toBe(200);
+    expect(await members.json()).toMatchObject({
+      result: { structuredContent: { page: [{ displayName: "Ada Lovelace" }] } },
+    });
+
+    const history = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "list_circle_history",
+        arguments: { circleRef: "trip-circle_1", paginationOpts: { numItems: 10, cursor: null } },
+      },
+    });
+    expect(history.status).toBe(200);
+    expect(await history.json()).toMatchObject({
+      result: { structuredContent: { page: [], isDone: true } },
     });
   });
 

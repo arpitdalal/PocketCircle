@@ -6,8 +6,12 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   type McpReadOperation,
+  mcpCircleRefSchema,
   mcpCircleViewSchema,
   mcpCurrentUserViewSchema,
+  mcpPaginatedCircleHistorySchema,
+  mcpPaginatedMembersSchema,
+  mcpPaginationOptsSchema,
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
@@ -56,6 +60,15 @@ async function resolveAuthorizedCaller(env: Env, req?: Request) {
 
 const listCirclesOutputSchema = z.object({
   circles: z.array(mcpCircleViewSchema),
+});
+
+const circleRefInputSchema = z.object({ circleRef: mcpCircleRefSchema });
+const listMembersInputSchema = circleRefInputSchema.extend({
+  includeHistorical: z.boolean().optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const listCircleHistoryInputSchema = circleRefInputSchema.extend({
+  paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 
 async function handleToolExecution<T>(
@@ -140,10 +153,95 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "get_circle",
+    {
+      title: "Get Circle",
+      description:
+        "Get safe identity, currency, lifecycle, setup, and permissions for an authorized Circle",
+      inputSchema: circleRefInputSchema,
+      outputSchema: mcpCircleViewSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        { kind: "get_circle", circleRef: args.circleRef },
+        mcpCircleViewSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_members",
+    {
+      title: "List Circle Members",
+      description: "List display identities, roles, and lifecycle status for an authorized Circle",
+      inputSchema: listMembersInputSchema,
+      outputSchema: mcpPaginatedMembersSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_members",
+          circleRef: args.circleRef,
+          ...(args.includeHistorical === undefined
+            ? {}
+            : { includeHistorical: args.includeHistorical }),
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpPaginatedMembersSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_circle_history",
+    {
+      title: "List Circle History",
+      description:
+        "List paginated Circle, membership, ownership, lifecycle, invitation, and settings history",
+      inputSchema: listCircleHistoryInputSchema,
+      outputSchema: mcpPaginatedCircleHistorySchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_circle_history",
+          circleRef: args.circleRef,
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpPaginatedCircleHistorySchema,
+      ),
+  );
+
   return server;
 }
 
-const READ_TOOL_NAMES = new Set(["get_current_user", "list_authorized_circles"]);
+const READ_TOOL_NAMES = new Set([
+  "get_current_user",
+  "list_authorized_circles",
+  "get_circle",
+  "list_members",
+  "list_circle_history",
+]);
 
 const rpcCallSchema = z.object({
   method: z.string(),

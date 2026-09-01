@@ -8,11 +8,16 @@
 import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
+  mcpCircleViewSchema,
+  mcpPaginatedCircleHistorySchema,
+  mcpPaginatedMembersSchema,
   mcpScopesInclude,
+  normalizeMcpImage,
   normalizeMcpScopes,
   verifyMcpApproval,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
+import type { z } from "zod";
 import { internal } from "./_generated/api.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
@@ -20,13 +25,33 @@ import { hashMcpApprovalToken } from "./mcpApprovalToken.js";
 import {
   activateMcpGrant,
   authorizeMcpGrant,
+  authorizeMcpGrantForCircle,
   recordMcpGrantUse,
   revokeMcpGrant,
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
-import { listAuthorizedCirclesForGrant, toMcpCurrentUserView } from "./operations.js";
+import {
+  listAuthorizedCirclesForGrant,
+  listCircleHistoryForUser,
+  paginateMembersForUser,
+  resolveCircleRef,
+  toMcpCircleView,
+  toMcpCurrentUserView,
+} from "./operations.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
+
+const mcpPaginationOptsValidator = v.object({
+  numItems: v.number(),
+  cursor: v.union(v.string(), v.null()),
+});
+
+function validateMcpResult<T>(schema: z.ZodType<T>, value: unknown) {
+  const parsed = schema.safeParse(value);
+  return parsed.success
+    ? { ok: true as const, value: parsed.data }
+    : { ok: false as const, error: "invalid_result" as const };
+}
 
 /**
  * Atomically claims a single-use approval token. The same durable Worker claim
@@ -225,6 +250,18 @@ export const executeMcpReadOperation = internalMutation({
     operation: v.union(
       v.object({ kind: v.literal("get_current_user") }),
       v.object({ kind: v.literal("list_authorized_circles") }),
+      v.object({ kind: v.literal("get_circle"), circleRef: v.string() }),
+      v.object({
+        kind: v.literal("list_members"),
+        circleRef: v.string(),
+        includeHistorical: v.optional(v.boolean()),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
+      v.object({
+        kind: v.literal("list_circle_history"),
+        circleRef: v.string(),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -253,6 +290,56 @@ export const executeMcpReadOperation = internalMutation({
         ok: true as const,
         value: { circles },
       };
+    }
+
+    const circleId = resolveCircleRef(ctx, args.operation.circleRef);
+    const circleAuthz = await authorizeMcpGrantForCircle(ctx, {
+      grantId: grant._id,
+      effectiveScopes: args.effectiveScopes,
+      requiredScope: "pocketcircle:read",
+      circleId: circleId ?? args.operation.circleRef,
+      requiredPermission: "member",
+    });
+    if (!circleAuthz.ok) {
+      return { ok: false as const, error: circleAuthz.denial.kind, denial: circleAuthz.denial };
+    }
+
+    if (args.operation.kind === "get_circle") {
+      const value = toMcpCircleView(
+        circleAuthz.value.access.circle,
+        circleAuthz.value.access.isOwner,
+      );
+      return validateMcpResult(mcpCircleViewSchema, value);
+    }
+
+    if (args.operation.kind === "list_members") {
+      const members = await paginateMembersForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        args.operation.includeHistorical ?? false,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      return validateMcpResult(mcpPaginatedMembersSchema, members);
+    }
+
+    if (args.operation.kind === "list_circle_history") {
+      const history = await listCircleHistoryForUser(
+        ctx,
+        circleAuthz.value.access.circle._id,
+        user,
+        args.operation.paginationOpts ?? { numItems: 50, cursor: null },
+      );
+      const value = {
+        ...history,
+        page: history.page.map((event) => ({
+          ...event,
+          actor: event.actor
+            ? { ...event.actor, image: normalizeMcpImage(event.actor.image) }
+            : null,
+        })),
+      };
+      return validateMcpResult(mcpPaginatedCircleHistorySchema, value);
     }
 
     return { ok: false as const, error: "invalid_operation" as const };

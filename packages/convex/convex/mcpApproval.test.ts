@@ -1,5 +1,7 @@
 import {
+  buildRef,
   MCP_APPROVAL_TTL_MS,
+  MCP_IMAGE_MAX_LENGTH,
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
   MCP_RESOURCE_URI,
@@ -13,9 +15,10 @@ import {
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
-import { seedPersonalCircleOwner } from "../test/seed.js";
-import { internal } from "./_generated/api.js";
+import { addMember, seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
+import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { mintMcpApprovalToken } from "./mcpApprovalToken.js";
 import { activateMcpGrant, createPendingMcpGrant } from "./mcpGrant.js";
@@ -36,7 +39,24 @@ const READ_WRITE = ["pocketcircle:read", "pocketcircle:write"];
 const CLIENT_ID = "https://client.example/client.json";
 const REDIRECT_URI = "https://client.example/callback";
 
+const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
+vi.mock("./auth.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getCurrentUserOrNull: mockCurrentUser,
+    requireCurrentUser: async (ctx: unknown) => {
+      const user = await mockCurrentUser(ctx);
+      if (!user) {
+        throw new Error("Not authenticated");
+      }
+      return user;
+    },
+  };
+});
+
 beforeEach(() => {
+  mockCurrentUser.mockReset();
   vi.stubEnv("MCP_WORKER_HMAC_SECRET", SECRET);
   vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", "");
   vi.stubEnv("MCP_WORKER_VERIFYING_JWKS", PUBLIC_JWKS_JSON);
@@ -288,6 +308,455 @@ describe("redeemApprovalToken", () => {
     vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", oldSecret);
 
     expect(await redeemApproval(t, token)).toMatchObject({ ok: true });
+  });
+});
+
+describe("MCP Circle, Member, and Circle History reads", () => {
+  async function execute(
+    t: ReturnType<typeof convexTest>,
+    grantId: Id<"mcpGrants">,
+    operation:
+      | {
+          kind: "get_circle";
+          circleRef: string;
+        }
+      | {
+          kind: "list_members";
+          circleRef: string;
+          includeHistorical?: boolean;
+          paginationOpts?: { numItems: number; cursor: string | null };
+        }
+      | {
+          kind: "list_circle_history";
+          circleRef: string;
+          paginationOpts?: { numItems: number; cursor: string | null };
+        },
+    effectiveScopes = ["pocketcircle:read"],
+  ) {
+    return t.mutation(internal.mcpApproval.executeMcpReadOperation, {
+      grantId,
+      effectiveScopes,
+      operation,
+    });
+  }
+
+  it("returns safe Circle data and active Members, with historical widening", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "owner@example.com",
+        displayName: "Olive Owner",
+        onboarded: true,
+      }),
+    );
+    const circle = await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner.owner, {
+        name: "Summer Trip",
+        currency: "EUR",
+        archived: true,
+        setupCompletedAt: Date.now(),
+      }),
+    );
+    const deletedBeforeMaya = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "deleted@example.com", "Deleted Member"),
+    );
+    await t.run((ctx) => ctx.db.delete(deletedBeforeMaya.user._id));
+    const maya = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "maya@example.com", "Maya Member"),
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(maya.memberId, { image: "x".repeat(MCP_IMAGE_MAX_LENGTH + 1) }),
+    );
+    const nora = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "nora@example.com", "Nora Member"),
+    );
+    const removed = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "bo@example.com", "Bo Removed", "removed"),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    const safeCircle = await execute(t, grant._id, {
+      kind: "get_circle",
+      circleRef: buildRef("Summer Trip", circle.circleId),
+    });
+    expect(safeCircle).toMatchObject({
+      ok: true,
+      value: {
+        id: circle.circleId,
+        ref: buildRef("Summer Trip", circle.circleId),
+        name: "Summer Trip",
+        currency: "EUR",
+        status: "archived",
+        setupComplete: true,
+        isOwner: true,
+      },
+    });
+
+    const active = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(active).toMatchObject({ ok: true });
+    if (!active.ok || !("value" in active)) {
+      throw new Error("expected active member page");
+    }
+    expect(active.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
+    expect(active.value.isDone).toBe(false);
+
+    const activeSecondPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: active.value.continueCursor },
+    });
+    expect(activeSecondPage).toMatchObject({ ok: true });
+    if (!activeSecondPage.ok || !("value" in activeSecondPage)) {
+      throw new Error("expected second active member page");
+    }
+    expect(activeSecondPage.value.page.map((member) => member.displayName)).toEqual([
+      "Maya Member",
+    ]);
+    expect(activeSecondPage.value.page[0]?.image).toBeNull();
+    const activeThirdPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: activeSecondPage.value.continueCursor },
+    });
+    expect(activeThirdPage).toMatchObject({ ok: true });
+    if (!activeThirdPage.ok || !("value" in activeThirdPage)) {
+      throw new Error("expected third active member page");
+    }
+    expect(activeThirdPage.value.page.map((member) => member.displayName)).toEqual(["Nora Member"]);
+    expect(JSON.stringify(active.value)).not.toContain(owner.owner.email);
+    expect(JSON.stringify(active.value)).not.toContain("userId");
+
+    const historical = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(historical).toMatchObject({ ok: true });
+    if (!historical.ok || !("value" in historical)) {
+      throw new Error("expected historical member page");
+    }
+    expect(historical.value.page.map((member) => member.displayName)).toEqual([
+      "Olive Owner",
+      "Deleted Member",
+      "Maya Member",
+      "Nora Member",
+      "Bo Removed",
+    ]);
+    expect(historical.value.page.find((member) => member.id === removed.memberId)?.status).toBe(
+      "removed",
+    );
+    expect(maya.memberId).not.toBe(removed.memberId);
+    expect(nora.memberId).not.toBe(removed.memberId);
+
+    await t.run((ctx) => ctx.db.delete(maya.user._id));
+    const deleted = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(deleted).toMatchObject({ ok: true });
+    if (!deleted.ok || !("value" in deleted)) {
+      throw new Error("expected deleted member page");
+    }
+    expect(deleted.value.page.find((member) => member.id === maya.memberId)?.status).toBe(
+      "deleted",
+    );
+  });
+
+  it("keeps active member cursors valid across ownership transfer", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "owner@example.com",
+        displayName: "Olive Owner",
+        onboarded: true,
+      }),
+    );
+    const circle = await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner.owner, { name: "Transfer Trip", setupCompletedAt: Date.now() }),
+    );
+    const nextOwner = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "next-owner@example.com", "Next Owner"),
+    );
+    const remaining = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "remaining@example.com", "Remaining Member"),
+    );
+    const later = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "later@example.com", "Later Member"),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    const firstPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(firstPage).toMatchObject({ ok: true });
+    if (!firstPage.ok || !("value" in firstPage)) {
+      throw new Error("expected first active member page");
+    }
+    expect(firstPage.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
+
+    const historicalFirstPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(historicalFirstPage).toMatchObject({ ok: true });
+    if (!historicalFirstPage.ok || !("value" in historicalFirstPage)) {
+      throw new Error("expected first historical member page");
+    }
+    expect(historicalFirstPage.value.page.map((member) => member.displayName)).toEqual([
+      "Olive Owner",
+      "Next Owner",
+    ]);
+
+    mockCurrentUser.mockResolvedValue(owner.owner);
+    await mutateAndDrain(t, () =>
+      t.mutation(api.members.transferOwnership, {
+        circleId: circle.circleId,
+        toMemberId: nextOwner.memberId,
+      }),
+    );
+
+    const secondPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: firstPage.value.continueCursor },
+    });
+    expect(secondPage).toMatchObject({ ok: true });
+    if (!secondPage.ok || !("value" in secondPage)) {
+      throw new Error("expected second active member page");
+    }
+    expect(secondPage.value.page.map((member) => member.displayName)).toEqual(["Next Owner"]);
+
+    const historicalSecondPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 1, cursor: historicalFirstPage.value.continueCursor },
+    });
+    expect(historicalSecondPage).toMatchObject({ ok: true });
+    if (!historicalSecondPage.ok || !("value" in historicalSecondPage)) {
+      throw new Error("expected second historical member page");
+    }
+    expect(historicalSecondPage.value.page.map((member) => member.displayName)).toEqual([
+      "Remaining Member",
+    ]);
+
+    const thirdPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: secondPage.value.continueCursor },
+    });
+    expect(thirdPage).toMatchObject({ ok: true });
+    if (!thirdPage.ok || !("value" in thirdPage)) {
+      throw new Error("expected third active member page");
+    }
+    expect(thirdPage.value.page.map((member) => member.displayName)).toEqual(["Remaining Member"]);
+    expect(remaining.memberId).not.toBe(nextOwner.memberId);
+
+    const ownerAndMemberPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(ownerAndMemberPage).toMatchObject({ ok: true });
+    if (!ownerAndMemberPage.ok || !("value" in ownerAndMemberPage)) {
+      throw new Error("expected owner and member page");
+    }
+    expect(ownerAndMemberPage.value.page.map((member) => member.displayName)).toEqual([
+      "Next Owner",
+      "Olive Owner",
+    ]);
+
+    mockCurrentUser.mockResolvedValue(nextOwner.user);
+    await mutateAndDrain(t, () =>
+      t.mutation(api.members.transferOwnership, {
+        circleId: circle.circleId,
+        toMemberId: remaining.memberId,
+      }),
+    );
+
+    const afterNewOwner = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: ownerAndMemberPage.value.continueCursor },
+    });
+    expect(afterNewOwner).toMatchObject({ ok: true });
+    if (!afterNewOwner.ok || !("value" in afterNewOwner)) {
+      throw new Error("expected page after new owner");
+    }
+    expect(afterNewOwner.value.page.map((member) => member.displayName)).toEqual([
+      "Remaining Member",
+    ]);
+
+    const afterNewOwnerContinuation = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: afterNewOwner.value.continueCursor },
+    });
+    expect(afterNewOwnerContinuation).toMatchObject({ ok: true });
+    if (!afterNewOwnerContinuation.ok || !("value" in afterNewOwnerContinuation)) {
+      throw new Error("expected continuation after new owner");
+    }
+    expect(afterNewOwnerContinuation.value.page.map((member) => member.displayName)).toEqual([
+      "Later Member",
+    ]);
+    expect(later.memberId).not.toBe(remaining.memberId);
+  });
+
+  it("keeps Circle History paginated and redacts Invitation email for non-Owners", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "owner@example.com",
+        displayName: "Olive Owner",
+        onboarded: true,
+      }),
+    );
+    const circle = await t.run((ctx) =>
+      seedOwnedCircle(ctx, owner.owner, { name: "History Trip", setupCompletedAt: Date.now() }),
+    );
+    const maya = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "maya@example.com", "Maya Member"),
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(circle.ownerMemberId, { image: "x".repeat(MCP_IMAGE_MAX_LENGTH + 1) }),
+    );
+    await t.run(async (ctx) => {
+      for (const [index, action] of ["created", "member invited", "renamed"].entries()) {
+        await ctx.db.insert("histories", {
+          entityId: circle.circleId,
+          circleId: circle.circleId,
+          actorMemberId: circle.ownerMemberId,
+          action,
+          changes:
+            action === "member invited"
+              ? [{ field: "email", to: "invitee@example.com" }]
+              : [{ field: "name", to: `Value ${index}` }],
+          createdAt: Date.now() + index,
+        });
+      }
+    });
+    const grant = await createActiveMcpGrant(t, {
+      userId: maya.user._id,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    const first = await execute(t, grant._id, {
+      kind: "list_circle_history",
+      circleRef: buildRef("History Trip", circle.circleId),
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(first).toMatchObject({ ok: true });
+    if (!first.ok || !("value" in first)) {
+      throw new Error("expected history page");
+    }
+    expect(first.value.page).toHaveLength(2);
+    expect(first.value.isDone).toBe(false);
+    expect(
+      first.value.page.some((event) => event.changes.some((change) => change.field === "email")),
+    ).toBe(false);
+    expect(JSON.stringify(first.value)).not.toContain("invitee@example.com");
+
+    const second = await execute(t, grant._id, {
+      kind: "list_circle_history",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 2, cursor: first.value.continueCursor },
+    });
+    expect(second).toMatchObject({ ok: true });
+    if (!second.ok || !("value" in second)) {
+      throw new Error("expected second history page");
+    }
+    expect(second.value.page[0]?.id).not.toBe(first.value.page[0]?.id);
+    expect(second.value.page[0]?.actor?.displayName).toBe("Olive Owner");
+    expect(second.value.page[0]?.actor?.image).toBeNull();
+  });
+
+  it("collapses deselected, removed, and malformed Circle references", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const selected = await t.run((ctx) => seedOwnedCircle(ctx, owner.owner, { name: "Selected" }));
+    const other = await t.run((ctx) => seedOwnedCircle(ctx, owner.owner, { name: "Other" }));
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [selected.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    const deselected = await execute(t, grant._id, {
+      kind: "get_circle",
+      circleRef: buildRef("Other", other.circleId),
+    });
+    const malformed = await execute(t, grant._id, {
+      kind: "get_circle",
+      circleRef: "not-a-circle-reference",
+    });
+    expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(malformed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const scopeDenied = await execute(
+      t,
+      grant._id,
+      { kind: "get_circle", circleRef: buildRef("Selected", selected.circleId) },
+      [],
+    );
+    expect(scopeDenied).toMatchObject({ ok: false, error: "insufficient_scope" });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", selected.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    const removed = await execute(t, grant._id, {
+      kind: "list_circle_history",
+      circleRef: String(selected.circleId),
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    const revoked = await execute(t, grant._id, {
+      kind: "get_circle",
+      circleRef: buildRef("Selected", selected.circleId),
+    });
+    expect(revoked).toMatchObject({ ok: false, error: "grant_unavailable" });
   });
 });
 

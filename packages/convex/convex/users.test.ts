@@ -1,4 +1,4 @@
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@pocketcircle/domain";
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, LIMITS } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seedPersonalCircleOwner } from "../test/seed.js";
@@ -122,6 +122,24 @@ describe("createUserWithPersonalCircle", () => {
       const circle = await ctx.db.query("circles").first();
       expect(circle?.name).toBe("Personal Circle");
       expect(circle?.mark).toBe("PC");
+    });
+  });
+
+  it("bounds a provider-seeded display name to the profile invariant", async () => {
+    const t = convexTest(schema, modules);
+
+    const userId = await t.run((ctx) =>
+      createUserWithPersonalCircle(ctx, {
+        email: "long@example.com",
+        displayName: "x".repeat(LIMITS.displayNameMax + 1),
+      }),
+    );
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db.get(userId);
+      expect(user?.displayName).toHaveLength(LIMITS.displayNameMax);
+      const circle = await ctx.db.query("circles").first();
+      expect(circle?.name).toBe(`${"x".repeat(LIMITS.displayNameMax)}'s Circle`);
     });
   });
 

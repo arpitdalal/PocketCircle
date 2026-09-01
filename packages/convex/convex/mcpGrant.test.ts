@@ -1,9 +1,9 @@
 import { MCP_PENDING_GRANT_TTL_MS } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
+import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
-import type { Id } from "./_generated/dataModel.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import {
   activateMcpGrant,
@@ -52,47 +52,6 @@ async function seedUserWithCircles(t: TestCtx) {
     otherPersonalId: other.personalCircleId,
     otherUserId: other.userId,
   };
-}
-
-async function createActiveGrant(
-  t: TestCtx,
-  args: {
-    userId: Id<"users">;
-    circleIds: string[];
-    scopes?: readonly string[];
-    clientId?: string;
-    clientKind?: "cimd" | "static";
-    redirectUri?: string;
-    workerGrantId?: string;
-  },
-) {
-  const pending = await t.run((ctx) =>
-    createPendingMcpGrant(ctx, {
-      userId: args.userId,
-      clientId: args.clientId ?? CLIENT,
-      clientKind: args.clientKind ?? "cimd",
-      redirectUri: args.redirectUri ?? REDIRECT,
-      clientDisplaySnapshot: { clientName: "Example Client" },
-      scopes: args.scopes ?? READ_WRITE,
-      allowedCircleIds: args.circleIds,
-    }),
-  );
-  expect(pending.ok).toBe(true);
-  if (!pending.ok) {
-    throw new Error(pending.error);
-  }
-  const activated = await t.run((ctx) =>
-    activateMcpGrant(ctx, {
-      grantId: pending.value._id,
-      workerGrantId: args.workerGrantId ?? `worker-${pending.value._id}`,
-      principalId: pending.value.principalId,
-    }),
-  );
-  expect(activated.ok).toBe(true);
-  if (!activated.ok) {
-    throw new Error(activated.error);
-  }
-  return activated.value;
 }
 
 describe("createPendingMcpGrant", () => {
@@ -368,7 +327,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, regularId } = await seedUserWithCircles(t);
 
-    const olderActive = await createActiveGrant(t, {
+    const olderActive = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       scopes: ["pocketcircle:read"],
@@ -421,7 +380,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     const { ada, personalId } = await seedUserWithCircles(t);
     const otherRedirect = "https://mcp-client.example/other-callback";
 
-    const otherRedirectGrant = await createActiveGrant(t, {
+    const otherRedirectGrant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       clientKind: "cimd",
@@ -463,7 +422,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     const staticClient = "pocketcircle-dev-static";
     const otherRedirect = "https://desktop.example/callback";
 
-    const older = await createActiveGrant(t, {
+    const older = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       clientId: staticClient,
@@ -551,7 +510,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
     const { ada, personalId } = await seedUserWithCircles(t);
 
     // Newer flow completes first (Worker replacement order).
-    const newerActive = await createActiveGrant(t, {
+    const newerActive = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       scopes: READ_WRITE,
@@ -591,7 +550,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
   it("treats repeated activation with the same Worker linkage as idempotent success", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       workerGrantId: "wg-retry",
@@ -732,7 +691,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
   it("rejects Worker grant id already linked to another Convex grant", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
-    await createActiveGrant(t, {
+    await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       workerGrantId: "shared-wg",
@@ -763,7 +722,7 @@ describe("activateMcpGrant / revokeMcpGrant transitions", () => {
   it("failed activation does not revoke sibling grants", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
-    const sibling = await createActiveGrant(t, {
+    const sibling = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       workerGrantId: "wg-sibling",
@@ -827,7 +786,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
       ).toMatchObject({ ok: false, denial: { kind: "grant_unavailable", status: "pending" } });
     });
 
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       scopes: READ_WRITE,
@@ -858,7 +817,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
       });
     });
 
-    const readOnlyGrant = await createActiveGrant(t, {
+    const readOnlyGrant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       scopes: ["pocketcircle:read"],
@@ -903,7 +862,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
         onboarded: true,
       }),
     );
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [ada.personalCircleId],
       scopes: ["pocketcircle:read"],
@@ -927,7 +886,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
   it("enforces selected Circles, live membership, and Owner-only app permission without leaking Circle existence", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, regularId, otherPersonalId } = await seedUserWithCircles(t);
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       scopes: READ_WRITE,
@@ -979,7 +938,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
     }
 
     // New Circles never appear on an existing grant automatically.
-    const both = await createActiveGrant(t, {
+    const both = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId, regularId],
       scopes: ["pocketcircle:read"],
@@ -1073,7 +1032,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
       return owned.circleId;
     });
 
-    const memberGrant = await createActiveGrant(t, {
+    const memberGrant = await createActiveMcpGrant(t, {
       userId: grace.userId,
       circleIds: [shared],
       scopes: READ_WRITE,
@@ -1110,7 +1069,7 @@ describe("authorizeMcpGrant / authorizeMcpGrantForCircle", () => {
   it("records optional last-use without changing authorization fields", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
     });
@@ -1136,7 +1095,7 @@ describe("Account Deletion disables MCP grants", () => {
         onboarded: true,
       }),
     );
-    const active = await createActiveGrant(t, {
+    const active = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [ada.personalCircleId],
       workerGrantId: "wg-del",
@@ -1185,11 +1144,11 @@ describe("Account Deletion disables MCP grants", () => {
   it("revokeAllMcpGrantsForUser is bounded by the by_user index", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId, otherUserId, otherPersonalId } = await seedUserWithCircles(t);
-    const mine = await createActiveGrant(t, {
+    const mine = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
     });
-    const theirs = await createActiveGrant(t, {
+    const theirs = await createActiveMcpGrant(t, {
       userId: otherUserId,
       circleIds: [otherPersonalId],
       clientId: `${CLIENT}#other-user`,
@@ -1208,7 +1167,7 @@ describe("mcpGrants indexes", () => {
   it("supports bounded lookup by User, client, status, principal, and reconciliation state", async () => {
     const t = convexTest(schema, modules);
     const { ada, personalId } = await seedUserWithCircles(t);
-    const grant = await createActiveGrant(t, {
+    const grant = await createActiveMcpGrant(t, {
       userId: ada.userId,
       circleIds: [personalId],
       workerGrantId: "wg-idx",

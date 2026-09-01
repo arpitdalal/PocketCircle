@@ -5,6 +5,7 @@ import {
   DEFAULT_COLOR_ID,
   initials,
   isSupportedCurrency,
+  LIMITS,
   MUTATION_ERRORS,
   mutationErrorData,
   parseCircleSettingsUpdate,
@@ -26,13 +27,12 @@ import { createCategoryForMember } from "./categories.js";
 import { circleSetupFields } from "./circleSetup.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
 import type { HistoryChange } from "./history.js";
-import { circleEntity, paginateEntityHistory, recordEvent } from "./history.js";
-import { type HistoryEventView, newActorCache, toHistoryEventView } from "./historyView.js";
+import { circleEntity, recordEvent } from "./history.js";
 import { revokePendingInvitationsForCircle } from "./invitations.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { getPersonalCircleForOwner, reconcilePersonalCircleFromDisplayName } from "./model.js";
 import { notifyCircleLifecycleChange } from "./notify.js";
-import { getCircleForUser, listMyCirclesForUser } from "./operations.js";
+import { getCircleForUser, listCircleHistoryForUser, listMyCirclesForUser } from "./operations.js";
 
 const circleSetupAnswers = v.object({
   purpose: v.optional(
@@ -275,6 +275,9 @@ export const renameCircle = mutation({
     if (name === "") {
       throw new Error("Name is required");
     }
+    if (name.length > LIMITS.circleNameMax) {
+      throw new Error("Name is too long");
+    }
     if (name === access.circle.name) {
       return; // no-op: nothing changed, so nothing to record
     }
@@ -417,29 +420,13 @@ export const listCircleHistory = query({
     if (!circleId) {
       return emptyPage;
     }
-    const access = await resolveCircleAccess(ctx, circleId);
-    if (!access) {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) {
       return emptyPage;
     }
-    const result = await paginateEntityHistory(ctx, circleEntity(circleId), args.paginationOpts);
-    const cache = newActorCache();
-    const page = await Promise.all(
-      result.page.map((event) => toHistoryEventView(ctx, event, cache)),
-    );
-    return {
-      ...result,
-      page: access.isOwner ? page : redactInviteeEmailFromHistoryPage(page),
-    };
+    return listCircleHistoryForUser(ctx, circleId, user, args.paginationOpts);
   },
 });
-
-/** Omit Invitation invitee email from Circle History for non-Owners (ADR 0028). */
-function redactInviteeEmailFromHistoryPage(page: HistoryEventView[]) {
-  return page.map((event) => ({
-    ...event,
-    changes: event.changes.filter((change) => change.field !== "email"),
-  }));
-}
 
 /** Whether a Circle has any Transaction row, of any status (MEM-9 UI gate). */
 export const circleHasTransactions = query({

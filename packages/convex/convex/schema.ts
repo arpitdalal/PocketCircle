@@ -127,6 +127,9 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
   })
     .index("by_circle", ["circleId"])
+    .index("by_circle_and_joinedAt", ["circleId", "joinedAt"])
+    .index("by_circle_and_role_joinedAt", ["circleId", "role", "joinedAt"])
+    .index("by_circle_and_role_status_joinedAt", ["circleId", "role", "status", "joinedAt"])
     .index("by_circle_and_status", ["circleId", "status"])
     .index("by_user", ["userId"])
     .index("by_user_and_status", ["userId", "status"])
@@ -529,5 +532,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_entity", ["entityId"])
+    .index("by_entity_and_createdAt", ["entityId", "createdAt"])
     .index("by_circle", ["circleId"]),
 });

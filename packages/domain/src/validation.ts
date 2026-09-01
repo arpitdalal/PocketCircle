@@ -24,6 +24,7 @@ export const LIMITS = {
   circleNameMax: NAME_MAX,
   /** User display name (USR-1); same bound as circle names today, distinct concept. */
   displayNameMax: NAME_MAX,
+  emailMax: 254,
   categoryNameMax: 40,
   transactionTitleMax: 120,
   transactionNoteMax: 1_000,
@@ -98,14 +99,32 @@ export const profileUpdateSchema = z.object({
 });
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 
+/** Bounds provider-controlled profile seeds before they enter app-owned storage. */
+export function normalizeDisplayName(displayName: string) {
+  const trimmed = displayName.trim();
+  let length = 0;
+  for (const character of trimmed) {
+    if (length + character.length > LIMITS.displayNameMax) {
+      break;
+    }
+    length += character.length;
+  }
+  return trimmed.slice(0, length);
+}
+
 /** Canonical email for storage and comparison: trim + lowercase. */
-export function canonicalEmail(email: string): string {
-  return email.trim().toLowerCase();
+export function canonicalEmail(email: string): string;
+export function canonicalEmail(email: unknown): unknown;
+export function canonicalEmail(email: unknown) {
+  return typeof email === "string" ? email.trim().toLowerCase() : email;
 }
 
 /** Server-and-client-shared invite email input (MEM-2). Parsed `email` is canonical `emailLower`. */
 export const inviteEmailSchema = z.object({
-  email: z.preprocess(canonicalEmail, z.string().email("Enter a valid email address")),
+  email: z.preprocess(
+    canonicalEmail,
+    z.string().email("Enter a valid email address").max(LIMITS.emailMax, "Email is too long"),
+  ),
 });
 export type InviteEmailInput = z.infer<typeof inviteEmailSchema>;
 
