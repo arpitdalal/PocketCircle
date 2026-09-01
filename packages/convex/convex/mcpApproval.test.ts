@@ -7,6 +7,7 @@ import {
   MCP_RESOURCE_URI,
   MCP_WORKER_ASSERTION_TTL_MS,
   type McpApprovalPayload,
+  type McpReadOperation,
   type McpWorkerAssertionPayload,
   parseMcpWorkerJwks,
   parseMcpWorkerPrivateJwk,
@@ -17,7 +18,15 @@ import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
-import { addMember, seedOwnedCircle, seedPersonalCircleOwner } from "../test/seed.js";
+import {
+  addMember,
+  searchTransactionPage,
+  seedOwnedCircle,
+  seedOwnedFixture,
+  seedPersonalCircleOwner,
+  seedTransaction,
+  seedTransactionsBulk,
+} from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { mintMcpApprovalToken } from "./mcpApprovalToken.js";
@@ -61,6 +70,19 @@ beforeEach(() => {
   vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", "");
   vi.stubEnv("MCP_WORKER_VERIFYING_JWKS", PUBLIC_JWKS_JSON);
 });
+
+async function executeMcpRead(
+  t: ReturnType<typeof convexTest>,
+  grantId: Id<"mcpGrants">,
+  operation: McpReadOperation,
+  effectiveScopes: string[] = ["pocketcircle:read"],
+) {
+  return t.mutation(internal.mcpApproval.executeMcpReadOperation, {
+    grantId,
+    effectiveScopes,
+    operation,
+  });
+}
 
 function signingKey(value: string = PRIVATE_JWK_JSON) {
   const key = parseMcpWorkerPrivateJwk(value);
@@ -312,34 +334,6 @@ describe("redeemApprovalToken", () => {
 });
 
 describe("MCP Circle, Member, and Circle History reads", () => {
-  async function execute(
-    t: ReturnType<typeof convexTest>,
-    grantId: Id<"mcpGrants">,
-    operation:
-      | {
-          kind: "get_circle";
-          circleRef: string;
-        }
-      | {
-          kind: "list_members";
-          circleRef: string;
-          includeHistorical?: boolean;
-          paginationOpts?: { numItems: number; cursor: string | null };
-        }
-      | {
-          kind: "list_circle_history";
-          circleRef: string;
-          paginationOpts?: { numItems: number; cursor: string | null };
-        },
-    effectiveScopes = ["pocketcircle:read"],
-  ) {
-    return t.mutation(internal.mcpApproval.executeMcpReadOperation, {
-      grantId,
-      effectiveScopes,
-      operation,
-    });
-  }
-
   it("returns safe Circle data and active Members, with historical widening", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) =>
@@ -382,7 +376,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       redirectUri: REDIRECT_URI,
     });
 
-    const safeCircle = await execute(t, grant._id, {
+    const safeCircle = await executeMcpRead(t, grant._id, {
       kind: "get_circle",
       circleRef: buildRef("Summer Trip", circle.circleId),
     });
@@ -399,7 +393,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       },
     });
 
-    const active = await execute(t, grant._id, {
+    const active = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: null },
@@ -411,7 +405,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(active.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
     expect(active.value.isDone).toBe(false);
 
-    const activeSecondPage = await execute(t, grant._id, {
+    const activeSecondPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: active.value.continueCursor },
@@ -424,7 +418,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       "Maya Member",
     ]);
     expect(activeSecondPage.value.page[0]?.image).toBeNull();
-    const activeThirdPage = await execute(t, grant._id, {
+    const activeThirdPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: activeSecondPage.value.continueCursor },
@@ -437,7 +431,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(JSON.stringify(active.value)).not.toContain(owner.owner.email);
     expect(JSON.stringify(active.value)).not.toContain("userId");
 
-    const historical = await execute(t, grant._id, {
+    const historical = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       includeHistorical: true,
@@ -461,7 +455,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(nora.memberId).not.toBe(removed.memberId);
 
     await t.run((ctx) => ctx.db.delete(maya.user._id));
-    const deleted = await execute(t, grant._id, {
+    const deleted = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       includeHistorical: true,
@@ -506,7 +500,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       redirectUri: REDIRECT_URI,
     });
 
-    const firstPage = await execute(t, grant._id, {
+    const firstPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: null },
@@ -517,7 +511,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     }
     expect(firstPage.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
 
-    const historicalFirstPage = await execute(t, grant._id, {
+    const historicalFirstPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       includeHistorical: true,
@@ -540,7 +534,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       }),
     );
 
-    const secondPage = await execute(t, grant._id, {
+    const secondPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: firstPage.value.continueCursor },
@@ -551,7 +545,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     }
     expect(secondPage.value.page.map((member) => member.displayName)).toEqual(["Next Owner"]);
 
-    const historicalSecondPage = await execute(t, grant._id, {
+    const historicalSecondPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       includeHistorical: true,
@@ -565,7 +559,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       "Remaining Member",
     ]);
 
-    const thirdPage = await execute(t, grant._id, {
+    const thirdPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: secondPage.value.continueCursor },
@@ -577,7 +571,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(thirdPage.value.page.map((member) => member.displayName)).toEqual(["Remaining Member"]);
     expect(remaining.memberId).not.toBe(nextOwner.memberId);
 
-    const ownerAndMemberPage = await execute(t, grant._id, {
+    const ownerAndMemberPage = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 2, cursor: null },
@@ -599,7 +593,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       }),
     );
 
-    const afterNewOwner = await execute(t, grant._id, {
+    const afterNewOwner = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: ownerAndMemberPage.value.continueCursor },
@@ -612,7 +606,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       "Remaining Member",
     ]);
 
-    const afterNewOwnerContinuation = await execute(t, grant._id, {
+    const afterNewOwnerContinuation = await executeMcpRead(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: afterNewOwner.value.continueCursor },
@@ -669,7 +663,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       redirectUri: REDIRECT_URI,
     });
 
-    const first = await execute(t, grant._id, {
+    const first = await executeMcpRead(t, grant._id, {
       kind: "list_circle_history",
       circleRef: buildRef("History Trip", circle.circleId),
       paginationOpts: { numItems: 2, cursor: null },
@@ -685,7 +679,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     ).toBe(false);
     expect(JSON.stringify(first.value)).not.toContain("invitee@example.com");
 
-    const second = await execute(t, grant._id, {
+    const second = await executeMcpRead(t, grant._id, {
       kind: "list_circle_history",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 2, cursor: first.value.continueCursor },
@@ -715,18 +709,18 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       redirectUri: REDIRECT_URI,
     });
 
-    const deselected = await execute(t, grant._id, {
+    const deselected = await executeMcpRead(t, grant._id, {
       kind: "get_circle",
       circleRef: buildRef("Other", other.circleId),
     });
-    const malformed = await execute(t, grant._id, {
+    const malformed = await executeMcpRead(t, grant._id, {
       kind: "get_circle",
       circleRef: "not-a-circle-reference",
     });
     expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
     expect(malformed).toMatchObject({ ok: false, error: "circle_inaccessible" });
 
-    const scopeDenied = await execute(
+    const scopeDenied = await executeMcpRead(
       t,
       grant._id,
       { kind: "get_circle", circleRef: buildRef("Selected", selected.circleId) },
@@ -744,7 +738,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       if (!membership) throw new Error("owner membership missing");
       await ctx.db.patch(membership._id, { status: "removed" });
     });
-    const removed = await execute(t, grant._id, {
+    const removed = await executeMcpRead(t, grant._id, {
       kind: "list_circle_history",
       circleRef: String(selected.circleId),
       paginationOpts: { numItems: 10, cursor: null },
@@ -752,11 +746,496 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
 
     await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
-    const revoked = await execute(t, grant._id, {
+    const revoked = await executeMcpRead(t, grant._id, {
       kind: "get_circle",
       circleRef: buildRef("Selected", selected.circleId),
     });
     expect(revoked).toMatchObject({ ok: false, error: "grant_unavailable" });
+  });
+});
+
+describe("MCP Transaction search and inspect reads", () => {
+  it("searches with defaults, filters, pagination, archived rows, and omits internal ids", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, {
+        name: "Trip",
+        currency: "EUR",
+        archived: true,
+      }),
+    );
+    const maya = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
+    );
+    const removed = await t.run(async (ctx) => {
+      const member = await addMember(ctx, f.circleId, "bo@example.com", "Bo Removed", "removed");
+      return member;
+    });
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        title: "May rent",
+        date: "2026-05-10",
+        amountMinorUnits: 1_000,
+      });
+      await seedTransaction(ctx, f, {
+        title: "June cafe",
+        date: "2026-06-10",
+        amountMinorUnits: 500,
+        paidByMemberId: maya.memberId,
+        recordedByMemberId: maya.memberId,
+        categoryIds: [f.diningId],
+        type: "expense",
+      });
+      await seedTransaction(ctx, f, {
+        title: "Archived rent",
+        date: "2026-06-11",
+        status: "archived",
+        paidByMemberId: removed.memberId,
+      });
+      await seedTransaction(ctx, f, { title: "Outside month", date: "2026-07-01" });
+    });
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Trip", f.circleId);
+
+    const activeDefault = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+    });
+    expect(activeDefault).toMatchObject({ ok: true });
+    if (!activeDefault.ok || !("value" in activeDefault)) {
+      throw new Error("expected active search");
+    }
+    expect(activeDefault.value.pagination).toBe("offset");
+    if (activeDefault.value.pagination !== "offset") {
+      throw new Error("expected offset pagination");
+    }
+    expect(activeDefault.value.transactions.map((txn) => txn.title)).toEqual([
+      "Outside month",
+      "June cafe",
+      "May rent",
+    ]);
+    expect(JSON.stringify(activeDefault.value)).not.toMatch(/"id":/);
+    for (const txn of activeDefault.value.transactions) {
+      expect(txn).not.toHaveProperty("id");
+      expect(txn.currency).toBe("EUR");
+      for (const category of txn.categories) {
+        expect(category).not.toHaveProperty("id");
+      }
+      expect(txn.recordedBy).not.toHaveProperty("id");
+      expect(txn.paidBy).not.toHaveProperty("id");
+    }
+
+    const statusAll = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { status: "all", dateFrom: "2026-06-01", dateTo: "2026-06-30" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      statusAll.ok &&
+        statusAll.value.pagination === "offset" &&
+        statusAll.value.transactions.map((txn) => txn.title),
+    ).toEqual(["Archived rent", "June cafe"]);
+
+    const combined = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: {
+        type: "expense",
+        status: "active",
+        categoryRefs: [buildRef("Dining", f.diningId)],
+        paidByMemberIds: [maya.memberId],
+        recordedByMemberIds: [maya.memberId],
+        amountMin: 400,
+        amountMax: 600,
+        query: "cafe",
+      },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      combined.ok &&
+        combined.value.pagination === "offset" &&
+        combined.value.transactions.map((txn) => txn.title),
+    ).toEqual(["June cafe"]);
+
+    const monthCursor = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { month: "2026-06", status: "all" },
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(monthCursor).toMatchObject({ ok: true });
+    if (!monthCursor.ok || monthCursor.value.pagination !== "cursor") {
+      throw new Error("expected cursor page");
+    }
+    expect(monthCursor.value.page).toHaveLength(1);
+    expect(monthCursor.value.isDone).toBe(false);
+
+    const monthSecond = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { month: "2026-06", status: "all" },
+      paginationOpts: { numItems: 1, cursor: monthCursor.value.continueCursor },
+    });
+    expect(
+      monthSecond.ok && monthSecond.value.pagination === "cursor" && monthSecond.value.page,
+    ).toHaveLength(1);
+    if (
+      monthCursor.ok &&
+      monthCursor.value.pagination === "cursor" &&
+      monthSecond.ok &&
+      monthSecond.value.pagination === "cursor"
+    ) {
+      expect(monthSecond.value.page[0]?.ref).not.toBe(monthCursor.value.page[0]?.ref);
+    }
+
+    const emptyFilters = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { categoryRefs: ["not-a-category"] },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      emptyFilters.ok &&
+        emptyFilters.value.pagination === "offset" &&
+        emptyFilters.value.transactions,
+    ).toEqual([]);
+  });
+
+  it("returns transaction detail, history, removed attribution, and collapses inaccessible refs", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Selected" }));
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const removed = await t.run(async (ctx) => {
+      const member = await addMember(ctx, f.circleId, "bo@example.com", "Bo Removed", "removed");
+      return member;
+    });
+    const txnId = await t.run(async (ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Team lunch",
+        note: "Sushi place",
+        paidByMemberId: removed.memberId,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Selected", f.circleId);
+    const transactionRef = buildRef("Team lunch", txnId);
+
+    const detail = await executeMcpRead(t, grant._id, {
+      kind: "get_transaction",
+      circleRef,
+      transactionRef,
+    });
+    expect(detail).toMatchObject({
+      ok: true,
+      value: {
+        ref: transactionRef,
+        title: "Team lunch",
+        note: "Sushi place",
+        currency: "USD",
+        paidBy: { displayName: "Bo Removed" },
+        canEditFields: true,
+        canArchive: true,
+        audit: {
+          createdBy: { displayName: "Olive Owner" },
+        },
+      },
+    });
+    expect(detail.ok && "value" in detail && detail.value).not.toHaveProperty("id");
+    if (detail.ok && "value" in detail) {
+      expect(JSON.stringify(detail.value.categories)).not.toMatch(/"id":/);
+    }
+
+    const history = await executeMcpRead(t, grant._id, {
+      kind: "list_transaction_history",
+      circleRef,
+      transactionRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(history).toMatchObject({ ok: true, value: { isDone: true } });
+
+    mockCurrentUser.mockResolvedValue(owner.owner);
+    const liveId = await t.mutation(api.transactions.createTransaction, {
+      circleId: f.circleId,
+      expectedCurrency: "USD",
+      type: "expense",
+      title: "Weekly shop",
+      amountMinorUnits: 1250,
+      date: "2026-05-15",
+      categoryIds: [f.groceriesId],
+    });
+    await t.mutation(api.transactions.updateTransaction, {
+      transactionId: liveId,
+      amountMinorUnits: 9900,
+    });
+    const liveHistory = await executeMcpRead(t, grant._id, {
+      kind: "list_transaction_history",
+      circleRef,
+      transactionRef: buildRef("Weekly shop", liveId),
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(liveHistory).toMatchObject({ ok: true });
+    if (!liveHistory.ok || !("value" in liveHistory)) {
+      throw new Error("expected live history");
+    }
+    expect(liveHistory.value.page.map((event) => event.action)).toEqual(["edited", "created"]);
+    const amountChange = liveHistory.value.page[0]?.changes.find(
+      (change) => change.field === "amount",
+    );
+    expect(amountChange?.fromMoney).toEqual({ minorUnits: 1250, currency: "USD" });
+    expect(amountChange?.toMoney).toEqual({ minorUnits: 9900, currency: "USD" });
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 3; index += 1) {
+        await ctx.db.insert("histories", {
+          entityId: liveId,
+          circleId: f.circleId,
+          actorMemberId: f.ownerMemberId,
+          action: "edited",
+          changes: [{ field: "title", to: `Edit ${index}` }],
+          createdAt: Date.now() + index,
+        });
+      }
+    });
+    const historyFirstPage = await executeMcpRead(t, grant._id, {
+      kind: "list_transaction_history",
+      circleRef,
+      transactionRef: buildRef("Weekly shop", liveId),
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(historyFirstPage).toMatchObject({ ok: true });
+    if (!historyFirstPage.ok || !("value" in historyFirstPage)) {
+      throw new Error("expected history page");
+    }
+    expect(historyFirstPage.value.page).toHaveLength(2);
+    expect(historyFirstPage.value.isDone).toBe(false);
+    const historySecondPage = await executeMcpRead(t, grant._id, {
+      kind: "list_transaction_history",
+      circleRef,
+      transactionRef: buildRef("Weekly shop", liveId),
+      paginationOpts: { numItems: 2, cursor: historyFirstPage.value.continueCursor },
+    });
+    expect(
+      historySecondPage.ok && "value" in historySecondPage && historySecondPage.value.page.length,
+    ).toBeGreaterThan(0);
+
+    const deselected = await executeMcpRead(t, grant._id, {
+      kind: "get_transaction",
+      circleRef: buildRef("Other", other.circleId),
+      transactionRef,
+    });
+    const malformed = await executeMcpRead(t, grant._id, {
+      kind: "get_transaction",
+      circleRef,
+      transactionRef: "not-a-transaction",
+    });
+    expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(malformed).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+
+    const emptyHistory = await executeMcpRead(t, grant._id, {
+      kind: "list_transaction_history",
+      circleRef,
+      transactionRef: "missing-ref",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(emptyHistory).toMatchObject({
+      ok: true,
+      value: { page: [], isDone: true, continueCursor: "" },
+    });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    const removedMember = await executeMcpRead(t, grant._id, {
+      kind: "get_transaction",
+      circleRef,
+      transactionRef,
+    });
+    expect(removedMember).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  });
+
+  it("covers isolated filters, attribution, ordering, archived detail, deselected search, and count cap", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Filters" }));
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const maya = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
+    );
+    const deletedMember = await t.run(async (ctx) => {
+      const member = await addMember(ctx, f.circleId, "deleted@example.com", "Deleted Member");
+      await ctx.db.delete(member.user._id);
+      return member;
+    });
+    const seeded = await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        title: "Salary payment",
+        type: "income",
+        categoryIds: [f.salaryId],
+        date: "2026-05-20",
+        amountMinorUnits: 500_000,
+      });
+      await seedTransaction(ctx, f, {
+        title: "Unique needle row",
+        note: "alpha keyword",
+        date: "2026-05-20",
+        createdAt: 1,
+      });
+      await seedTransaction(ctx, f, {
+        title: "Same day second",
+        date: "2026-05-20",
+        createdAt: 2,
+      });
+      await seedTransaction(ctx, f, {
+        title: "Maya recorded",
+        recordedByMemberId: maya.memberId,
+        paidByMemberId: maya.memberId,
+        date: "2026-05-18",
+      });
+      await seedTransaction(ctx, f, {
+        title: "Deleted paid by",
+        paidByMemberId: deletedMember.memberId,
+        date: "2026-05-17",
+      });
+      const archivedId = await seedTransaction(ctx, f, {
+        title: "Archived detail",
+        status: "archived",
+        date: "2026-05-16",
+      });
+      await seedTransactionsBulk(ctx, f, 210, {
+        titlePrefix: "cap-row",
+        syncSearch: true,
+      });
+      return { archivedId };
+    });
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Filters", f.circleId);
+
+    const incomeOnly = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { type: "income" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      incomeOnly.ok &&
+        incomeOnly.value.pagination === "offset" &&
+        incomeOnly.value.transactions.map((txn) => txn.title),
+    ).toEqual(["Salary payment"]);
+
+    const queryOnly = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { query: "needle" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      queryOnly.ok &&
+        queryOnly.value.pagination === "offset" &&
+        queryOnly.value.transactions.map((txn) => txn.title),
+    ).toEqual(["Unique needle row"]);
+
+    const recordedByOnly = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { recordedByMemberIds: [maya.memberId] },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      recordedByOnly.ok &&
+        recordedByOnly.value.pagination === "offset" &&
+        recordedByOnly.value.transactions.map((txn) => txn.title),
+    ).toEqual(["Maya recorded"]);
+
+    const dateWindow = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { dateFrom: "2026-05-20", dateTo: "2026-05-20", status: "all" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      dateWindow.ok &&
+        dateWindow.value.pagination === "offset" &&
+        dateWindow.value.transactions.map((txn) => txn.title),
+    ).toEqual(["Same day second", "Unique needle row", "Salary payment"]);
+
+    const deletedPaidBy = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { query: "Deleted paid" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(
+      deletedPaidBy.ok &&
+        deletedPaidBy.value.pagination === "offset" &&
+        deletedPaidBy.value.transactions[0]?.paidBy.displayName,
+    ).toBe("Deleted Member");
+
+    const archivedDetail = await executeMcpRead(t, grant._id, {
+      kind: "get_transaction",
+      circleRef,
+      transactionRef: buildRef("Archived detail", seeded.archivedId),
+    });
+    expect(archivedDetail).toMatchObject({
+      ok: true,
+      value: { title: "Archived detail", status: "archived" },
+    });
+
+    const deselectedSearch = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef: buildRef("Other", other.circleId),
+      ...searchTransactionPage(1, 25),
+    });
+    expect(deselectedSearch).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const capped = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { query: "cap-row" },
+      ...searchTransactionPage(1, 5),
+    });
+    expect(capped.ok && capped.value.pagination === "offset" && capped.value.totalCountCapped).toBe(
+      true,
+    );
+    expect(
+      capped.ok && capped.value.pagination === "offset" && capped.value.transactions,
+    ).toHaveLength(5);
   });
 });
 

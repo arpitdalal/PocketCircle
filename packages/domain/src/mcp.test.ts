@@ -118,5 +118,17 @@ describe("MCP schemas", () => {
       operation: { kind: "unknown_operation" },
     });
     expect(invalidOp.success).toBe(false);
+
+    const searchOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { status: "all", query: "coffee" },
+        page: 1,
+      },
+    });
+    expect(searchOp.success).toBe(true);
   });
 });

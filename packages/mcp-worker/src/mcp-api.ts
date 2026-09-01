@@ -11,7 +11,11 @@ import {
   mcpCurrentUserViewSchema,
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
+  mcpPaginatedTransactionHistorySchema,
   mcpPaginationOptsSchema,
+  mcpSearchTransactionsFiltersSchema,
+  mcpSearchTransactionsResultSchema,
+  mcpTransactionDetailSchema,
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
@@ -68,6 +72,18 @@ const listMembersInputSchema = circleRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 const listCircleHistoryInputSchema = circleRefInputSchema.extend({
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const searchTransactionsInputSchema = circleRefInputSchema.extend({
+  filters: mcpSearchTransactionsFiltersSchema.optional(),
+  page: z.number().int().min(1).max(40).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+const transactionRefInputSchema = circleRefInputSchema.extend({
+  transactionRef: z.string().min(1).max(300),
+});
+const listTransactionHistoryInputSchema = transactionRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 
@@ -232,6 +248,91 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "search_transactions",
+    {
+      title: "Search Transactions",
+      description:
+        "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger",
+      inputSchema: searchTransactionsInputSchema,
+      outputSchema: mcpSearchTransactionsResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "search_transactions",
+          circleRef: args.circleRef,
+          ...(args.filters === undefined ? {} : { filters: args.filters }),
+          ...(args.page === undefined ? {} : { page: args.page }),
+          ...(args.pageSize === undefined ? {} : { pageSize: args.pageSize }),
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpSearchTransactionsResultSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_transaction",
+    {
+      title: "Get Transaction",
+      description:
+        "Get one Transaction with Amount, Currency, Categories, attribution, Audit Metadata, and permitted actions",
+      inputSchema: transactionRefInputSchema,
+      outputSchema: mcpTransactionDetailSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "get_transaction",
+          circleRef: args.circleRef,
+          transactionRef: args.transactionRef,
+        },
+        mcpTransactionDetailSchema,
+      ),
+  );
+
+  server.registerTool(
+    "list_transaction_history",
+    {
+      title: "List Transaction History",
+      description:
+        "List paginated immutable Transaction history with actor, changed fields, and display values",
+      inputSchema: listTransactionHistoryInputSchema,
+      outputSchema: mcpPaginatedTransactionHistorySchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "list_transaction_history",
+          circleRef: args.circleRef,
+          transactionRef: args.transactionRef,
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
+        },
+        mcpPaginatedTransactionHistorySchema,
+      ),
+  );
+
   return server;
 }
 
@@ -241,6 +342,9 @@ const READ_TOOL_NAMES = new Set([
   "get_circle",
   "list_members",
   "list_circle_history",
+  "search_transactions",
+  "get_transaction",
+  "list_transaction_history",
 ]);
 
 const rpcCallSchema = z.object({

@@ -14,14 +14,37 @@
  * Never match a User by email.
  */
 
-import { buildRef, normalizeMcpImage, parseRef } from "@pocketcircle/domain";
+import {
+  buildRef,
+  clampSearchPage,
+  clampSearchPageSize,
+  currentMonth,
+  isValidPlainMonth,
+  normalizeMcpImage,
+  parseRef,
+  TRANSACTION_LIST_PAGE_SIZE,
+} from "@pocketcircle/domain";
 import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { resolveCircleAccessForUser } from "./guard.js";
-import { circleEntity, paginateEntityHistory } from "./history.js";
+import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
+import { monthDateRange } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
+import {
+  collectTransactionViews,
+  normalizeCommonFilters,
+  resolveSearchWindow,
+  searchTransactionsOffsetPage,
+  validAmountBoundary,
+} from "./search.js";
+import {
+  newViewCaches,
+  type TransactionDetailView,
+  type TransactionView,
+  toTransactionDetailView,
+} from "./transactions.js";
 
 export type { OperationReader } from "./operationReader.js";
 
@@ -510,4 +533,348 @@ export async function getCircleForUser(ctx: OperationReader, circleId: string, u
   }
   const access = await resolveCircleAccessForUser(ctx, id, user);
   return access ? toCircleView(access.circle) : null;
+}
+
+function toMcpMemberAttributionView(member: { displayName: string; image?: string }) {
+  return {
+    displayName: member.displayName,
+    image: normalizeMcpImage(member.image ?? null),
+  };
+}
+
+function toMcpCategoryAttributionView(category: { id: string; name: string; color: string }) {
+  return {
+    ref: buildRef(category.name, category.id),
+    name: category.name,
+    color: category.color,
+  };
+}
+
+export function toMcpTransactionSummaryView(view: TransactionView, currency: string) {
+  return {
+    ref: view.ref,
+    type: view.type,
+    title: view.title,
+    ...(view.note === undefined ? {} : { note: view.note }),
+    amountMinorUnits: view.amountMinorUnits,
+    currency,
+    date: view.date,
+    month: view.month,
+    status: view.status,
+    recordedBy: toMcpMemberAttributionView(view.recordedBy),
+    paidBy: toMcpMemberAttributionView(view.paidBy),
+    categories: view.categories.map(toMcpCategoryAttributionView),
+    canEditFields: view.canEditFields,
+    canArchive: view.canArchive,
+  };
+}
+
+export function toMcpTransactionDetailView(view: TransactionDetailView, currency: string) {
+  const summary = toMcpTransactionSummaryView(view, currency);
+  return {
+    ...summary,
+    audit: {
+      createdBy: toMcpMemberAttributionView(view.audit.createdBy),
+      createdAt: view.audit.createdAt,
+      updatedBy: toMcpMemberAttributionView(view.audit.updatedBy),
+      updatedAt: view.audit.updatedAt,
+    },
+  };
+}
+
+/** Resolves a canonical or bare Transaction reference without exposing lookup errors. */
+export function resolveTransactionRef(ctx: OperationReader, transactionRef: string) {
+  const parsed = parseRef(
+    transactionRef,
+    (candidate) => ctx.db.normalizeId("transactions", candidate) !== null,
+  );
+  if (parsed) {
+    return ctx.db.normalizeId("transactions", parsed.id);
+  }
+  return ctx.db.normalizeId("transactions", transactionRef);
+}
+
+function normalizeCategoryRefs(ctx: OperationReader, refs: string[] | undefined) {
+  const ids = new Set<Id<"categories">>();
+  let sawValue = false;
+  for (const ref of refs ?? []) {
+    sawValue = true;
+    const parsed = parseRef(
+      ref,
+      (candidate) => ctx.db.normalizeId("categories", candidate) !== null,
+    );
+    const id = parsed
+      ? ctx.db.normalizeId("categories", parsed.id)
+      : ctx.db.normalizeId("categories", ref);
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return { ids, hasOnlyUnknown: sawValue && ids.size === 0 };
+}
+
+export type McpSearchTransactionsArgs = {
+  filters?: {
+    query?: string;
+    type?: "all" | "expense" | "income";
+    status?: "active" | "archived" | "all";
+    categoryRefs?: string[];
+    recordedByMemberIds?: string[];
+    paidByMemberIds?: string[];
+    dateFrom?: string;
+    dateTo?: string;
+    amountMin?: number;
+    amountMax?: number;
+    month?: string;
+  };
+  page?: number;
+  pageSize?: number;
+  paginationOpts?: PaginationOptions;
+};
+
+function resolveMcpSearchWindow(filters: McpSearchTransactionsArgs["filters"]) {
+  if (filters?.month !== undefined) {
+    const month = isValidPlainMonth(filters.month) ? filters.month : currentMonth(new Date());
+    const range = monthDateRange(month);
+    return { ok: true as const, start: range.start, endExclusive: range.endExclusive };
+  }
+  return resolveSearchWindow({
+    dateFrom: filters?.dateFrom,
+    dateTo: filters?.dateTo,
+  });
+}
+
+async function mapSearchTransactionsForAccess(
+  ctx: OperationReader,
+  access: NonNullable<Awaited<ReturnType<typeof resolveCircleAccessForUser>>>,
+  args: McpSearchTransactionsArgs,
+) {
+  const filters = args.filters ?? {};
+  const pageSize = clampSearchPageSize(args.pageSize);
+  const page = clampSearchPage(args.page ?? 1);
+  const window = resolveMcpSearchWindow(filters);
+  if (
+    !window.ok ||
+    !validAmountBoundary(filters.amountMin) ||
+    !validAmountBoundary(filters.amountMax)
+  ) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
+  if ("empty" in window && window.empty) {
+    return args.paginationOpts
+      ? {
+          ok: true as const,
+          value: { pagination: "cursor" as const, page: [], isDone: true, continueCursor: "" },
+        }
+      : {
+          ok: true as const,
+          value: {
+            pagination: "offset" as const,
+            transactions: [],
+            pageNumber: page,
+            pageSize,
+            totalCount: 0,
+            totalCountCapped: false,
+          },
+        };
+  }
+  if (
+    filters.amountMin !== undefined &&
+    filters.amountMax !== undefined &&
+    filters.amountMin > filters.amountMax
+  ) {
+    return args.paginationOpts
+      ? {
+          ok: true as const,
+          value: { pagination: "cursor" as const, page: [], isDone: true, continueCursor: "" },
+        }
+      : {
+          ok: true as const,
+          value: {
+            pagination: "offset" as const,
+            transactions: [],
+            pageNumber: page,
+            pageSize,
+            totalCount: 0,
+            totalCountCapped: false,
+          },
+        };
+  }
+
+  const categoryRefs = normalizeCategoryRefs(ctx, filters.categoryRefs);
+  const common = normalizeCommonFilters(ctx, {
+    type: filters.type ?? "all",
+    status: filters.status ?? "active",
+    query: filters.query,
+    categoryIds: [...categoryRefs.ids],
+    recordedByMemberIds: filters.recordedByMemberIds,
+    paidByMemberIds: filters.paidByMemberIds,
+  });
+  if (categoryRefs.hasOnlyUnknown || common.hasOnlyUnknownIds) {
+    return args.paginationOpts
+      ? {
+          ok: true as const,
+          value: { pagination: "cursor" as const, page: [], isDone: true, continueCursor: "" },
+        }
+      : {
+          ok: true as const,
+          value: {
+            pagination: "offset" as const,
+            transactions: [],
+            pageNumber: page,
+            pageSize,
+            totalCount: 0,
+            totalCountCapped: false,
+          },
+        };
+  }
+
+  const currency = access.circle.currency;
+  const searchArgs = {
+    circleId: access.circle._id,
+    viewerMemberId: access.membership._id,
+    viewerIsOwner: access.isOwner,
+    status: common.status,
+    paidByMemberIds: common.paidByMemberIds.ids,
+    recordedByMemberIds: common.recordedByMemberIds.ids,
+    start: window.start,
+    endExclusive: window.endExclusive,
+    filters: {
+      type: common.type,
+      categoryIds: common.categoryIds.ids,
+      amountMin: filters.amountMin,
+      amountMax: filters.amountMax,
+      queryText: common.queryText,
+    },
+  };
+
+  if (args.paginationOpts) {
+    const result = await collectTransactionViews(ctx, {
+      ...searchArgs,
+      paginationOpts: args.paginationOpts,
+    });
+    return {
+      ok: true as const,
+      value: {
+        pagination: "cursor" as const,
+        page: result.page.map((txn) => toMcpTransactionSummaryView(txn, currency)),
+        isDone: result.isDone,
+        continueCursor: result.continueCursor,
+      },
+    };
+  }
+
+  const result = await searchTransactionsOffsetPage(ctx, {
+    ...searchArgs,
+    page,
+    pageSize,
+  });
+  return {
+    ok: true as const,
+    value: {
+      pagination: "offset" as const,
+      transactions: result.transactions.map((txn) => toMcpTransactionSummaryView(txn, currency)),
+      pageNumber: result.pageNumber,
+      pageSize: result.pageSize,
+      totalCount: result.totalCount,
+      totalCountCapped: result.totalCountCapped,
+    },
+  };
+}
+
+/** Shared explicit-User Transaction search for web-shaped filters and MCP (#322). */
+export async function searchTransactionsForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  user: Doc<"users">,
+  args: McpSearchTransactionsArgs,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    const pageSize = clampSearchPageSize(args.pageSize ?? TRANSACTION_LIST_PAGE_SIZE);
+    const page = clampSearchPage(args.page ?? 1);
+    return args.paginationOpts
+      ? {
+          ok: true as const,
+          value: { pagination: "cursor" as const, page: [], isDone: true, continueCursor: "" },
+        }
+      : {
+          ok: true as const,
+          value: {
+            pagination: "offset" as const,
+            transactions: [],
+            pageNumber: page,
+            pageSize,
+            totalCount: 0,
+            totalCountCapped: false,
+          },
+        };
+  }
+  return mapSearchTransactionsForAccess(ctx, access, args);
+}
+
+export async function getTransactionForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  transactionRef: string,
+  user: Doc<"users">,
+) {
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return null;
+  }
+  const transactionId = resolveTransactionRef(ctx, transactionRef);
+  if (!transactionId) {
+    return null;
+  }
+  const txn = await ctx.db.get(transactionId);
+  if (!txn || txn.circleId !== circleId) {
+    return null;
+  }
+  const detail = await toTransactionDetailView(
+    ctx,
+    txn,
+    newViewCaches(),
+    access.membership._id,
+    access.isOwner,
+  );
+  return toMcpTransactionDetailView(detail, access.circle.currency);
+}
+
+export async function listTransactionHistoryForUser(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  transactionRef: string,
+  user: Doc<"users">,
+  paginationOpts: PaginationOptions,
+) {
+  const emptyPage = { page: [], isDone: true, continueCursor: "" };
+  const access = await resolveCircleAccessForUser(ctx, circleId, user);
+  if (!access) {
+    return emptyPage;
+  }
+  const transactionId = resolveTransactionRef(ctx, transactionRef);
+  if (!transactionId) {
+    return emptyPage;
+  }
+  const txn = await ctx.db.get(transactionId);
+  if (!txn || txn.circleId !== circleId) {
+    return emptyPage;
+  }
+  const result = await paginateEntityHistory(
+    ctx,
+    transactionEntity(transactionId, access.circle._id),
+    paginationOpts,
+  );
+  const cache = newActorCache();
+  const page = await Promise.all(result.page.map((event) => toHistoryEventView(ctx, event, cache)));
+  return {
+    ...result,
+    page: page.map((event) => ({
+      ...event,
+      actor: event.actor
+        ? { ...event.actor, image: normalizeMcpImage(event.actor.image ?? null) }
+        : null,
+    })),
+  };
 }
