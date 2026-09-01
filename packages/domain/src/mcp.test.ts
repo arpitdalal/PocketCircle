@@ -299,5 +299,19 @@ describe("MCP schemas", () => {
       expectedCurrency: "USD",
     });
     expect(duplicateCategories.success).toBe(false);
+
+    const tooManyCategories = mcpCreateTransactionInputSchema.safeParse({
+      circleRef: "trip-c123",
+      type: "expense",
+      title: "Coffee",
+      amountMinorUnits: 500,
+      date: "2026-06-01",
+      categoryRefs: Array.from(
+        { length: LIMITS.maxCategoriesPerTransaction + 1 },
+        (_, index) => `cat-${index}`,
+      ),
+      expectedCurrency: "USD",
+    });
+    expect(tooManyCategories.success).toBe(false);
   });
 });

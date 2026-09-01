@@ -1452,14 +1452,22 @@ function mapCreateTransactionFailure(error: unknown) {
         case "transaction.categoryArchived":
           return "category_inaccessible" as const;
         default:
-          return "validation_failed" as const;
+          return null;
       }
     }
   }
   if (error instanceof ZodError) {
     return "validation_failed" as const;
   }
-  return "validation_failed" as const;
+  return null;
+}
+
+function createTransactionFailureFrom(error: unknown) {
+  const mapped = mapCreateTransactionFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
 }
 
 function resolveCreateCategoryIds(ctx: OperationReader, refs: readonly string[]) {
@@ -1495,7 +1503,7 @@ export async function createTransactionForAccess(
     access.assertWritable();
     access.assertSetupComplete();
   } catch (error) {
-    return { ok: false as const, error: mapCreateTransactionFailure(error) };
+    return createTransactionFailureFrom(error);
   }
 
   const categories = resolveCreateCategoryIds(ctx, args.categoryRefs);
@@ -1508,8 +1516,9 @@ export async function createTransactionForAccess(
     return paidBy;
   }
 
+  let transactionId: Id<"transactions">;
   try {
-    const transactionId = await performCreateTransaction(ctx, access, {
+    transactionId = await performCreateTransaction(ctx, access, {
       type: args.type,
       title: args.title,
       ...(args.note === undefined ? {} : { note: args.note }),
@@ -1519,22 +1528,23 @@ export async function createTransactionForAccess(
       ...(paidBy.value === undefined ? {} : { paidByMemberId: paidBy.value }),
       expectedCurrency: args.expectedCurrency,
     });
-    const created = await ctx.db.get(transactionId);
-    if (!created) {
-      return { ok: false as const, error: "validation_failed" as const };
-    }
-    const detail = await toTransactionDetailView(
-      ctx,
-      created,
-      newViewCaches(),
-      access.membership._id,
-      access.isOwner,
-    );
-    return {
-      ok: true as const,
-      value: toMcpTransactionDetailView(detail, access.circle.currency),
-    };
   } catch (error) {
-    return { ok: false as const, error: mapCreateTransactionFailure(error) };
+    return createTransactionFailureFrom(error);
   }
+
+  const created = await ctx.db.get(transactionId);
+  if (!created) {
+    throw new Error("Transaction not found");
+  }
+  const detail = await toTransactionDetailView(
+    ctx,
+    created,
+    newViewCaches(),
+    access.membership._id,
+    access.isOwner,
+  );
+  return {
+    ok: true as const,
+    value: toMcpTransactionDetailView(detail, access.circle.currency),
+  };
 }

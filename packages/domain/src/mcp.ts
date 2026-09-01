@@ -493,7 +493,7 @@ const mcpCreateTransactionCoreSchema = z.object({
     .int()
     .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" }),
   date: transactionFieldSchemas.date,
-  categoryRefs: z.array(mcpCategoryRefSchema).min(1).max(20),
+  categoryRefs: z.array(mcpCategoryRefSchema).min(1).max(LIMITS.maxCategoriesPerTransaction),
   paidByMemberId: z.string().min(1).max(128).optional(),
   expectedCurrency: z.string().min(1).max(3),
 });

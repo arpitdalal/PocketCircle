@@ -37,6 +37,7 @@ import { z } from "zod";
 import { executeMcpOperation, executeMcpWriteOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
+import { assertMcpWriteWithinRateLimit } from "./write-rate-limit.js";
 
 function hostnameOf(urlString: string | undefined) {
   if (!urlString) {
@@ -815,6 +816,15 @@ export function createMcpApiHandler(env: Env) {
             ),
             { requiredScopes: ["pocketcircle:write"] },
           );
+        }
+        if (caller.ok) {
+          const withinLimit = await assertMcpWriteWithinRateLimit(envArg, caller.value.grantId);
+          if (!withinLimit.ok) {
+            return new Response(JSON.stringify({ error: "rate_limited" }), {
+              status: 429,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
         }
       }
       return mcpHandler(request, envArg, ctx);
