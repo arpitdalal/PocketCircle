@@ -1,6 +1,7 @@
 import {
   buildRef,
   MCP_APPROVAL_TTL_MS,
+  MCP_IMAGE_MAX_LENGTH,
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
   MCP_RESOURCE_URI,
@@ -363,6 +364,9 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     const maya = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "maya@example.com", "Maya Member"),
     );
+    await t.run((ctx) =>
+      ctx.db.patch(maya.memberId, { image: "x".repeat(MCP_IMAGE_MAX_LENGTH + 1) }),
+    );
     const nora = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "nora@example.com", "Nora Member"),
     );
@@ -419,6 +423,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(activeSecondPage.value.page.map((member) => member.displayName)).toEqual([
       "Maya Member",
     ]);
+    expect(activeSecondPage.value.page[0]?.image).toBeNull();
     const activeThirdPage = await execute(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
@@ -637,6 +642,9 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     const maya = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "maya@example.com", "Maya Member"),
     );
+    await t.run((ctx) =>
+      ctx.db.patch(circle.ownerMemberId, { image: "x".repeat(MCP_IMAGE_MAX_LENGTH + 1) }),
+    );
     await t.run(async (ctx) => {
       for (const [index, action] of ["created", "member invited", "renamed"].entries()) {
         await ctx.db.insert("histories", {
@@ -688,6 +696,7 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     }
     expect(second.value.page[0]?.id).not.toBe(first.value.page[0]?.id);
     expect(second.value.page[0]?.actor?.displayName).toBe("Olive Owner");
+    expect(second.value.page[0]?.actor?.image).toBeNull();
   });
 
   it("collapses deselected, removed, and malformed Circle references", async () => {

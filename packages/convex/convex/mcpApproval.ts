@@ -12,6 +12,7 @@ import {
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpScopesInclude,
+  normalizeMcpImage,
   normalizeMcpScopes,
   verifyMcpApproval,
 } from "@pocketcircle/domain";
@@ -333,7 +334,9 @@ export const executeMcpReadOperation = internalMutation({
         ...history,
         page: history.page.map((event) => ({
           ...event,
-          actor: event.actor ? { ...event.actor, image: event.actor.image ?? null } : null,
+          actor: event.actor
+            ? { ...event.actor, image: normalizeMcpImage(event.actor.image) }
+            : null,
         })),
       };
       return validateMcpResult(mcpPaginatedCircleHistorySchema, value);

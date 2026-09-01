@@ -3,8 +3,10 @@ import {
   isMcpScope,
   mcpCircleViewSchema,
   mcpCurrentUserViewSchema,
+  mcpMemberViewSchema,
   mcpOperationBodySchema,
   mcpScopesInclude,
+  normalizeMcpImage,
   normalizeMcpScopes,
 } from "./mcp.js";
 import { personalCircleName } from "./personal-circle-name.js";
@@ -49,6 +51,26 @@ describe("MCP schemas", () => {
       createdAt: 123456789,
     });
     expect(valid.success).toBe(true);
+    expect(normalizeMcpImage("x".repeat(2049))).toBeNull();
+    expect(
+      mcpCurrentUserViewSchema.safeParse({
+        id: "u123",
+        displayName: "Alice",
+        image: "x".repeat(2049),
+        createdAt: 123456789,
+      }).success,
+    ).toBe(false);
+    expect(
+      mcpMemberViewSchema.safeParse({
+        id: "m123",
+        displayName: "Alice",
+        image: "x".repeat(2049),
+        role: "member",
+        status: "active",
+        joinedAt: 123456789,
+        isSelf: false,
+      }).success,
+    ).toBe(false);
   });
 
   it("validates mcpCircleViewSchema", () => {

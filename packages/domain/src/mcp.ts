@@ -16,6 +16,14 @@ export type McpCirclePermission = "member" | "owner";
 
 const mcpScopeSet = new Set<string>(MCP_SCOPES);
 
+export const MCP_IMAGE_MAX_LENGTH = 2048;
+
+export function normalizeMcpImage(image: string | null | undefined) {
+  return image === null || image === undefined || image.length > MCP_IMAGE_MAX_LENGTH
+    ? null
+    : image;
+}
+
 export function isMcpScope(value: string): value is McpScope {
   return mcpScopeSet.has(value);
 }
@@ -43,7 +51,7 @@ export function normalizeMcpScopes(scopes: readonly string[]) {
 export const mcpCurrentUserViewSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  image: z.string().nullable(),
+  image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
   createdAt: z.number(),
 });
 
@@ -70,7 +78,7 @@ export type McpCircleView = z.infer<typeof mcpCircleViewSchema>;
 export const mcpMemberViewSchema = z.object({
   id: z.string().min(1).max(128),
   displayName: z.string().min(1).max(60),
-  image: z.string().max(2048).nullable(),
+  image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
   role: z.enum(["owner", "member"]),
   status: z.enum(["active", "removed", "deleted"]),
   joinedAt: z.number(),
@@ -99,7 +107,7 @@ export const mcpCircleHistoryEventSchema = z.object({
   actor: z
     .object({
       displayName: z.string().min(1).max(60),
-      image: z.string().max(2048).nullable(),
+      image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
     })
     .nullable(),
   changes: z.array(mcpHistoryChangeSchema).max(20),
