@@ -182,10 +182,21 @@ describe("MCP schemas", () => {
       operation: {
         kind: "get_monthly_comparison",
         circleRef: "trip-c123",
+        endMonth: "2026-06",
         rangeMonths: 6,
       },
     });
     expect(comparisonOp.success).toBe(true);
+
+    const dashboardWithoutMonth = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_dashboard",
+        circleRef: "trip-c123",
+      },
+    });
+    expect(dashboardWithoutMonth.success).toBe(false);
 
     const invalidComparisonRange = mcpOperationBodySchema.safeParse({
       grantId: "g123",

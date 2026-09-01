@@ -332,19 +332,19 @@ export const executeMcpReadOperation = internalQuery({
       v.object({
         kind: v.literal("get_dashboard"),
         circleRef: v.string(),
-        month: v.optional(v.string()),
+        month: v.string(),
       }),
       v.object({
         kind: v.literal("get_monthly_comparison"),
         circleRef: v.string(),
-        endMonth: v.optional(v.string()),
+        endMonth: v.string(),
         rangeMonths: v.union(v.literal(1), v.literal(3), v.literal(6), v.literal(12)),
       }),
       v.object({
         kind: v.literal("get_category_analytics"),
         circleRef: v.string(),
-        month: v.optional(v.string()),
-        type: v.optional(v.union(v.literal("expense"), v.literal("income"))),
+        month: v.string(),
+        type: v.union(v.literal("expense"), v.literal("income")),
         paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
     ),
@@ -483,12 +483,9 @@ export const executeMcpReadOperation = internalQuery({
     }
 
     if (args.operation.kind === "get_dashboard") {
-      const dashboard = await getDashboardForUser(
-        ctx,
-        circleAuthz.value.access.circle._id,
-        user,
-        args.operation.month === undefined ? {} : { month: args.operation.month },
-      );
+      const dashboard = await getDashboardForUser(ctx, circleAuthz.value.access.circle._id, user, {
+        month: args.operation.month,
+      });
       if (!dashboard.ok) {
         return { ok: false as const, error: dashboard.error };
       }
@@ -501,8 +498,8 @@ export const executeMcpReadOperation = internalQuery({
         circleAuthz.value.access.circle._id,
         user,
         {
+          endMonth: args.operation.endMonth,
           rangeMonths: args.operation.rangeMonths,
-          ...(args.operation.endMonth === undefined ? {} : { endMonth: args.operation.endMonth }),
         },
       );
       if (!comparison.ok) {
@@ -517,8 +514,8 @@ export const executeMcpReadOperation = internalQuery({
         circleAuthz.value.access.circle._id,
         user,
         {
-          ...(args.operation.month === undefined ? {} : { month: args.operation.month }),
-          ...(args.operation.type === undefined ? {} : { type: args.operation.type }),
+          month: args.operation.month,
+          type: args.operation.type,
           ...(args.operation.paginationOpts === undefined
             ? {}
             : { paginationOpts: args.operation.paginationOpts }),

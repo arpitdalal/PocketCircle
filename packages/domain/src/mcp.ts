@@ -277,6 +277,7 @@ export type McpCategoryAnalyticsRow = z.infer<typeof mcpCategoryAnalyticsRowSche
 
 export const mcpCategoryAnalyticsSchema = z.object({
   month: z.string().min(1).max(7),
+  type: z.enum(["expense", "income"]),
   /** Multi-Category Transactions contribute their full amount to each Category row. */
   nonAdditive: z.literal(true),
   currency: z.string().min(1).max(3),
@@ -382,19 +383,19 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("get_dashboard"),
     circleRef: mcpCircleRefSchema,
-    month: z.string().max(7).optional(),
+    month: z.string().max(7),
   }),
   z.object({
     kind: z.literal("get_monthly_comparison"),
     circleRef: mcpCircleRefSchema,
-    endMonth: z.string().max(7).optional(),
+    endMonth: z.string().max(7),
     rangeMonths: mcpComparisonRangeMonthsSchema,
   }),
   z.object({
     kind: z.literal("get_category_analytics"),
     circleRef: mcpCircleRefSchema,
-    month: z.string().max(7).optional(),
-    type: z.enum(["expense", "income"]).optional(),
+    month: z.string().max(7),
+    type: z.enum(["expense", "income"]),
     paginationOpts: mcpPaginationOptsSchema.optional(),
   }),
 ]);

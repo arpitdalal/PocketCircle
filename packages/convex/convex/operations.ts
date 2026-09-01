@@ -19,7 +19,6 @@ import {
   clampSearchPage,
   clampSearchPageSize,
   comparisonWindowMonths,
-  currentMonth,
   isValidPlainMonth,
   normalizeMcpImage,
   parseRef,
@@ -44,6 +43,7 @@ import {
 } from "./search.js";
 import {
   newViewCaches,
+  paginateCircleTransactionsForAccess,
   type TransactionDetailView,
   type TransactionView,
   toTransactionDetailView,
@@ -73,26 +73,10 @@ export async function paginateMonthlyLedgerTransactionsForAccess(
   month: string,
   paginationOpts: PaginationOptions,
 ) {
-  const range = monthDateRange(month);
-  const result = await ctx.db
-    .query("transactions")
-    .withIndex("by_circle_status_date", (q) =>
-      q
-        .eq("circleId", access.circle._id)
-        .eq("status", "active")
-        .gte("date", range.start)
-        .lt("date", range.endExclusive),
-    )
-    .order("desc")
-    .paginate(paginationOpts);
-
-  const caches = newViewCaches();
-  const page = await Promise.all(
-    result.page.map((txn) =>
-      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
-    ),
-  );
-  return { ...result, page };
+  return paginateCircleTransactionsForAccess(ctx, access, paginationOpts, {
+    month,
+    status: "active",
+  });
 }
 
 export async function dashboardForAccess(
@@ -193,20 +177,78 @@ export async function categoryAnalyticsForAccess(
 
 const MCP_CATEGORY_ANALYTICS_DEFAULT_PAGE_SIZE = 50;
 
-function paginateSortedCategoryAnalyticsRows<T>(
+type CategoryAnalyticsPageRow = {
+  ref: string;
+  name: string;
+  taggedTotalMinor: number;
+};
+
+type CategoryAnalyticsCursor = {
+  taggedTotalMinor: number;
+  name: string;
+  ref: string;
+};
+
+function compareCategoryAnalyticsSort(a: CategoryAnalyticsPageRow, b: CategoryAnalyticsPageRow) {
+  return (
+    b.taggedTotalMinor - a.taggedTotalMinor ||
+    a.name.localeCompare(b.name) ||
+    a.ref.localeCompare(b.ref)
+  );
+}
+
+function parseCategoryAnalyticsCursor(cursor: string | null) {
+  if (!cursor) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(cursor);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "taggedTotalMinor" in parsed &&
+      "name" in parsed &&
+      "ref" in parsed &&
+      typeof parsed.taggedTotalMinor === "number" &&
+      typeof parsed.name === "string" &&
+      typeof parsed.ref === "string"
+    ) {
+      return {
+        taggedTotalMinor: parsed.taggedTotalMinor,
+        name: parsed.name,
+        ref: parsed.ref,
+      } satisfies CategoryAnalyticsCursor;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function encodeCategoryAnalyticsCursor(row: CategoryAnalyticsPageRow) {
+  return JSON.stringify({
+    taggedTotalMinor: row.taggedTotalMinor,
+    name: row.name,
+    ref: row.ref,
+  });
+}
+
+function paginateSortedCategoryAnalyticsRows<T extends CategoryAnalyticsPageRow>(
   rows: readonly T[],
   paginationOpts: PaginationOptions,
 ) {
-  const rawOffset = paginationOpts.cursor ? Number.parseInt(paginationOpts.cursor, 10) : 0;
-  const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
   const numItems = Math.min(Math.max(paginationOpts.numItems, 1), 100);
-  const page = rows.slice(offset, offset + numItems);
-  const nextOffset = offset + page.length;
-  const isDone = nextOffset >= rows.length;
+  const cursor = parseCategoryAnalyticsCursor(paginationOpts.cursor);
+  const remaining = cursor
+    ? rows.filter((row) => compareCategoryAnalyticsSort(cursor, row) < 0)
+    : rows;
+  const page = remaining.slice(0, numItems);
+  const isDone = page.length < numItems;
+  const last = page.at(-1);
   return {
     page,
     isDone,
-    continueCursor: isDone ? "" : String(nextOffset),
+    continueCursor: isDone || !last ? "" : encodeCategoryAnalyticsCursor(last),
   };
 }
 
@@ -1084,19 +1126,18 @@ export async function getDashboardForUser(
   ctx: OperationReader,
   circleId: Id<"circles">,
   user: Doc<"users">,
-  args: { month?: string },
+  args: { month: string },
 ) {
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
   if (!access) {
     return { ok: false as const, error: "circle_inaccessible" as const };
   }
 
-  const month = args.month ?? currentMonth(new Date());
-  if (!isValidPlainMonth(month)) {
+  if (!isValidPlainMonth(args.month)) {
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
-  const dashboard = await dashboardForAccess(ctx, access, month);
+  const dashboard = await dashboardForAccess(ctx, access, args.month);
   return {
     ok: true as const,
     value: {
@@ -1113,21 +1154,20 @@ export async function getMonthlyComparisonForUser(
   ctx: OperationReader,
   circleId: Id<"circles">,
   user: Doc<"users">,
-  args: { endMonth?: string; rangeMonths: 1 | 3 | 6 | 12 },
+  args: { endMonth: string; rangeMonths: 1 | 3 | 6 | 12 },
 ) {
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
   if (!access) {
     return { ok: false as const, error: "circle_inaccessible" as const };
   }
 
-  const endMonth = args.endMonth ?? currentMonth(new Date());
-  if (!isValidPlainMonth(endMonth)) {
+  if (!isValidPlainMonth(args.endMonth)) {
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
   return {
     ok: true as const,
-    value: await monthlyComparisonForAccess(ctx, access, endMonth, args.rangeMonths),
+    value: await monthlyComparisonForAccess(ctx, access, args.endMonth, args.rangeMonths),
   };
 }
 
@@ -1136,15 +1176,18 @@ export async function getCategoryAnalyticsForUser(
   ctx: OperationReader,
   circleId: Id<"circles">,
   user: Doc<"users">,
-  args: { month?: string; type?: "expense" | "income"; paginationOpts?: PaginationOptions },
+  args: {
+    month: string;
+    type: "expense" | "income";
+    paginationOpts?: PaginationOptions;
+  },
 ) {
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
   if (!access) {
     return { ok: false as const, error: "circle_inaccessible" as const };
   }
 
-  const month = args.month ?? currentMonth(new Date());
-  if (!isValidPlainMonth(month)) {
+  if (!isValidPlainMonth(args.month)) {
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
@@ -1152,7 +1195,7 @@ export async function getCategoryAnalyticsForUser(
     numItems: MCP_CATEGORY_ANALYTICS_DEFAULT_PAGE_SIZE,
     cursor: null,
   };
-  const analytics = await categoryAnalyticsForAccess(ctx, access, month, args.type);
+  const analytics = await categoryAnalyticsForAccess(ctx, access, args.month, args.type);
   const mcpRows = analytics.rows.map((row) => ({
     ref: buildRef(row.name, row.categoryId),
     name: row.name,
@@ -1165,7 +1208,8 @@ export async function getCategoryAnalyticsForUser(
   return {
     ok: true as const,
     value: {
-      month,
+      month: args.month,
+      type: args.type,
       nonAdditive: true as const,
       currency: analytics.currency,
       ...page,

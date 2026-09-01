@@ -1400,7 +1400,7 @@ describe("MCP financial report reads", () => {
     });
     expect(analytics).toMatchObject({
       ok: true,
-      value: { nonAdditive: true, currency: "EUR", isDone: true },
+      value: { type: "expense", nonAdditive: true, currency: "EUR", isDone: true },
     });
     if (!analytics.ok || !("value" in analytics)) {
       throw new Error("expected analytics");
@@ -1422,6 +1422,7 @@ describe("MCP financial report reads", () => {
     }
     expect(analyticsFirstPage.value.page).toHaveLength(1);
     expect(analyticsFirstPage.value.isDone).toBe(false);
+    expect(analyticsFirstPage.value.continueCursor).toMatch(/^\{/);
 
     const analyticsSecondPage = await executeMcpRead(t, grant._id, {
       kind: "get_category_analytics",
@@ -1489,6 +1490,7 @@ describe("MCP financial report reads", () => {
       kind: "get_category_analytics",
       circleRef: eurRef,
       month: "2026-06",
+      type: "expense",
     });
     expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
   });

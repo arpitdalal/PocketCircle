@@ -91,15 +91,15 @@ const monthlyLedgerInputSchema = circleRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 const dashboardInputSchema = circleRefInputSchema.extend({
-  month: z.string().max(7).optional(),
+  month: z.string().max(7),
 });
 const monthlyComparisonInputSchema = circleRefInputSchema.extend({
-  endMonth: z.string().max(7).optional(),
+  endMonth: z.string().max(7),
   rangeMonths: mcpComparisonRangeMonthsSchema,
 });
 const categoryAnalyticsInputSchema = circleRefInputSchema.extend({
-  month: z.string().max(7).optional(),
-  type: z.enum(["expense", "income"]).optional(),
+  month: z.string().max(7),
+  type: z.enum(["expense", "income"]),
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 
@@ -382,7 +382,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Dashboard",
       description:
-        "Get the selected month's active Income, Expense, and Net totals plus a bounded recent-activity feed for an authorized Circle. Defaults to the current month when month is omitted. Archived Transactions are excluded.",
+        "Get the selected month's active Income, Expense, and Net totals plus a bounded recent-activity feed for an authorized Circle. month must be the caller's local YYYY-MM. Archived Transactions are excluded.",
       inputSchema: dashboardInputSchema,
       outputSchema: mcpDashboardSchema,
       annotations: {
@@ -398,7 +398,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         {
           kind: "get_dashboard",
           circleRef: args.circleRef,
-          ...(args.month === undefined ? {} : { month: args.month }),
+          month: args.month,
         },
         mcpDashboardSchema,
       ),
@@ -409,7 +409,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Monthly Comparison",
       description:
-        "Compare active Income, Expense, and Net in minor units across the supported 1, 3, 6, or 12 month Comparison Ranges ending at endMonth (current month when omitted). Archived Transactions are excluded.",
+        "Compare active Income, Expense, and Net in minor units across the supported 1, 3, 6, or 12 month Comparison Ranges ending at endMonth. endMonth must be the caller's local YYYY-MM. Archived Transactions are excluded.",
       inputSchema: monthlyComparisonInputSchema,
       outputSchema: mcpMonthlyComparisonSchema,
       annotations: {
@@ -425,8 +425,8 @@ export function buildMcpServer(env: Env, request?: Request) {
         {
           kind: "get_monthly_comparison",
           circleRef: args.circleRef,
+          endMonth: args.endMonth,
           rangeMonths: args.rangeMonths,
-          ...(args.endMonth === undefined ? {} : { endMonth: args.endMonth }),
         },
         mcpMonthlyComparisonSchema,
       ),
@@ -437,7 +437,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Category Analytics",
       description:
-        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows).",
+        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. type selects expense or income Categories; month must be the caller's local YYYY-MM. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows) using a stable row cursor.",
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
       annotations: {
@@ -453,8 +453,8 @@ export function buildMcpServer(env: Env, request?: Request) {
         {
           kind: "get_category_analytics",
           circleRef: args.circleRef,
-          ...(args.month === undefined ? {} : { month: args.month }),
-          ...(args.type === undefined ? {} : { type: args.type }),
+          month: args.month,
+          type: args.type,
           ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
         },
         mcpCategoryAnalyticsSchema,
