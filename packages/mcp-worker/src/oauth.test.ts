@@ -1451,6 +1451,72 @@ describe("MCP tools execution", () => {
     });
   });
 
+  it("returns 429 when create_transaction exceeds the per-grant write rate limit", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
+    const member = { displayName: "Ada Lovelace", image: null };
+    const createdValue = mcpCreateTransactionResultSchema.parse({
+      ref: "coffee-txn1",
+      transaction: {
+        ref: "coffee-txn1",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        currency: "USD",
+        date: "2026-06-01",
+        month: "2026-06",
+        status: "active",
+        recordedBy: member,
+        paidBy: member,
+        categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
+        canEditFields: true,
+        canArchive: true,
+        audit: {
+          createdBy: member,
+          createdAt: 1_700_000_000_000,
+          updatedBy: member,
+          updatedAt: 1_700_000_000_000,
+        },
+      },
+    });
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.operation.kind).toBe("create_transaction");
+        return Response.json({ ok: true, value: createdValue });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const toolCall = {
+      method: "tools/call" as const,
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    };
+
+    for (let i = 0; i < 30; i++) {
+      const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
+      expect(res.status).toBe(200);
+    }
+
+    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 31 });
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
   it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 

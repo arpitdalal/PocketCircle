@@ -34,7 +34,7 @@ import {
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
-import { executeMcpOperation, executeMcpWriteOperation } from "./convex-bridge.js";
+import { executeMcpOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
 import { assertMcpWriteWithinRateLimit } from "./write-rate-limit.js";
@@ -172,7 +172,7 @@ async function handleWriteToolExecution<T>(
       content: [{ type: "text" as const, text: `Authorization failed: ${caller.error}` }],
     };
   }
-  const result = await executeMcpWriteOperation(
+  const result = await executeMcpOperation(
     env,
     {
       grantId: caller.value.grantId,
