@@ -6,12 +6,15 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   type McpReadOperation,
+  type McpWriteOperation,
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
   mcpCategoryRefSchema,
   mcpCircleRefSchema,
   mcpCircleViewSchema,
   mcpComparisonRangeMonthsSchema,
+  mcpCreateTransactionInputSchema,
+  mcpCreateTransactionResultSchema,
   mcpCurrentUserViewSchema,
   mcpDashboardSchema,
   mcpListCategoriesFiltersSchema,
@@ -31,7 +34,7 @@ import {
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
-import { executeMcpOperation } from "./convex-bridge.js";
+import { executeMcpOperation, executeMcpWriteOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
 
@@ -134,6 +137,41 @@ async function handleToolExecution<T>(
     };
   }
   const result = await executeMcpOperation(
+    env,
+    {
+      grantId: caller.value.grantId,
+      effectiveScopes: caller.value.effectiveScopes,
+      operation,
+    },
+    schema,
+  );
+  if (!result.ok) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `PocketCircle error: ${result.error}` }],
+    };
+  }
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(result.value) }],
+    structuredContent: result.value,
+  };
+}
+
+async function handleWriteToolExecution<T>(
+  env: Env,
+  request: Request | undefined,
+  ctxReq: Request | undefined,
+  operation: McpWriteOperation,
+  schema: z.ZodType<T>,
+) {
+  const caller = await resolveAuthorizedCaller(env, ctxReq ?? request);
+  if (!caller.ok) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Authorization failed: ${caller.error}` }],
+    };
+  }
+  const result = await executeMcpWriteOperation(
     env,
     {
       grantId: caller.value.grantId,
@@ -587,8 +625,45 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "create_transaction",
+    {
+      title: "Create Transaction",
+      description:
+        "Create an Expense or Income in an authorized, setup-complete Circle. Recorded By is always the authenticated Member. Paid By defaults to Recorded By. Category references must be active, unique, in the same Circle, and match the Transaction type. Expected Currency must match the Circle Currency. Repeating the same call may create another Transaction.",
+      inputSchema: mcpCreateTransactionInputSchema,
+      outputSchema: mcpCreateTransactionResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleWriteToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "create_transaction",
+          circleRef: args.circleRef,
+          type: args.type,
+          title: args.title,
+          ...(args.note === undefined ? {} : { note: args.note }),
+          amountMinorUnits: args.amountMinorUnits,
+          date: args.date,
+          categoryRefs: args.categoryRefs,
+          ...(args.paidByMemberId === undefined ? {} : { paidByMemberId: args.paidByMemberId }),
+          expectedCurrency: args.expectedCurrency,
+        },
+        mcpCreateTransactionResultSchema,
+      ),
+  );
+
   return server;
 }
+
+const WRITE_TOOL_NAMES = new Set(["create_transaction"]);
 
 const READ_TOOL_NAMES = new Set([
   "get_current_user",
@@ -617,6 +692,41 @@ const rpcCallSchema = z.object({
     })
     .optional(),
 });
+
+async function detectWriteToolCall(request: Request) {
+  if (request.method.toUpperCase() !== "POST") {
+    return false;
+  }
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return false;
+  }
+  try {
+    const json: unknown = await request.clone().json();
+    const parsed = rpcCallSchema.safeParse(json);
+    if (!parsed.success) {
+      return false;
+    }
+    const bodyMethod = parsed.data.method;
+    const bodyName = parsed.data.params?.name;
+
+    const mcpMethod = request.headers.get("mcp-method");
+    const mcpName = request.headers.get("mcp-name");
+
+    if (mcpMethod && mcpMethod !== bodyMethod) {
+      return false;
+    }
+    if (mcpName && mcpName !== bodyName) {
+      return false;
+    }
+
+    return (
+      bodyMethod === "tools/call" && typeof bodyName === "string" && WRITE_TOOL_NAMES.has(bodyName)
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function detectReadToolCall(request: Request) {
   if (request.method.toUpperCase() !== "POST") {
@@ -691,6 +801,19 @@ export function createMcpApiHandler(env: Env) {
               "The access token does not have required scope pocketcircle:read",
             ),
             { requiredScopes: ["pocketcircle:read"] },
+          );
+        }
+      }
+      const isWriteTool = await detectWriteToolCall(request);
+      if (isWriteTool) {
+        const caller = await resolveAuthorizedCaller(env, request);
+        if (caller.ok && !caller.value.effectiveScopes.includes("pocketcircle:write")) {
+          return bearerAuthChallengeResponse(
+            new OAuthError(
+              OAuthErrorCode.InsufficientScope,
+              "The access token does not have required scope pocketcircle:write",
+            ),
+            { requiredScopes: ["pocketcircle:write"] },
           );
         }
       }

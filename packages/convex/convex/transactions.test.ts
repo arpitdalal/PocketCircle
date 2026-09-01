@@ -362,7 +362,9 @@ describe("createTransaction — category rules", () => {
         expectedCurrency: "USD",
         ...baseExpense([otherCategory]),
       }),
-    ).rejects.toThrow(/not found in this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryNotFound),
+    });
   });
 
   it("rejects a category of the wrong type", async () => {
@@ -375,7 +377,9 @@ describe("createTransaction — category rules", () => {
         expectedCurrency: "USD",
         ...baseExpense([f.salaryId]), // income category on an expense
       }),
-    ).rejects.toThrow(/type does not match/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryTypeMismatch),
+    });
   });
 
   it("rejects an archived category (cannot be newly added)", async () => {
@@ -396,7 +400,9 @@ describe("createTransaction — category rules", () => {
         expectedCurrency: "USD",
         ...baseExpense([archivedId]),
       }),
-    ).rejects.toThrow(/archived categories cannot be added/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryArchived),
+    });
   });
 
   it("accepts multiple active correct-type categories", async () => {
@@ -492,7 +498,9 @@ describe("createTransaction — Paid By", () => {
         ...baseExpense([f.groceriesId]),
         paidByMemberId: removed.memberId,
       }),
-    ).rejects.toThrow(/current member of this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionPaidByInvalid),
+    });
   });
 
   it("rejects a Member of a different Circle as Paid By", async () => {
@@ -510,7 +518,9 @@ describe("createTransaction — Paid By", () => {
         ...baseExpense([f.groceriesId]),
         paidByMemberId: foreignMemberId,
       }),
-    ).rejects.toThrow(/current member of this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionPaidByInvalid),
+    });
   });
 });
 
@@ -1193,7 +1203,9 @@ describe("updateTransaction — Paid By", () => {
         transactionId: id,
         paidByMemberId: removed.memberId,
       }),
-    ).rejects.toThrow(/current member of this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionPaidByInvalid),
+    });
   });
 
   it("rejects changing Paid By to a Member of another Circle", async () => {
@@ -1207,7 +1219,9 @@ describe("updateTransaction — Paid By", () => {
         transactionId: id,
         paidByMemberId: foreignMemberId,
       }),
-    ).rejects.toThrow(/current member of this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionPaidByInvalid),
+    });
   });
 
   it("keeping the same Paid By is a no-op (no validation, no event)", async () => {
@@ -1287,7 +1301,9 @@ describe("updateTransaction — categories (same type)", () => {
         transactionId: id,
         categoryIds: [f.groceriesId, archivedId],
       }),
-    ).rejects.toThrow(/archived categories cannot be added/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryArchived),
+    });
   });
 
   it("rejects a category of the wrong type and one from another Circle", async () => {
@@ -1308,13 +1324,17 @@ describe("updateTransaction — categories (same type)", () => {
         transactionId: id,
         categoryIds: [f.salaryId], // income category on an expense
       }),
-    ).rejects.toThrow(/type does not match/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryTypeMismatch),
+    });
     await expect(
       t.mutation(api.transactions.updateTransaction, {
         transactionId: id,
         categoryIds: [foreignId],
       }),
-    ).rejects.toThrow(/not found in this circle/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryNotFound),
+    });
   });
 
   it("rejects emptying the category set", async () => {
@@ -1376,7 +1396,9 @@ describe("updateTransaction — type change", () => {
         type: "income",
         categoryIds: [f.groceriesId], // still an expense category
       }),
-    ).rejects.toThrow(/type does not match/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryTypeMismatch),
+    });
   });
 
   it("rejects an archived new-type category on a type change", async () => {
@@ -1398,7 +1420,9 @@ describe("updateTransaction — type change", () => {
         type: "income",
         categoryIds: [archivedIncome],
       }),
-    ).rejects.toThrow(/archived categories cannot be added/i);
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.transactionCategoryArchived),
+    });
   });
 });
 

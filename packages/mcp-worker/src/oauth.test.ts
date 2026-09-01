@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import {
   MCP_REVOCATION_TTL_MS,
+  mcpCreateTransactionResultSchema,
   mcpOperationBodySchema,
   signMcpRevocation,
   verifyMcpHandoff,
@@ -1366,6 +1367,115 @@ describe("MCP tools execution", () => {
           ],
         },
       },
+    });
+  });
+
+  it("calls create_transaction and returns the created transaction", async () => {
+    const { accessToken, grantId } = await obtainAccessToken([
+      "pocketcircle:read",
+      "pocketcircle:write",
+    ]);
+    const member = { displayName: "Ada Lovelace", image: null };
+    const createdValue = mcpCreateTransactionResultSchema.parse({
+      ref: "coffee-txn1",
+      transaction: {
+        ref: "coffee-txn1",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        currency: "USD",
+        date: "2026-06-01",
+        month: "2026-06",
+        status: "active",
+        recordedBy: member,
+        paidBy: member,
+        categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
+        canEditFields: true,
+        canArchive: true,
+        audit: {
+          createdBy: member,
+          createdAt: 1_700_000_000_000,
+          updatedBy: member,
+          updatedAt: 1_700_000_000_000,
+        },
+      },
+    });
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("create_transaction");
+        expect(opBody.data.operation).toMatchObject({
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        });
+        return Response.json({ ok: true, value: createdValue });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          ref: "coffee-txn1",
+          transaction: expect.objectContaining({ title: "Coffee", type: "expense" }),
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "create_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          type: "expense",
+          title: "Coffee",
+          amountMinorUnits: 500,
+          date: "2026-06-01",
+          categoryRefs: ["groceries-cat1"],
+          expectedCurrency: "USD",
+        },
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      error: "insufficient_scope",
     });
   });
 

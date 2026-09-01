@@ -1,5 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { expect, test } from "./fixtures.js";
+import type { APIRequestContext, Page } from "@playwright/test";
+import {
+  clickCircleChromeTab,
+  createCategoryViaForm,
+  expect,
+  localPlainDate,
+  openPersonalCircleFromHome,
+  test,
+} from "./fixtures.js";
 
 const WORKER_ORIGIN = process.env.MCP_E2E_WORKER_ORIGIN;
 const PROVISIONING_TOKEN = process.env.MCP_E2E_CLIENT_PROVISIONING_TOKEN;
@@ -19,6 +27,128 @@ function requiredString(value: unknown, field: string) {
     throw new Error(`Invalid ${field}`);
   }
   return candidate;
+}
+
+function mcpStructuredContent(body: unknown) {
+  if (typeof body !== "object" || body === null || !("result" in body)) {
+    throw new Error("invalid MCP response");
+  }
+  const result = Reflect.get(body, "result");
+  if (typeof result !== "object" || result === null || !("structuredContent" in result)) {
+    throw new Error("missing structuredContent");
+  }
+  const structured = Reflect.get(result, "structuredContent");
+  if (typeof structured !== "object" || structured === null) {
+    throw new Error("bad structuredContent");
+  }
+  return structured;
+}
+
+async function provisionMcpClient(request: APIRequestContext, clientName: string) {
+  const provision = await request.post(`${WORKER_ORIGIN}/admin/oauth/clients`, {
+    headers: { authorization: `Bearer ${PROVISIONING_TOKEN}` },
+    data: {
+      clientName,
+      redirectUris: [REDIRECT_URI],
+    },
+  });
+  expect([200, 201]).toContain(provision.status());
+  const provisioned: unknown = await provision.json();
+  return requiredString(provisioned, "clientId");
+}
+
+async function authorizeMcpClient(
+  page: Page,
+  request: APIRequestContext,
+  opts: {
+    clientId: string;
+    scope: string;
+  },
+) {
+  const verifier = randomBytes(32).toString("base64url");
+  const state = randomUUID();
+  const resource = `${WORKER_ORIGIN}/mcp`;
+  const authorize = new URL("/authorize", WORKER_ORIGIN);
+  authorize.search = new URLSearchParams({
+    response_type: "code",
+    client_id: opts.clientId,
+    redirect_uri: REDIRECT_URI,
+    scope: opts.scope,
+    state,
+    code_challenge: compactSha256(verifier),
+    code_challenge_method: "S256",
+    resource,
+  }).toString();
+
+  await page.goto(authorize.toString());
+  await expect(page.getByRole("heading", { name: "Authorize access" })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/mcp/authorize\\?handoffId=`));
+
+  const circleSection = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Circles", exact: true }),
+  });
+  const circleChoice = circleSection.getByRole("checkbox").first();
+  await expect(circleChoice).toBeVisible();
+  await circleChoice.check();
+
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === "/mcp/authorize" && url.searchParams.has("code"), {
+      timeout: 60_000,
+    }),
+    page.getByRole("button", { name: "Approve" }).click(),
+  ]);
+
+  const callback = new URL(page.url());
+  expect(callback.searchParams.get("state")).toBe(state);
+  const code = callback.searchParams.get("code");
+  expect(code).toBeTruthy();
+
+  const exchanged = await request.post(`${WORKER_ORIGIN}/token`, {
+    form: {
+      grant_type: "authorization_code",
+      code: code ?? "",
+      redirect_uri: REDIRECT_URI,
+      client_id: opts.clientId,
+      code_verifier: verifier,
+      resource,
+    },
+  });
+  expect(exchanged.status()).toBe(200);
+  const tokens: unknown = await exchanged.json();
+  return {
+    accessToken: requiredString(tokens, "access_token"),
+    refreshToken: requiredString(tokens, "refresh_token"),
+    clientId: opts.clientId,
+    resource,
+  };
+}
+
+function createMcpPoster(request: APIRequestContext, accessToken: string) {
+  return (method: string, id: number, params: Record<string, unknown> = {}) => {
+    const toolName = typeof params.name === "string" ? params.name : undefined;
+    return request.post(`${WORKER_ORIGIN}/mcp`, {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": method,
+        ...(toolName ? { "mcp-name": toolName } : {}),
+      },
+      data: {
+        jsonrpc: "2.0",
+        id,
+        method,
+        params: {
+          ...params,
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      },
+    });
+  };
 }
 
 test.describe("local MCP OAuth", () => {
@@ -41,111 +171,30 @@ test.describe("local MCP OAuth", () => {
     );
     expect(metadataRes.status()).toBe(200);
 
-    const provision = await request.post(`${WORKER_ORIGIN}/admin/oauth/clients`, {
-      headers: { authorization: `Bearer ${PROVISIONING_TOKEN}` },
-      data: {
-        clientName: "PocketCircle local E2E client",
-        redirectUris: [REDIRECT_URI],
-      },
-    });
-    expect([200, 201]).toContain(provision.status());
-    const provisioned: unknown = await provision.json();
-    const clientId = requiredString(provisioned, "clientId");
+    const clientId = await provisionMcpClient(request, "PocketCircle local E2E client");
 
-    const verifier = randomBytes(32).toString("base64url");
-    const state = randomUUID();
-    const resource = `${WORKER_ORIGIN}/mcp`;
-    const authorize = new URL("/authorize", WORKER_ORIGIN);
-    authorize.search = new URLSearchParams({
-      response_type: "code",
-      client_id: clientId,
-      redirect_uri: REDIRECT_URI,
+    const authorized = await authorizeMcpClient(page, request, {
+      clientId,
       scope: "pocketcircle:read",
-      state,
-      code_challenge: compactSha256(verifier),
-      code_challenge_method: "S256",
-      resource,
-    }).toString();
-
-    await page.goto(authorize.toString());
-    await expect(page.getByRole("heading", { name: "Authorize access" })).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/mcp/authorize\\?handoffId=`));
-
-    const circleSection = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Circles", exact: true }),
     });
-    const circleChoice = circleSection.getByRole("checkbox").first();
-    await expect(circleChoice).toBeVisible();
-    await circleChoice.check();
-
-    await Promise.all([
-      page.waitForURL((url) => url.pathname === "/mcp/authorize" && url.searchParams.has("code"), {
-        timeout: 60_000,
-      }),
-      page.getByRole("button", { name: "Approve" }).click(),
-    ]);
-
-    const callback = new URL(page.url());
-    expect(callback.searchParams.get("state")).toBe(state);
-    const code = callback.searchParams.get("code");
-    expect(code).toBeTruthy();
-
-    const exchanged = await request.post(`${WORKER_ORIGIN}/token`, {
-      form: {
-        grant_type: "authorization_code",
-        code: code ?? "",
-        redirect_uri: REDIRECT_URI,
-        client_id: clientId,
-        code_verifier: verifier,
-        resource,
-      },
-    });
-    expect(exchanged.status()).toBe(200);
-    const tokens: unknown = await exchanged.json();
-    expect(requiredString(tokens, "token_type").toLowerCase()).toBe("bearer");
-    const accessToken = requiredString(tokens, "access_token");
-    const refreshToken = requiredString(tokens, "refresh_token");
-
     const refreshed = await request.post(`${WORKER_ORIGIN}/token`, {
       form: {
         grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: clientId,
-        resource,
+        refresh_token: authorized.refreshToken,
+        client_id: authorized.clientId,
+        resource: authorized.resource,
       },
     });
     const refreshedTokens: unknown = await refreshed.json();
     const activeAccessToken = requiredString(refreshedTokens, "access_token");
-    expect(activeAccessToken).not.toBe(accessToken);
+    expect(activeAccessToken).not.toBe(authorized.accessToken);
 
     async function postMcpRequest(
       method: string,
       id: number,
       params: Record<string, unknown> = {},
     ) {
-      const toolName = typeof params.name === "string" ? params.name : undefined;
-      return request.post(`${WORKER_ORIGIN}/mcp`, {
-        headers: {
-          authorization: `Bearer ${activeAccessToken}`,
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-          "mcp-protocol-version": "2026-07-28",
-          "mcp-method": method,
-          ...(toolName ? { "mcp-name": toolName } : {}),
-        },
-        data: {
-          jsonrpc: "2.0",
-          id,
-          method,
-          params: {
-            ...params,
-            _meta: {
-              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-              "io.modelcontextprotocol/clientCapabilities": {},
-            },
-          },
-        },
-      });
+      return createMcpPoster(request, activeAccessToken)(method, id, params);
     }
 
     const listToolsRes = await postMcpRequest("tools/list", 1);
@@ -242,5 +291,104 @@ test.describe("local MCP OAuth", () => {
         result: { isError: true },
       });
     }
+  });
+
+  test("authorizes write scope and creates a transaction through MCP", async ({
+    page,
+    request,
+  }) => {
+    if (!WORKER_ORIGIN || !PROVISIONING_TOKEN) {
+      throw new Error("Missing local MCP E2E configuration");
+    }
+
+    const categoryName = `E2E MCP Cat ${Date.now()}`;
+    const txnTitle = `E2E MCP Coffee ${Date.now()}`;
+    await openPersonalCircleFromHome(page);
+    await clickCircleChromeTab(page, "Categories");
+    await createCategoryViaForm(page, { name: categoryName });
+
+    const clientId = await provisionMcpClient(request, "PocketCircle local MCP write client");
+    const authorized = await authorizeMcpClient(page, request, {
+      clientId,
+      scope: "pocketcircle:read pocketcircle:write",
+    });
+    const postMcp = createMcpPoster(request, authorized.accessToken);
+
+    const circlesRes = await postMcp("tools/call", 1, {
+      name: "list_authorized_circles",
+      arguments: {},
+    });
+    expect(circlesRes.status()).toBe(200);
+    const circlesContent = mcpStructuredContent(await circlesRes.json());
+    if (!("circles" in circlesContent) || !Array.isArray(circlesContent.circles)) {
+      throw new Error("missing circles");
+    }
+    const circle = circlesContent.circles[0];
+    if (typeof circle !== "object" || circle === null) {
+      throw new Error("missing circle");
+    }
+    const circleRef = requiredString(circle, "ref");
+    const expectedCurrency = requiredString(circle, "currency");
+
+    const categoriesRes = await postMcp("tools/call", 2, {
+      name: "list_categories",
+      arguments: { circleRef },
+    });
+    expect(categoriesRes.status()).toBe(200);
+    const categoriesContent = mcpStructuredContent(await categoriesRes.json());
+    if (!("page" in categoriesContent) || !Array.isArray(categoriesContent.page)) {
+      throw new Error("missing categories page");
+    }
+    const matchedCategory = categoriesContent.page.find(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "name" in entry &&
+        Reflect.get(entry, "name") === categoryName,
+    );
+    if (typeof matchedCategory !== "object" || matchedCategory === null) {
+      throw new Error("created category not found in MCP list");
+    }
+    const categoryRef = requiredString(matchedCategory, "ref");
+
+    const createRes = await postMcp("tools/call", 3, {
+      name: "create_transaction",
+      arguments: {
+        circleRef,
+        type: "expense",
+        title: txnTitle,
+        amountMinorUnits: 500,
+        date: localPlainDate(),
+        categoryRefs: [categoryRef],
+        expectedCurrency,
+      },
+    });
+    expect(createRes.status()).toBe(200);
+    const createdContent = mcpStructuredContent(await createRes.json());
+    expect(createdContent).toMatchObject({
+      ref: expect.any(String),
+      transaction: expect.objectContaining({
+        title: txnTitle,
+        type: "expense",
+      }),
+    });
+
+    const searchRes = await postMcp("tools/call", 4, {
+      name: "search_transactions",
+      arguments: {
+        circleRef,
+        filters: { query: txnTitle },
+      },
+    });
+    expect(searchRes.status()).toBe(200);
+    const searchContent = mcpStructuredContent(await searchRes.json());
+    expect(searchContent).toMatchObject({
+      transactions: expect.arrayContaining([
+        expect.objectContaining({
+          title: txnTitle,
+          type: "expense",
+        }),
+      ]),
+    });
   });
 });

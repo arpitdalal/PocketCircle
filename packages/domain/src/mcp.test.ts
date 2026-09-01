@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   isMcpScope,
   mcpCircleViewSchema,
+  mcpCreateTransactionInputSchema,
   mcpCurrentUserViewSchema,
   mcpMemberViewSchema,
   mcpOperationBodySchema,
   mcpScopesInclude,
+  mcpWriteOperationBodySchema,
   normalizeMcpImage,
   normalizeMcpScopes,
 } from "./mcp.js";
@@ -252,5 +254,50 @@ describe("MCP schemas", () => {
       },
     });
     expect(categoryHistoryOp.success).toBe(true);
+
+    const createTransactionOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "create_transaction",
+        circleRef: "trip-c123",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        date: "2026-06-01",
+        categoryRefs: ["groceries-cat1"],
+        expectedCurrency: "USD",
+      },
+    });
+    expect(createTransactionOp.success).toBe(true);
+  });
+
+  it("validates mcpWriteOperationBodySchema for create_transaction", () => {
+    const valid = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "create_transaction",
+        circleRef: "trip-c123",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        date: "2026-06-01",
+        categoryRefs: ["groceries-cat1"],
+        expectedCurrency: "USD",
+      },
+    });
+    expect(valid.success).toBe(true);
+
+    const duplicateCategories = mcpCreateTransactionInputSchema.safeParse({
+      circleRef: "trip-c123",
+      type: "expense",
+      title: "Coffee",
+      amountMinorUnits: 500,
+      date: "2026-06-01",
+      categoryRefs: ["groceries-cat1", "groceries-cat1"],
+      expectedCurrency: "USD",
+    });
+    expect(duplicateCategories.success).toBe(false);
   });
 });

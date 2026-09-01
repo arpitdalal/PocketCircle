@@ -2,6 +2,7 @@ import {
   MCP_WORKER_ASSERTION_TTL_MS,
   type McpOperationBody,
   type McpWorkerAssertionPayload,
+  type McpWriteOperationBody,
   parseMcpWorkerPrivateJwk,
   sha256Hex,
   signMcpWorkerAssertion,
@@ -215,5 +216,33 @@ export async function executeMcpOperation<T>(
     return { ok: true, value: parsedValue.data };
   } catch {
     return { ok: false, error: "operation_request_failed", retryable: true };
+  }
+}
+
+export async function executeMcpWriteOperation<T>(
+  env: Env,
+  args: McpWriteOperationBody,
+  schema: z.ZodType<T>,
+) {
+  try {
+    const response = await signedConvexFetch(env, "/mcp/operation", args);
+    const parsed = operationResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return { ok: false, error: "write_operation_bad_response", retryable: true };
+    }
+    if (!response.ok) {
+      const error = parsed.data.ok ? "write_operation_http_error" : parsed.data.error;
+      return bridgeFailure(response, error, "write_operation_unavailable", !parsed.data.ok);
+    }
+    if (!parsed.data.ok) {
+      return { ok: false, error: parsed.data.error, retryable: false };
+    }
+    const parsedValue = schema.safeParse(parsed.data.value);
+    if (!parsedValue.success) {
+      return { ok: false, error: "write_operation_bad_payload", retryable: false };
+    }
+    return { ok: true, value: parsedValue.data };
+  } catch {
+    return { ok: false, error: "write_operation_request_failed", retryable: true };
   }
 }

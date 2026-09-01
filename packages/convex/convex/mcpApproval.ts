@@ -11,6 +11,7 @@ import {
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
   mcpCircleViewSchema,
+  mcpCreateTransactionResultSchema,
   mcpDashboardSchema,
   mcpListCategoryTransactionsResultSchema,
   mcpMonthlyComparisonSchema,
@@ -42,6 +43,7 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
+  createTransactionForAccess,
   getCategoryAnalyticsForUser,
   getCategoryForUser,
   getDashboardForUser,
@@ -612,6 +614,78 @@ export const executeMcpReadOperation = internalQuery({
         args.operation.paginationOpts ?? { numItems: 50, cursor: null },
       );
       return validateMcpResult(mcpPaginatedCategoryHistorySchema, history);
+    }
+
+    return { ok: false as const, error: "invalid_operation" as const };
+  },
+});
+
+export const executeMcpWriteOperation = internalMutation({
+  args: {
+    grantId: v.string(),
+    effectiveScopes: v.array(v.string()),
+    operation: v.union(
+      v.object({
+        kind: v.literal("create_transaction"),
+        circleRef: v.string(),
+        type: v.union(v.literal("expense"), v.literal("income")),
+        title: v.string(),
+        note: v.optional(v.string()),
+        amountMinorUnits: v.number(),
+        date: v.string(),
+        categoryRefs: v.array(v.string()),
+        paidByMemberId: v.optional(v.string()),
+        expectedCurrency: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const authz = await authorizeMcpGrant(ctx, {
+      grantId: args.grantId,
+      effectiveScopes: args.effectiveScopes,
+      requiredScope: "pocketcircle:write",
+    });
+    if (!authz.ok) {
+      return { ok: false as const, error: authz.denial.kind, denial: authz.denial };
+    }
+
+    const circleId = resolveCircleRef(ctx, args.operation.circleRef);
+    const circleAuthz = await authorizeMcpGrantForCircle(ctx, {
+      grantId: authz.value.grant._id,
+      effectiveScopes: args.effectiveScopes,
+      requiredScope: "pocketcircle:write",
+      circleId: circleId ?? args.operation.circleRef,
+      requiredPermission: "member",
+    });
+    if (!circleAuthz.ok) {
+      return { ok: false as const, error: circleAuthz.denial.kind, denial: circleAuthz.denial };
+    }
+
+    if (args.operation.kind === "create_transaction") {
+      const created = await createTransactionForAccess(ctx, circleAuthz.value.access, {
+        type: args.operation.type,
+        title: args.operation.title,
+        ...(args.operation.note === undefined ? {} : { note: args.operation.note }),
+        amountMinorUnits: args.operation.amountMinorUnits,
+        date: args.operation.date,
+        categoryRefs: args.operation.categoryRefs,
+        ...(args.operation.paidByMemberId === undefined
+          ? {}
+          : { paidByMemberId: args.operation.paidByMemberId }),
+        expectedCurrency: args.operation.expectedCurrency,
+      });
+      if (!created.ok) {
+        return { ok: false as const, error: created.error };
+      }
+      const value = {
+        ref: created.value.ref,
+        transaction: created.value,
+      };
+      const validated = validateMcpResult(mcpCreateTransactionResultSchema, value);
+      if (!validated.ok) {
+        return { ok: false as const, error: validated.error };
+      }
+      return { ok: true as const, value: validated.value };
     }
 
     return { ok: false as const, error: "invalid_operation" as const };
