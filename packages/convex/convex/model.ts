@@ -5,6 +5,7 @@ import {
   DEFAULT_CURRENCY,
   initials,
   isSupportedCurrency,
+  normalizeDisplayName,
   PERSONAL_CIRCLE_COLOR_ID,
   personalCircleName,
   profileUpdateSchema,
@@ -37,7 +38,9 @@ export async function createUserWithPersonalCircle(
   profile: NewUserProfile,
 ): Promise<Id<"users">> {
   const now = Date.now();
-  const displayName = profileUpdateSchema.parse({ displayName: profile.displayName }).displayName;
+  const displayName = profileUpdateSchema.parse({
+    displayName: normalizeDisplayName(profile.displayName),
+  }).displayName;
   const personalName = personalCircleName(displayName);
 
   const userId = await ctx.db.insert("users", {

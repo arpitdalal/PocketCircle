@@ -99,9 +99,16 @@ export const profileUpdateSchema = z.object({
 });
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 
+/** Bounds provider-controlled profile seeds before they enter app-owned storage. */
+export function normalizeDisplayName(displayName: string) {
+  return displayName.trim().slice(0, LIMITS.displayNameMax);
+}
+
 /** Canonical email for storage and comparison: trim + lowercase. */
-export function canonicalEmail(email: string): string {
-  return email.trim().toLowerCase();
+export function canonicalEmail(email: string): string;
+export function canonicalEmail(email: unknown): unknown;
+export function canonicalEmail(email: unknown) {
+  return typeof email === "string" ? email.trim().toLowerCase() : email;
 }
 
 /** Server-and-client-shared invite email input (MEM-2). Parsed `email` is canonical `emailLower`. */

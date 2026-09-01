@@ -125,21 +125,21 @@ describe("createUserWithPersonalCircle", () => {
     });
   });
 
-  it("rejects a bootstrap display name outside the profile invariant", async () => {
+  it("bounds a provider-seeded display name to the profile invariant", async () => {
     const t = convexTest(schema, modules);
 
-    await expect(
-      t.run((ctx) =>
-        createUserWithPersonalCircle(ctx, {
-          email: "long@example.com",
-          displayName: "x".repeat(LIMITS.displayNameMax + 1),
-        }),
-      ),
-    ).rejects.toThrow();
+    const userId = await t.run((ctx) =>
+      createUserWithPersonalCircle(ctx, {
+        email: "long@example.com",
+        displayName: "x".repeat(LIMITS.displayNameMax + 1),
+      }),
+    );
 
     await t.run(async (ctx) => {
-      expect(await ctx.db.query("users").collect()).toHaveLength(0);
-      expect(await ctx.db.query("circles").collect()).toHaveLength(0);
+      const user = await ctx.db.get(userId);
+      expect(user?.displayName).toHaveLength(LIMITS.displayNameMax);
+      const circle = await ctx.db.query("circles").first();
+      expect(circle?.name).toBe(`${"x".repeat(LIMITS.displayNameMax)}'s Circle`);
     });
   });
 

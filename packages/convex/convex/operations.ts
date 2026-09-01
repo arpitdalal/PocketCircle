@@ -257,7 +257,13 @@ async function readActiveMemberPage(
     }
   }
   visibleMembers.sort((a, b) =>
-    a.joinedAt === b.joinedAt ? a._id.localeCompare(b._id) : a.joinedAt - b.joinedAt,
+    a.joinedAt === b.joinedAt
+      ? a._id < b._id
+        ? -1
+        : a._id > b._id
+          ? 1
+          : 0
+      : a.joinedAt - b.joinedAt,
   );
 
   const { lastJoinedAt, lastMemberId } = cursor;
