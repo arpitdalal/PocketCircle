@@ -20,6 +20,7 @@ import { createActiveMcpGrant } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import {
   addMember,
+  makeCategory,
   searchTransactionPage,
   seedOwnedCircle,
   seedOwnedFixture,
@@ -1260,6 +1261,375 @@ describe("MCP Transaction search and inspect reads", () => {
       paginationOpts: { numItems: 5, cursor: null },
     });
     expect(mixedPagination).toMatchObject({ ok: false, error: "invalid_filters" });
+  });
+});
+
+describe("MCP financial report reads", () => {
+  it("returns ledger, dashboard, comparison, and category analytics with active-only totals and bounded currency", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const eurCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, {
+        name: "Euro Trip",
+        currency: "EUR",
+        archived: true,
+      }),
+    );
+    const usdCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "USD Trip", currency: "USD" }),
+    );
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, eurCircle, {
+        type: "income",
+        title: "Salary",
+        amountMinorUnits: 100_000,
+        date: "2026-06-01",
+        categoryIds: [eurCircle.salaryId],
+      });
+      await seedTransaction(ctx, eurCircle, {
+        title: "Lunch",
+        amountMinorUnits: 2_500,
+        date: "2026-06-02",
+        categoryIds: [eurCircle.diningId, eurCircle.groceriesId],
+      });
+      await seedTransaction(ctx, eurCircle, {
+        title: "Archived lunch",
+        date: "2026-06-03",
+        status: "archived",
+        amountMinorUnits: 999,
+      });
+      await seedTransaction(ctx, eurCircle, { title: "July row", date: "2026-07-01" });
+      await seedTransaction(ctx, usdCircle, {
+        type: "income",
+        title: "USD pay",
+        amountMinorUnits: 50_000,
+        date: "2026-06-01",
+        categoryIds: [usdCircle.salaryId],
+      });
+    });
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [eurCircle.circleId, usdCircle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const eurRef = buildRef("Euro Trip", eurCircle.circleId);
+    const usdRef = buildRef("USD Trip", usdCircle.circleId);
+
+    const emptyLedger = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-05",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(emptyLedger).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-05",
+        totals: { incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+        currency: "EUR",
+        transactions: { page: [], isDone: true },
+      },
+    });
+
+    const ledger = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledger).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-06",
+        totals: { incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        currency: "EUR",
+      },
+    });
+    if (!ledger.ok || !("value" in ledger)) {
+      throw new Error("expected ledger");
+    }
+    expect(ledger.value.transactions.page.map((txn) => txn.title)).toEqual(["Lunch", "Salary"]);
+    expect(JSON.stringify(ledger.value)).not.toContain("archived lunch");
+
+    const dashboard = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: eurRef,
+      month: "2026-06",
+    });
+    expect(dashboard).toMatchObject({
+      ok: true,
+      value: {
+        month: "2026-06",
+        totals: { incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        currency: "EUR",
+      },
+    });
+    if (!dashboard.ok || !("value" in dashboard)) {
+      throw new Error("expected dashboard");
+    }
+    expect(dashboard.value.recent.map((txn) => txn.title)).toEqual(["Lunch", "Salary"]);
+
+    const comparison = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_comparison",
+      circleRef: eurRef,
+      endMonth: "2026-06",
+      rangeMonths: 3,
+    });
+    expect(comparison).toMatchObject({
+      ok: true,
+      value: {
+        currency: "EUR",
+        series: [
+          { month: "2026-04", incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+          { month: "2026-05", incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
+          { month: "2026-06", incomeMinor: 100_000, expenseMinor: 2_500, netMinor: 97_500 },
+        ],
+      },
+    });
+
+    const analytics = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+    });
+    expect(analytics).toMatchObject({
+      ok: true,
+      value: { type: "expense", nonAdditive: true, currency: "EUR", isDone: true },
+    });
+    if (!analytics.ok || !("value" in analytics)) {
+      throw new Error("expected analytics");
+    }
+    expect(analytics.value.rankingRevision).toMatch(/^\d+:\d+$/);
+    expect(analytics.value.page.map((row) => row.name)).toEqual(["Dining", "Groceries"]);
+    expect(analytics.value.page.every((row) => row.taggedTotalMinor === 2_500)).toBe(true);
+    expect(JSON.stringify(analytics.value)).not.toMatch(/"categoryId":/);
+
+    const analyticsFirstPage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(analyticsFirstPage).toMatchObject({ ok: true });
+    if (!analyticsFirstPage.ok || !("value" in analyticsFirstPage)) {
+      throw new Error("expected analytics first page");
+    }
+    expect(analyticsFirstPage.value.page).toHaveLength(1);
+    expect(analyticsFirstPage.value.isDone).toBe(false);
+    expect(analyticsFirstPage.value.continueCursor).toMatch(/^\{/);
+    const firstCursor = JSON.parse(analyticsFirstPage.value.continueCursor);
+    expect(firstCursor.revision).toBe(analyticsFirstPage.value.rankingRevision);
+
+    const analyticsSecondPage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: analyticsFirstPage.value.continueCursor },
+    });
+    expect(analyticsSecondPage).toMatchObject({ ok: true });
+    if (!analyticsSecondPage.ok || !("value" in analyticsSecondPage)) {
+      throw new Error("expected analytics second page");
+    }
+    expect(analyticsSecondPage.value.page).toHaveLength(1);
+    expect(analyticsSecondPage.value.page[0]?.name).not.toBe(
+      analyticsFirstPage.value.page[0]?.name,
+    );
+
+    const staleCursor = JSON.stringify({
+      revision: "0:0",
+      taggedTotalMinor: analyticsFirstPage.value.page[0]?.taggedTotalMinor,
+      name: analyticsFirstPage.value.page[0]?.name,
+      ref: analyticsFirstPage.value.page[0]?.ref,
+    });
+    const stalePage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: staleCursor },
+    });
+    expect(stalePage).toMatchObject({ ok: false, error: "stale_pagination" });
+
+    const usdDashboard = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: usdRef,
+      month: "2026-06",
+    });
+    expect(usdDashboard).toMatchObject({
+      ok: true,
+      value: {
+        currency: "USD",
+        totals: { incomeMinor: 50_000, expenseMinor: 0, netMinor: 50_000 },
+      },
+    });
+
+    const deselected = await executeMcpRead(t, grant._id, {
+      kind: "get_dashboard",
+      circleRef: buildRef("Other", other.circleId),
+      month: "2026-06",
+    });
+    expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const invalidMonth = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: eurRef,
+      month: "2026-13",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(invalidMonth).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    const invalidComparisonMonth = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_comparison",
+      circleRef: eurRef,
+      endMonth: "2026-13",
+      rangeMonths: 6,
+    });
+    expect(invalidComparisonMonth).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", eurCircle.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    const removed = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+    });
+    expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  });
+
+  it("paginates tied category names with the same ref tiebreak as the ranked list", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Unicode" }));
+    const nfcName = "caf\u00e9";
+    const nfdName = "cafe\u0301";
+    expect(nfcName.localeCompare(nfdName)).toBe(0);
+
+    await t.run(async (ctx) => {
+      const nfcId = await makeCategory(ctx, f.circleId, {
+        name: nfcName,
+        type: "expense",
+        creatorUserId: owner.owner._id,
+      });
+      const nfdId = await makeCategory(ctx, f.circleId, {
+        name: nfdName,
+        type: "expense",
+        creatorUserId: owner.owner._id,
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-01",
+        categoryIds: [nfcId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-02",
+        categoryIds: [nfdId],
+      });
+    });
+
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Unicode", f.circleId);
+
+    const page1 = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(page1).toMatchObject({ ok: true });
+    if (!page1.ok || !("value" in page1)) {
+      throw new Error("expected analytics page 1");
+    }
+    expect(page1.value.page).toHaveLength(1);
+    expect(page1.value.isDone).toBe(false);
+
+    const page2 = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: page1.value.continueCursor },
+    });
+    expect(page2).toMatchObject({ ok: true });
+    if (!page2.ok || !("value" in page2)) {
+      throw new Error("expected analytics page 2");
+    }
+    expect(page2.value.page).toHaveLength(1);
+    expect(page2.value.isDone).toBe(true);
+    expect(new Set([page1.value.page[0]?.name, page2.value.page[0]?.name])).toEqual(
+      new Set([nfcName, nfdName]),
+    );
+  });
+
+  it("supports all comparison ranges and rejects insufficient scope", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Olive Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Ranges" }));
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Ranges", f.circleId);
+
+    for (const rangeMonths of [1, 3, 6, 12] as const) {
+      const comparison = await executeMcpRead(t, grant._id, {
+        kind: "get_monthly_comparison",
+        circleRef,
+        endMonth: "2026-06",
+        rangeMonths,
+      });
+      expect(comparison).toMatchObject({ ok: true });
+      if (!comparison.ok || !("value" in comparison)) {
+        throw new Error("expected comparison");
+      }
+      expect(comparison.value.series).toHaveLength(rangeMonths);
+    }
+
+    const scopeDenied = await executeMcpRead(
+      t,
+      grant._id,
+      {
+        kind: "get_dashboard",
+        circleRef,
+        month: "2026-06",
+      },
+      [],
+    );
+    expect(scopeDenied).toMatchObject({ ok: false, error: "insufficient_scope" });
   });
 });
 

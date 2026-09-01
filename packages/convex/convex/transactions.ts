@@ -10,12 +10,17 @@ import {
   transactionCreateSchema,
   transactionUpdateSchema,
 } from "@pocketcircle/domain";
-import { paginationOptsValidator } from "convex/server";
+import { type PaginationOptions, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/server.js";
 import { markActivationMilestone } from "./activation.js";
-import { requireCircleAccess, requireTransactionAccess, resolveCircleAccess } from "./guard.js";
+import {
+  type AuthorizedCircle,
+  requireCircleAccess,
+  requireTransactionAccess,
+  resolveCircleAccess,
+} from "./guard.js";
 import {
   type HistoryChange,
   latestEntityEvent,
@@ -265,6 +270,33 @@ export type TransactionDetailView = Awaited<ReturnType<typeof toTransactionDetai
  * exhausted page — indistinguishable from an accessible Circle with no
  * Transactions, so nothing about the Circle's existence leaks.
  */
+export async function paginateCircleTransactionsForAccess(
+  ctx: OperationReader,
+  access: AuthorizedCircle,
+  paginationOpts: PaginationOptions,
+  args: { month?: string; status?: "active" | "archived" },
+) {
+  const status = args.status ?? "active";
+  const range = args.month !== undefined ? monthDateRange(args.month) : undefined;
+
+  const result = await ctx.db
+    .query("transactions")
+    .withIndex("by_circle_status_date", (q) => {
+      const scoped = q.eq("circleId", access.circle._id).eq("status", status);
+      return range ? scoped.gte("date", range.start).lt("date", range.endExclusive) : scoped;
+    })
+    .order("desc")
+    .paginate(paginationOpts);
+
+  const caches = newViewCaches();
+  const page = await Promise.all(
+    result.page.map((txn) =>
+      toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
+    ),
+  );
+  return { ...result, page };
+}
+
 export const listTransactions = query({
   args: {
     circleId: v.id("circles"),
@@ -280,25 +312,10 @@ export const listTransactions = query({
     if (args.month !== undefined && !isValidPlainMonth(args.month)) {
       throw new Error("Invalid month");
     }
-    const status = args.status ?? "active";
-    const range = args.month !== undefined ? monthDateRange(args.month) : undefined;
-
-    const result = await ctx.db
-      .query("transactions")
-      .withIndex("by_circle_status_date", (q) => {
-        const scoped = q.eq("circleId", args.circleId).eq("status", status);
-        return range ? scoped.gte("date", range.start).lt("date", range.endExclusive) : scoped;
-      })
-      .order("desc")
-      .paginate(args.paginationOpts);
-
-    const caches = newViewCaches();
-    const page = await Promise.all(
-      result.page.map((txn) =>
-        toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
-      ),
-    );
-    return { ...result, page };
+    return paginateCircleTransactionsForAccess(ctx, access, args.paginationOpts, {
+      month: args.month,
+      status: args.status ?? "active",
+    });
   },
 });
 

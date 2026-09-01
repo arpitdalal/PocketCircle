@@ -164,5 +164,49 @@ describe("MCP schemas", () => {
       },
     });
     expect(longSearchQuery.success).toBe(true);
+
+    const ledgerOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_ledger",
+        circleRef: "trip-c123",
+        month: "2026-06",
+      },
+    });
+    expect(ledgerOp.success).toBe(true);
+
+    const comparisonOp = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_comparison",
+        circleRef: "trip-c123",
+        endMonth: "2026-06",
+        rangeMonths: 6,
+      },
+    });
+    expect(comparisonOp.success).toBe(true);
+
+    const dashboardWithoutMonth = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_dashboard",
+        circleRef: "trip-c123",
+      },
+    });
+    expect(dashboardWithoutMonth.success).toBe(false);
+
+    const invalidComparisonRange = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "get_monthly_comparison",
+        circleRef: "trip-c123",
+        rangeMonths: 2,
+      },
+    });
+    expect(invalidComparisonRange.success).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import { isValidPlainMonth } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
 import { resolveCircleAccess } from "./guard.js";
-import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
+import { monthlyLedgerSummaryForAccess } from "./operations.js";
 
 /**
  * The Monthly Ledger's financial summary for one Circle-month (RPT-1; PRD stories
@@ -41,11 +41,6 @@ export const getMonthlyLedger = query({
       throw new Error("Invalid month");
     }
 
-    const transactions = await collectMonthActiveTransactions(ctx, args.circleId, args.month);
-
-    return {
-      totals: sumMonthTotals(transactions),
-      currency: access.circle.currency,
-    };
+    return monthlyLedgerSummaryForAccess(ctx, access, args.month);
   },
 });

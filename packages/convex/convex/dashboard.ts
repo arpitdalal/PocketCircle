@@ -1,20 +1,17 @@
-import { comparisonWindowMonths, currentMonth, isValidPlainMonth } from "@pocketcircle/domain";
+import { currentMonth, isValidPlainMonth } from "@pocketcircle/domain";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel.js";
 import { query } from "./_generated/server.js";
-import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { resolveCircleAccess } from "./guard.js";
-import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
-import { newViewCaches, toTransactionView } from "./transactions.js";
+import {
+  categoryAnalyticsForAccess,
+  dashboardForAccess,
+  monthlyComparisonForAccess,
+  RECENT_TRANSACTIONS_LIMIT,
+} from "./operations.js";
+
+export { RECENT_TRANSACTIONS_LIMIT };
 
 const transactionType = v.union(v.literal("expense"), v.literal("income"));
-
-/**
- * How many recent Transactions the Dashboard surfaces (PRD story 75). A small,
- * glanceable feed — not a list view (that is the Monthly Ledger, RPT-1) — so the
- * recent slice stays bounded regardless of how busy the month is.
- */
-export const RECENT_TRANSACTIONS_LIMIT = 5;
 
 /**
  * The per-Circle Dashboard surface for one month (RPT-3; PRD stories 68, 75).
@@ -56,28 +53,7 @@ export const getDashboard = query({
       throw new Error("Invalid month");
     }
 
-    const monthTxns = await collectMonthActiveTransactions(ctx, args.circleId, month);
-
-    // Recent = the same bounded set, ordered by record time and capped. Sorting a
-    // single bounded month in memory is fine (README §4 forbids sorting UNBOUNDED
-    // sets); only the capped slice is resolved to full views, so the per-row Paid
-    // By / Category resolution stays bounded by the cap, not the month size.
-    const recentDocs = [...monthTxns]
-      .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
-      .slice(0, RECENT_TRANSACTIONS_LIMIT);
-    const caches = newViewCaches();
-    const recent = await Promise.all(
-      recentDocs.map((txn) =>
-        toTransactionView(ctx, txn, caches, access.membership._id, access.isOwner),
-      ),
-    );
-
-    return {
-      totals: sumMonthTotals(monthTxns),
-      recent,
-      currency: access.circle.currency,
-      month,
-    };
+    return dashboardForAccess(ctx, access, month);
   },
 });
 
@@ -121,14 +97,7 @@ export const getMonthlyComparison = query({
       throw new Error("Invalid month");
     }
 
-    const series = await Promise.all(
-      comparisonWindowMonths(endMonth, args.rangeMonths).map(async (month) => {
-        const monthTxns = await collectMonthActiveTransactions(ctx, args.circleId, month);
-        return { month, ...sumMonthTotals(monthTxns) };
-      }),
-    );
-
-    return { series, currency: access.circle.currency };
+    return monthlyComparisonForAccess(ctx, access, endMonth, args.rangeMonths);
   },
 });
 
@@ -163,58 +132,6 @@ export const getCategoryAnalytics = query({
       throw new Error("Invalid month");
     }
 
-    const monthTxns = await collectMonthActiveTransactions(ctx, args.circleId, month);
-    const scopedTxns = args.type ? monthTxns.filter((txn) => txn.type === args.type) : monthTxns;
-
-    // Bounded parallel fan-out: at most CATEGORY_LINK_READ_CONCURRENCY transactionCategories
-    // reads in flight at once — keeps the latency win over the serial N+1 loop without
-    // letting a high-volume month spike to thousands of concurrent reads (RPT-5).
-    const linkLoads = await asyncMapChunked(scopedTxns, DEFAULT_READ_CONCURRENCY, async (txn) => ({
-      txn,
-      links: await ctx.db
-        .query("transactionCategories")
-        .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
-        .collect(),
-    }));
-
-    const accum = new Map<Id<"categories">, { taggedTotalMinor: number; txnCount: number }>();
-    for (const { txn, links } of linkLoads) {
-      for (const link of links) {
-        const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
-        existing.taggedTotalMinor += txn.amountMinorUnits;
-        existing.txnCount += 1;
-        accum.set(link.categoryId, existing);
-      }
-    }
-
-    const categoryIds = [...accum.keys()];
-    const loadedCategories = await asyncMapChunked(
-      categoryIds,
-      DEFAULT_READ_CONCURRENCY,
-      (categoryId) => ctx.db.get(categoryId),
-    );
-    const rows = [];
-    for (const [index, categoryId] of categoryIds.entries()) {
-      const category = loadedCategories[index];
-      if (!category) {
-        continue;
-      }
-      const totals = accum.get(categoryId);
-      if (!totals) {
-        continue;
-      }
-      rows.push({
-        categoryId,
-        name: category.name,
-        color: category.color,
-        status: category.status,
-        taggedTotalMinor: totals.taggedTotalMinor,
-        txnCount: totals.txnCount,
-      });
-    }
-
-    rows.sort((a, b) => b.taggedTotalMinor - a.taggedTotalMinor || a.name.localeCompare(b.name));
-
-    return { rows, currency: access.circle.currency };
+    return categoryAnalyticsForAccess(ctx, access, month, args.type);
   },
 });
