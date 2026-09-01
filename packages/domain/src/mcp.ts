@@ -279,8 +279,10 @@ export const mcpCategoryAnalyticsSchema = z.object({
   month: z.string().min(1).max(7),
   /** Multi-Category Transactions contribute their full amount to each Category row. */
   nonAdditive: z.literal(true),
-  rows: z.array(mcpCategoryAnalyticsRowSchema),
   currency: z.string().min(1).max(3),
+  page: z.array(mcpCategoryAnalyticsRowSchema).max(100),
+  isDone: z.boolean(),
+  continueCursor: z.string().max(4096),
 });
 
 export type McpCategoryAnalytics = z.infer<typeof mcpCategoryAnalyticsSchema>;
@@ -393,6 +395,7 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
     circleRef: mcpCircleRefSchema,
     month: z.string().max(7).optional(),
     type: z.enum(["expense", "income"]).optional(),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
   }),
 ]);
 

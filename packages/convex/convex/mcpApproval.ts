@@ -345,6 +345,7 @@ export const executeMcpReadOperation = internalQuery({
         circleRef: v.string(),
         month: v.optional(v.string()),
         type: v.optional(v.union(v.literal("expense"), v.literal("income"))),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
     ),
   },
@@ -518,6 +519,9 @@ export const executeMcpReadOperation = internalQuery({
         {
           ...(args.operation.month === undefined ? {} : { month: args.operation.month }),
           ...(args.operation.type === undefined ? {} : { type: args.operation.type }),
+          ...(args.operation.paginationOpts === undefined
+            ? {}
+            : { paginationOpts: args.operation.paginationOpts }),
         },
       );
       if (!analytics.ok) {

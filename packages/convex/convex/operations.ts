@@ -191,6 +191,25 @@ export async function categoryAnalyticsForAccess(
   return { rows, currency: access.circle.currency };
 }
 
+const MCP_CATEGORY_ANALYTICS_DEFAULT_PAGE_SIZE = 50;
+
+function paginateSortedCategoryAnalyticsRows<T>(
+  rows: readonly T[],
+  paginationOpts: PaginationOptions,
+) {
+  const rawOffset = paginationOpts.cursor ? Number.parseInt(paginationOpts.cursor, 10) : 0;
+  const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const numItems = Math.min(Math.max(paginationOpts.numItems, 1), 100);
+  const page = rows.slice(offset, offset + numItems);
+  const nextOffset = offset + page.length;
+  const isDone = nextOffset >= rows.length;
+  return {
+    page,
+    isDone,
+    continueCursor: isDone ? "" : String(nextOffset),
+  };
+}
+
 /**
  * Load a User by stable PocketCircle id. Malformed ids and missing rows are
  * null — never falls back to email lookup.
@@ -1117,7 +1136,7 @@ export async function getCategoryAnalyticsForUser(
   ctx: OperationReader,
   circleId: Id<"circles">,
   user: Doc<"users">,
-  args: { month?: string; type?: "expense" | "income" },
+  args: { month?: string; type?: "expense" | "income"; paginationOpts?: PaginationOptions },
 ) {
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
   if (!access) {
@@ -1129,21 +1148,27 @@ export async function getCategoryAnalyticsForUser(
     return { ok: false as const, error: "invalid_filters" as const };
   }
 
+  const paginationOpts = args.paginationOpts ?? {
+    numItems: MCP_CATEGORY_ANALYTICS_DEFAULT_PAGE_SIZE,
+    cursor: null,
+  };
   const analytics = await categoryAnalyticsForAccess(ctx, access, month, args.type);
+  const mcpRows = analytics.rows.map((row) => ({
+    ref: buildRef(row.name, row.categoryId),
+    name: row.name,
+    color: row.color,
+    status: row.status,
+    taggedTotalMinor: row.taggedTotalMinor,
+    txnCount: row.txnCount,
+  }));
+  const page = paginateSortedCategoryAnalyticsRows(mcpRows, paginationOpts);
   return {
     ok: true as const,
     value: {
       month,
       nonAdditive: true as const,
       currency: analytics.currency,
-      rows: analytics.rows.map((row) => ({
-        ref: buildRef(row.name, row.categoryId),
-        name: row.name,
-        color: row.color,
-        status: row.status,
-        taggedTotalMinor: row.taggedTotalMinor,
-        txnCount: row.txnCount,
-      })),
+      ...page,
     },
   };
 }

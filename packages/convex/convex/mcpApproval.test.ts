@@ -1398,13 +1398,46 @@ describe("MCP financial report reads", () => {
       month: "2026-06",
       type: "expense",
     });
-    expect(analytics).toMatchObject({ ok: true, value: { nonAdditive: true, currency: "EUR" } });
+    expect(analytics).toMatchObject({
+      ok: true,
+      value: { nonAdditive: true, currency: "EUR", isDone: true },
+    });
     if (!analytics.ok || !("value" in analytics)) {
       throw new Error("expected analytics");
     }
-    expect(analytics.value.rows.map((row) => row.name)).toEqual(["Dining", "Groceries"]);
-    expect(analytics.value.rows.every((row) => row.taggedTotalMinor === 2_500)).toBe(true);
+    expect(analytics.value.page.map((row) => row.name)).toEqual(["Dining", "Groceries"]);
+    expect(analytics.value.page.every((row) => row.taggedTotalMinor === 2_500)).toBe(true);
     expect(JSON.stringify(analytics.value)).not.toMatch(/"categoryId":/);
+
+    const analyticsFirstPage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(analyticsFirstPage).toMatchObject({ ok: true });
+    if (!analyticsFirstPage.ok || !("value" in analyticsFirstPage)) {
+      throw new Error("expected analytics first page");
+    }
+    expect(analyticsFirstPage.value.page).toHaveLength(1);
+    expect(analyticsFirstPage.value.isDone).toBe(false);
+
+    const analyticsSecondPage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: analyticsFirstPage.value.continueCursor },
+    });
+    expect(analyticsSecondPage).toMatchObject({ ok: true });
+    if (!analyticsSecondPage.ok || !("value" in analyticsSecondPage)) {
+      throw new Error("expected analytics second page");
+    }
+    expect(analyticsSecondPage.value.page).toHaveLength(1);
+    expect(analyticsSecondPage.value.page[0]?.name).not.toBe(
+      analyticsFirstPage.value.page[0]?.name,
+    );
 
     const usdDashboard = await executeMcpRead(t, grant._id, {
       kind: "get_dashboard",

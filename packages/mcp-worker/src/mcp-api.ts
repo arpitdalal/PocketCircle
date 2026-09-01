@@ -100,6 +100,7 @@ const monthlyComparisonInputSchema = circleRefInputSchema.extend({
 const categoryAnalyticsInputSchema = circleRefInputSchema.extend({
   month: z.string().max(7).optional(),
   type: z.enum(["expense", "income"]).optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
 });
 
 async function handleToolExecution<T>(
@@ -436,7 +437,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Category Analytics",
       description:
-        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded.",
+        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows).",
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
       annotations: {
@@ -454,6 +455,7 @@ export function buildMcpServer(env: Env, request?: Request) {
           circleRef: args.circleRef,
           ...(args.month === undefined ? {} : { month: args.month }),
           ...(args.type === undefined ? {} : { type: args.type }),
+          ...(args.paginationOpts === undefined ? {} : { paginationOpts: args.paginationOpts }),
         },
         mcpCategoryAnalyticsSchema,
       ),
