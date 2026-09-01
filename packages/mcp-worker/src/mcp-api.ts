@@ -74,12 +74,24 @@ const listMembersInputSchema = circleRefInputSchema.extend({
 const listCircleHistoryInputSchema = circleRefInputSchema.extend({
   paginationOpts: mcpPaginationOptsSchema.optional(),
 });
-const searchTransactionsInputSchema = circleRefInputSchema.extend({
-  filters: mcpSearchTransactionsFiltersSchema.optional(),
-  page: z.number().int().min(1).max(40).optional(),
-  pageSize: z.number().int().min(1).max(100).optional(),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
-});
+const searchTransactionsInputSchema = circleRefInputSchema
+  .extend({
+    filters: mcpSearchTransactionsFiltersSchema.optional(),
+    page: z.number().int().min(1).max(40).optional(),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.paginationOpts !== undefined &&
+      (value.page !== undefined || value.pageSize !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Provide either paginationOpts or page/pageSize, not both",
+      });
+    }
+  });
 const transactionRefInputSchema = circleRefInputSchema.extend({
   transactionRef: z.string().min(1).max(300),
 });

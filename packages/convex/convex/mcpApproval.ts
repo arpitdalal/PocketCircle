@@ -249,7 +249,19 @@ export const validateActiveGrant = internalQuery({
   },
 });
 
-export const executeMcpReadOperation = internalMutation({
+export const recordMcpGrantUseFromWorker = internalMutation({
+  args: { grantId: v.string() },
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("mcpGrants", args.grantId);
+    if (!id) {
+      return { ok: false as const, error: "grant_not_found" as const };
+    }
+    await recordMcpGrantUse(ctx, { grantId: id });
+    return { ok: true as const };
+  },
+});
+
+export const executeMcpReadOperation = internalQuery({
   args: {
     grantId: v.string(),
     effectiveScopes: v.array(v.string()),
@@ -315,8 +327,6 @@ export const executeMcpReadOperation = internalMutation({
       return { ok: false as const, error: authz.denial.kind, denial: authz.denial };
     }
     const { grant, user } = authz.value;
-
-    await recordMcpGrantUse(ctx, { grantId: grant._id });
 
     if (args.operation.kind === "get_current_user") {
       return {

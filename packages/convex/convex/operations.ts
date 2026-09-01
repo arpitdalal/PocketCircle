@@ -18,7 +18,6 @@ import {
   buildRef,
   clampSearchPage,
   clampSearchPageSize,
-  currentMonth,
   isValidPlainMonth,
   normalizeMcpImage,
   parseRef,
@@ -634,8 +633,10 @@ export type McpSearchTransactionsArgs = {
 
 function resolveMcpSearchWindow(filters: McpSearchTransactionsArgs["filters"]) {
   if (filters?.month !== undefined) {
-    const month = isValidPlainMonth(filters.month) ? filters.month : currentMonth(new Date());
-    const range = monthDateRange(month);
+    if (!isValidPlainMonth(filters.month)) {
+      return { ok: false as const };
+    }
+    const range = monthDateRange(filters.month);
     return { ok: true as const, start: range.start, endExclusive: range.endExclusive };
   }
   return resolveSearchWindow({
@@ -644,11 +645,20 @@ function resolveMcpSearchWindow(filters: McpSearchTransactionsArgs["filters"]) {
   });
 }
 
+function mcpSearchPaginationConflict(args: McpSearchTransactionsArgs) {
+  return (
+    args.paginationOpts !== undefined && (args.page !== undefined || args.pageSize !== undefined)
+  );
+}
+
 async function mapSearchTransactionsForAccess(
   ctx: OperationReader,
   access: NonNullable<Awaited<ReturnType<typeof resolveCircleAccessForUser>>>,
   args: McpSearchTransactionsArgs,
 ) {
+  if (mcpSearchPaginationConflict(args)) {
+    return { ok: false as const, error: "invalid_filters" as const };
+  }
   const filters = args.filters ?? {};
   const pageSize = clampSearchPageSize(args.pageSize);
   const page = clampSearchPage(args.page ?? 1);

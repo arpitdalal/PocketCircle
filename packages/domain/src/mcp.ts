@@ -230,6 +230,27 @@ export const mcpSearchTransactionsFiltersSchema = z.object({
   month: z.string().max(7).optional(),
 });
 
+const mcpSearchTransactionsOperationSchema = z
+  .object({
+    kind: z.literal("search_transactions"),
+    circleRef: mcpCircleRefSchema,
+    filters: mcpSearchTransactionsFiltersSchema.optional(),
+    page: z.number().int().min(1).max(40).optional(),
+    pageSize: z.number().int().min(1).max(100).optional(),
+    paginationOpts: mcpPaginationOptsSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.paginationOpts !== undefined &&
+      (value.page !== undefined || value.pageSize !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "search_transactions accepts either paginationOpts or page/pageSize, not both",
+      });
+    }
+  });
+
 export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("get_current_user") }),
   z.object({ kind: z.literal("list_authorized_circles") }),
@@ -245,14 +266,7 @@ export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
     circleRef: mcpCircleRefSchema,
     paginationOpts: mcpPaginationOptsSchema.optional(),
   }),
-  z.object({
-    kind: z.literal("search_transactions"),
-    circleRef: mcpCircleRefSchema,
-    filters: mcpSearchTransactionsFiltersSchema.optional(),
-    page: z.number().int().min(1).max(40).optional(),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    paginationOpts: mcpPaginationOptsSchema.optional(),
-  }),
+  mcpSearchTransactionsOperationSchema,
   z.object({
     kind: z.literal("get_transaction"),
     circleRef: mcpCircleRefSchema,

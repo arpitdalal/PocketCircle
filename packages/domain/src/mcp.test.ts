@@ -130,5 +130,17 @@ describe("MCP schemas", () => {
       },
     });
     expect(searchOp.success).toBe(true);
+
+    const mixedPagination = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        page: 2,
+        paginationOpts: { numItems: 10, cursor: null },
+      },
+    });
+    expect(mixedPagination.success).toBe(false);
   });
 });

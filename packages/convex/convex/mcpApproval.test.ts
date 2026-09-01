@@ -77,7 +77,7 @@ async function executeMcpRead(
   operation: McpReadOperation,
   effectiveScopes: string[] = ["pocketcircle:read"],
 ) {
-  return t.mutation(internal.mcpApproval.executeMcpReadOperation, {
+  return t.query(internal.mcpApproval.executeMcpReadOperation, {
     grantId,
     effectiveScopes,
     operation,
@@ -1236,6 +1236,22 @@ describe("MCP Transaction search and inspect reads", () => {
     expect(
       capped.ok && capped.value.pagination === "offset" && capped.value.transactions,
     ).toHaveLength(5);
+
+    const invalidMonth = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { month: "2026-13" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(invalidMonth).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    const mixedPagination = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      page: 2,
+      paginationOpts: { numItems: 5, cursor: null },
+    });
+    expect(mixedPagination).toMatchObject({ ok: false, error: "invalid_filters" });
   });
 });
 
