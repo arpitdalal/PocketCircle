@@ -390,6 +390,7 @@ export function resolveCategoryRef(ctx: OperationReader, categoryRef: string) {
   return ctx.db.normalizeId("categories", categoryRef);
 }
 
+/** Maps a Category creator row to the MCP attribution shape. */
 function toMcpCategoryCreatorView(creator: CategoryView["creator"]) {
   return {
     displayName: creator.displayName,
@@ -397,6 +398,7 @@ function toMcpCategoryCreatorView(creator: CategoryView["creator"]) {
   };
 }
 
+/** Maps a Category list/detail view to the MCP summary contract. */
 function toMcpCategorySummaryView(category: CategoryView) {
   return {
     ref: category.ref,
@@ -408,6 +410,7 @@ function toMcpCategorySummaryView(category: CategoryView) {
   };
 }
 
+/** Maps a Category detail view to the MCP detail contract. */
 function toMcpCategoryDetailView(category: CategoryDetailView) {
   return {
     ...toMcpCategorySummaryView(category),

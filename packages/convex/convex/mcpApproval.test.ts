@@ -30,6 +30,7 @@ import {
 } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
+import { categoryEntity, recordEvent } from "./history.js";
 import { mintMcpApprovalToken } from "./mcpApprovalToken.js";
 import { activateMcpGrant, createPendingMcpGrant } from "./mcpGrant.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
@@ -1826,13 +1827,38 @@ describe("MCP Category reads", () => {
     expect(detail.value).not.toHaveProperty("id");
     expect(detail.value.creator.displayName).toBe("Olive Owner");
 
-    mockCurrentUser.mockResolvedValue(owner.owner);
-    await t.mutation(api.categories.updateCategory, {
-      categoryId: f.groceriesId,
-      name: "Food",
-      color: "teal",
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) {
+        throw new Error("owner membership missing");
+      }
+      await ctx.db.patch(f.groceriesId, {
+        name: "Food",
+        nameLower: "food",
+        color: "teal",
+      });
+      await recordEvent(ctx, {
+        entity: categoryEntity(f.groceriesId, f.circleId),
+        actor: membership,
+        action: "edited",
+        changes: [
+          { field: "name", from: "Groceries", to: "Food" },
+          { field: "color", from: "Green", to: "Teal" },
+        ],
+      });
+      await ctx.db.patch(f.groceriesId, { status: "archived", archivedAt: Date.now() });
+      await recordEvent(ctx, {
+        entity: categoryEntity(f.groceriesId, f.circleId),
+        actor: membership,
+        action: "archived",
+        changes: [],
+      });
     });
-    await t.mutation(api.categories.archiveCategory, { categoryId: f.groceriesId });
     const archivedDetail = await executeMcpRead(t, grant._id, {
       kind: "get_category",
       circleRef,
