@@ -177,14 +177,14 @@ export async function listMembersForUser(
 interface MemberPageCursor {
   ownerIncluded: boolean;
   memberCursor: string | null;
-  ownerMemberIds: string[];
+  returnedMemberIds: string[];
 }
 
 interface ActiveMemberPageCursor {
   ownerIncluded: boolean;
   lastJoinedAt: number | null;
   lastMemberId: string | null;
-  ownerMemberIds: string[];
+  returnedMemberIds: string[];
 }
 
 function decodeMemberPageCursor(cursor: string) {
@@ -202,14 +202,19 @@ function decodeMemberPageCursor(cursor: string) {
     ) {
       return null;
     }
-    const ownerMemberIds = "ownerMemberIds" in value ? value.ownerMemberIds : [];
-    if (!isStringArray(ownerMemberIds) || ownerMemberIds.length > 256) {
+    const returnedMemberIds =
+      "returnedMemberIds" in value
+        ? value.returnedMemberIds
+        : "ownerMemberIds" in value
+          ? value.ownerMemberIds
+          : [];
+    if (!isStringArray(returnedMemberIds) || returnedMemberIds.length > 256) {
       return null;
     }
     return {
       ownerIncluded: value.ownerIncluded,
       memberCursor: value.memberCursor,
-      ownerMemberIds,
+      returnedMemberIds,
     };
   } catch {
     return null;
@@ -246,15 +251,20 @@ function decodeActiveMemberPageCursor(cursor: string) {
     ) {
       return null;
     }
-    const ownerMemberIds = "ownerMemberIds" in value ? value.ownerMemberIds : [];
-    if (!isStringArray(ownerMemberIds) || ownerMemberIds.length > 256) {
+    const returnedMemberIds =
+      "returnedMemberIds" in value
+        ? value.returnedMemberIds
+        : "ownerMemberIds" in value
+          ? value.ownerMemberIds
+          : [];
+    if (!isStringArray(returnedMemberIds) || returnedMemberIds.length > 256) {
       return null;
     }
     return {
       ownerIncluded: value.ownerIncluded,
       lastJoinedAt: value.lastJoinedAt,
       lastMemberId: value.lastMemberId,
-      ownerMemberIds,
+      returnedMemberIds,
     };
   } catch {
     return null;
@@ -282,7 +292,7 @@ export async function paginateMembersForUser(
   if (!includeHistorical) {
     const decodedCursor = paginationOpts.cursor
       ? decodeActiveMemberPageCursor(paginationOpts.cursor)
-      : { ownerIncluded: false, lastJoinedAt: null, lastMemberId: null, ownerMemberIds: [] };
+      : { ownerIncluded: false, lastJoinedAt: null, lastMemberId: null, returnedMemberIds: [] };
     if (!decodedCursor) {
       return emptyPage;
     }
@@ -297,7 +307,7 @@ export async function paginateMembersForUser(
     const ownerView = ownerIsVisible ? await toMemberView(ctx, owner, access.membership._id) : null;
     const ownerWasReturned =
       ownerView !== null &&
-      (decodedCursor.ownerMemberIds.includes(ownerView.id) ||
+      (decodedCursor.returnedMemberIds.includes(ownerView.id) ||
         (decodedCursor.lastJoinedAt !== null &&
           decodedCursor.lastMemberId !== null &&
           (ownerView.joinedAt < decodedCursor.lastJoinedAt ||
@@ -313,7 +323,7 @@ export async function paginateMembersForUser(
     const visibleMembers = [];
     for (const member of storedActiveMembers) {
       if (
-        !decodedCursor.ownerMemberIds.includes(member._id) &&
+        !decodedCursor.returnedMemberIds.includes(member._id) &&
         (await isEffectiveActiveMember(ctx, member))
       ) {
         visibleMembers.push(member);
@@ -335,16 +345,16 @@ export async function paginateMembersForUser(
       firstMemberAfterCursor === -1 ? visibleMembers.length : firstMemberAfterCursor;
 
     if (includeOwner && paginationOpts.numItems === 1) {
-      const hasMembers = visibleMembers.length > 0;
+      const hasMembers = memberStart < visibleMembers.length;
       return {
         page: [toMcpMemberView(ownerView)],
         isDone: !hasMembers,
         continueCursor: hasMembers
           ? encodeActiveMemberPageCursor({
               ownerIncluded: true,
-              lastJoinedAt: null,
-              lastMemberId: null,
-              ownerMemberIds: [...decodedCursor.ownerMemberIds, ownerView.id],
+              lastJoinedAt: decodedCursor.lastJoinedAt,
+              lastMemberId: decodedCursor.lastMemberId,
+              returnedMemberIds: [...decodedCursor.returnedMemberIds, ownerView.id],
             })
           : "",
       };
@@ -360,9 +370,11 @@ export async function paginateMembersForUser(
     const lastMember = memberPage.at(-1);
     const isDone = memberStart + memberPage.length >= visibleMembers.length;
     const page = includeOwner ? [toMcpMemberView(ownerView), ...members] : members;
-    const ownerMemberIds = includeOwner
-      ? [...decodedCursor.ownerMemberIds, ownerView.id]
-      : decodedCursor.ownerMemberIds;
+    const returnedMemberIds = [
+      ...decodedCursor.returnedMemberIds,
+      ...(includeOwner ? [ownerView.id] : []),
+      ...memberPage.filter((member) => member.status === "active").map((member) => member._id),
+    ];
     return {
       page,
       isDone,
@@ -372,14 +384,14 @@ export async function paginateMembersForUser(
             ownerIncluded: true,
             lastJoinedAt: lastMember?.joinedAt ?? null,
             lastMemberId: lastMember?._id ?? null,
-            ownerMemberIds,
+            returnedMemberIds,
           }),
     };
   }
 
   const decodedCursor = paginationOpts.cursor
     ? decodeMemberPageCursor(paginationOpts.cursor)
-    : { ownerIncluded: false, memberCursor: null, ownerMemberIds: [] };
+    : { ownerIncluded: false, memberCursor: null, returnedMemberIds: [] };
   if (!decodedCursor) {
     return emptyPage;
   }
@@ -393,7 +405,8 @@ export async function paginateMembersForUser(
   const ownerIsVisible =
     owner !== null && (includeHistorical || (await isEffectiveActiveMember(ctx, owner)));
   const ownerView = ownerIsVisible ? await toMemberView(ctx, owner, access.membership._id) : null;
-  const includeOwner = ownerView !== null && !decodedCursor.ownerMemberIds.includes(ownerView.id);
+  const includeOwner =
+    ownerView !== null && !decodedCursor.returnedMemberIds.includes(ownerView.id);
   const memberQuery = ctx.db
     .query("members")
     .withIndex("by_circle_and_role_joinedAt", (q) =>
@@ -409,8 +422,8 @@ export async function paginateMembersForUser(
       continueCursor: hasMembers
         ? encodeMemberPageCursor({
             ownerIncluded: true,
-            memberCursor: null,
-            ownerMemberIds: [...decodedCursor.ownerMemberIds, ownerView.id],
+            memberCursor: decodedCursor.memberCursor,
+            returnedMemberIds: [...decodedCursor.returnedMemberIds, ownerView.id],
           })
         : "",
     };
@@ -424,7 +437,7 @@ export async function paginateMembersForUser(
   const members = [];
   for (const member of result.page) {
     if (
-      decodedCursor.ownerMemberIds.includes(member._id) ||
+      decodedCursor.returnedMemberIds.includes(member._id) ||
       (!includeHistorical && !(await isEffectiveActiveMember(ctx, member)))
     ) {
       continue;
@@ -433,9 +446,11 @@ export async function paginateMembersForUser(
   }
   const page = includeOwner ? [toMcpMemberView(ownerView), ...members] : members;
   const isDone = result.isDone;
-  const ownerMemberIds = includeOwner
-    ? [...decodedCursor.ownerMemberIds, ownerView.id]
-    : decodedCursor.ownerMemberIds;
+  const returnedMemberIds = [
+    ...decodedCursor.returnedMemberIds,
+    ...(includeOwner ? [ownerView.id] : []),
+    ...result.page.filter((member) => member.status === "active").map((member) => member._id),
+  ];
   return {
     page,
     isDone,
@@ -444,7 +459,7 @@ export async function paginateMembersForUser(
       : encodeMemberPageCursor({
           ownerIncluded: true,
           memberCursor: result.continueCursor,
-          ownerMemberIds,
+          returnedMemberIds,
         }),
   };
 }

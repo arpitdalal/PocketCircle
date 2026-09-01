@@ -489,6 +489,9 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     const remaining = await t.run((ctx) =>
       addMember(ctx, circle.circleId, "remaining@example.com", "Remaining Member"),
     );
+    const later = await t.run((ctx) =>
+      addMember(ctx, circle.circleId, "later@example.com", "Later Member"),
+    );
     const grant = await createActiveMcpGrant(t, {
       userId: owner.userId,
       circleIds: [circle.circleId],
@@ -509,6 +512,21 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     }
     expect(firstPage.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
 
+    const historicalFirstPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    expect(historicalFirstPage).toMatchObject({ ok: true });
+    if (!historicalFirstPage.ok || !("value" in historicalFirstPage)) {
+      throw new Error("expected first historical member page");
+    }
+    expect(historicalFirstPage.value.page.map((member) => member.displayName)).toEqual([
+      "Olive Owner",
+      "Next Owner",
+    ]);
+
     mockCurrentUser.mockResolvedValue(owner.owner);
     await mutateAndDrain(t, () =>
       t.mutation(api.members.transferOwnership, {
@@ -527,6 +545,20 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       throw new Error("expected second active member page");
     }
     expect(secondPage.value.page.map((member) => member.displayName)).toEqual(["Next Owner"]);
+
+    const historicalSecondPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 1, cursor: historicalFirstPage.value.continueCursor },
+    });
+    expect(historicalSecondPage).toMatchObject({ ok: true });
+    if (!historicalSecondPage.ok || !("value" in historicalSecondPage)) {
+      throw new Error("expected second historical member page");
+    }
+    expect(historicalSecondPage.value.page.map((member) => member.displayName)).toEqual([
+      "Remaining Member",
+    ]);
 
     const thirdPage = await execute(t, grant._id, {
       kind: "list_members",
@@ -558,22 +590,36 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     await mutateAndDrain(t, () =>
       t.mutation(api.members.transferOwnership, {
         circleId: circle.circleId,
-        toMemberId: circle.ownerMemberId,
+        toMemberId: remaining.memberId,
       }),
     );
 
-    const afterReturnedMember = await execute(t, grant._id, {
+    const afterNewOwner = await execute(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
       paginationOpts: { numItems: 1, cursor: ownerAndMemberPage.value.continueCursor },
     });
-    expect(afterReturnedMember).toMatchObject({ ok: true });
-    if (!afterReturnedMember.ok || !("value" in afterReturnedMember)) {
-      throw new Error("expected page after returned member");
+    expect(afterNewOwner).toMatchObject({ ok: true });
+    if (!afterNewOwner.ok || !("value" in afterNewOwner)) {
+      throw new Error("expected page after new owner");
     }
-    expect(afterReturnedMember.value.page.map((member) => member.displayName)).toEqual([
+    expect(afterNewOwner.value.page.map((member) => member.displayName)).toEqual([
       "Remaining Member",
     ]);
+
+    const afterNewOwnerContinuation = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: afterNewOwner.value.continueCursor },
+    });
+    expect(afterNewOwnerContinuation).toMatchObject({ ok: true });
+    if (!afterNewOwnerContinuation.ok || !("value" in afterNewOwnerContinuation)) {
+      throw new Error("expected continuation after new owner");
+    }
+    expect(afterNewOwnerContinuation.value.page.map((member) => member.displayName)).toEqual([
+      "Later Member",
+    ]);
+    expect(later.memberId).not.toBe(remaining.memberId);
   });
 
   it("keeps Circle History paginated and redacts Invitation email for non-Owners", async () => {
