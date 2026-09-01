@@ -1013,6 +1013,32 @@ describe("MCP connection revocation", () => {
 });
 
 describe("MCP tools execution", () => {
+  const mockCreateTransactionMember = { displayName: "Ada Lovelace", image: null };
+  const mockCreateTransactionResult = mcpCreateTransactionResultSchema.parse({
+    ref: "coffee-txn1",
+    transaction: {
+      ref: "coffee-txn1",
+      type: "expense",
+      title: "Coffee",
+      amountMinorUnits: 500,
+      currency: "USD",
+      date: "2026-06-01",
+      month: "2026-06",
+      status: "active",
+      recordedBy: mockCreateTransactionMember,
+      paidBy: mockCreateTransactionMember,
+      categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
+      canEditFields: true,
+      canArchive: true,
+      audit: {
+        createdBy: mockCreateTransactionMember,
+        createdAt: 1_700_000_000_000,
+        updatedBy: mockCreateTransactionMember,
+        updatedAt: 1_700_000_000_000,
+      },
+    },
+  });
+
   async function obtainAccessToken(scopes = ["pocketcircle:read"]) {
     const { handoffId } = await startAuthorize(`tools-state-${Math.random()}`, scopes.join(" "));
     const principalId = `principal-${Math.random()}`;
@@ -1375,31 +1401,6 @@ describe("MCP tools execution", () => {
       "pocketcircle:read",
       "pocketcircle:write",
     ]);
-    const member = { displayName: "Ada Lovelace", image: null };
-    const createdValue = mcpCreateTransactionResultSchema.parse({
-      ref: "coffee-txn1",
-      transaction: {
-        ref: "coffee-txn1",
-        type: "expense",
-        title: "Coffee",
-        amountMinorUnits: 500,
-        currency: "USD",
-        date: "2026-06-01",
-        month: "2026-06",
-        status: "active",
-        recordedBy: member,
-        paidBy: member,
-        categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
-        canEditFields: true,
-        canArchive: true,
-        audit: {
-          createdBy: member,
-          createdAt: 1_700_000_000_000,
-          updatedBy: member,
-          updatedAt: 1_700_000_000_000,
-        },
-      },
-    });
 
     stubConvexFetch((endpoint, body) => {
       if (endpoint === "/mcp/operation") {
@@ -1418,7 +1419,7 @@ describe("MCP tools execution", () => {
           categoryRefs: ["groceries-cat1"],
           expectedCurrency: "USD",
         });
-        return Response.json({ ok: true, value: createdValue });
+        return Response.json({ ok: true, value: mockCreateTransactionResult });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
@@ -1453,31 +1454,6 @@ describe("MCP tools execution", () => {
 
   it("returns 429 when create_transaction exceeds the per-grant write rate limit", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
-    const member = { displayName: "Ada Lovelace", image: null };
-    const createdValue = mcpCreateTransactionResultSchema.parse({
-      ref: "coffee-txn1",
-      transaction: {
-        ref: "coffee-txn1",
-        type: "expense",
-        title: "Coffee",
-        amountMinorUnits: 500,
-        currency: "USD",
-        date: "2026-06-01",
-        month: "2026-06",
-        status: "active",
-        recordedBy: member,
-        paidBy: member,
-        categories: [{ ref: "groceries-cat1", name: "Groceries", color: "sage" }],
-        canEditFields: true,
-        canArchive: true,
-        audit: {
-          createdBy: member,
-          createdAt: 1_700_000_000_000,
-          updatedBy: member,
-          updatedAt: 1_700_000_000_000,
-        },
-      },
-    });
 
     stubConvexFetch((endpoint, body) => {
       if (endpoint === "/mcp/operation") {
@@ -1486,7 +1462,7 @@ describe("MCP tools execution", () => {
           return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
         }
         expect(opBody.data.operation.kind).toBe("create_transaction");
-        return Response.json({ ok: true, value: createdValue });
+        return Response.json({ ok: true, value: mockCreateTransactionResult });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });

@@ -127,42 +127,7 @@ async function handleToolExecution<T>(
   env: Env,
   request: Request | undefined,
   ctxReq: Request | undefined,
-  operation: McpReadOperation,
-  schema: z.ZodType<T>,
-) {
-  const caller = await resolveAuthorizedCaller(env, ctxReq ?? request);
-  if (!caller.ok) {
-    return {
-      isError: true,
-      content: [{ type: "text" as const, text: `Authorization failed: ${caller.error}` }],
-    };
-  }
-  const result = await executeMcpOperation(
-    env,
-    {
-      grantId: caller.value.grantId,
-      effectiveScopes: caller.value.effectiveScopes,
-      operation,
-    },
-    schema,
-  );
-  if (!result.ok) {
-    return {
-      isError: true,
-      content: [{ type: "text" as const, text: `PocketCircle error: ${result.error}` }],
-    };
-  }
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result.value) }],
-    structuredContent: result.value,
-  };
-}
-
-async function handleWriteToolExecution<T>(
-  env: Env,
-  request: Request | undefined,
-  ctxReq: Request | undefined,
-  operation: McpWriteOperation,
+  operation: McpReadOperation | McpWriteOperation,
   schema: z.ZodType<T>,
 ) {
   const caller = await resolveAuthorizedCaller(env, ctxReq ?? request);
@@ -641,7 +606,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       },
     },
     async (args, ctx) =>
-      handleWriteToolExecution(
+      handleToolExecution(
         env,
         request,
         ctx.http?.req,
