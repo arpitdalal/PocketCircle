@@ -40,6 +40,11 @@ import {
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
 
+const mcpPaginationOptsValidator = v.object({
+  numItems: v.number(),
+  cursor: v.union(v.string(), v.null()),
+});
+
 function validateMcpResult<T>(schema: z.ZodType<T>, value: unknown) {
   const parsed = schema.safeParse(value);
   return parsed.success
@@ -249,16 +254,12 @@ export const executeMcpReadOperation = internalMutation({
         kind: v.literal("list_members"),
         circleRef: v.string(),
         includeHistorical: v.optional(v.boolean()),
-        paginationOpts: v.optional(
-          v.object({ numItems: v.number(), cursor: v.union(v.string(), v.null()) }),
-        ),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
       v.object({
         kind: v.literal("list_circle_history"),
         circleRef: v.string(),
-        paginationOpts: v.optional(
-          v.object({ numItems: v.number(), cursor: v.union(v.string(), v.null()) }),
-        ),
+        paginationOpts: v.optional(mcpPaginationOptsValidator),
       }),
     ),
   },

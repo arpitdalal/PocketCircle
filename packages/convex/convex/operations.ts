@@ -136,6 +136,10 @@ export async function toMemberView(
 
 export type MemberView = Awaited<ReturnType<typeof toMemberView>>;
 
+function emptyPaginationPage() {
+  return { page: [], isDone: true, continueCursor: "" };
+}
+
 /** Shared explicit-User Member List read used by the web path. */
 export async function listMembersForUser(
   ctx: OperationReader,
@@ -228,7 +232,7 @@ export async function paginateMembersForUser(
   paginationOpts: PaginationOptions,
 ) {
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
-  const emptyPage = { page: [], isDone: true, continueCursor: "" };
+  const emptyPage = emptyPaginationPage();
   if (!access) {
     return emptyPage;
   }
@@ -344,7 +348,7 @@ export async function listCircleHistoryForUser(
   user: Doc<"users">,
   paginationOpts: PaginationOptions,
 ) {
-  const emptyPage = { page: [], isDone: true, continueCursor: "" };
+  const emptyPage = emptyPaginationPage();
   const access = await resolveCircleAccessForUser(ctx, circleId, user);
   if (!access) {
     return emptyPage;
