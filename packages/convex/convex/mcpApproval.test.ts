@@ -2948,6 +2948,10 @@ describe("MCP create_transaction write", () => {
         circleRef: buildRef("Other", other.circleId),
       }),
     ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    await t.run(async (ctx) => {
+      const updatedGrant = await ctx.db.get(grant._id);
+      expect(updatedGrant?.lastUsedAt).toBeTypeOf("number");
+    });
     expect(
       await executeMcpWrite(t, grant._id, { ...base, circleRef: "not-a-circle" }),
     ).toMatchObject({ ok: false, error: "circle_inaccessible" });

@@ -658,6 +658,7 @@ export const executeMcpWriteOperation = internalMutation({
       requiredPermission: "member",
     });
     if (!circleAuthz.ok) {
+      await recordMcpGrantUse(ctx, { grantId: authz.value.grant._id });
       return { ok: false as const, error: circleAuthz.denial.kind, denial: circleAuthz.denial };
     }
 
@@ -688,8 +689,7 @@ export const executeMcpWriteOperation = internalMutation({
       };
       const validated = validateMcpResult(mcpCreateTransactionResultSchema, value);
       if (!validated.ok) {
-        await trackGrantUse();
-        return { ok: false as const, error: validated.error };
+        throw new Error("invalid_result");
       }
       await trackGrantUse();
       return { ok: true as const, value: validated.value };
