@@ -178,6 +178,13 @@ export function validateGrant(
   return callSimpleBridgeEndpoint(env, "/mcp/validate-grant", args);
 }
 
+export function completeRevocation(
+  env: Env,
+  args: { grantId: string; workerGrantId: string; principalId: string },
+) {
+  return callSimpleBridgeEndpoint(env, "/mcp/complete-revocation", args);
+}
+
 const operationResponseSchema = z.union([
   z.object({ ok: z.literal(true), value: z.unknown() }),
   failureSchema,

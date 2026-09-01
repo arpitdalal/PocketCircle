@@ -362,10 +362,15 @@ export default defineSchema({
     lastUsedAt: v.optional(v.number()),
     /** Cloudflare Workers OAuth grant id — set on activation for coordinated revoke. */
     workerGrantId: v.optional(v.string()),
-    workerCleanupStatus: v.union(v.literal("none"), v.literal("pending_revoke")),
+    workerCleanupStatus: v.union(
+      v.literal("none"),
+      v.literal("pending_revoke"),
+      v.literal("completed"),
+    ),
   })
     .index("by_principal", ["principalId"])
     .index("by_user", ["userId"])
+    .index("by_user_and_createdAt", ["userId", "createdAt"])
     .index("by_user_and_status", ["userId", "status"])
     .index("by_user_client_and_status", ["userId", "clientId", "status"])
     .index("by_user_client_redirect_and_status", ["userId", "clientId", "redirectUri", "status"])

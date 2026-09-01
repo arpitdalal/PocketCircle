@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   MCP_RESOURCE_URI,
+  MCP_REVOCATION_TTL_MS,
   MCP_WORKER_ASSERTION_TTL_MS,
   type McpApprovalPayload,
   type McpHandoffPayload,
+  type McpRevocationPayload,
   type McpWorkerAssertionPayload,
   parseMcpWorkerJwks,
   parseMcpWorkerPrivateJwk,
   sha256Hex,
   signMcpApproval,
   signMcpHandoff,
+  signMcpRevocation,
   signMcpWorkerAssertion,
   verifyMcpApproval,
   verifyMcpHandoff,
+  verifyMcpRevocation,
   verifyMcpWorkerAssertion,
 } from "./mcp-oauth.js";
 
@@ -66,6 +70,20 @@ function assertionPayload(overrides: Partial<McpWorkerAssertionPayload> = {}) {
   } satisfies McpWorkerAssertionPayload;
 }
 
+function revocationPayload(overrides: Partial<McpRevocationPayload> = {}) {
+  const now = Date.now();
+  return {
+    v: 1 as const,
+    jti: "cleanup-1",
+    grantId: "grant-1",
+    principalId: "principal-1",
+    workerGrantId: "worker-grant-1",
+    iat: now,
+    exp: now + MCP_REVOCATION_TTL_MS,
+    ...overrides,
+  } satisfies McpRevocationPayload;
+}
+
 describe("MCP handoff sign/verify", () => {
   it("round-trips a valid payload", async () => {
     const payload = handoffPayload();
@@ -113,6 +131,36 @@ describe("MCP handoff sign/verify", () => {
       SECRET,
     );
     expect(await verifyMcpHandoff(token, SECRET)).toBeNull();
+  });
+});
+
+describe("MCP revocation capability sign/verify", () => {
+  it("round-trips one bounded Worker cleanup capability", async () => {
+    const payload = revocationPayload();
+    const token = await signMcpRevocation(payload, SECRET);
+    expect(await verifyMcpRevocation(token, SECRET)).toEqual(payload);
+  });
+
+  it("rejects expiry, tampering, and an overlong lifetime", async () => {
+    const now = Date.now();
+    const expired = await signMcpRevocation(revocationPayload({ exp: now - 1 }), SECRET);
+    expect(await verifyMcpRevocation(expired, SECRET, now)).toBeNull();
+
+    const valid = await signMcpRevocation(revocationPayload(), SECRET);
+    const [, macB64] = valid.split(".");
+    const tamperedPayload = btoa(
+      JSON.stringify(revocationPayload({ workerGrantId: "other-worker-grant" })),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(await verifyMcpRevocation(`${tamperedPayload}.${macB64}`, SECRET)).toBeNull();
+
+    const overlong = await signMcpRevocation(
+      revocationPayload({ iat: now, exp: now + MCP_REVOCATION_TTL_MS + 1 }),
+      SECRET,
+    );
+    expect(await verifyMcpRevocation(overlong, SECRET, now)).toBeNull();
   });
 });
 

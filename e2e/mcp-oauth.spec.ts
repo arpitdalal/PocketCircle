@@ -118,21 +118,37 @@ test.describe("local MCP OAuth", () => {
     const activeAccessToken = requiredString(refreshedTokens, "access_token");
     expect(activeAccessToken).not.toBe(accessToken);
 
-    const mcpHeaders = {
-      authorization: `Bearer ${activeAccessToken}`,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-    };
+    async function postMcpRequest(
+      method: string,
+      id: number,
+      params: Record<string, unknown> = {},
+    ) {
+      const toolName = typeof params.name === "string" ? params.name : undefined;
+      return request.post(`${WORKER_ORIGIN}/mcp`, {
+        headers: {
+          authorization: `Bearer ${activeAccessToken}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": method,
+          ...(toolName ? { "mcp-name": toolName } : {}),
+        },
+        data: {
+          jsonrpc: "2.0",
+          id,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+          },
+        },
+      });
+    }
 
-    const listToolsRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
-      headers: mcpHeaders,
-      data: {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-        params: {},
-      },
-    });
+    const listToolsRes = await postMcpRequest("tools/list", 1);
     expect(listToolsRes.status()).toBe(200);
     const listToolsBody: unknown = await listToolsRes.json();
     expect(listToolsBody).toMatchObject({
@@ -146,17 +162,9 @@ test.describe("local MCP OAuth", () => {
       },
     });
 
-    const userToolRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
-      headers: mcpHeaders,
-      data: {
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: {
-          name: "get_current_user",
-          arguments: {},
-        },
-      },
+    const userToolRes = await postMcpRequest("tools/call", 2, {
+      name: "get_current_user",
+      arguments: {},
     });
     expect(userToolRes.status()).toBe(200);
     const userToolBody: unknown = await userToolRes.json();
@@ -185,17 +193,9 @@ test.describe("local MCP OAuth", () => {
       throw new Error("Missing structuredContent in user tool response");
     }
 
-    const circlesToolRes = await request.post(`${WORKER_ORIGIN}/mcp`, {
-      headers: mcpHeaders,
-      data: {
-        jsonrpc: "2.0",
-        id: 3,
-        method: "tools/call",
-        params: {
-          name: "list_authorized_circles",
-          arguments: {},
-        },
-      },
+    const circlesToolRes = await postMcpRequest("tools/call", 3, {
+      name: "list_authorized_circles",
+      arguments: {},
     });
     expect(circlesToolRes.status()).toBe(200);
     const circlesToolBody: unknown = await circlesToolRes.json();
@@ -214,5 +214,33 @@ test.describe("local MCP OAuth", () => {
         },
       },
     });
+
+    await page.goto("/connections");
+    await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();
+    await expect(page.getByText("PocketCircle local E2E client", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Revoke", exact: true }).click();
+    const revokeDialog = page.getByRole("dialog");
+    await expect(revokeDialog).toContainText(clientId);
+    await revokeDialog.getByRole("button", { name: "Revoke connection", exact: true }).click();
+    await expect(page.getByText("Connection revoked.", { exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole("article")
+        .filter({ hasText: "PocketCircle local E2E client" })
+        .getByText("Revoked", { exact: true }),
+    ).toBeVisible();
+
+    const rejectedAfterRevoke = await postMcpRequest("tools/call", 4, {
+      name: "get_current_user",
+      arguments: {},
+    });
+    expect([200, 401]).toContain(rejectedAfterRevoke.status());
+    if (rejectedAfterRevoke.status() === 200) {
+      expect(await rejectedAfterRevoke.json()).toMatchObject({
+        jsonrpc: "2.0",
+        id: 4,
+        result: { isError: true },
+      });
+    }
   });
 });

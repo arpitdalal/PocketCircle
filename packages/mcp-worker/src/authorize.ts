@@ -4,9 +4,11 @@ import {
   MCP_HANDOFF_TTL_MS,
   type McpHandoffPayload,
   signMcpHandoff,
+  verifyMcpRevocation,
 } from "@pocketcircle/domain";
 import { z } from "zod";
 import { handleClientProvisioning } from "./client-provisioning.js";
+import { completeRevocation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import {
   completeHandoffAuthorization,
@@ -33,6 +35,9 @@ const completeRequestSchema = z.object({
 
 const denyRequestSchema = z.object({
   handoffId: z.string().regex(MCP_HANDOFF_ID_REGEX),
+});
+const revokeRequestSchema = z.object({
+  revocationToken: z.string().min(1),
 });
 
 function jsonResponse(status: number, body: unknown, env: Env) {
@@ -195,6 +200,41 @@ async function handleDeny(request: Request, env: Env) {
   return jsonResponse(200, { redirectTo: denied.redirectTo }, env);
 }
 
+/** Convex has already failed closed; this removes the complete linked Worker grant. */
+async function handleRevoke(request: Request, env: Env) {
+  const parsed = revokeRequestSchema.safeParse(await readBody(request));
+  if (!parsed.success) {
+    return jsonResponse(400, { error: "missing_revocation_token" }, env);
+  }
+  const payload = await verifyMcpRevocation(
+    parsed.data.revocationToken,
+    env.MCP_WORKER_HMAC_SECRET,
+  );
+  if (!payload) {
+    return jsonResponse(400, { error: "invalid_revocation_token" }, env);
+  }
+
+  try {
+    await env.OAUTH_PROVIDER.revokeGrant(payload.workerGrantId, payload.principalId);
+  } catch {
+    return jsonResponse(503, { error: "worker_cleanup_unavailable", retryable: true }, env);
+  }
+
+  const completed = await completeRevocation(env, {
+    grantId: payload.grantId,
+    workerGrantId: payload.workerGrantId,
+    principalId: payload.principalId,
+  });
+  if (!completed.ok) {
+    return jsonResponse(
+      completed.retryable ? 503 : 400,
+      { error: completed.error, retryable: completed.retryable },
+      env,
+    );
+  }
+  return jsonResponse(200, { revoked: true }, env);
+}
+
 export const defaultHandler = {
   async fetch(request: Request, env: Env) {
     const provisioning = await handleClientProvisioning(request, env);
@@ -205,7 +245,8 @@ export const defaultHandler = {
     const browserEndpoint =
       url.pathname === "/authorize/complete" ||
       url.pathname === "/authorize/deny" ||
-      url.pathname === "/authorize/handoff";
+      url.pathname === "/authorize/handoff" ||
+      url.pathname === "/revoke";
     if (browserEndpoint && request.headers.get("origin") !== env.APP_ORIGIN) {
       return new Response("Forbidden", { status: 403, headers: { "cache-control": "no-store" } });
     }
@@ -223,6 +264,9 @@ export const defaultHandler = {
     }
     if (url.pathname === "/authorize/deny" && request.method === "POST") {
       return handleDeny(request, env);
+    }
+    if (url.pathname === "/revoke" && request.method === "POST") {
+      return handleRevoke(request, env);
     }
     return new Response("Not found", { status: 404 });
   },

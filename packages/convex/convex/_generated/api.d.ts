@@ -36,6 +36,7 @@ import type * as invitations from "../invitations.js";
 import type * as ledger from "../ledger.js";
 import type * as mcpApproval from "../mcpApproval.js";
 import type * as mcpApprovalToken from "../mcpApprovalToken.js";
+import type * as mcpConnections from "../mcpConnections.js";
 import type * as mcpConsent from "../mcpConsent.js";
 import type * as mcpGrant from "../mcpGrant.js";
 import type * as mcpWorkerSecrets from "../mcpWorkerSecrets.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   ledger: typeof ledger;
   mcpApproval: typeof mcpApproval;
   mcpApprovalToken: typeof mcpApprovalToken;
+  mcpConnections: typeof mcpConnections;
   mcpConsent: typeof mcpConsent;
   mcpGrant: typeof mcpGrant;
   mcpWorkerSecrets: typeof mcpWorkerSecrets;

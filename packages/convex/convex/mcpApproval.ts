@@ -132,6 +132,39 @@ export const activateGrantFromWorker = internalMutation({
   handler: async (ctx, args) => await activateMcpGrant(ctx, args),
 });
 
+/** Marks Worker cleanup complete only for the exact revoked grant linkage. */
+export const completeRevocationFromWorker = internalMutation({
+  args: {
+    grantId: v.string(),
+    workerGrantId: v.string(),
+    principalId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("mcpGrants", args.grantId);
+    const grant = id ? await ctx.db.get(id) : null;
+    if (!grant) {
+      return { ok: false as const, error: "grant_not_found" as const };
+    }
+    if (grant.principalId !== args.principalId || grant.workerGrantId !== args.workerGrantId) {
+      return { ok: false as const, error: "grant_mismatch" as const };
+    }
+    if (grant.status !== "revoked") {
+      return { ok: false as const, error: "grant_not_revoked" as const };
+    }
+    if (grant.workerCleanupStatus === "completed") {
+      return { ok: true as const };
+    }
+    if (grant.workerCleanupStatus !== "pending_revoke") {
+      return { ok: false as const, error: "cleanup_not_pending" as const };
+    }
+    await ctx.db.patch(grant._id, {
+      workerCleanupStatus: "completed",
+      updatedAt: Date.now(),
+    });
+    return { ok: true as const };
+  },
+});
+
 export type ValidateActiveGrantError =
   | "grant_not_found"
   | "grant_inactive"

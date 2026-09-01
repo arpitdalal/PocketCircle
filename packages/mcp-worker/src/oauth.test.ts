@@ -1,6 +1,11 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
-import { mcpOperationBodySchema, verifyMcpHandoff } from "@pocketcircle/domain";
+import {
+  MCP_REVOCATION_TTL_MS,
+  mcpOperationBodySchema,
+  signMcpRevocation,
+  verifyMcpHandoff,
+} from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
 import { createMcpApiHandler } from "./mcp-api.js";
@@ -104,6 +109,7 @@ function stubConvexFetch(handler: (path: string, body: unknown) => Response | Pr
         "/mcp/activate-grant",
         "/mcp/validate-grant",
         "/mcp/operation",
+        "/mcp/complete-revocation",
       ]) {
         if (url.includes(endpoint)) {
           return handler(endpoint, body);
@@ -922,6 +928,86 @@ describe("authorization handoff", () => {
     });
     expect(complete.status).toBe(400);
     expect(await complete.json()).toMatchObject({ error: "handoff_grant_mismatch" });
+  });
+});
+
+describe("MCP connection revocation", () => {
+  async function cleanupToken() {
+    const now = Date.now();
+    return signMcpRevocation(
+      {
+        v: 1,
+        jti: "cleanup-test",
+        grantId: "convex-grant-1",
+        principalId: "principal-opaque-1",
+        workerGrantId: "worker-grant-1",
+        iat: now,
+        exp: now + MCP_REVOCATION_TTL_MS,
+      },
+      HMAC_SECRET,
+    );
+  }
+
+  it("revokes the complete linked Worker grant and confirms Convex cleanup", async () => {
+    const revokeGrant = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    const bridgeCalls: string[] = [];
+    stubConvexFetch((endpoint) => {
+      bridgeCalls.push(endpoint);
+      return Response.json({ ok: true });
+    });
+
+    const response = await browserFetch("https://mcp.pocketcircle.app/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revocationToken: await cleanupToken() }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ revoked: true });
+    expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
+    expect(bridgeCalls).toEqual(["/mcp/complete-revocation"]);
+    revokeGrant.mockRestore();
+  });
+
+  it("keeps Convex cleanup pending when Worker revocation fails", async () => {
+    const revokeGrant = vi
+      .spyOn(env.OAUTH_PROVIDER, "revokeGrant")
+      .mockRejectedValue(new Error("KV unavailable"));
+    const bridgeCalls: string[] = [];
+    stubConvexFetch((endpoint) => {
+      bridgeCalls.push(endpoint);
+      return Response.json({ ok: true });
+    });
+
+    const response = await browserFetch("https://mcp.pocketcircle.app/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revocationToken: await cleanupToken() }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: "worker_cleanup_unavailable",
+      retryable: true,
+    });
+    expect(bridgeCalls).toEqual([]);
+    revokeGrant.mockRestore();
+  });
+
+  it("rejects malformed cleanup capabilities and foreign browser origins", async () => {
+    const invalid = await browserFetch("https://mcp.pocketcircle.app/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revocationToken: "forged" }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const foreign = await SELF.fetch("https://mcp.pocketcircle.app/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://attacker.example" },
+      body: JSON.stringify({ revocationToken: "forged" }),
+    });
+    expect(foreign.status).toBe(403);
   });
 });
 
