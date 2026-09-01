@@ -181,15 +181,32 @@ type CategoryAnalyticsPageRow = {
   ref: string;
   name: string;
   taggedTotalMinor: number;
+  txnCount: number;
 };
 
 type CategoryAnalyticsCursor = {
+  revision: string;
   taggedTotalMinor: number;
   name: string;
   ref: string;
 };
 
-function compareCategoryAnalyticsSort(a: CategoryAnalyticsPageRow, b: CategoryAnalyticsPageRow) {
+function computeCategoryAnalyticsRankingRevision(rows: readonly CategoryAnalyticsPageRow[]) {
+  let hash = 2_166_136_261;
+  for (const row of rows) {
+    const chunk = `${row.ref}:${row.taggedTotalMinor}:${row.txnCount}`;
+    for (let index = 0; index < chunk.length; index++) {
+      hash ^= chunk.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+  }
+  return `${rows.length}:${hash >>> 0}`;
+}
+
+function compareCategoryAnalyticsSort(
+  a: Pick<CategoryAnalyticsPageRow, "taggedTotalMinor" | "name" | "ref">,
+  b: Pick<CategoryAnalyticsPageRow, "taggedTotalMinor" | "name" | "ref">,
+) {
   return (
     b.taggedTotalMinor - a.taggedTotalMinor ||
     a.name.localeCompare(b.name) ||
@@ -206,14 +223,17 @@ function parseCategoryAnalyticsCursor(cursor: string | null) {
     if (
       typeof parsed === "object" &&
       parsed !== null &&
+      "revision" in parsed &&
       "taggedTotalMinor" in parsed &&
       "name" in parsed &&
       "ref" in parsed &&
+      typeof parsed.revision === "string" &&
       typeof parsed.taggedTotalMinor === "number" &&
       typeof parsed.name === "string" &&
       typeof parsed.ref === "string"
     ) {
       return {
+        revision: parsed.revision,
         taggedTotalMinor: parsed.taggedTotalMinor,
         name: parsed.name,
         ref: parsed.ref,
@@ -225,8 +245,9 @@ function parseCategoryAnalyticsCursor(cursor: string | null) {
   return null;
 }
 
-function encodeCategoryAnalyticsCursor(row: CategoryAnalyticsPageRow) {
+function encodeCategoryAnalyticsCursor(row: CategoryAnalyticsPageRow, revision: string) {
   return JSON.stringify({
+    revision,
     taggedTotalMinor: row.taggedTotalMinor,
     name: row.name,
     ref: row.ref,
@@ -236,9 +257,16 @@ function encodeCategoryAnalyticsCursor(row: CategoryAnalyticsPageRow) {
 function paginateSortedCategoryAnalyticsRows<T extends CategoryAnalyticsPageRow>(
   rows: readonly T[],
   paginationOpts: PaginationOptions,
+  rankingRevision: string,
 ) {
   const numItems = Math.min(Math.max(paginationOpts.numItems, 1), 100);
   const cursor = parseCategoryAnalyticsCursor(paginationOpts.cursor);
+  if (paginationOpts.cursor && cursor === null) {
+    return { stale: true as const };
+  }
+  if (cursor !== null && cursor.revision !== rankingRevision) {
+    return { stale: true as const };
+  }
   const remaining = cursor
     ? rows.filter((row) => compareCategoryAnalyticsSort(cursor, row) < 0)
     : rows;
@@ -246,9 +274,11 @@ function paginateSortedCategoryAnalyticsRows<T extends CategoryAnalyticsPageRow>
   const isDone = page.length < numItems;
   const last = page.at(-1);
   return {
+    stale: false as const,
     page,
     isDone,
-    continueCursor: isDone || !last ? "" : encodeCategoryAnalyticsCursor(last),
+    continueCursor: isDone || !last ? "" : encodeCategoryAnalyticsCursor(last, rankingRevision),
+    rankingRevision,
   };
 }
 
@@ -1204,7 +1234,11 @@ export async function getCategoryAnalyticsForUser(
     taggedTotalMinor: row.taggedTotalMinor,
     txnCount: row.txnCount,
   }));
-  const page = paginateSortedCategoryAnalyticsRows(mcpRows, paginationOpts);
+  const rankingRevision = computeCategoryAnalyticsRankingRevision(mcpRows);
+  const page = paginateSortedCategoryAnalyticsRows(mcpRows, paginationOpts, rankingRevision);
+  if (page.stale) {
+    return { ok: false as const, error: "stale_pagination" as const };
+  }
   return {
     ok: true as const,
     value: {
@@ -1212,7 +1246,10 @@ export async function getCategoryAnalyticsForUser(
       type: args.type,
       nonAdditive: true as const,
       currency: analytics.currency,
-      ...page,
+      rankingRevision: page.rankingRevision,
+      page: page.page,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
     },
   };
 }

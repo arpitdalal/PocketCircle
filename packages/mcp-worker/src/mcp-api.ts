@@ -437,7 +437,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Category Analytics",
       description:
-        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. type selects expense or income Categories; month must be the caller's local YYYY-MM. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows) using a stable row cursor.",
+        "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. type selects expense or income Categories; month must be the caller's local YYYY-MM. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows) using a rankingRevision-tied cursor; restart from page 1 when stale_pagination is returned.",
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
       annotations: {

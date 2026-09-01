@@ -1405,6 +1405,7 @@ describe("MCP financial report reads", () => {
     if (!analytics.ok || !("value" in analytics)) {
       throw new Error("expected analytics");
     }
+    expect(analytics.value.rankingRevision).toMatch(/^\d+:\d+$/);
     expect(analytics.value.page.map((row) => row.name)).toEqual(["Dining", "Groceries"]);
     expect(analytics.value.page.every((row) => row.taggedTotalMinor === 2_500)).toBe(true);
     expect(JSON.stringify(analytics.value)).not.toMatch(/"categoryId":/);
@@ -1423,6 +1424,8 @@ describe("MCP financial report reads", () => {
     expect(analyticsFirstPage.value.page).toHaveLength(1);
     expect(analyticsFirstPage.value.isDone).toBe(false);
     expect(analyticsFirstPage.value.continueCursor).toMatch(/^\{/);
+    const firstCursor = JSON.parse(analyticsFirstPage.value.continueCursor);
+    expect(firstCursor.revision).toBe(analyticsFirstPage.value.rankingRevision);
 
     const analyticsSecondPage = await executeMcpRead(t, grant._id, {
       kind: "get_category_analytics",
@@ -1439,6 +1442,21 @@ describe("MCP financial report reads", () => {
     expect(analyticsSecondPage.value.page[0]?.name).not.toBe(
       analyticsFirstPage.value.page[0]?.name,
     );
+
+    const staleCursor = JSON.stringify({
+      revision: "0:0",
+      taggedTotalMinor: analyticsFirstPage.value.page[0]?.taggedTotalMinor,
+      name: analyticsFirstPage.value.page[0]?.name,
+      ref: analyticsFirstPage.value.page[0]?.ref,
+    });
+    const stalePage = await executeMcpRead(t, grant._id, {
+      kind: "get_category_analytics",
+      circleRef: eurRef,
+      month: "2026-06",
+      type: "expense",
+      paginationOpts: { numItems: 1, cursor: staleCursor },
+    });
+    expect(stalePage).toMatchObject({ ok: false, error: "stale_pagination" });
 
     const usdDashboard = await executeMcpRead(t, grant._id, {
       kind: "get_dashboard",

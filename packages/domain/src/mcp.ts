@@ -281,6 +281,8 @@ export const mcpCategoryAnalyticsSchema = z.object({
   /** Multi-Category Transactions contribute their full amount to each Category row. */
   nonAdditive: z.literal(true),
   currency: z.string().min(1).max(3),
+  /** Fingerprint of the full ranked row set; continuation cursors are valid only while this matches. */
+  rankingRevision: z.string().min(1).max(64),
   page: z.array(mcpCategoryAnalyticsRowSchema).max(100),
   isDone: z.boolean(),
   continueCursor: z.string().max(4096),
