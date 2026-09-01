@@ -179,7 +179,7 @@ interface MemberPageCursor {
   memberCursor: string | null;
 }
 
-function decodeMemberPageCursor(cursor: string): MemberPageCursor | null {
+function decodeMemberPageCursor(cursor: string) {
   try {
     const value: unknown = JSON.parse(cursor);
     if (typeof value !== "object" || value === null) {
@@ -204,7 +204,7 @@ function encodeMemberPageCursor(cursor: MemberPageCursor) {
   return JSON.stringify(cursor);
 }
 
-function decodeActiveMemberPageOffset(cursor: string): number | null {
+function decodeActiveMemberPageOffset(cursor: string) {
   try {
     const value: unknown = JSON.parse(cursor);
     if (
