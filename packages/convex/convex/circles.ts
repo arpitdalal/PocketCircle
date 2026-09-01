@@ -5,6 +5,7 @@ import {
   DEFAULT_COLOR_ID,
   initials,
   isSupportedCurrency,
+  LIMITS,
   MUTATION_ERRORS,
   mutationErrorData,
   parseCircleSettingsUpdate,
@@ -273,6 +274,9 @@ export const renameCircle = mutation({
     const name = args.name.trim();
     if (name === "") {
       throw new Error("Name is required");
+    }
+    if (name.length > LIMITS.circleNameMax) {
+      throw new Error("Name is too long");
     }
     if (name === access.circle.name) {
       return; // no-op: nothing changed, so nothing to record

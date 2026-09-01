@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { LIMITS, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -606,6 +606,25 @@ describe("renameCircle", () => {
         .withIndex("by_entity", (q) => q.eq("entityId", circleId))
         .collect();
       expect(history).toHaveLength(0);
+    });
+  });
+
+  it("rejects a name longer than the shared Circle-name limit", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId } = await t.run((ctx) =>
+      seedCircle(ctx, { setupCompletedAt: Date.now() }),
+    );
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(
+      t.mutation(api.circles.renameCircle, {
+        circleId,
+        name: "x".repeat(LIMITS.circleNameMax + 1),
+      }),
+    ).rejects.toThrow("Name is too long");
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(circleId))?.name).toBe("Trip");
     });
   });
 });
