@@ -633,6 +633,9 @@ export type McpSearchTransactionsArgs = {
 
 function resolveMcpSearchWindow(filters: McpSearchTransactionsArgs["filters"]) {
   if (filters?.month !== undefined) {
+    if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
+      return { ok: false as const };
+    }
     if (!isValidPlainMonth(filters.month)) {
       return { ok: false as const };
     }

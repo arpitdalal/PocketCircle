@@ -216,40 +216,61 @@ export type McpSearchTransactionsResult = z.infer<typeof mcpSearchTransactionsRe
 const mcpTransactionFilterTypeSchema = z.enum(["all", "expense", "income"]);
 const mcpTransactionLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
 
-export const mcpSearchTransactionsFiltersSchema = z.object({
-  query: z.string().max(LIMITS.transactionTitleMax).optional(),
-  type: mcpTransactionFilterTypeSchema.optional(),
-  status: mcpTransactionLifecycleFilterSchema.optional(),
-  categoryRefs: z.array(z.string().min(1).max(300)).max(20).optional(),
-  recordedByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
-  paidByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
-  dateFrom: z.string().max(10).optional(),
-  dateTo: z.string().max(10).optional(),
-  amountMin: z.number().int().min(0).optional(),
-  amountMax: z.number().int().min(0).optional(),
-  month: z.string().max(7).optional(),
-});
-
-const mcpSearchTransactionsOperationSchema = z
+export const mcpSearchTransactionsFiltersSchema = z
   .object({
-    kind: z.literal("search_transactions"),
-    circleRef: mcpCircleRefSchema,
-    filters: mcpSearchTransactionsFiltersSchema.optional(),
-    page: z.number().int().min(1).max(40).optional(),
-    pageSize: z.number().int().min(1).max(100).optional(),
-    paginationOpts: mcpPaginationOptsSchema.optional(),
+    query: z.string().max(LIMITS.transactionSearchQueryMax).optional(),
+    type: mcpTransactionFilterTypeSchema.optional(),
+    status: mcpTransactionLifecycleFilterSchema.optional(),
+    categoryRefs: z.array(z.string().min(1).max(300)).max(20).optional(),
+    recordedByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+    paidByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+    dateFrom: z.string().max(10).optional(),
+    dateTo: z.string().max(10).optional(),
+    amountMin: z.number().int().min(0).optional(),
+    amountMax: z.number().int().min(0).optional(),
+    month: z.string().max(7).optional(),
   })
   .superRefine((value, ctx) => {
-    if (
-      value.paginationOpts !== undefined &&
-      (value.page !== undefined || value.pageSize !== undefined)
-    ) {
+    if (value.month !== undefined && (value.dateFrom !== undefined || value.dateTo !== undefined)) {
       ctx.addIssue({
         code: "custom",
-        message: "search_transactions accepts either paginationOpts or page/pageSize, not both",
+        message: "Provide either month or dateFrom/dateTo, not both",
       });
     }
   });
+
+const mcpSearchTransactionsCoreSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  filters: mcpSearchTransactionsFiltersSchema.optional(),
+  page: z.number().int().min(1).max(40).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  paginationOpts: mcpPaginationOptsSchema.optional(),
+});
+
+function refineMcpSearchTransactionsPagination(
+  value: z.infer<typeof mcpSearchTransactionsCoreSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (
+    value.paginationOpts !== undefined &&
+    (value.page !== undefined || value.pageSize !== undefined)
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "search_transactions accepts either paginationOpts or page/pageSize, not both",
+    });
+  }
+}
+
+export const mcpSearchTransactionsInputSchema = mcpSearchTransactionsCoreSchema.superRefine(
+  refineMcpSearchTransactionsPagination,
+);
+
+const mcpSearchTransactionsOperationSchema = mcpSearchTransactionsCoreSchema
+  .extend({
+    kind: z.literal("search_transactions"),
+  })
+  .superRefine(refineMcpSearchTransactionsPagination);
 
 export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("get_current_user") }),

@@ -142,5 +142,27 @@ describe("MCP schemas", () => {
       },
     });
     expect(mixedPagination.success).toBe(false);
+
+    const mixedDateWindows = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { month: "2026-06", dateFrom: "2026-06-01" },
+      },
+    });
+    expect(mixedDateWindows.success).toBe(false);
+
+    const longSearchQuery = mcpOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:read"],
+      operation: {
+        kind: "search_transactions",
+        circleRef: "trip-c123",
+        filters: { query: "x".repeat(200) },
+      },
+    });
+    expect(longSearchQuery.success).toBe(true);
   });
 });

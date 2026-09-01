@@ -1245,6 +1245,14 @@ describe("MCP Transaction search and inspect reads", () => {
     });
     expect(invalidMonth).toMatchObject({ ok: false, error: "invalid_filters" });
 
+    const mixedDateWindows = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { month: "2026-06", dateFrom: "invalid" },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(mixedDateWindows).toMatchObject({ ok: false, error: "invalid_filters" });
+
     const mixedPagination = await executeMcpRead(t, grant._id, {
       kind: "search_transactions",
       circleRef,
