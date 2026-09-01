@@ -21,8 +21,8 @@ import { query } from "./_generated/server.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { toCategoryView } from "./categories.js";
 import { resolveCircleAccess } from "./guard.js";
-import { toMemberView } from "./members.js";
 import { monthDateRange } from "./monthActivity.js";
+import { toMemberView } from "./operations.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
 

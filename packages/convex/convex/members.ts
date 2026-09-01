@@ -1,39 +1,13 @@
 import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.js";
-import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import { mutation, query } from "./_generated/server.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { getCurrentUserOrNull } from "./auth.js";
 import { requireCircleAccess } from "./guard.js";
 import { circleEntity, recordEvent } from "./history.js";
-import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
+import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { notifyOwnershipTransferred, notifyRemovedFromCircle } from "./notify.js";
 import { listMembersForUser } from "./operations.js";
-
-/**
- * A Member shaped for the client. Reads effective identity (USR-3): app User
- * absence is an immediate Deleted Member tombstone (Display Name kept, no image)
- * even before durable cleanup materializes `status: "deleted"`.
- */
-export async function toMemberView(
-  ctx: QueryCtx | MutationCtx,
-  member: Doc<"members">,
-  currentMemberId: Doc<"members">["_id"],
-) {
-  const identity = await resolveMemberIdentity(ctx, member);
-  return {
-    id: member._id,
-    displayName: identity.displayName,
-    image: identity.image,
-    role: member.role,
-    status: identity.status,
-    joinedAt: member.joinedAt,
-    isSelf: member._id === currentMemberId,
-  };
-}
-
-export type MemberView = Awaited<ReturnType<typeof toMemberView>>;
 
 /**
  * Lists a Circle's Members, effective-active-only by default, Owner first

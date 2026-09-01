@@ -344,10 +344,11 @@ describe("MCP Circle, Member, and Circle History reads", () => {
           circleRef: string;
           paginationOpts?: { numItems: number; cursor: string | null };
         },
+    effectiveScopes = ["pocketcircle:read"],
   ) {
     return t.mutation(internal.mcpApproval.executeMcpReadOperation, {
       grantId,
-      effectiveScopes: ["pocketcircle:read"],
+      effectiveScopes,
       operation,
     });
   }
@@ -397,14 +398,25 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     const active = await execute(t, grant._id, {
       kind: "list_members",
       circleRef: String(circle.circleId),
-      paginationOpts: { numItems: 10, cursor: null },
+      paginationOpts: { numItems: 1, cursor: null },
     });
     expect(active).toMatchObject({ ok: true });
     if (!active.ok || !("value" in active)) {
       throw new Error("expected active member page");
     }
-    expect(active.value.page.map((member) => member.displayName)).toEqual([
-      "Olive Owner",
+    expect(active.value.page.map((member) => member.displayName)).toEqual(["Olive Owner"]);
+    expect(active.value.isDone).toBe(false);
+
+    const activeSecondPage = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      paginationOpts: { numItems: 1, cursor: active.value.continueCursor },
+    });
+    expect(activeSecondPage).toMatchObject({ ok: true });
+    if (!activeSecondPage.ok || !("value" in activeSecondPage)) {
+      throw new Error("expected second active member page");
+    }
+    expect(activeSecondPage.value.page.map((member) => member.displayName)).toEqual([
       "Maya Member",
     ]);
     expect(JSON.stringify(active.value)).not.toContain(owner.owner.email);
@@ -429,6 +441,21 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       "removed",
     );
     expect(maya.memberId).not.toBe(removed.memberId);
+
+    await t.run((ctx) => ctx.db.delete(maya.user._id));
+    const deleted = await execute(t, grant._id, {
+      kind: "list_members",
+      circleRef: String(circle.circleId),
+      includeHistorical: true,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(deleted).toMatchObject({ ok: true });
+    if (!deleted.ok || !("value" in deleted)) {
+      throw new Error("expected deleted member page");
+    }
+    expect(deleted.value.page.find((member) => member.id === maya.memberId)?.status).toBe(
+      "deleted",
+    );
   });
 
   it("keeps Circle History paginated and redacts Invitation email for non-Owners", async () => {
@@ -512,6 +539,14 @@ describe("MCP Circle, Member, and Circle History reads", () => {
     expect(deselected).toMatchObject({ ok: false, error: "circle_inaccessible" });
     expect(malformed).toMatchObject({ ok: false, error: "circle_inaccessible" });
 
+    const scopeDenied = await execute(
+      t,
+      grant._id,
+      { kind: "get_circle", circleRef: buildRef("Selected", selected.circleId) },
+      [],
+    );
+    expect(scopeDenied).toMatchObject({ ok: false, error: "insufficient_scope" });
+
     await t.run(async (ctx) => {
       const membership = await ctx.db
         .query("members")
@@ -528,6 +563,13 @@ describe("MCP Circle, Member, and Circle History reads", () => {
       paginationOpts: { numItems: 10, cursor: null },
     });
     expect(removed).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    const revoked = await execute(t, grant._id, {
+      kind: "get_circle",
+      circleRef: buildRef("Selected", selected.circleId),
+    });
+    expect(revoked).toMatchObject({ ok: false, error: "grant_unavailable" });
   });
 });
 

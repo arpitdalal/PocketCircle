@@ -123,21 +123,32 @@ export async function getMcpCircleForUser(
   return access ? toMcpCircleView(access.circle, access.isOwner) : null;
 }
 
-export function toMcpMemberView(
+export function toMcpMemberView(member: Awaited<ReturnType<typeof toMemberView>>) {
+  return {
+    ...member,
+    image: member.image ?? null,
+  };
+}
+
+/** The shared Member List projection used by web, search, and MCP reads. */
+export async function toMemberView(
+  ctx: OperationReader,
   member: Doc<"members">,
-  identity: Awaited<ReturnType<typeof resolveMemberIdentity>>,
   currentMemberId: Doc<"members">["_id"],
 ) {
+  const identity = await resolveMemberIdentity(ctx, member);
   return {
     id: member._id,
     displayName: identity.displayName,
-    image: identity.image ?? null,
+    image: identity.image,
     role: member.role,
     status: identity.status,
     joinedAt: member.joinedAt,
     isSelf: member._id === currentMemberId,
   };
 }
+
+export type MemberView = Awaited<ReturnType<typeof toMemberView>>;
 
 /** Shared explicit-User Member List read used by the web path. */
 export async function listMembersForUser(
@@ -169,19 +180,38 @@ export async function listMembersForUser(
   });
 
   return await Promise.all(
-    visible.map(async (member) => {
-      const identity = await resolveMemberIdentity(ctx, member);
-      return {
-        id: member._id,
-        displayName: identity.displayName,
-        image: identity.image,
-        role: member.role,
-        status: identity.status,
-        joinedAt: member.joinedAt,
-        isSelf: member._id === access.membership._id,
-      };
-    }),
+    visible.map((member) => toMemberView(ctx, member, access.membership._id)),
   );
+}
+
+interface MemberPageCursor {
+  ownerIncluded: boolean;
+  memberCursor: string | null;
+}
+
+function decodeMemberPageCursor(cursor: string): MemberPageCursor | null {
+  try {
+    const value: unknown = JSON.parse(cursor);
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+    if (!("ownerIncluded" in value) || typeof value.ownerIncluded !== "boolean") {
+      return null;
+    }
+    if (
+      !("memberCursor" in value) ||
+      (value.memberCursor !== null && typeof value.memberCursor !== "string")
+    ) {
+      return null;
+    }
+    return { ownerIncluded: value.ownerIncluded, memberCursor: value.memberCursor };
+  } catch {
+    return null;
+  }
+}
+
+function encodeMemberPageCursor(cursor: MemberPageCursor) {
+  return JSON.stringify(cursor);
 }
 
 /** Bounded explicit-User Member List read for MCP. */
@@ -198,27 +228,65 @@ export async function paginateMembersForUser(
     return emptyPage;
   }
 
-  const result = includeHistorical
-    ? await ctx.db
-        .query("members")
-        .withIndex("by_circle", (q) => q.eq("circleId", circleId))
-        .order("asc")
-        .paginate(paginationOpts)
+  const decodedCursor = paginationOpts.cursor
+    ? decodeMemberPageCursor(paginationOpts.cursor)
+    : { ownerIncluded: false, memberCursor: null };
+  if (!decodedCursor) {
+    return emptyPage;
+  }
+
+  const owner = decodedCursor.ownerIncluded
+    ? null
     : await ctx.db
         .query("members")
-        .withIndex("by_circle_and_status", (q) => q.eq("circleId", circleId).eq("status", "active"))
-        .order("asc")
-        .paginate(paginationOpts);
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", circleId).eq("userId", access.circle.ownerUserId),
+        )
+        .unique();
+  const ownerView = owner ? await toMemberView(ctx, owner, access.membership._id) : null;
+  const memberQuery = ctx.db
+    .query("members")
+    .withIndex("by_circle_and_role_joinedAt", (q) =>
+      q.eq("circleId", circleId).eq("role", "member"),
+    )
+    .order("asc");
 
-  const page = [];
+  if (ownerView && paginationOpts.numItems === 1 && !decodedCursor.ownerIncluded) {
+    const hasMembers = (await memberQuery.first()) !== null;
+    return {
+      page: [toMcpMemberView(ownerView)],
+      isDone: !hasMembers,
+      continueCursor: hasMembers
+        ? encodeMemberPageCursor({ ownerIncluded: true, memberCursor: null })
+        : "",
+    };
+  }
+
+  const memberItems =
+    ownerView && !decodedCursor.ownerIncluded
+      ? paginationOpts.numItems - 1
+      : paginationOpts.numItems;
+  const result = await memberQuery.paginate({
+    numItems: Math.max(1, memberItems),
+    cursor: decodedCursor.memberCursor,
+  });
+  const members = [];
   for (const member of result.page) {
     if (!includeHistorical && !(await isEffectiveActiveMember(ctx, member))) {
       continue;
     }
-    const identity = await resolveMemberIdentity(ctx, member);
-    page.push(toMcpMemberView(member, identity, access.membership._id));
+    members.push(toMcpMemberView(await toMemberView(ctx, member, access.membership._id)));
   }
-  return { ...result, page };
+  const page =
+    ownerView && !decodedCursor.ownerIncluded ? [toMcpMemberView(ownerView), ...members] : members;
+  const isDone = result.isDone;
+  return {
+    page,
+    isDone,
+    continueCursor: isDone
+      ? ""
+      : encodeMemberPageCursor({ ownerIncluded: true, memberCursor: result.continueCursor }),
+  };
 }
 
 /** Shared explicit-User Circle History read used by web and MCP. */
