@@ -16,6 +16,7 @@ import {
   verifyMcpApproval,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
+import type { z } from "zod";
 import { internal } from "./_generated/api.js";
 import type { Doc } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
@@ -38,6 +39,13 @@ import {
 } from "./operations.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
+
+function validateMcpResult<T>(schema: z.ZodType<T>, value: unknown) {
+  const parsed = schema.safeParse(value);
+  return parsed.success
+    ? { ok: true as const, value: parsed.data }
+    : { ok: false as const, error: "invalid_result" as const };
+}
 
 /**
  * Atomically claims a single-use approval token. The same durable Worker claim
@@ -299,10 +307,7 @@ export const executeMcpReadOperation = internalMutation({
         circleAuthz.value.access.circle,
         circleAuthz.value.access.isOwner,
       );
-      const parsed = mcpCircleViewSchema.safeParse(value);
-      return parsed.success
-        ? { ok: true as const, value: parsed.data }
-        : { ok: false as const, error: "invalid_result" as const };
+      return validateMcpResult(mcpCircleViewSchema, value);
     }
 
     if (args.operation.kind === "list_members") {
@@ -313,10 +318,7 @@ export const executeMcpReadOperation = internalMutation({
         args.operation.includeHistorical ?? false,
         args.operation.paginationOpts ?? { numItems: 50, cursor: null },
       );
-      const parsed = mcpPaginatedMembersSchema.safeParse(members);
-      return parsed.success
-        ? { ok: true as const, value: parsed.data }
-        : { ok: false as const, error: "invalid_result" as const };
+      return validateMcpResult(mcpPaginatedMembersSchema, members);
     }
 
     if (args.operation.kind === "list_circle_history") {
@@ -333,10 +335,7 @@ export const executeMcpReadOperation = internalMutation({
           actor: event.actor ? { ...event.actor, image: event.actor.image ?? null } : null,
         })),
       };
-      const parsed = mcpPaginatedCircleHistorySchema.safeParse(value);
-      return parsed.success
-        ? { ok: true as const, value: parsed.data }
-        : { ok: false as const, error: "invalid_result" as const };
+      return validateMcpResult(mcpPaginatedCircleHistorySchema, value);
     }
 
     return { ok: false as const, error: "invalid_operation" as const };

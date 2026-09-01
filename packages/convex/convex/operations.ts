@@ -14,7 +14,7 @@
  * Never match a User by email.
  */
 
-import { buildRef, parseRef } from "@pocketcircle/domain";
+import { buildRef, CIRCLE_CAPACITY_LIMIT, parseRef } from "@pocketcircle/domain";
 import type { PaginationOptions } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { resolveCircleAccessForUser } from "./guard.js";
@@ -200,6 +200,25 @@ function encodeMemberPageCursor(cursor: MemberPageCursor) {
   return JSON.stringify(cursor);
 }
 
+function decodeActiveMemberPageOffset(cursor: string): number | null {
+  try {
+    const value: unknown = JSON.parse(cursor);
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("offset" in value) ||
+      typeof value.offset !== "number" ||
+      !Number.isInteger(value.offset) ||
+      value.offset < 0
+    ) {
+      return null;
+    }
+    return value.offset;
+  } catch {
+    return null;
+  }
+}
+
 /** Bounded explicit-User Member List read for MCP. */
 export async function paginateMembersForUser(
   ctx: OperationReader,
@@ -212,6 +231,47 @@ export async function paginateMembersForUser(
   const emptyPage = { page: [], isDone: true, continueCursor: "" };
   if (!access) {
     return emptyPage;
+  }
+
+  if (!includeHistorical) {
+    const owner = await ctx.db
+      .query("members")
+      .withIndex("by_circle_and_user", (q) =>
+        q.eq("circleId", circleId).eq("userId", access.circle.ownerUserId),
+      )
+      .unique();
+    const ownerView =
+      owner && (await isEffectiveActiveMember(ctx, owner))
+        ? await toMemberView(ctx, owner, access.membership._id)
+        : null;
+    const activeMembers = await ctx.db
+      .query("members")
+      .withIndex("by_circle_and_role_status_joinedAt", (q) =>
+        q.eq("circleId", circleId).eq("role", "member").eq("status", "active"),
+      )
+      .order("asc")
+      .take(CIRCLE_CAPACITY_LIMIT);
+    const memberViews = [];
+    for (const member of activeMembers) {
+      if (
+        member.userId === access.circle.ownerUserId ||
+        !(await isEffectiveActiveMember(ctx, member))
+      ) {
+        continue;
+      }
+      memberViews.push(toMcpMemberView(await toMemberView(ctx, member, access.membership._id)));
+    }
+    const allMembers = ownerView ? [toMcpMemberView(ownerView), ...memberViews] : memberViews;
+    const offset = paginationOpts.cursor ? decodeActiveMemberPageOffset(paginationOpts.cursor) : 0;
+    if (offset === null) {
+      return emptyPage;
+    }
+    const end = Math.min(offset + paginationOpts.numItems, allMembers.length);
+    return {
+      page: allMembers.slice(offset, end),
+      isDone: end >= allMembers.length,
+      continueCursor: end < allMembers.length ? JSON.stringify({ offset: end }) : "",
+    };
   }
 
   const decodedCursor = paginationOpts.cursor

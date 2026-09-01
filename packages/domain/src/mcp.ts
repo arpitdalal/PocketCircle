@@ -111,17 +111,17 @@ export const mcpPaginationOptsSchema = z.object({
 
 export const mcpCircleRefSchema = z.string().min(1).max(300);
 
-export const mcpPaginatedMembersSchema = z.object({
-  page: z.array(mcpMemberViewSchema).max(100),
-  isDone: z.boolean(),
-  continueCursor: z.string(),
-});
+function mcpPaginatedSchema<T extends z.ZodType>(itemSchema: T) {
+  return z.object({
+    page: z.array(itemSchema).max(100),
+    isDone: z.boolean(),
+    continueCursor: z.string().max(4096),
+  });
+}
 
-export const mcpPaginatedCircleHistorySchema = z.object({
-  page: z.array(mcpCircleHistoryEventSchema).max(100),
-  isDone: z.boolean(),
-  continueCursor: z.string(),
-});
+export const mcpPaginatedMembersSchema = mcpPaginatedSchema(mcpMemberViewSchema);
+
+export const mcpPaginatedCircleHistorySchema = mcpPaginatedSchema(mcpCircleHistoryEventSchema);
 
 export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("get_current_user") }),
