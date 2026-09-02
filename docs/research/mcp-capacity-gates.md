@@ -26,7 +26,7 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 | `MCP_WRITE_RATE_LIMITER` | 60s | 30 | `…\|t:write` |
 | `MCP_DESTRUCTIVE_RATE_LIMITER` | 60s | 10 | `…\|t:destructive` |
 
-Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth surfaces always apply an IP-only bucket first so rotating a public `clientId` cannot bypass the cap; composite client+IP buckets remain for per-client fairness. Failed-auth counts only presented-but-invalid credentials (not bare WWW-Authenticate challenges), and Cache API pre-blocks apply to both `/mcp` and `/token`. `/authorize` gates the IP bucket before `parseAuthRequest` and redirects validated clients with `temporarily_unavailable` when throttled. Authenticated `/mcp` bodies are size-checked before OAuth dispatch.
+Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth surfaces always apply an IP-only bucket first so rotating a public `clientId` cannot bypass the cap; composite client+IP buckets remain for per-client fairness. Failed-auth counts only presented-but-invalid credentials (not bare WWW-Authenticate challenges or missing bearer tokens), and Cache API pre-blocks apply to `/mcp`, `/token`, and `GET /authorize`. `/authorize` gates the IP bucket before `parseAuthRequest` and redirects validated clients with `temporarily_unavailable` when throttled. Authenticated `/mcp` bodies are size-checked before OAuth dispatch; scope-denied tool calls still consume the authenticated class bucket.
 
 ## Request size
 
@@ -46,7 +46,7 @@ That reports p50/p95 **wall time** for the local path. It is a regression canary
 
 ### Local baseline (key + body-limit path)
 
-Recorded by `capacity.profile.test.ts` in CI/dev: p95 wall time must stay **&lt; 5 ms** on this path so the remaining CPU budget covers OAuth unwrap + Convex fetch.
+Recorded by `capacity.profile.test.ts` in CI/dev: compare p50/p95 locally; target **&lt; 5 ms** p95 on this path in a quiet dev machine so the remaining CPU budget covers OAuth unwrap + Convex fetch. The test logs timings only — it does not assert wall-clock thresholds (CI hosts flake).
 
 ### Modeled Convex Free load (per authenticated tool call)
 

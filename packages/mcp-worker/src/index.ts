@@ -73,10 +73,20 @@ export default {
     const url = new URL(request.url);
     const ip = clientIpOf(request) ?? "unknown";
 
-    // Skip OAuth/KV once failed-auth already throttled this IP (mcp + token).
-    if ((url.pathname === "/mcp" || url.pathname === "/token") && (await isFailedAuthBlocked(ip))) {
+    // Skip OAuth/KV once failed-auth already throttled this IP.
+    const failedAuthPreBlock =
+      url.pathname === "/mcp" ||
+      url.pathname === "/token" ||
+      (url.pathname === "/authorize" && request.method === "GET");
+    if (failedAuthPreBlock && (await isFailedAuthBlocked(ip))) {
+      const event =
+        url.pathname === "/token"
+          ? "token_exchange"
+          : url.pathname === "/authorize"
+            ? "authorize_start"
+            : "mcp_request";
       mcpLog({
-        event: url.pathname === "/token" ? "token_exchange" : "mcp_request",
+        event,
         outcome: "rate_limited",
         status: 429,
         toolClass: "failed_auth",

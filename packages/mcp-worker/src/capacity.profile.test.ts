@@ -34,7 +34,7 @@ function nearLimitJsonRpcBody(id: number, toolName: string) {
 }
 
 describe("capacity profile", () => {
-  it("keeps local body-limit + rate-limit key work well under the 10ms Workers Free CPU budget", async () => {
+  it("reports local body-limit + rate-limit key timing (informational, not a CI gate)", async () => {
     const samples: number[] = [];
     for (let i = 0; i < 200; i++) {
       const toolName = i % 2 === 0 ? "get_circle" : "archive_transaction";

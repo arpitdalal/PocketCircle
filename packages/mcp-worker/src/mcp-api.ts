@@ -980,24 +980,26 @@ export function createMcpApiHandler(env: Env) {
           : ("read" as const);
       const caller = await resolveAuthorizedCaller(env, request);
       if (!caller.ok) {
-        const withinFailedAuth = await assertWithinRateLimit(
-          envArg,
-          "failed_auth",
-          unauthenticatedRateLimitMaterial({
-            className: "failed_auth",
-            ip: clientIpOf(request),
-          }),
-        );
-        if (!withinFailedAuth.ok) {
-          await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
-          mcpLog({
-            event: "mcp_request",
-            outcome: "rate_limited",
-            status: 429,
-            toolClass: "failed_auth",
-            durationMs: performance.now() - started,
-          });
-          return rateLimitedResponse();
+        if (caller.error !== "missing_bearer_token") {
+          const withinFailedAuth = await assertWithinRateLimit(
+            envArg,
+            "failed_auth",
+            unauthenticatedRateLimitMaterial({
+              className: "failed_auth",
+              ip: clientIpOf(request),
+            }),
+          );
+          if (!withinFailedAuth.ok) {
+            await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
+            mcpLog({
+              event: "mcp_request",
+              outcome: "rate_limited",
+              status: 429,
+              toolClass: "failed_auth",
+              durationMs: performance.now() - started,
+            });
+            return rateLimitedResponse();
+          }
         }
         mcpLog({
           event: "mcp_request",
@@ -1007,19 +1009,6 @@ export function createMcpApiHandler(env: Env) {
           durationMs: performance.now() - started,
         });
       } else {
-        if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
-          const requiredScope =
-            toolClass === "read" ? ("pocketcircle:read" as const) : ("pocketcircle:write" as const);
-          if (!caller.value.effectiveScopes.includes(requiredScope)) {
-            return bearerAuthChallengeResponse(
-              new OAuthError(
-                OAuthErrorCode.InsufficientScope,
-                `The access token does not have required scope ${requiredScope}`,
-              ),
-              { requiredScopes: [requiredScope] },
-            );
-          }
-        }
         const withinLimit = await assertWithinRateLimit(
           envArg,
           rateClass,
@@ -1039,6 +1028,19 @@ export function createMcpApiHandler(env: Env) {
             durationMs: performance.now() - started,
           });
           return rateLimitedResponse();
+        }
+        if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
+          const requiredScope =
+            toolClass === "read" ? ("pocketcircle:read" as const) : ("pocketcircle:write" as const);
+          if (!caller.value.effectiveScopes.includes(requiredScope)) {
+            return bearerAuthChallengeResponse(
+              new OAuthError(
+                OAuthErrorCode.InsufficientScope,
+                `The access token does not have required scope ${requiredScope}`,
+              ),
+              { requiredScopes: [requiredScope] },
+            );
+          }
         }
       }
 
