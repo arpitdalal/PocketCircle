@@ -5,6 +5,7 @@ import {
   assertWithinRateLimit,
   clientIpOf,
   oauthRateLimitedResponse,
+  rateLimitedResponse,
   unauthenticatedRateLimitKey,
 } from "./rate-limit.js";
 import { mcpLog } from "./safe-log.js";
@@ -22,6 +23,27 @@ function clientIdFromTokenForm(request: Request) {
       return typeof clientId === "string" && clientId.length > 0 ? clientId : undefined;
     })
     .catch(() => undefined);
+}
+
+async function enforceFailedAuthLimit(env: Env, request: Request, options: { event: string }) {
+  const withinFailedAuth = await assertWithinRateLimit(
+    env,
+    "failed_auth",
+    unauthenticatedRateLimitKey({
+      className: "failed_auth",
+      ip: clientIpOf(request),
+    }),
+  );
+  if (!withinFailedAuth.ok) {
+    mcpLog({
+      event: options.event,
+      outcome: "rate_limited",
+      status: 429,
+      toolClass: "failed_auth",
+    });
+    return rateLimitedResponse();
+  }
+  return null;
 }
 
 export default {
@@ -53,29 +75,23 @@ export default {
       }
       const response = await provider.fetch(request, env, ctx);
       if (response.status === 400 || response.status === 401) {
-        const withinFailedAuth = await assertWithinRateLimit(
-          env,
-          "failed_auth",
-          unauthenticatedRateLimitKey({
-            className: "failed_auth",
-            clientId,
-            ip: clientIpOf(request),
-          }),
-        );
-        if (!withinFailedAuth.ok) {
-          mcpLog({
-            event: "token_exchange",
-            outcome: "rate_limited",
-            status: 429,
-            toolClass: "failed_auth",
-          });
-          return oauthRateLimitedResponse();
+        const limited = await enforceFailedAuthLimit(env, request, { event: "token_exchange" });
+        if (limited) {
+          return limited;
         }
       }
       return response;
     }
 
-    return provider.fetch(request, env, ctx);
+    const response = await provider.fetch(request, env, ctx);
+    // Provider rejects invalid bearers before apiHandler — count those here (#331).
+    if (url.pathname === "/mcp" && response.status === 401) {
+      const limited = await enforceFailedAuthLimit(env, request, { event: "mcp_request" });
+      if (limited) {
+        return limited;
+      }
+    }
+    return response;
   },
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
     await createOAuthProvider(env, defaultHandler).purgeExpiredData(env);

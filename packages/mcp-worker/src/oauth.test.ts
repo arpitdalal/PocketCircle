@@ -1644,6 +1644,38 @@ describe("MCP tools execution", () => {
     expect(await res.json()).toEqual({ error: "payload_too_large" });
   });
 
+  it("returns 429 when failed authentication exceeds its rate limit", async () => {
+    const ip = "198.51.100.77";
+    const sendInvalid = (id: number) =>
+      SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+        method: "POST",
+        headers: {
+          host: "mcp.pocketcircle.app",
+          authorization: "Bearer not-a-real-token",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "get_current_user",
+          "cf-connecting-ip": ip,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "get_current_user", arguments: {} },
+        }),
+      });
+
+    for (let i = 0; i < 30; i++) {
+      const res = await sendInvalid(i + 1);
+      expect(res.status).toBe(401);
+    }
+    const throttled = await sendInvalid(31);
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
   it("calls update_transaction and returns the updated transaction", async () => {
     const { accessToken, grantId } = await obtainAccessToken([
       "pocketcircle:read",
