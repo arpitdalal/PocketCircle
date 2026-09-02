@@ -604,8 +604,6 @@ export const mcpArchiveTransactionInputSchema = z.object({
 export type McpArchiveTransactionInput = z.infer<typeof mcpArchiveTransactionInputSchema>;
 
 const mcpLifecycleTransactionViewSchema = z.object({
-  ref: mcpTransactionRefSchema,
-  title: z.string(),
   status: z.enum(["active", "archived"]),
 });
 

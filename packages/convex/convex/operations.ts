@@ -874,14 +874,11 @@ export function toMcpTransactionDetailView(view: TransactionDetailView, currency
   };
 }
 
-/** Write-only lifecycle confirmation: ref, title, and status only (no readable fields). */
+/** Write-only lifecycle confirmation: bare ID ref and status only (no readable fields). */
 export function toMcpLifecycleTransactionView(transaction: Doc<"transactions">) {
-  const ref = buildRef(transaction.title, transaction._id);
   return {
-    ref,
+    ref: transaction._id,
     transaction: {
-      ref,
-      title: transaction.title,
       status: transaction.status,
     },
   };

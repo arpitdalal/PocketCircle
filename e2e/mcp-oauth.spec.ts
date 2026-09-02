@@ -459,7 +459,7 @@ test.describe("local MCP OAuth", () => {
     expect(archiveRes.status()).toBe(200);
     const archivedContent = mcpStructuredContent(await archiveRes.json());
     expect(archivedContent).toMatchObject({
-      transaction: expect.objectContaining({ title: updatedTitle, status: "archived" }),
+      transaction: expect.objectContaining({ status: "archived" }),
     });
 
     const ledgerAfterArchive = await postMcp("tools/call", 9, {
@@ -485,7 +485,7 @@ test.describe("local MCP OAuth", () => {
     expect(restoreRes.status()).toBe(200);
     const restoredContent = mcpStructuredContent(await restoreRes.json());
     expect(restoredContent).toMatchObject({
-      transaction: expect.objectContaining({ title: updatedTitle, status: "active" }),
+      transaction: expect.objectContaining({ status: "active" }),
     });
 
     const ledgerAfterRestore = await postMcp("tools/call", 11, {

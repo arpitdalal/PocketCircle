@@ -1591,10 +1591,8 @@ describe("MCP tools execution", () => {
         return Response.json({
           ok: true,
           value: {
-            ref: "coffee-txn1",
+            ref: "txn1",
             transaction: {
-              ref: "coffee-txn1",
-              title: "Coffee",
               status: "archived",
             },
           },
@@ -1661,10 +1659,8 @@ describe("MCP tools execution", () => {
         return Response.json({
           ok: true,
           value: {
-            ref: "coffee-txn1",
+            ref: "txn1",
             transaction: {
-              ref: "coffee-txn1",
-              title: "Coffee",
               status: "active",
             },
           },

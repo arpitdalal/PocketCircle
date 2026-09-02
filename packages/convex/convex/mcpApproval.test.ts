@@ -2892,7 +2892,7 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(body).toMatchObject({
       ok: true,
       value: {
-        transaction: expect.objectContaining({ title: "Bridge lunch", status: expectedStatus }),
+        transaction: expect.objectContaining({ status: expectedStatus }),
       },
     });
     expect(JSON.stringify(body)).not.toContain("amountMinorUnits");
@@ -2908,7 +2908,7 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(body).toMatchObject({
       ok: true,
       value: {
-        transaction: expect.objectContaining({ title: "Bridge lunch", status: expectedStatus }),
+        transaction: expect.objectContaining({ status: expectedStatus }),
       },
     });
     expect(JSON.stringify(body)).not.toContain("amountMinorUnits");
@@ -3678,7 +3678,7 @@ describe("MCP archive_transaction write", () => {
     );
     expect(archived).toMatchObject({
       ok: true,
-      value: { transaction: { status: "archived", title: "Member lunch" } },
+      value: { transaction: { status: "archived" } },
     });
 
     const ledgerAfter = await executeMcpRead(t, ownerGrant._id, {
@@ -3940,7 +3940,7 @@ describe("MCP restore_transaction write", () => {
     });
     expect(restored).toMatchObject({
       ok: true,
-      value: { transaction: { status: "active", title: "Team lunch" } },
+      value: { transaction: { status: "active" } },
     });
 
     const ledgerAfter = await executeMcpRead(t, grant._id, {

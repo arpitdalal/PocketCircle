@@ -250,7 +250,7 @@ export async function requireTransactionAccess(
 export function authorizedTransactionFromAccess(
   access: AuthorizedCircle,
   transaction: Doc<"transactions">,
-): AuthorizedTransaction {
+) {
   const isRecorder = transaction.recordedByMemberId === access.membership._id;
   return { ...access, transaction, isRecorder, canArchive: isRecorder || access.isOwner };
 }
