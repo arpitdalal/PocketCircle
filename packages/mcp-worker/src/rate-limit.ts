@@ -1,3 +1,4 @@
+import { sha256Hex } from "@pocketcircle/domain";
 import type { Env } from "./env.js";
 
 export type McpToolClass = "read" | "write" | "destructive";
@@ -50,10 +51,10 @@ export function toolClassOf(toolName: string) {
 }
 
 /**
- * Stable authenticated key: User + client + grant + tool-class.
- * Never puts bearer tokens or financial payloads into the key.
+ * Stable authenticated material: User + client + grant + tool-class.
+ * Hashed before `limit()` — Cloudflare keys max out at 64 bytes.
  */
-export function authenticatedRateLimitKey(parts: {
+export function authenticatedRateLimitMaterial(parts: {
   userId: string;
   clientId: string;
   grantId: string;
@@ -62,16 +63,16 @@ export function authenticatedRateLimitKey(parts: {
   return `u:${parts.userId}|c:${parts.clientId}|g:${parts.grantId}|t:${parts.toolClass}`;
 }
 
-/** Pre-auth surfaces: client when known, else connecting IP. */
-export function unauthenticatedRateLimitKey(parts: {
+/**
+ * Pre-auth material: always include IP; include client when known.
+ * Hashing happens in assertWithinRateLimit.
+ */
+export function unauthenticatedRateLimitMaterial(parts: {
   className: Exclude<McpRateLimitClass, McpToolClass>;
   clientId?: string;
   ip?: string;
 }) {
-  if (parts.clientId) {
-    return `${parts.className}|c:${parts.clientId}`;
-  }
-  return `${parts.className}|ip:${parts.ip ?? "unknown"}`;
+  return `${parts.className}|c:${parts.clientId ?? "-"}|ip:${parts.ip ?? "unknown"}`;
 }
 
 function limiterFor(env: Env, className: McpRateLimitClass) {
@@ -91,7 +92,13 @@ function limiterFor(env: Env, className: McpRateLimitClass) {
   }
 }
 
-export async function assertWithinRateLimit(env: Env, className: McpRateLimitClass, key: string) {
+/** Cloudflare Rate Limiting keys are capped at 64 bytes — always hash. */
+export async function assertWithinRateLimit(
+  env: Env,
+  className: McpRateLimitClass,
+  material: string,
+) {
+  const key = await sha256Hex(material);
   const { success } = await limiterFor(env, className).limit({ key });
   if (!success) {
     return { ok: false as const };
@@ -122,5 +129,23 @@ export function oauthRateLimitedResponse() {
 export function clientIpOf(request: Request) {
   return (
     request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? undefined
+  );
+}
+
+const FAILED_AUTH_BLOCK_PREFIX = "https://mcp.pocketcircle.internal/rl/failed-auth/";
+
+function failedAuthBlockRequest(ip: string) {
+  return new Request(`${FAILED_AUTH_BLOCK_PREFIX}${encodeURIComponent(ip)}`);
+}
+
+/** Cache-API short block so already-throttled IPs skip OAuth/KV work. */
+export async function isFailedAuthBlocked(ip: string) {
+  return Boolean(await caches.default.match(failedAuthBlockRequest(ip)));
+}
+
+export async function markFailedAuthBlocked(ip: string) {
+  await caches.default.put(
+    failedAuthBlockRequest(ip),
+    new Response("1", { headers: { "Cache-Control": "max-age=60" } }),
   );
 }

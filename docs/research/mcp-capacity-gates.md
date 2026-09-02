@@ -17,16 +17,16 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 
 ## Rate-limit bindings (#331)
 
-| Binding | Period | Limit | Key |
+| Binding | Period | Limit | Key material (SHA-256 before `limit()`) |
 | --- | --- | --- | --- |
-| `MCP_AUTH_RATE_LIMITER` | 60s | 120 | `authorization\|c:{clientId}` (else IP) |
-| `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | `token\|c:{clientId}` (else IP) |
-| `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:{clientId}` or IP |
+| `MCP_AUTH_RATE_LIMITER` | 60s | 120 | `authorization\|c:{clientId}\|ip:{ip}` |
+| `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | `token\|c:{clientId}\|ip:{ip}` |
+| `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:-\\|ip:{ip}` (+ Cache API block for already-throttled IPs) |
 | `MCP_READ_RATE_LIMITER` | 60s | 120 | `u:{user}\|c:{client}\|g:{grant}\|t:read` |
 | `MCP_WRITE_RATE_LIMITER` | 60s | 30 | `…\|t:write` |
 | `MCP_DESTRUCTIVE_RATE_LIMITER` | 60s | 10 | `…\|t:destructive` |
 
-Counters are location-local and eventually consistent. They exist to protect shared Free quotas, not for billing.
+Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth buckets always include caller IP so a public `clientId` cannot be rotated or shared as a DoS vector.
 
 ## Request size
 

@@ -36,6 +36,51 @@ export function contentLengthExceeds(headers: Headers, maxBytes: number) {
 export function utf8ByteLength(text: string) {
   return new TextEncoder().encode(text).byteLength;
 }
+
+/** Token endpoint forms stay small — bound before formData() (#331 / Codex). */
+export const MCP_TOKEN_MAX_BODY_BYTES = 8_192;
+
+/**
+ * Streams a request body up to `maxBytes`. Returns null when oversized.
+ * Empty body → empty string.
+ */
+export async function readBoundedUtf8(request: Request, maxBytes: number) {
+  if (contentLengthExceeds(request.headers, maxBytes)) {
+    return null;
+  }
+  if (!request.body) {
+    return "";
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+    size += chunk.value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(chunk.value);
+  }
+  if (size === 0) {
+    return "";
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
 /** Bounded Worker cleanup retries after Convex-first revocation (#330). */
 export const MCP_WORKER_CLEANUP_MAX_ATTEMPTS = 5;
 export const MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS = 60_000;

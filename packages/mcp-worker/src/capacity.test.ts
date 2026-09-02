@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-  authenticatedRateLimitKey,
+  authenticatedRateLimitMaterial,
   toolClassOf,
-  unauthenticatedRateLimitKey,
+  unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog, scrubMcpLogRecord, scrubMcpLogText } from "./safe-log.js";
 import { MCP_SERVER_INSTRUCTIONS } from "./server-instructions.js";
 
 describe("rate-limit keys", () => {
-  it("builds authenticated keys from user, client, grant, and tool class", () => {
+  it("builds authenticated material from user, client, grant, and tool class", () => {
     expect(
-      authenticatedRateLimitKey({
+      authenticatedRateLimitMaterial({
         userId: "user-1",
         clientId: "client-1",
         grantId: "grant-1",
@@ -19,20 +19,20 @@ describe("rate-limit keys", () => {
     ).toBe("u:user-1|c:client-1|g:grant-1|t:destructive");
   });
 
-  it("prefers client over IP for unauthenticated classes", () => {
+  it("always includes IP and optional client for unauthenticated classes", () => {
     expect(
-      unauthenticatedRateLimitKey({
+      unauthenticatedRateLimitMaterial({
         className: "authorization",
         clientId: "client-1",
         ip: "1.2.3.4",
       }),
-    ).toBe("authorization|c:client-1");
+    ).toBe("authorization|c:client-1|ip:1.2.3.4");
     expect(
-      unauthenticatedRateLimitKey({
+      unauthenticatedRateLimitMaterial({
         className: "failed_auth",
         ip: "1.2.3.4",
       }),
-    ).toBe("failed_auth|ip:1.2.3.4");
+    ).toBe("failed_auth|c:-|ip:1.2.3.4");
   });
 
   it("classifies archive tools as destructive", () => {

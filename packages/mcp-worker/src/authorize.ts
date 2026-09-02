@@ -20,8 +20,9 @@ import {
 import {
   assertWithinRateLimit,
   clientIpOf,
+  markFailedAuthBlocked,
   rateLimitedResponse,
-  unauthenticatedRateLimitKey,
+  unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpResourceUri, requestOrigin } from "./reachable.js";
 import { mcpLog } from "./safe-log.js";
@@ -101,12 +102,13 @@ async function handleAuthorizeStart(request: Request, env: Env) {
       const withinFailedAuth = await assertWithinRateLimit(
         env,
         "failed_auth",
-        unauthenticatedRateLimitKey({
+        unauthenticatedRateLimitMaterial({
           className: "failed_auth",
           ip: clientIpOf(request),
         }),
       );
       if (!withinFailedAuth.ok) {
+        await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
         mcpLog({
           event: "authorize_start",
           outcome: "rate_limited",
@@ -123,7 +125,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
   const withinLimit = await assertWithinRateLimit(
     env,
     "authorization",
-    unauthenticatedRateLimitKey({
+    unauthenticatedRateLimitMaterial({
       className: "authorization",
       clientId: authRequest.clientId,
       ip: clientIpOf(request),

@@ -54,11 +54,12 @@ import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
 import {
   assertWithinRateLimit,
-  authenticatedRateLimitKey,
+  authenticatedRateLimitMaterial,
   clientIpOf,
+  markFailedAuthBlocked,
   rateLimitedResponse,
   toolClassOf,
-  unauthenticatedRateLimitKey,
+  unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog } from "./safe-log.js";
 import { MCP_SERVER_INSTRUCTIONS } from "./server-instructions.js";
@@ -977,12 +978,13 @@ export function createMcpApiHandler(env: Env) {
           const withinFailedAuth = await assertWithinRateLimit(
             envArg,
             "failed_auth",
-            unauthenticatedRateLimitKey({
+            unauthenticatedRateLimitMaterial({
               className: "failed_auth",
               ip: clientIpOf(request),
             }),
           );
           if (!withinFailedAuth.ok) {
+            await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
             mcpLog({
               event: "mcp_request",
               outcome: "rate_limited",
@@ -1014,7 +1016,7 @@ export function createMcpApiHandler(env: Env) {
           const withinLimit = await assertWithinRateLimit(
             envArg,
             toolClass,
-            authenticatedRateLimitKey({
+            authenticatedRateLimitMaterial({
               userId: caller.value.userId,
               clientId: caller.value.clientId,
               grantId: caller.value.grantId,

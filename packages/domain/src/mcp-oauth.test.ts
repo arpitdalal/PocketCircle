@@ -11,6 +11,7 @@ import {
   type McpWorkerAssertionPayload,
   parseMcpWorkerJwks,
   parseMcpWorkerPrivateJwk,
+  readBoundedUtf8,
   sha256Hex,
   signMcpApproval,
   signMcpHandoff,
@@ -327,5 +328,18 @@ describe("MCP JSON body ceilings", () => {
   it("counts UTF-8 bytes for oversized body checks", () => {
     expect(utf8ByteLength("é")).toBe(2);
     expect(utf8ByteLength("x".repeat(MCP_JSON_MAX_BODY_BYTES))).toBe(MCP_JSON_MAX_BODY_BYTES);
+  });
+
+  it("stream-limits bodies without Content-Length", async () => {
+    const oversized = new Request("https://example.test", {
+      method: "POST",
+      body: "x".repeat(MCP_JSON_MAX_BODY_BYTES + 1),
+    });
+    expect(await readBoundedUtf8(oversized, MCP_JSON_MAX_BODY_BYTES)).toBeNull();
+    const ok = new Request("https://example.test", {
+      method: "POST",
+      body: "hello",
+    });
+    expect(await readBoundedUtf8(ok, MCP_JSON_MAX_BODY_BYTES)).toBe("hello");
   });
 });

@@ -5,8 +5,8 @@ import {
   type McpWriteOperationBody,
   mcpOperationBodySchema,
   mcpReadOperationBodySchema,
+  readBoundedUtf8,
   sha256Hex,
-  utf8ByteLength,
   verifyMcpWorkerAssertion,
 } from "@pocketcircle/domain";
 import { httpRouter } from "convex/server";
@@ -60,8 +60,8 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
   if (contentLengthExceeds(request.headers, MCP_JSON_MAX_BODY_BYTES)) {
     return WORKER_PAYLOAD_TOO_LARGE;
   }
-  const bodyText = await request.text();
-  if (utf8ByteLength(bodyText) > MCP_JSON_MAX_BODY_BYTES) {
+  const bodyText = await readBoundedUtf8(request, MCP_JSON_MAX_BODY_BYTES);
+  if (bodyText === null) {
     return WORKER_PAYLOAD_TOO_LARGE;
   }
   const assertion = await verifyMcpWorkerAssertion(token, jwks, Date.now());

@@ -1,20 +1,21 @@
 import { defaultHandler } from "./authorize.js";
+import { assertClonedBodyWithinLimit, MCP_TOKEN_MAX_BODY_BYTES } from "./bounded-body.js";
 import type { Env } from "./env.js";
 import { createOAuthProvider } from "./oauth-options.js";
 import {
   assertWithinRateLimit,
   clientIpOf,
+  isFailedAuthBlocked,
+  markFailedAuthBlocked,
   oauthRateLimitedResponse,
   rateLimitedResponse,
-  unauthenticatedRateLimitKey,
+  unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog } from "./safe-log.js";
 
 export { HandoffStore } from "./handoff-store.js";
 
 function clientIdFromTokenForm(request: Request) {
-  // OAuth token requests are application/x-www-form-urlencoded; clone so the
-  // provider can still read the body.
   return request
     .clone()
     .formData()
@@ -25,23 +26,29 @@ function clientIdFromTokenForm(request: Request) {
     .catch(() => undefined);
 }
 
-async function enforceFailedAuthLimit(env: Env, request: Request, options: { event: string }) {
+async function enforceFailedAuthLimit(
+  env: Env,
+  request: Request,
+  options: { event: string; oauthShape: boolean },
+) {
+  const ip = clientIpOf(request) ?? "unknown";
   const withinFailedAuth = await assertWithinRateLimit(
     env,
     "failed_auth",
-    unauthenticatedRateLimitKey({
+    unauthenticatedRateLimitMaterial({
       className: "failed_auth",
-      ip: clientIpOf(request),
+      ip,
     }),
   );
   if (!withinFailedAuth.ok) {
+    await markFailedAuthBlocked(ip);
     mcpLog({
       event: options.event,
       outcome: "rate_limited",
       status: 429,
       toolClass: "failed_auth",
     });
-    return rateLimitedResponse();
+    return options.oauthShape ? oauthRateLimitedResponse() : rateLimitedResponse();
   }
   return null;
 }
@@ -52,16 +59,39 @@ export default {
     // (the callback API has no env arg).
     const provider = createOAuthProvider(env, defaultHandler, new URL(request.url).origin);
     const url = new URL(request.url);
+    const ip = clientIpOf(request) ?? "unknown";
+
+    if (url.pathname === "/mcp" && (await isFailedAuthBlocked(ip))) {
+      mcpLog({
+        event: "mcp_request",
+        outcome: "rate_limited",
+        status: 429,
+        toolClass: "failed_auth",
+      });
+      return rateLimitedResponse();
+    }
 
     if (url.pathname === "/token" && request.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(request, MCP_TOKEN_MAX_BODY_BYTES))) {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_request",
+            error_description: "payload too large",
+          }),
+          {
+            status: 413,
+            headers: { "Content-Type": "application/json", "cache-control": "no-store" },
+          },
+        );
+      }
       const clientId = await clientIdFromTokenForm(request);
       const withinLimit = await assertWithinRateLimit(
         env,
         "token",
-        unauthenticatedRateLimitKey({
+        unauthenticatedRateLimitMaterial({
           className: "token",
           clientId,
-          ip: clientIpOf(request),
+          ip,
         }),
       );
       if (!withinLimit.ok) {
@@ -75,7 +105,10 @@ export default {
       }
       const response = await provider.fetch(request, env, ctx);
       if (response.status === 400 || response.status === 401) {
-        const limited = await enforceFailedAuthLimit(env, request, { event: "token_exchange" });
+        const limited = await enforceFailedAuthLimit(env, request, {
+          event: "token_exchange",
+          oauthShape: true,
+        });
         if (limited) {
           return limited;
         }
@@ -86,7 +119,10 @@ export default {
     const response = await provider.fetch(request, env, ctx);
     // Provider rejects invalid bearers before apiHandler — count those here (#331).
     if (url.pathname === "/mcp" && response.status === 401) {
-      const limited = await enforceFailedAuthLimit(env, request, { event: "mcp_request" });
+      const limited = await enforceFailedAuthLimit(env, request, {
+        event: "mcp_request",
+        oauthShape: false,
+      });
       if (limited) {
         return limited;
       }
