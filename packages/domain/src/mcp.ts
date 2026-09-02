@@ -498,12 +498,9 @@ const mcpCreateTransactionCoreSchema = z.object({
   expectedCurrency: z.string().min(1).max(3),
 });
 
-function refineUniqueCategoryRefs(
-  value: z.infer<typeof mcpCreateTransactionCoreSchema>,
-  ctx: z.RefinementCtx,
-) {
+function refineUniqueCategoryRefList(refs: readonly string[], ctx: z.RefinementCtx) {
   const seen = new Set<string>();
-  for (const ref of value.categoryRefs) {
+  for (const ref of refs) {
     if (seen.has(ref)) {
       ctx.addIssue({
         code: "custom",
@@ -514,6 +511,13 @@ function refineUniqueCategoryRefs(
     }
     seen.add(ref);
   }
+}
+
+function refineUniqueCategoryRefs(
+  value: z.infer<typeof mcpCreateTransactionCoreSchema>,
+  ctx: z.RefinementCtx,
+) {
+  refineUniqueCategoryRefList(value.categoryRefs, ctx);
 }
 
 export const mcpCreateTransactionInputSchema =
@@ -528,14 +532,76 @@ export const mcpCreateTransactionResultSchema = z.object({
 
 export type McpCreateTransactionResult = z.infer<typeof mcpCreateTransactionResultSchema>;
 
+const mcpUpdateTransactionCoreSchema = z
+  .object({
+    circleRef: mcpCircleRefSchema,
+    transactionRef: mcpTransactionRefSchema,
+    type: z.enum(["expense", "income"]).optional(),
+    title: transactionFieldSchemas.title.optional(),
+    note: transactionFieldSchemas.note.optional(),
+    amountMinorUnits: z
+      .number()
+      .int()
+      .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" })
+      .optional(),
+    date: transactionFieldSchemas.date.optional(),
+    categoryRefs: z
+      .array(mcpCategoryRefSchema)
+      .min(1)
+      .max(LIMITS.maxCategoriesPerTransaction)
+      .optional(),
+    paidByMemberId: z.string().min(1).max(128).optional(),
+    expectedCurrency: z.string().min(1).max(3).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasUpdate =
+      value.type !== undefined ||
+      value.title !== undefined ||
+      value.note !== undefined ||
+      value.amountMinorUnits !== undefined ||
+      value.date !== undefined ||
+      value.categoryRefs !== undefined ||
+      value.paidByMemberId !== undefined;
+    if (!hasUpdate) {
+      ctx.addIssue({
+        code: "custom",
+        message: "At least one field must be provided",
+      });
+      return;
+    }
+    if (value.categoryRefs !== undefined) {
+      refineUniqueCategoryRefList(value.categoryRefs, ctx);
+    }
+    if (value.amountMinorUnits !== undefined && value.expectedCurrency === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "expectedCurrency is required when amountMinorUnits is provided",
+        path: ["expectedCurrency"],
+      });
+    }
+  });
+
+export const mcpUpdateTransactionInputSchema = mcpUpdateTransactionCoreSchema;
+
+export type McpUpdateTransactionInput = z.infer<typeof mcpUpdateTransactionInputSchema>;
+
+export const mcpUpdateTransactionResultSchema = mcpCreateTransactionResultSchema;
+
+export type McpUpdateTransactionResult = z.infer<typeof mcpUpdateTransactionResultSchema>;
+
 const mcpCreateTransactionOperationSchema = mcpCreateTransactionCoreSchema
   .extend({
     kind: z.literal("create_transaction"),
   })
   .superRefine(refineUniqueCategoryRefs);
 
+const mcpUpdateTransactionOperationSchema = mcpUpdateTransactionCoreSchema.extend({
+  kind: z.literal("update_transaction"),
+});
+
 export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpCreateTransactionOperationSchema,
+  mcpUpdateTransactionOperationSchema,
 ]);
 
 export type McpWriteOperation = z.infer<typeof mcpWriteOperationSchema>;

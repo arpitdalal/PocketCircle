@@ -107,7 +107,9 @@ const completeRevocationBodySchema = z.object({
 });
 
 function isMcpWriteOperationBody(body: McpOperationBody): body is McpWriteOperationBody {
-  return body.operation.kind === "create_transaction";
+  return (
+    body.operation.kind === "create_transaction" || body.operation.kind === "update_transaction"
+  );
 }
 
 async function recordMcpGrantUseUnlessDenied(

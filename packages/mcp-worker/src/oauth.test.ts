@@ -1493,6 +1493,79 @@ describe("MCP tools execution", () => {
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
   });
 
+  it("calls update_transaction and returns the updated transaction", async () => {
+    const { accessToken, grantId } = await obtainAccessToken([
+      "pocketcircle:read",
+      "pocketcircle:write",
+    ]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("update_transaction");
+        expect(opBody.data.operation).toMatchObject({
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+          title: "Updated coffee",
+        });
+        return Response.json({
+          ok: true,
+          value: {
+            ...mockCreateTransactionResult,
+            transaction: { ...mockCreateTransactionResult.transaction, title: "Updated coffee" },
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "update_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+          title: "Updated coffee",
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          transaction: expect.objectContaining({ title: "Updated coffee" }),
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for update_transaction", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "update_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+          title: "Updated coffee",
+        },
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+  });
+
   it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 

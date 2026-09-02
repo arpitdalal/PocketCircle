@@ -17,6 +17,7 @@ import { type MutationCtx, mutation, type QueryCtx, query } from "./_generated/s
 import { markActivationMilestone } from "./activation.js";
 import {
   type AuthorizedCircle,
+  type AuthorizedTransaction,
   requireCircleAccess,
   requireTransactionAccess,
   resolveCircleAccess,
@@ -579,6 +580,171 @@ async function syncTransactionCategoryOrderingFields(
   }
 }
 
+/** Args shared by the public mutation, MCP bridge, and explicit-User update paths. */
+export type PerformUpdateTransactionArgs = {
+  type?: TransactionType;
+  title?: string;
+  note?: string;
+  amountMinorUnits?: number;
+  date?: string;
+  categoryIds?: Id<"categories">[];
+  paidByMemberId?: Id<"members">;
+};
+
+/**
+ * Core update-Transaction write shared by the browser mutation and MCP (#326).
+ * Caller must already hold {@link AuthorizedTransaction} with writable,
+ * setup-complete, Recorded By, and active-transaction checks applied.
+ */
+export async function performUpdateTransaction(
+  ctx: MutationCtx,
+  access: AuthorizedTransaction,
+  args: PerformUpdateTransactionArgs,
+) {
+  const txn = access.transaction;
+
+  const input = transactionUpdateSchema.parse({
+    type: args.type,
+    title: args.title,
+    note: args.note,
+    date: args.date,
+    amountMinorUnits: args.amountMinorUnits,
+    categoryIds: args.categoryIds,
+    paidByMemberId: args.paidByMemberId,
+  });
+
+  const currency = toCurrencyCode(access.circle.currency);
+  const patch: Partial<Doc<"transactions">> = {};
+  const changes: HistoryChange[] = [];
+
+  const newType = input.type ?? txn.type;
+  const typeChanges = newType !== txn.type;
+
+  if (typeChanges && args.categoryIds === undefined) {
+    throw new Error("Changing the transaction type requires categories of the new type");
+  }
+
+  const existingLinks = await ctx.db
+    .query("transactionCategories")
+    .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
+    .collect();
+  const oldCategoryIds = existingLinks.map((link) => link.categoryId);
+
+  let categoriesChanged = false;
+  let newCategories: Doc<"categories">[] = [];
+  if (args.categoryIds !== undefined) {
+    newCategories = await resolveCategories(ctx, {
+      circleId: txn.circleId,
+      categoryIds: args.categoryIds,
+      type: newType,
+      alreadyAttached: typeChanges ? new Set<Id<"categories">>() : new Set(oldCategoryIds),
+    });
+    const sameSet =
+      args.categoryIds.length === oldCategoryIds.length &&
+      args.categoryIds.every((id) => oldCategoryIds.includes(id));
+    categoriesChanged = typeChanges || !sameSet;
+  }
+
+  if (typeChanges) {
+    patch.type = newType;
+    changes.push({ field: "type", from: txn.type, to: newType });
+  }
+
+  if (input.title !== undefined && input.title !== txn.title) {
+    patch.title = input.title;
+    changes.push({ field: "title", from: txn.title, to: input.title });
+  }
+
+  if (input.amountMinorUnits !== undefined && input.amountMinorUnits !== txn.amountMinorUnits) {
+    patch.amountMinorUnits = input.amountMinorUnits;
+    changes.push(
+      moneyChange(
+        "amount",
+        { minorUnits: input.amountMinorUnits, currency },
+        { minorUnits: txn.amountMinorUnits, currency },
+      ),
+    );
+  }
+
+  if (input.date !== undefined && input.date !== txn.date) {
+    patch.date = input.date;
+    patch.month = monthOf(input.date);
+    changes.push({ field: "date", from: txn.date, to: input.date });
+  }
+
+  if (args.paidByMemberId !== undefined && args.paidByMemberId !== txn.paidByMemberId) {
+    const newPaidBy = await requireCurrentMember(ctx, txn.circleId, args.paidByMemberId);
+    const oldPaidBy = await ctx.db.get(txn.paidByMemberId);
+    patch.paidByMemberId = newPaidBy._id;
+    changes.push({
+      field: "paidBy",
+      from: oldPaidBy?.displayName ?? "Unknown member",
+      to: newPaidBy.displayName,
+    });
+  }
+
+  if (input.note !== undefined) {
+    const newNote = input.note.length > 0 ? input.note : undefined;
+    if (newNote !== txn.note) {
+      patch.note = newNote;
+      changes.push({
+        field: "note",
+        ...(txn.note ? { from: txn.note } : {}),
+        ...(newNote ? { to: newNote } : {}),
+      });
+    }
+  }
+
+  if (categoriesChanged) {
+    const oldNames = (await Promise.all(oldCategoryIds.map((id) => ctx.db.get(id)))).flatMap(
+      (category) => (category ? [category.name] : []),
+    );
+    changes.push({
+      field: "categories",
+      from: oldNames.join(", "),
+      to: newCategories.map((category) => category.name).join(", "),
+    });
+  }
+
+  if (changes.length === 0) {
+    return txn._id;
+  }
+
+  patch.updatedAt = Date.now();
+  await ctx.db.patch(txn._id, patch);
+  const updatedTransaction = await ctx.db.get(txn._id);
+  if (!updatedTransaction) {
+    throw new Error("Transaction not found");
+  }
+
+  if (categoriesChanged) {
+    await rewriteTransactionCategories(
+      ctx,
+      txn.circleId,
+      txn._id,
+      newCategories.map((category) => category._id),
+      {
+        transactionDate: updatedTransaction.date,
+        transactionCreatedAt: updatedTransaction.createdAt,
+      },
+    );
+  } else if (input.date !== undefined && input.date !== txn.date) {
+    await syncTransactionCategoryOrderingFields(ctx, updatedTransaction);
+  }
+  await syncTransactionSearchDocument(ctx, updatedTransaction, {
+    categoryIds: categoriesChanged ? newCategories.map((category) => category._id) : oldCategoryIds,
+  });
+
+  await recordEvent(ctx, {
+    entity: transactionEntity(txn._id, txn.circleId),
+    actor: access.membership,
+    action: typeChanges ? "type changed" : "edited",
+    changes,
+  });
+
+  return txn._id;
+}
+
 /** Args shared by the public mutation and explicit-User create paths. */
 export type PerformCreateTransactionArgs = {
   type: TransactionType;
@@ -804,10 +970,7 @@ export const updateTransaction = mutation({
       throw new Error("Archived transactions can't be edited");
     }
 
-    // Validate every PRESENT field by the same rules as create (ADR 0010). The
-    // branded ids for db work come from the Convex-validated `args` (no cast); Zod
-    // only enforces the cross-field bounds Convex validators can't.
-    const input = transactionUpdateSchema.parse({
+    return performUpdateTransaction(ctx, access, {
       type: args.type,
       title: args.title,
       note: args.note,
@@ -816,154 +979,6 @@ export const updateTransaction = mutation({
       categoryIds: args.categoryIds,
       paidByMemberId: args.paidByMemberId,
     });
-
-    const currency = toCurrencyCode(access.circle.currency);
-    const patch: Partial<Doc<"transactions">> = {};
-    const changes: HistoryChange[] = [];
-
-    const newType = input.type ?? txn.type;
-    const typeChanges = newType !== txn.type;
-
-    // A Type Change clears existing Categories, so it MUST arrive with the new
-    // type's Categories in the same operation (PRD 29, 30) — the invariant never
-    // breaks mid-edit.
-    if (typeChanges && args.categoryIds === undefined) {
-      throw new Error("Changing the transaction type requires categories of the new type");
-    }
-
-    // Resolve the Category change (if any) before assembling the event so the
-    // ordered changes read type → fields → categories. On a Type Change nothing
-    // carries over, so `alreadyAttached` is empty and every Category must be active;
-    // on a same-type edit, already-attached archived Categories may stay (PRD 57).
-    const existingLinks = await ctx.db
-      .query("transactionCategories")
-      .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
-      .collect();
-    const oldCategoryIds = existingLinks.map((link) => link.categoryId);
-
-    let categoriesChanged = false;
-    let newCategories: Doc<"categories">[] = [];
-    if (args.categoryIds !== undefined) {
-      newCategories = await resolveCategories(ctx, {
-        circleId: txn.circleId,
-        categoryIds: args.categoryIds,
-        type: newType,
-        alreadyAttached: typeChanges ? new Set<Id<"categories">>() : new Set(oldCategoryIds),
-      });
-      // A Type Change always rewrites (old Categories are cleared). Otherwise the
-      // set must actually differ to count as a change — reordering the same
-      // Categories is a no-op.
-      const sameSet =
-        args.categoryIds.length === oldCategoryIds.length &&
-        args.categoryIds.every((id) => oldCategoryIds.includes(id));
-      categoriesChanged = typeChanges || !sameSet;
-    }
-
-    // Resolve old Category names lazily — only when a Type Change clears them or the
-    // set changed, since those are the only cases the event reports a `from`.
-    if (typeChanges) {
-      patch.type = newType;
-      changes.push({ field: "type", from: txn.type, to: newType });
-    }
-
-    if (input.title !== undefined && input.title !== txn.title) {
-      patch.title = input.title;
-      changes.push({ field: "title", from: txn.title, to: input.title });
-    }
-
-    if (input.amountMinorUnits !== undefined && input.amountMinorUnits !== txn.amountMinorUnits) {
-      patch.amountMinorUnits = input.amountMinorUnits;
-      changes.push(
-        moneyChange(
-          "amount",
-          { minorUnits: input.amountMinorUnits, currency },
-          { minorUnits: txn.amountMinorUnits, currency },
-        ),
-      );
-    }
-
-    if (input.date !== undefined && input.date !== txn.date) {
-      patch.date = input.date;
-      patch.month = monthOf(input.date); // keep the denormalized bucket in sync
-      changes.push({ field: "date", from: txn.date, to: input.date });
-    }
-
-    if (args.paidByMemberId !== undefined && args.paidByMemberId !== txn.paidByMemberId) {
-      const newPaidBy = await requireCurrentMember(ctx, txn.circleId, args.paidByMemberId);
-      const oldPaidBy = await ctx.db.get(txn.paidByMemberId);
-      patch.paidByMemberId = newPaidBy._id;
-      changes.push({
-        field: "paidBy",
-        from: oldPaidBy?.displayName ?? "Unknown member",
-        to: newPaidBy.displayName,
-      });
-    }
-
-    // A present note of "" is the explicit clear signal; setting the field to
-    // `undefined` via patch removes it.
-    if (input.note !== undefined) {
-      const newNote = input.note.length > 0 ? input.note : undefined;
-      if (newNote !== txn.note) {
-        patch.note = newNote;
-        changes.push({
-          field: "note",
-          ...(txn.note ? { from: txn.note } : {}),
-          ...(newNote ? { to: newNote } : {}),
-        });
-      }
-    }
-
-    if (categoriesChanged) {
-      const oldNames = (await Promise.all(oldCategoryIds.map((id) => ctx.db.get(id)))).flatMap(
-        (category) => (category ? [category.name] : []),
-      );
-      changes.push({
-        field: "categories",
-        from: oldNames.join(", "),
-        to: newCategories.map((category) => category.name).join(", "),
-      });
-    }
-
-    // No real change ⇒ a true no-op: no patch, no spurious history (TXN-2 decision).
-    if (changes.length === 0) {
-      return args.transactionId;
-    }
-
-    patch.updatedAt = Date.now();
-    await ctx.db.patch(args.transactionId, patch);
-    const updatedTransaction = await ctx.db.get(args.transactionId);
-    if (!updatedTransaction) {
-      throw new Error("Transaction not found");
-    }
-
-    if (categoriesChanged) {
-      await rewriteTransactionCategories(
-        ctx,
-        txn.circleId,
-        txn._id,
-        newCategories.map((category) => category._id),
-        {
-          transactionDate: updatedTransaction.date,
-          transactionCreatedAt: updatedTransaction.createdAt,
-        },
-      );
-    } else if (input.date !== undefined && input.date !== txn.date) {
-      await syncTransactionCategoryOrderingFields(ctx, updatedTransaction);
-    }
-    await syncTransactionSearchDocument(ctx, updatedTransaction, {
-      categoryIds: categoriesChanged
-        ? newCategories.map((category) => category._id)
-        : oldCategoryIds,
-    });
-
-    await recordEvent(ctx, {
-      entity: transactionEntity(txn._id, txn.circleId),
-      actor: access.membership,
-      action: typeChanges ? "type changed" : "edited",
-      changes,
-    });
-
-    return args.transactionId;
   },
 });
 

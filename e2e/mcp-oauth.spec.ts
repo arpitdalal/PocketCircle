@@ -390,5 +390,49 @@ test.describe("local MCP OAuth", () => {
         }),
       ]),
     });
+
+    const updatedTitle = `${txnTitle} updated`;
+    const createResBody = createdContent;
+    const txnRef =
+      typeof createResBody === "object" &&
+      createResBody !== null &&
+      "ref" in createResBody &&
+      typeof Reflect.get(createResBody, "ref") === "string"
+        ? Reflect.get(createResBody, "ref")
+        : null;
+    if (txnRef === null) {
+      throw new Error("missing created transaction ref");
+    }
+
+    const updateRes = await postMcp("tools/call", 5, {
+      name: "update_transaction",
+      arguments: {
+        circleRef,
+        transactionRef: txnRef,
+        title: updatedTitle,
+      },
+    });
+    expect(updateRes.status()).toBe(200);
+    const updatedContent = mcpStructuredContent(await updateRes.json());
+    expect(updatedContent).toMatchObject({
+      transaction: expect.objectContaining({ title: updatedTitle }),
+    });
+
+    const searchAfterUpdate = await postMcp("tools/call", 6, {
+      name: "search_transactions",
+      arguments: {
+        circleRef,
+        filters: { query: updatedTitle },
+      },
+    });
+    expect(searchAfterUpdate.status()).toBe(200);
+    const searchAfterUpdateContent = mcpStructuredContent(await searchAfterUpdate.json());
+    expect(searchAfterUpdateContent).toMatchObject({
+      transactions: expect.arrayContaining([
+        expect.objectContaining({
+          title: updatedTitle,
+        }),
+      ]),
+    });
   });
 });

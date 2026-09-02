@@ -24,6 +24,7 @@ import {
   mcpScopesInclude,
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
+  mcpUpdateTransactionResultSchema,
   normalizeMcpImage,
   normalizeMcpScopes,
   verifyMcpApproval,
@@ -61,6 +62,7 @@ import {
   searchTransactionsForUser,
   toMcpCircleView,
   toMcpCurrentUserView,
+  updateTransactionForAccess,
 } from "./operations.js";
 
 export type RedeemApprovalTokenError = "not_found" | "expired" | "consumed";
@@ -637,6 +639,19 @@ export const executeMcpWriteOperation = internalMutation({
         paidByMemberId: v.optional(v.string()),
         expectedCurrency: v.string(),
       }),
+      v.object({
+        kind: v.literal("update_transaction"),
+        circleRef: v.string(),
+        transactionRef: v.string(),
+        type: v.optional(v.union(v.literal("expense"), v.literal("income"))),
+        title: v.optional(v.string()),
+        note: v.optional(v.string()),
+        amountMinorUnits: v.optional(v.number()),
+        date: v.optional(v.string()),
+        categoryRefs: v.optional(v.array(v.string())),
+        paidByMemberId: v.optional(v.string()),
+        expectedCurrency: v.optional(v.string()),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -688,6 +703,42 @@ export const executeMcpWriteOperation = internalMutation({
         transaction: created.value,
       };
       const validated = validateMcpResult(mcpCreateTransactionResultSchema, value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "update_transaction") {
+      const updated = await updateTransactionForAccess(ctx, circleAuthz.value.access, {
+        transactionRef: args.operation.transactionRef,
+        ...(args.operation.type === undefined ? {} : { type: args.operation.type }),
+        ...(args.operation.title === undefined ? {} : { title: args.operation.title }),
+        ...(args.operation.note === undefined ? {} : { note: args.operation.note }),
+        ...(args.operation.amountMinorUnits === undefined
+          ? {}
+          : { amountMinorUnits: args.operation.amountMinorUnits }),
+        ...(args.operation.date === undefined ? {} : { date: args.operation.date }),
+        ...(args.operation.categoryRefs === undefined
+          ? {}
+          : { categoryRefs: args.operation.categoryRefs }),
+        ...(args.operation.paidByMemberId === undefined
+          ? {}
+          : { paidByMemberId: args.operation.paidByMemberId }),
+        ...(args.operation.expectedCurrency === undefined
+          ? {}
+          : { expectedCurrency: args.operation.expectedCurrency }),
+      });
+      if (!updated.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: updated.error };
+      }
+      const value = {
+        ref: updated.value.ref,
+        transaction: updated.value,
+      };
+      const validated = validateMcpResult(mcpUpdateTransactionResultSchema, value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }

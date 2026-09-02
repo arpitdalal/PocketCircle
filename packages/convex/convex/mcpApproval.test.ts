@@ -2751,6 +2751,47 @@ describe("MCP Worker bridge HTTP routes", () => {
       expect(updatedGrant?.lastUsedAt).toBeTypeOf("number");
     });
   });
+
+  it("executes update_transaction via /mcp/operation", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "bridge-update@example.com",
+        displayName: "Bridge Owner",
+      }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+    );
+    const txnId = await t.run((ctx) => seedTransaction(ctx, f, { title: "Bridge lunch" }));
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const body = {
+      grantId: grant._id,
+      effectiveScopes: READ_WRITE,
+      operation: {
+        kind: "update_transaction" as const,
+        circleRef: buildRef("Trip", f.circleId),
+        transactionRef: buildRef("Bridge lunch", txnId),
+        title: "Bridge edit",
+      },
+    };
+    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      value: {
+        ref: expect.any(String),
+        transaction: expect.objectContaining({ title: "Bridge edit" }),
+      },
+    });
+  });
 });
 
 describe("MCP create_transaction write", () => {
@@ -3040,6 +3081,461 @@ describe("MCP create_transaction write", () => {
     expect(await executeMcpWrite(t, freshGrant._id, base)).toMatchObject({
       ok: false,
       error: "circle_inaccessible",
+    });
+  });
+});
+
+describe("MCP update_transaction write", () => {
+  async function seedUpdateFixture(t: ReturnType<typeof convexTest>) {
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "updater@example.com", displayName: "Updater Owner" }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+    );
+    const member = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Team lunch",
+        note: "Sushi",
+        amountMinorUnits: 2_500,
+        date: "2026-06-01",
+        categoryIds: [f.groceriesId],
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    return {
+      owner,
+      f,
+      member,
+      txnId,
+      grant,
+      circleRef: buildRef("Trip", f.circleId),
+      transactionRef: buildRef("Team lunch", txnId),
+      groceriesRef: buildRef("Groceries", f.groceriesId),
+      diningRef: buildRef("Dining", f.diningId),
+      salaryRef: buildRef("Salary", f.salaryId),
+    };
+  }
+
+  it("updates each field, combined edits, type change, Paid By, history, and search sync", async () => {
+    const t = convexTest(schema, modules);
+    const { member, grant, circleRef, transactionRef, groceriesRef, diningRef, salaryRef, txnId } =
+      await seedUpdateFixture(t);
+
+    const titleOnly = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef,
+      transactionRef,
+      title: "  Team dinner  ",
+    });
+    expect(titleOnly).toMatchObject({ ok: true });
+    if (!titleOnly.ok) throw new Error("expected title update");
+    expect(titleOnly.value.transaction.title).toBe("Team dinner");
+
+    const combined = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef,
+      transactionRef,
+      note: "  Ramen  ",
+      date: "2026-06-02",
+      amountMinorUnits: 3_000,
+      expectedCurrency: "USD",
+      categoryRefs: [groceriesRef, diningRef],
+      paidByMemberId: String(member.memberId),
+    });
+    expect(combined).toMatchObject({ ok: true });
+    if (!combined.ok) throw new Error("expected combined update");
+    expect(combined.value.transaction.note).toBe("Ramen");
+    expect(combined.value.transaction.date).toBe("2026-06-02");
+    expect(combined.value.transaction.amountMinorUnits).toBe(3_000);
+    expect(combined.value.transaction.paidBy.displayName).toBe("Maya Member");
+    expect(combined.value.transaction.audit.updatedBy.displayName).toBe("Updater Owner");
+    expect(combined.value.transaction.audit.updatedAt).toEqual(expect.any(Number));
+
+    const typeChanged = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef,
+      transactionRef,
+      type: "income",
+      categoryRefs: [salaryRef],
+    });
+    expect(typeChanged).toMatchObject({ ok: true });
+    if (!typeChanged.ok) throw new Error("expected type change");
+    expect(typeChanged.value.transaction.type).toBe("income");
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db.query("histories").collect();
+      const txnHistories = histories.filter((event) => event.entityId === txnId);
+      expect(txnHistories.some((event) => event.action === "edited")).toBe(true);
+      expect(txnHistories.some((event) => event.action === "type changed")).toBe(true);
+      const searchDoc = await ctx.db
+        .query("transactionSearchDocuments")
+        .withIndex("by_transaction", (q) => q.eq("transactionId", txnId))
+        .unique();
+      expect(searchDoc?.searchText).toContain("team dinner");
+    });
+  });
+
+  it("returns safely on a true no-op without history or notification", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, grant, circleRef, transactionRef, groceriesRef, txnId } =
+      await seedUpdateFixture(t);
+    const before = await t.run(async (ctx) => (await ctx.db.get(txnId))?.updatedAt);
+    const result = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef,
+      transactionRef,
+      title: "Team lunch",
+      amountMinorUnits: 2_500,
+      expectedCurrency: "USD",
+      categoryRefs: [groceriesRef],
+    });
+    expect(result).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(txnId))?.updatedAt).toBe(before);
+      const histories = await ctx.db.query("histories").collect();
+      expect(histories.some((event) => event.entityId === txnId)).toBe(false);
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    });
+  });
+
+  it("keeps an already-attached archived category on field-only edit", async () => {
+    const t = convexTest(schema, modules);
+    const { f, grant, circleRef, transactionRef, groceriesRef, txnId } = await seedUpdateFixture(t);
+    await t.run((ctx) =>
+      ctx.db.patch(f.groceriesId, { status: "archived", archivedAt: Date.now() }),
+    );
+    const updated = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef,
+      transactionRef,
+      title: "Renamed lunch",
+      categoryRefs: [groceriesRef],
+    });
+    expect(updated).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      const links = await ctx.db
+        .query("transactionCategories")
+        .withIndex("by_transaction", (q) => q.eq("transactionId", txnId))
+        .collect();
+      expect(links.map((link) => link.categoryId)).toEqual([f.groceriesId]);
+    });
+  });
+
+  it("preserves readable Paid By attribution for a removed Member", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "attr@example.com", displayName: "Attr Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Attr" }));
+    const removed = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "gone@example.com", "Gone Member", "removed"),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Old lunch",
+        paidByMemberId: removed.memberId,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/attr`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const updated = await executeMcpWrite(t, grant._id, {
+      kind: "update_transaction",
+      circleRef: buildRef("Attr", f.circleId),
+      transactionRef: buildRef("Old lunch", txnId),
+      title: "Renamed lunch",
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      value: { transaction: { paidBy: { displayName: "Gone Member" } } },
+    });
+  });
+
+  it("rejects Owner edits on another Member's transaction", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner2@example.com", displayName: "Circle Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Shared" }));
+    const member = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "recorder@example.com", "Recorder Member"),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Member txn",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "update_transaction",
+        circleRef: buildRef("Shared", f.circleId),
+        transactionRef: buildRef("Member txn", txnId),
+        title: "Owner rewrite",
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+  });
+
+  it("allows a rejoined Recorded By Member to edit again", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner3@example.com", displayName: "Owner Three" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Rejoin" }));
+    const member = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "returner@example.com", "Returner"),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Returner txn",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/rejoin`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(member.memberId, { status: "removed" });
+    });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "update_transaction",
+        circleRef: buildRef("Rejoin", f.circleId),
+        transactionRef: buildRef("Returner txn", txnId),
+        title: "While removed",
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(member.memberId, { status: "active" });
+    });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "update_transaction",
+        circleRef: buildRef("Rejoin", f.circleId),
+        transactionRef: buildRef("Returner txn", txnId),
+        title: "Back again",
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("rejects validation, lifecycle, scope, category, Paid By, and access failures without partial writes", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef, transactionRef, groceriesRef, txnId } =
+      await seedUpdateFixture(t);
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const incomplete = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),
+    );
+    const archivedCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Archived", archived: true }),
+    );
+    const archivedCategory = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Old snacks",
+        status: "archived",
+        creatorUserId: owner.userId,
+      }),
+    );
+    const archivedTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Archived txn", status: "archived" }),
+    );
+    const incompleteTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, incomplete, { title: "Draft txn" }),
+    );
+    const archivedCircleTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, archivedCircle, { title: "Archived circle txn" }),
+    );
+
+    const base = {
+      kind: "update_transaction" as const,
+      circleRef,
+      transactionRef,
+      title: "Edited",
+    };
+
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "update_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "validation_failed" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        amountMinorUnits: 0,
+        expectedCurrency: "USD",
+      }),
+    ).toMatchObject({ ok: false, error: "validation_failed" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        amountMinorUnits: 500,
+      }),
+    ).toMatchObject({ ok: false, error: "validation_failed" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        amountMinorUnits: 500,
+        expectedCurrency: "EUR",
+      }),
+    ).toMatchObject({ ok: false, error: "currency_changed" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        type: "income",
+      }),
+    ).toMatchObject({ ok: false, error: "validation_failed" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        type: "income",
+        categoryRefs: [groceriesRef],
+      }),
+    ).toMatchObject({ ok: false, error: "category_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        categoryRefs: [buildRef("Old snacks", archivedCategory)],
+      }),
+    ).toMatchObject({ ok: false, error: "category_inaccessible" });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(member.memberId, { status: "removed" });
+    });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        paidByMemberId: String(member.memberId),
+      }),
+    ).toMatchObject({ ok: false, error: "paid_by_invalid" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        circleRef: buildRef("Other", other.circleId),
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        transactionRef: buildRef("Archived txn", archivedTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        ...base,
+        transactionRef: "not-a-transaction",
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(await executeMcpWrite(t, grant._id, base, ["pocketcircle:read"])).toMatchObject({
+      ok: false,
+      error: "insufficient_scope",
+    });
+    const readOnlyGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: `${CLIENT_ID}/update-read-only`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(await executeMcpWrite(t, readOnlyGrant._id, base, READ_WRITE)).toMatchObject({
+      ok: false,
+      error: "insufficient_scope",
+    });
+    const incompleteGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [incomplete.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/update-incomplete`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, incompleteGrant._id, {
+        kind: "update_transaction",
+        circleRef: buildRef("Draft", incomplete.circleId),
+        transactionRef: buildRef("Draft txn", incompleteTxnId),
+        title: "Edited",
+      }),
+    ).toMatchObject({ ok: false, error: "circle_setup_incomplete" });
+    const archivedGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [archivedCircle.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/update-archived-circle`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, archivedGrant._id, {
+        kind: "update_transaction",
+        circleRef: buildRef("Archived", archivedCircle.circleId),
+        transactionRef: buildRef("Archived circle txn", archivedCircleTxnId),
+        title: "Edited",
+      }),
+    ).toMatchObject({ ok: false, error: "circle_archived" });
+
+    await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    expect(await executeMcpWrite(t, grant._id, base)).toMatchObject({
+      ok: false,
+      error: "grant_unavailable",
+    });
+
+    const freshGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/update-removed`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    expect(await executeMcpWrite(t, freshGrant._id, base)).toMatchObject({
+      ok: false,
+      error: "circle_inaccessible",
+    });
+
+    await t.run(async (ctx) => {
+      const unchanged = await ctx.db.get(txnId);
+      expect(unchanged?.title).toBe("Team lunch");
     });
   });
 });

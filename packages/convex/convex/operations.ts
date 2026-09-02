@@ -19,11 +19,13 @@ import {
   clampSearchPage,
   clampSearchPageSize,
   comparisonWindowMonths,
+  isSupportedCurrency,
   isValidPlainMonth,
   mutationErrorDataSchema,
   normalizeMcpImage,
   parseRef,
   TRANSACTION_LIST_PAGE_SIZE,
+  toCurrencyCode,
 } from "@pocketcircle/domain";
 import type { PaginationOptions } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -57,6 +59,7 @@ import {
   newViewCaches,
   paginateCircleTransactionsForAccess,
   performCreateTransaction,
+  performUpdateTransaction,
   type TransactionDetailView,
   type TransactionView,
   toTransactionDetailView,
@@ -1539,6 +1542,180 @@ export async function createTransactionForAccess(
   const detail = await toTransactionDetailView(
     ctx,
     created,
+    newViewCaches(),
+    access.membership._id,
+    access.isOwner,
+  );
+  return {
+    ok: true as const,
+    value: toMcpTransactionDetailView(detail, access.circle.currency),
+  };
+}
+
+export type UpdateTransactionForAccessArgs = {
+  transactionRef: string;
+  type?: "expense" | "income";
+  title?: string;
+  note?: string;
+  amountMinorUnits?: number;
+  date?: string;
+  categoryRefs?: string[];
+  paidByMemberId?: string;
+  expectedCurrency?: string;
+};
+
+function mapUpdateTransactionFailure(error: unknown) {
+  if (error instanceof ConvexError) {
+    const parsed = mutationErrorDataSchema.safeParse(error.data);
+    if (parsed.success) {
+      switch (parsed.data.code) {
+        case "circle.archived":
+          return "circle_archived" as const;
+        case "circle.setupIncomplete":
+          return "circle_setup_incomplete" as const;
+        case "transaction.paidByInvalid":
+          return "paid_by_invalid" as const;
+        case "transaction.categoryNotFound":
+        case "transaction.categoryTypeMismatch":
+        case "transaction.categoryArchived":
+          return "category_inaccessible" as const;
+        default:
+          return null;
+      }
+    }
+  }
+  if (error instanceof ZodError) {
+    return "validation_failed" as const;
+  }
+  if (error instanceof Error) {
+    if (error.message.includes("Changing the transaction type requires categories")) {
+      return "validation_failed" as const;
+    }
+    if (
+      error.message.includes("Only the member who recorded") ||
+      error.message.includes("Archived transactions can't be edited") ||
+      error.message.includes("Transaction not found")
+    ) {
+      return "transaction_inaccessible" as const;
+    }
+  }
+  return null;
+}
+
+function updateTransactionFailureFrom(error: unknown) {
+  const mapped = mapUpdateTransactionFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+function resolveUpdateCategoryIds(ctx: OperationReader, refs: readonly string[] | undefined) {
+  if (refs === undefined) {
+    return { ok: true as const, value: undefined };
+  }
+  const ids: Id<"categories">[] = [];
+  for (const ref of refs) {
+    const id = resolveCategoryRef(ctx, ref);
+    if (!id) {
+      return { ok: false as const, error: "category_inaccessible" as const };
+    }
+    ids.push(id);
+  }
+  return { ok: true as const, value: ids };
+}
+
+/** Shared explicit-User update Transaction write for MCP (#326). */
+export async function updateTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: UpdateTransactionForAccessArgs,
+) {
+  const transactionId = resolveTransactionRef(ctx, args.transactionRef);
+  if (!transactionId) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+  const transaction = await ctx.db.get(transactionId);
+  if (!transaction || transaction.circleId !== access.circle._id) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+
+  const hasUpdate =
+    args.type !== undefined ||
+    args.title !== undefined ||
+    args.note !== undefined ||
+    args.amountMinorUnits !== undefined ||
+    args.date !== undefined ||
+    args.categoryRefs !== undefined ||
+    args.paidByMemberId !== undefined;
+  if (!hasUpdate) {
+    return { ok: false as const, error: "validation_failed" as const };
+  }
+
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return updateTransactionFailureFrom(error);
+  }
+
+  const isRecorder = transaction.recordedByMemberId === access.membership._id;
+  if (!isRecorder || transaction.status !== "active") {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+
+  if (args.amountMinorUnits !== undefined) {
+    const circleCurrency = toCurrencyCode(access.circle.currency);
+    if (args.expectedCurrency === undefined) {
+      return { ok: false as const, error: "validation_failed" as const };
+    }
+    if (!isSupportedCurrency(args.expectedCurrency)) {
+      return { ok: false as const, error: "currency_unsupported" as const };
+    }
+    if (args.expectedCurrency !== circleCurrency) {
+      return { ok: false as const, error: "currency_changed" as const };
+    }
+  }
+
+  const categories = resolveUpdateCategoryIds(ctx, args.categoryRefs);
+  if (!categories.ok) {
+    return categories;
+  }
+
+  const paidBy = resolvePaidByMemberId(ctx, args.paidByMemberId);
+  if (!paidBy.ok) {
+    return paidBy;
+  }
+
+  const txnAccess = {
+    ...access,
+    transaction,
+    isRecorder: true,
+    canArchive: isRecorder || access.isOwner,
+  };
+
+  let updatedId: Id<"transactions">;
+  try {
+    updatedId = await performUpdateTransaction(ctx, txnAccess, {
+      ...(args.type === undefined ? {} : { type: args.type }),
+      ...(args.title === undefined ? {} : { title: args.title }),
+      ...(args.note === undefined ? {} : { note: args.note }),
+      ...(args.amountMinorUnits === undefined ? {} : { amountMinorUnits: args.amountMinorUnits }),
+      ...(args.date === undefined ? {} : { date: args.date }),
+      ...(categories.value === undefined ? {} : { categoryIds: categories.value }),
+      ...(paidBy.value === undefined ? {} : { paidByMemberId: paidBy.value }),
+    });
+  } catch (error) {
+    return updateTransactionFailureFrom(error);
+  }
+
+  const updated = await ctx.db.get(updatedId);
+  if (!updated) {
+    throw new Error("Transaction not found");
+  }
+  const detail = await toTransactionDetailView(
+    ctx,
+    updated,
     newViewCaches(),
     access.membership._id,
     access.isOwner,

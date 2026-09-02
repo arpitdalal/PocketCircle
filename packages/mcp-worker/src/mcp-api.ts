@@ -31,6 +31,8 @@ import {
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
   mcpTransactionRefSchema,
+  mcpUpdateTransactionInputSchema,
+  mcpUpdateTransactionResultSchema,
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
@@ -626,10 +628,50 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "update_transaction",
+    {
+      title: "Update Transaction",
+      description:
+        "Update an active Transaction in an authorized, setup-complete Circle. Only the Recorded By Member may edit fields. Optional updates cover title, note, amount, date, categories, Paid By, and type. Type changes require a complete valid category set for the new type. Expected Currency is required when changing amount. A true no-op returns the current Transaction without a spurious history event.",
+      inputSchema: mcpUpdateTransactionInputSchema,
+      outputSchema: mcpUpdateTransactionResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "update_transaction",
+          circleRef: args.circleRef,
+          transactionRef: args.transactionRef,
+          ...(args.type === undefined ? {} : { type: args.type }),
+          ...(args.title === undefined ? {} : { title: args.title }),
+          ...(args.note === undefined ? {} : { note: args.note }),
+          ...(args.amountMinorUnits === undefined
+            ? {}
+            : { amountMinorUnits: args.amountMinorUnits }),
+          ...(args.date === undefined ? {} : { date: args.date }),
+          ...(args.categoryRefs === undefined ? {} : { categoryRefs: args.categoryRefs }),
+          ...(args.paidByMemberId === undefined ? {} : { paidByMemberId: args.paidByMemberId }),
+          ...(args.expectedCurrency === undefined
+            ? {}
+            : { expectedCurrency: args.expectedCurrency }),
+        },
+        mcpUpdateTransactionResultSchema,
+      ),
+  );
+
   return server;
 }
 
-const WRITE_TOOL_NAMES = new Set(["create_transaction"]);
+const WRITE_TOOL_NAMES = new Set(["create_transaction", "update_transaction"]);
 
 const READ_TOOL_NAMES = new Set([
   "get_current_user",
