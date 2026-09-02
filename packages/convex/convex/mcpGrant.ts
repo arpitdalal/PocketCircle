@@ -20,6 +20,8 @@ import {
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
+import { enqueueMcpWorkerCleanup } from "./mcpReconciliation.js";
+import { currentMcpWorkerSecret, mcpWorkerOrigin } from "./mcpWorkerSecrets.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
 import type { OperationReader } from "./operationReader.js";
 import { resolveUserById } from "./operations.js";
@@ -182,7 +184,7 @@ async function loadGrant(ctx: OperationReader, grantId: Id<"mcpGrants"> | string
  * Revoke one grant. Safe to call on already-revoked (idempotent success) so
  * account deletion and concurrent revoke do not partial-fail. Pending and
  * active both become revoked; Worker cleanup is marked when a Worker grant was
- * linked.
+ * linked, and reconciliation is enqueued (#330).
  */
 export async function revokeMcpGrant(
   ctx: MutationCtx,
@@ -197,18 +199,31 @@ export async function revokeMcpGrant(
   }
 
   const now = args.now ?? Date.now();
-  const workerCleanupStatus =
-    grant.workerGrantId !== undefined ? ("pending_revoke" as const) : ("none" as const);
+  const needsWorkerCleanup = grant.workerGrantId !== undefined;
 
   await ctx.db.patch(grant._id, {
     status: "revoked",
     updatedAt: now,
     revokedAt: now,
-    workerCleanupStatus,
+    workerCleanupStatus: needsWorkerCleanup ? ("pending_revoke" as const) : ("none" as const),
+    ...(needsWorkerCleanup
+      ? {
+          workerCleanupAttempts: 0,
+          workerCleanupNextAttemptAt: now,
+          workerCleanupLastError: undefined,
+        }
+      : {}),
   });
   const revoked = await ctx.db.get(grant._id);
   if (!revoked) {
     return err("grant_not_found");
+  }
+  if (needsWorkerCleanup) {
+    // Only enqueue when the Worker is reachable from Convex; otherwise cron
+    // picks the pending row up after MCP_WORKER_ORIGIN is configured.
+    if (mcpWorkerOrigin() && currentMcpWorkerSecret()) {
+      await enqueueMcpWorkerCleanup(ctx, { grantId: revoked._id, delayMs: 0 });
+    }
   }
   return { ok: true as const, value: revoked };
 }

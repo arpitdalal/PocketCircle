@@ -89,6 +89,19 @@ export const revokeMcpConnection = mutation({
     }
 
     const now = Date.now();
+    // Manual retry after exhaustion: re-arm pending so Worker confirmation can complete.
+    let cleanupStatus = revoked.value.workerCleanupStatus;
+    if (cleanupStatus === "exhausted") {
+      await ctx.db.patch(revoked.value._id, {
+        workerCleanupStatus: "pending_revoke",
+        workerCleanupAttempts: 0,
+        workerCleanupNextAttemptAt: now,
+        workerCleanupLastError: undefined,
+        updatedAt: now,
+      });
+      cleanupStatus = "pending_revoke";
+    }
+
     const cleanupToken = await signMcpRevocation(
       {
         v: 1,
@@ -103,7 +116,7 @@ export const revokeMcpConnection = mutation({
     );
     return {
       ok: true as const,
-      value: { cleanupToken, cleanupStatus: revoked.value.workerCleanupStatus },
+      value: { cleanupToken, cleanupStatus },
     };
   },
 });

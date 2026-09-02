@@ -63,8 +63,10 @@ export default function Connections() {
         }
         await completeMcpConnectionRevocation(workerOrigin, result.value.cleanupToken);
       }
+      const cleanupFinished =
+        Boolean(result.value.cleanupToken) || result.value.cleanupStatus === "completed";
       show(
-        result.value.cleanupToken || result.value.cleanupStatus !== "pending_revoke"
+        cleanupFinished
           ? "Connection revoked."
           : "PocketCircle access revoked; Worker cleanup is pending.",
       );
@@ -222,7 +224,9 @@ function ConnectionCard({
   onRetry: () => void;
 }) {
   const revoked = connection.status === "revoked";
-  const cleanupPending = connection.workerCleanupStatus === "pending_revoke";
+  const cleanupPending =
+    connection.workerCleanupStatus === "pending_revoke" ||
+    connection.workerCleanupStatus === "exhausted";
 
   return (
     <article className="rounded-xl border border-border bg-card p-5 shadow-sm">

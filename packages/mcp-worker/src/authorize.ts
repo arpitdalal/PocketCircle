@@ -18,14 +18,10 @@ import {
 } from "./handoff-store.js";
 import { mcpResourceUri, requestOrigin } from "./reachable.js";
 
-function corsHeaders(env: Env) {
-  return {
-    "access-control-allow-origin": env.APP_ORIGIN,
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
-    "access-control-max-age": "86400",
-    "cache-control": "no-store",
-  };
+function mcpWorkerHmacSecrets(env: Env) {
+  const current = env.MCP_WORKER_HMAC_SECRET;
+  const previous = env.MCP_WORKER_HMAC_SECRET_PREVIOUS?.trim();
+  return previous && previous !== current ? [current, previous] : [current];
 }
 
 const completeRequestSchema = z.object({
@@ -39,6 +35,16 @@ const denyRequestSchema = z.object({
 const revokeRequestSchema = z.object({
   revocationToken: z.string().min(1),
 });
+
+function corsHeaders(env: Env) {
+  return {
+    "access-control-allow-origin": env.APP_ORIGIN,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+    "cache-control": "no-store",
+  };
+}
 
 function jsonResponse(status: number, body: unknown, env: Env) {
   return new Response(JSON.stringify(body), {
@@ -206,10 +212,7 @@ async function handleRevoke(request: Request, env: Env) {
   if (!parsed.success) {
     return jsonResponse(400, { error: "missing_revocation_token" }, env);
   }
-  const payload = await verifyMcpRevocation(
-    parsed.data.revocationToken,
-    env.MCP_WORKER_HMAC_SECRET,
-  );
+  const payload = await verifyMcpRevocation(parsed.data.revocationToken, mcpWorkerHmacSecrets(env));
   if (!payload) {
     return jsonResponse(400, { error: "invalid_revocation_token" }, env);
   }
@@ -266,6 +269,10 @@ export const defaultHandler = {
       return handleDeny(request, env);
     }
     if (url.pathname === "/revoke" && request.method === "POST") {
+      return handleRevoke(request, env);
+    }
+    // Service cleanup from Convex reconciliation — HMAC token is the authn (#330).
+    if (url.pathname === "/internal/revoke" && request.method === "POST") {
       return handleRevoke(request, env);
     }
     return new Response("Not found", { status: 404 });

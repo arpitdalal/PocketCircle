@@ -78,6 +78,34 @@ describe("Connections", () => {
     workerFetch.mockRestore();
   });
 
+  it("does not claim Worker cleanup finished when exhausted retry cannot run", async () => {
+    const revokeMcpConnection = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { cleanupToken: null, cleanupStatus: "exhausted" },
+    });
+    const connection = makeMcpConnectionView({
+      status: "revoked",
+      workerCleanupStatus: "exhausted",
+    });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [connection],
+      revokeMcpConnection,
+    });
+    const user = userEvent.setup();
+    renderConnections();
+
+    await user.click(await screen.findByRole("button", { name: "Retry cleanup" }));
+
+    await waitFor(() => {
+      expect(revokeMcpConnection).toHaveBeenCalledWith({ connectionId: connection.id });
+    });
+    expect(
+      await screen.findByText("PocketCircle access revoked; Worker cleanup is pending."),
+    ).toBeVisible();
+    expect(screen.queryByText("Connection revoked.")).not.toBeInTheDocument();
+  });
+
   it("does not claim access was revoked when Convex revocation fails", async () => {
     const revokeMcpConnection = vi.fn().mockRejectedValue(new Error("Convex unavailable"));
     const connection = makeMcpConnectionView();

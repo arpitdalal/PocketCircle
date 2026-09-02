@@ -27,4 +27,12 @@ crons.interval(
   {},
 );
 
+// Retry Worker KV cleanup for Convex-first revocations and purge stale orphans (#330).
+crons.interval(
+  "reconcile-pending-mcp-worker-cleanups",
+  { hours: 1 },
+  internal.mcpReconciliation.reconcilePendingWorkerCleanups,
+  {},
+);
+
 export default crons;

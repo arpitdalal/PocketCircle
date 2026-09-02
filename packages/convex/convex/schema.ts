@@ -328,8 +328,8 @@ export default defineSchema({
    * it; revocation here blocks data access even before Worker token cleanup.
    *
    * `allowedCircleIds` is an authorization boundary — never auto-expanded when
-   * the User joins or creates Circles. `workerCleanupStatus` supports later
-   * reconciliation (#330) after Convex revoke + failed Worker cleanup.
+   * the User joins or creates Circles. `workerCleanupStatus` tracks Convex-first
+   * revocation cleanup and bounded reconciliation retries (#330).
    */
   mcpGrants: defineTable({
     userId: v.id("users"),
@@ -369,7 +369,16 @@ export default defineSchema({
       v.literal("none"),
       v.literal("pending_revoke"),
       v.literal("completed"),
+      v.literal("exhausted"),
     ),
+    /** Successful Worker cleanup attempts start at 0; failures increment toward exhaustion. */
+    workerCleanupAttempts: v.optional(v.number()),
+    /** Next time reconciliation may retry Worker cleanup for `pending_revoke`. */
+    workerCleanupNextAttemptAt: v.optional(v.number()),
+    /** Sanitized last cleanup error — never credentials or financial payloads. */
+    workerCleanupLastError: v.optional(v.string()),
+    /** Monotonic claim id so concurrent cleanup actions cannot double-count failures. */
+    workerCleanupClaimGeneration: v.optional(v.number()),
   })
     .index("by_principal", ["principalId"])
     .index("by_user", ["userId"])
@@ -382,7 +391,11 @@ export default defineSchema({
     .index("by_status_and_created", ["status", "createdAt"])
     .index("by_status_and_activation_expires", ["status", "activationExpiresAt"])
     .index("by_worker_grant", ["workerGrantId"])
-    .index("by_worker_cleanup_status", ["workerCleanupStatus"]),
+    .index("by_worker_cleanup_status", ["workerCleanupStatus"])
+    .index("by_worker_cleanup_status_and_next_attempt", [
+      "workerCleanupStatus",
+      "workerCleanupNextAttemptAt",
+    ]),
 
   /**
    * Single-use bearer material bridging User consent to the Worker's token

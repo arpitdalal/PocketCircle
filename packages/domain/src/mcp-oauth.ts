@@ -22,6 +22,18 @@ export const MCP_APPROVAL_TTL_MS = 5 * 60 * 1000;
 export const MCP_REVOCATION_TTL_MS = 5 * 60 * 1000;
 export const MCP_PENDING_ACTIVATION_TTL_MS = 20 * 60 * 1000;
 export const MCP_WORKER_ASSERTION_TTL_MS = 30_000;
+/** Bounded Worker cleanup retries after Convex-first revocation (#330). */
+export const MCP_WORKER_CLEANUP_MAX_ATTEMPTS = 5;
+export const MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS = 60_000;
+export const MCP_WORKER_CLEANUP_BACKOFF_BASE = 2;
+export const MCP_WORKER_CLEANUP_BATCH_SIZE = 32;
+/** Abort hung Convex→Worker cleanup fetches so attempts still advance. */
+export const MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS = 15_000;
+/** One attempt may post twice (current + previous HMAC during rotation). */
+export const MCP_WORKER_CLEANUP_MAX_REQUESTS_PER_ATTEMPT = 2;
+/** Lease while a cleanup action holds the Worker call — covers dual fetches + margin. */
+export const MCP_WORKER_CLEANUP_CLAIM_LEASE_MS =
+  MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS * MCP_WORKER_CLEANUP_MAX_REQUESTS_PER_ATTEMPT + 15_000;
 const MCP_WORKER_ASSERTION_CLOCK_SKEW_MS = 5_000;
 /** Pending grant abandoned if Worker never finishes token exchange in this window. */
 export const MCP_PENDING_GRANT_TTL_MS = MCP_APPROVAL_TTL_MS;

@@ -686,6 +686,48 @@ describe("authorization handoff", () => {
     });
     expect(refreshOk.status).toBe(200);
 
+    // Active Convex grant + client scope mistake must not disconnect the Worker grant.
+    const revokeOnScope = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/validate-grant"
+        ? Response.json({ ok: false, error: "scope_broadened" }, { status: 400 })
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
+    const refreshScopeBroadened = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshScopeBroadened.status).toBe(400);
+    expect(revokeOnScope).not.toHaveBeenCalled();
+    revokeOnScope.mockRestore();
+
+    // Decoupled Worker grant: definitive Convex rejection purges the Worker grant (#330).
+    const revokeOrphan = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/validate-grant"
+        ? Response.json({ ok: false, error: "grant_inactive" }, { status: 400 })
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
+    const refreshRevoked = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshRevoked.status).toBe(400);
+    expect(revokeOrphan).toHaveBeenCalledWith(expect.any(String), "principal_opaque");
+    revokeOrphan.mockRestore();
+
     // Lost browser response: retry returns the same redirect and does not create
     // another logical completion.
     stubConvexFetch((endpoint) => {
@@ -933,7 +975,7 @@ describe("authorization handoff", () => {
 });
 
 describe("MCP connection revocation", () => {
-  async function cleanupToken() {
+  async function cleanupToken(secret = HMAC_SECRET) {
     const now = Date.now();
     return signMcpRevocation(
       {
@@ -945,7 +987,7 @@ describe("MCP connection revocation", () => {
         iat: now,
         exp: now + MCP_REVOCATION_TTL_MS,
       },
-      HMAC_SECRET,
+      secret,
     );
   }
 
@@ -1009,6 +1051,43 @@ describe("MCP connection revocation", () => {
       body: JSON.stringify({ revocationToken: "forged" }),
     });
     expect(foreign.status).toBe(403);
+  });
+
+  it("accepts service cleanup on /internal/revoke without a browser Origin", async () => {
+    const revokeGrant = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch(() => Response.json({ ok: true }));
+
+    const response = await SELF.fetch("https://mcp.pocketcircle.app/internal/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revocationToken: await cleanupToken() }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ revoked: true });
+    expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
+    revokeGrant.mockRestore();
+  });
+
+  it("accepts /internal/revoke signed with the previous HMAC during rotation", async () => {
+    const previous = "previous-mcp-worker-secret";
+    const provider = getOAuthApi(oauthProviderOptions(env, defaultHandler), env);
+    const revokeGrant = vi.spyOn(provider, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch(() => Response.json({ ok: true }));
+    const revocationToken = await cleanupToken(previous);
+
+    const response = await defaultHandler.fetch(
+      new Request("https://mcp.pocketcircle.app/internal/revoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ revocationToken }),
+      }),
+      { ...env, MCP_WORKER_HMAC_SECRET_PREVIOUS: previous, OAUTH_PROVIDER: provider },
+    );
+
+    expect(response.status).toBe(200);
+    expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
+    revokeGrant.mockRestore();
   });
 });
 
