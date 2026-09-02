@@ -15,6 +15,8 @@ import {
   mcpCircleRefSchema,
   mcpCircleViewSchema,
   mcpComparisonRangeMonthsSchema,
+  mcpCreateCategoryInputSchema,
+  mcpCreateCategoryResultSchema,
   mcpCreateTransactionInputSchema,
   mcpCreateTransactionResultSchema,
   mcpCurrentUserViewSchema,
@@ -35,6 +37,8 @@ import {
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
   mcpTransactionRefSchema,
+  mcpUpdateCategoryInputSchema,
+  mcpUpdateCategoryResultSchema,
   mcpUpdateTransactionInputSchema,
   mcpUpdateTransactionResultSchema,
 } from "@pocketcircle/domain";
@@ -598,6 +602,66 @@ export function buildMcpServer(env: Env, request?: Request) {
   );
 
   server.registerTool(
+    "create_category",
+    {
+      title: "Create Category",
+      description:
+        "Create an Expense or Income Category in an authorized, setup-complete Circle. The authenticated Member becomes the creator. Names are case-insensitively unique per Circle and Transaction type, including names held by Archived Categories. Repeating the same call may create another Category when the name differs.",
+      inputSchema: mcpCreateCategoryInputSchema,
+      outputSchema: mcpCreateCategoryResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "create_category",
+          circleRef: args.circleRef,
+          name: args.name,
+          type: args.type,
+          color: args.color,
+        },
+        mcpCreateCategoryResultSchema,
+      ),
+  );
+
+  server.registerTool(
+    "update_category",
+    {
+      title: "Update Category",
+      description:
+        "Update an active Category's name and/or color in an authorized, setup-complete Circle. Only the Category creator may edit fields; the Circle Owner may not rename or recolor another Member's Category. A true no-op returns the current Category without a spurious history event. Archived Categories cannot be updated.",
+      inputSchema: mcpUpdateCategoryInputSchema,
+      outputSchema: mcpUpdateCategoryResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "update_category",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+          ...(args.name === undefined ? {} : { name: args.name }),
+          ...(args.color === undefined ? {} : { color: args.color }),
+        },
+        mcpUpdateCategoryResultSchema,
+      ),
+  );
+
+  server.registerTool(
     "create_transaction",
     {
       title: "Create Transaction",
@@ -732,6 +796,8 @@ export function buildMcpServer(env: Env, request?: Request) {
 }
 
 const WRITE_TOOL_NAMES = new Set([
+  "create_category",
+  "update_category",
   "create_transaction",
   "update_transaction",
   "archive_transaction",
