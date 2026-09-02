@@ -676,6 +676,25 @@ export const mcpUpdateCategoryResultSchema = mcpCreateCategoryResultSchema;
 
 export type McpUpdateCategoryResult = z.infer<typeof mcpUpdateCategoryResultSchema>;
 
+export const mcpArchiveCategoryInputSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  categoryRef: mcpCategoryRefSchema,
+});
+
+export type McpArchiveCategoryInput = z.infer<typeof mcpArchiveCategoryInputSchema>;
+
+export const mcpArchiveCategoryResultSchema = mcpCreateCategoryResultSchema;
+
+export type McpArchiveCategoryResult = z.infer<typeof mcpArchiveCategoryResultSchema>;
+
+export const mcpRestoreCategoryInputSchema = mcpArchiveCategoryInputSchema;
+
+export type McpRestoreCategoryInput = z.infer<typeof mcpRestoreCategoryInputSchema>;
+
+export const mcpRestoreCategoryResultSchema = mcpArchiveCategoryResultSchema;
+
+export type McpRestoreCategoryResult = z.infer<typeof mcpRestoreCategoryResultSchema>;
+
 const mcpCreateTransactionOperationSchema = mcpCreateTransactionCoreSchema
   .extend({
     kind: z.literal("create_transaction"),
@@ -706,6 +725,14 @@ const mcpUpdateCategoryOperationSchema = mcpUpdateCategoryFieldsSchema
   })
   .superRefine(refineUpdateCategoryInput);
 
+const mcpArchiveCategoryOperationSchema = mcpArchiveCategoryInputSchema.extend({
+  kind: z.literal("archive_category"),
+});
+
+const mcpRestoreCategoryOperationSchema = mcpRestoreCategoryInputSchema.extend({
+  kind: z.literal("restore_category"),
+});
+
 export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpCreateTransactionOperationSchema,
   mcpUpdateTransactionOperationSchema,
@@ -713,6 +740,8 @@ export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpRestoreTransactionOperationSchema,
   mcpCreateCategoryOperationSchema,
   mcpUpdateCategoryOperationSchema,
+  mcpArchiveCategoryOperationSchema,
+  mcpRestoreCategoryOperationSchema,
 ]);
 
 export type McpWriteOperation = z.infer<typeof mcpWriteOperationSchema>;

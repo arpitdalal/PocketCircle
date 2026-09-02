@@ -368,6 +368,30 @@ describe("MCP schemas", () => {
     expect(restore.success).toBe(true);
   });
 
+  it("validates mcpWriteOperationBodySchema for archive_category and restore_category", () => {
+    const archive = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "archive_category",
+        circleRef: "trip-c123",
+        categoryRef: "coffee-cat1",
+      },
+    });
+    expect(archive.success).toBe(true);
+
+    const restore = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "restore_category",
+        circleRef: "trip-c123",
+        categoryRef: "coffee-cat1",
+      },
+    });
+    expect(restore.success).toBe(true);
+  });
+
   it("validates mcpWriteOperationBodySchema for create_category and update_category", () => {
     const createCategory = mcpWriteOperationBodySchema.safeParse({
       grantId: "g123",

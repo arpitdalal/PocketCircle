@@ -7,6 +7,8 @@ import {
 import {
   type McpReadOperation,
   type McpWriteOperation,
+  mcpArchiveCategoryInputSchema,
+  mcpArchiveCategoryResultSchema,
   mcpArchiveTransactionInputSchema,
   mcpArchiveTransactionResultSchema,
   mcpCategoryAnalyticsSchema,
@@ -31,6 +33,8 @@ import {
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
   mcpPaginationOptsSchema,
+  mcpRestoreCategoryInputSchema,
+  mcpRestoreCategoryResultSchema,
   mcpRestoreTransactionInputSchema,
   mcpRestoreTransactionResultSchema,
   mcpSearchTransactionsInputSchema,
@@ -662,6 +666,62 @@ export function buildMcpServer(env: Env, request?: Request) {
   );
 
   server.registerTool(
+    "archive_category",
+    {
+      title: "Archive Category",
+      description:
+        "Archive an active Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Archiving keeps the Category on historical Transactions and readable in Category Detail and History, but removes it from valid new Transaction selections. Confirm the exact categoryRef before calling. Repeating archive on an already-archived Category returns an error.",
+      inputSchema: mcpArchiveCategoryInputSchema,
+      outputSchema: mcpArchiveCategoryResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "archive_category",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+        },
+        mcpArchiveCategoryResultSchema,
+      ),
+  );
+
+  server.registerTool(
+    "restore_category",
+    {
+      title: "Restore Category",
+      description:
+        "Restore an Archived Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Restoring makes the Category selectable for new Transactions again when uniqueness and lifecycle rules allow. Repeating restore on an already-active Category returns an error.",
+      inputSchema: mcpRestoreCategoryInputSchema,
+      outputSchema: mcpRestoreCategoryResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "restore_category",
+          circleRef: args.circleRef,
+          categoryRef: args.categoryRef,
+        },
+        mcpRestoreCategoryResultSchema,
+      ),
+  );
+
+  server.registerTool(
     "create_transaction",
     {
       title: "Create Transaction",
@@ -798,6 +858,8 @@ export function buildMcpServer(env: Env, request?: Request) {
 const WRITE_TOOL_NAMES = new Set([
   "create_category",
   "update_category",
+  "archive_category",
+  "restore_category",
   "create_transaction",
   "update_transaction",
   "archive_transaction",

@@ -609,6 +609,34 @@ export const updateCategory = mutation({
 });
 
 /**
+ * Core archive-Category write shared by the browser mutation and MCP (#329).
+ * Caller must already hold {@link AuthorizedCategory} with writable,
+ * setup-complete, canArchive, and active-Category checks applied.
+ */
+export async function performArchiveCategory(ctx: MutationCtx, access: AuthorizedCategory) {
+  const category = access.category;
+  await ctx.db.patch(category._id, { status: "archived", archivedAt: Date.now() });
+
+  await recordEvent(ctx, {
+    entity: categoryEntity(category._id, category.circleId),
+    actor: access.membership,
+    action: "archived",
+    changes: [],
+  });
+
+  await notifyCategoryLifecycleChange(ctx, {
+    creatorUserId: category.creatorUserId,
+    actorUserId: access.user._id,
+    actorDisplayName: access.membership.displayName,
+    circle: access.circle,
+    category,
+    action: "archived",
+  });
+
+  return category._id;
+}
+
+/**
  * Archives a Category — removes it from future Transaction selection without
  * deleting it (CAT-2; PRD stories 54, 57, 58). An Archived Category stays attached
  * to historical Transactions and stays usable as a filter, but cannot be NEWLY
@@ -647,27 +675,55 @@ export const archiveCategory = mutation({
       throw new Error("Category is already archived");
     }
 
-    await ctx.db.patch(category._id, { status: "archived", archivedAt: Date.now() });
-
-    await recordEvent(ctx, {
-      entity: categoryEntity(category._id, category.circleId),
-      actor: access.membership, // the moderator who archived it
-      action: "archived",
-      changes: [],
-    });
-
-    await notifyCategoryLifecycleChange(ctx, {
-      creatorUserId: category.creatorUserId,
-      actorUserId: access.user._id,
-      actorDisplayName: access.membership.displayName,
-      circle: access.circle,
-      category,
-      action: "archived",
-    });
-
-    return args.categoryId;
+    return performArchiveCategory(ctx, access);
   },
 });
+
+/**
+ * Core restore-Category write shared by the browser mutation and MCP (#329).
+ * Caller must already hold {@link AuthorizedCategory} with writable,
+ * setup-complete, canArchive, and archived-Category checks applied.
+ */
+export async function performRestoreCategory(ctx: MutationCtx, access: AuthorizedCategory) {
+  const category = access.category;
+
+  // Defensive collision re-check: any OTHER Category holding this name (in this
+  // Circle+type, any status) blocks the restore. The index range is one exact
+  // nameLower key — bounded by construction, not an unbounded scan.
+  const sameName = await ctx.db
+    .query("categories")
+    .withIndex("by_circle_type_name", (q) =>
+      q
+        .eq("circleId", category.circleId)
+        .eq("type", category.type)
+        .eq("nameLower", category.nameLower),
+    )
+    .collect();
+  if (sameName.some((other) => other._id !== category._id)) {
+    throw duplicateCategoryNameError();
+  }
+
+  // Setting `archivedAt` to undefined removes the field (it is schema-optional).
+  await ctx.db.patch(category._id, { status: "active", archivedAt: undefined });
+
+  await recordEvent(ctx, {
+    entity: categoryEntity(category._id, category.circleId),
+    actor: access.membership,
+    action: "restored",
+    changes: [],
+  });
+
+  await notifyCategoryLifecycleChange(ctx, {
+    creatorUserId: category.creatorUserId,
+    actorUserId: access.user._id,
+    actorDisplayName: access.membership.displayName,
+    circle: access.circle,
+    category,
+    action: "restored",
+  });
+
+  return category._id;
+}
 
 /**
  * Restores an Archived Category back to active (CAT-2; PRD story 58) — it becomes
@@ -699,42 +755,7 @@ export const restoreCategory = mutation({
       throw new Error("Category is not archived");
     }
 
-    // Defensive collision re-check: any OTHER Category holding this name (in this
-    // Circle+type, any status) blocks the restore. The index range is one exact
-    // nameLower key — bounded by construction, not an unbounded scan.
-    const sameName = await ctx.db
-      .query("categories")
-      .withIndex("by_circle_type_name", (q) =>
-        q
-          .eq("circleId", category.circleId)
-          .eq("type", category.type)
-          .eq("nameLower", category.nameLower),
-      )
-      .collect();
-    if (sameName.some((other) => other._id !== category._id)) {
-      throw duplicateCategoryNameError();
-    }
-
-    // Setting `archivedAt` to undefined removes the field (it is schema-optional).
-    await ctx.db.patch(category._id, { status: "active", archivedAt: undefined });
-
-    await recordEvent(ctx, {
-      entity: categoryEntity(category._id, category.circleId),
-      actor: access.membership, // the moderator who restored it
-      action: "restored",
-      changes: [],
-    });
-
-    await notifyCategoryLifecycleChange(ctx, {
-      creatorUserId: category.creatorUserId,
-      actorUserId: access.user._id,
-      actorDisplayName: access.membership.displayName,
-      circle: access.circle,
-      category,
-      action: "restored",
-    });
-
-    return args.categoryId;
+    return performRestoreCategory(ctx, access);
   },
 });
 

@@ -533,5 +533,96 @@ test.describe("local MCP OAuth", () => {
     expect(ledgerAfterRestoreContent).toMatchObject({
       totals: { expenseMinor: 500 },
     });
+
+    const archiveCategoryRes = await postMcp("tools/call", 14, {
+      name: "archive_category",
+      arguments: {
+        circleRef,
+        categoryRef: updatedCategoryRef,
+      },
+    });
+    expect(archiveCategoryRes.status()).toBe(200);
+    const archivedCategoryContent = mcpStructuredContent(await archiveCategoryRes.json());
+    expect(archivedCategoryContent).toMatchObject({
+      category: expect.objectContaining({
+        name: updatedCategoryName,
+        status: "archived",
+      }),
+    });
+
+    const categoryDetailAfterArchive = await postMcp("tools/call", 15, {
+      name: "get_category",
+      arguments: {
+        circleRef,
+        categoryRef: updatedCategoryRef,
+      },
+    });
+    expect(categoryDetailAfterArchive.status()).toBe(200);
+    expect(mcpStructuredContent(await categoryDetailAfterArchive.json())).toMatchObject({
+      status: "archived",
+      name: updatedCategoryName,
+    });
+
+    const categoryTxnsAfterArchive = await postMcp("tools/call", 16, {
+      name: "list_category_transactions",
+      arguments: {
+        circleRef,
+        categoryRef: updatedCategoryRef,
+      },
+    });
+    expect(categoryTxnsAfterArchive.status()).toBe(200);
+    expect(mcpStructuredContent(await categoryTxnsAfterArchive.json())).toMatchObject({
+      transactions: expect.arrayContaining([expect.objectContaining({ title: updatedTitle })]),
+    });
+
+    const blockedCreateRes = await postMcp("tools/call", 17, {
+      name: "create_transaction",
+      arguments: {
+        circleRef,
+        type: "expense",
+        title: `${txnTitle} blocked`,
+        amountMinorUnits: 100,
+        date: localPlainDate(),
+        categoryRefs: [updatedCategoryRef],
+        expectedCurrency,
+      },
+    });
+    expect(blockedCreateRes.status()).toBe(200);
+    expect(await blockedCreateRes.json()).toMatchObject({
+      jsonrpc: "2.0",
+      result: { isError: true },
+    });
+
+    const restoreCategoryRes = await postMcp("tools/call", 18, {
+      name: "restore_category",
+      arguments: {
+        circleRef,
+        categoryRef: updatedCategoryRef,
+      },
+    });
+    expect(restoreCategoryRes.status()).toBe(200);
+    expect(mcpStructuredContent(await restoreCategoryRes.json())).toMatchObject({
+      category: expect.objectContaining({
+        name: updatedCategoryName,
+        status: "active",
+      }),
+    });
+
+    const createAfterRestoreRes = await postMcp("tools/call", 19, {
+      name: "create_transaction",
+      arguments: {
+        circleRef,
+        type: "expense",
+        title: `${txnTitle} after restore`,
+        amountMinorUnits: 100,
+        date: localPlainDate(),
+        categoryRefs: [updatedCategoryRef],
+        expectedCurrency,
+      },
+    });
+    expect(createAfterRestoreRes.status()).toBe(200);
+    expect(mcpStructuredContent(await createAfterRestoreRes.json())).toMatchObject({
+      transaction: expect.objectContaining({ title: `${txnTitle} after restore` }),
+    });
   });
 });
