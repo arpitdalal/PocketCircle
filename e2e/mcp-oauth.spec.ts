@@ -418,7 +418,21 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ title: updatedTitle }),
     });
 
-    const searchAfterUpdate = await postMcp("tools/call", 6, {
+    const detailBeforeArchive = await postMcp("tools/call", 6, {
+      name: "get_transaction",
+      arguments: {
+        circleRef,
+        transactionRef: txnRef,
+      },
+    });
+    expect(detailBeforeArchive.status()).toBe(200);
+    const detailBeforeArchiveContent = mcpStructuredContent(await detailBeforeArchive.json());
+    expect(detailBeforeArchiveContent).toMatchObject({
+      title: updatedTitle,
+      status: "active",
+    });
+
+    const searchAfterUpdate = await postMcp("tools/call", 7, {
       name: "search_transactions",
       arguments: {
         circleRef,
@@ -433,6 +447,58 @@ test.describe("local MCP OAuth", () => {
           title: updatedTitle,
         }),
       ]),
+    });
+
+    const archiveRes = await postMcp("tools/call", 8, {
+      name: "archive_transaction",
+      arguments: {
+        circleRef,
+        transactionRef: txnRef,
+      },
+    });
+    expect(archiveRes.status()).toBe(200);
+    const archivedContent = mcpStructuredContent(await archiveRes.json());
+    expect(archivedContent).toMatchObject({
+      transaction: expect.objectContaining({ status: "archived" }),
+    });
+
+    const ledgerAfterArchive = await postMcp("tools/call", 9, {
+      name: "get_monthly_ledger",
+      arguments: {
+        circleRef,
+        month: localPlainDate().slice(0, 7),
+      },
+    });
+    expect(ledgerAfterArchive.status()).toBe(200);
+    const ledgerAfterArchiveContent = mcpStructuredContent(await ledgerAfterArchive.json());
+    expect(ledgerAfterArchiveContent).toMatchObject({
+      totals: { expenseMinor: 0 },
+    });
+
+    const restoreRes = await postMcp("tools/call", 10, {
+      name: "restore_transaction",
+      arguments: {
+        circleRef,
+        transactionRef: txnRef,
+      },
+    });
+    expect(restoreRes.status()).toBe(200);
+    const restoredContent = mcpStructuredContent(await restoreRes.json());
+    expect(restoredContent).toMatchObject({
+      transaction: expect.objectContaining({ status: "active" }),
+    });
+
+    const ledgerAfterRestore = await postMcp("tools/call", 11, {
+      name: "get_monthly_ledger",
+      arguments: {
+        circleRef,
+        month: localPlainDate().slice(0, 7),
+      },
+    });
+    expect(ledgerAfterRestore.status()).toBe(200);
+    const ledgerAfterRestoreContent = mcpStructuredContent(await ledgerAfterRestore.json());
+    expect(ledgerAfterRestoreContent).toMatchObject({
+      totals: { expenseMinor: 500 },
     });
   });
 });

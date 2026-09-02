@@ -41,7 +41,11 @@ import {
   listCategoryHistoryForAccess,
   listRecentCategoryTransactionsForAccess,
 } from "./categories.js";
-import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
+import {
+  type AuthorizedCircle,
+  authorizedTransactionFromAccess,
+  resolveCircleAccessForUser,
+} from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
@@ -58,7 +62,9 @@ import {
 import {
   newViewCaches,
   paginateCircleTransactionsForAccess,
+  performArchiveTransaction,
   performCreateTransaction,
+  performRestoreTransaction,
   performUpdateTransaction,
   type TransactionDetailView,
   type TransactionView,
@@ -864,6 +870,16 @@ export function toMcpTransactionDetailView(view: TransactionDetailView, currency
       createdAt: view.audit.createdAt,
       updatedBy: toMcpMemberAttributionView(view.audit.updatedBy),
       updatedAt: view.audit.updatedAt,
+    },
+  };
+}
+
+/** Write-only lifecycle confirmation: bare ID ref and status only (no readable fields). */
+export function toMcpLifecycleTransactionView(transaction: Doc<"transactions">) {
+  return {
+    ref: transaction._id,
+    transaction: {
+      status: transaction.status,
     },
   };
 }
@@ -1724,4 +1740,122 @@ export async function updateTransactionForAccess(
     ok: true as const,
     value: toMcpTransactionDetailView(detail, access.circle.currency),
   };
+}
+
+export type ArchiveTransactionForAccessArgs = {
+  transactionRef: string;
+};
+
+export type RestoreTransactionForAccessArgs = ArchiveTransactionForAccessArgs;
+
+function mapLifecycleTransactionFailure(error: unknown) {
+  if (error instanceof ConvexError) {
+    const parsed = mutationErrorDataSchema.safeParse(error.data);
+    if (parsed.success) {
+      switch (parsed.data.code) {
+        case "circle.archived":
+          return "circle_archived" as const;
+        case "circle.setupIncomplete":
+          return "circle_setup_incomplete" as const;
+        default:
+          return null;
+      }
+    }
+  }
+  if (error instanceof Error) {
+    if (
+      error.message.includes("Only the recorder or the owner") ||
+      error.message.includes("Transaction is already archived") ||
+      error.message.includes("Transaction is not archived") ||
+      error.message.includes("Transaction not found")
+    ) {
+      return "transaction_inaccessible" as const;
+    }
+  }
+  return null;
+}
+
+function lifecycleTransactionFailureFrom(error: unknown) {
+  const mapped = mapLifecycleTransactionFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+async function lifecycleTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: ArchiveTransactionForAccessArgs,
+  options: {
+    requiredStatus: "active" | "archived";
+    perform: (
+      mutationCtx: MutationCtx,
+      txnAccess: ReturnType<typeof authorizedTransactionFromAccess>,
+    ) => Promise<Id<"transactions">>;
+  },
+) {
+  const transactionId = resolveTransactionRef(ctx, args.transactionRef);
+  if (!transactionId) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+  const transaction = await ctx.db.get(transactionId);
+  if (!transaction || transaction.circleId !== access.circle._id) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return lifecycleTransactionFailureFrom(error);
+  }
+
+  const txnAccess = authorizedTransactionFromAccess(access, transaction);
+  if (!txnAccess.canArchive) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+  if (transaction.status !== options.requiredStatus) {
+    return { ok: false as const, error: "transaction_inaccessible" as const };
+  }
+
+  let updatedId: Id<"transactions">;
+  try {
+    updatedId = await options.perform(ctx, txnAccess);
+  } catch (error) {
+    return lifecycleTransactionFailureFrom(error);
+  }
+
+  const updated = await ctx.db.get(updatedId);
+  if (!updated) {
+    throw new Error("Transaction not found");
+  }
+  return {
+    ok: true as const,
+    value: toMcpLifecycleTransactionView(updated),
+  };
+}
+
+/** Shared explicit-User archive Transaction write for MCP (#327). */
+export async function archiveTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: ArchiveTransactionForAccessArgs,
+) {
+  return lifecycleTransactionForAccess(ctx, access, args, {
+    requiredStatus: "active",
+    perform: performArchiveTransaction,
+  });
+}
+
+/** Shared explicit-User restore Transaction write for MCP (#327). */
+export async function restoreTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: RestoreTransactionForAccessArgs,
+) {
+  return lifecycleTransactionForAccess(ctx, access, args, {
+    requiredStatus: "archived",
+    perform: performRestoreTransaction,
+  });
 }

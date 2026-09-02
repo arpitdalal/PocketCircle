@@ -983,6 +983,42 @@ export const updateTransaction = mutation({
 });
 
 /**
+ * Core archive-Transaction write shared by the browser mutation and MCP (#327).
+ * Caller must already hold {@link AuthorizedTransaction} with writable,
+ * setup-complete, canArchive, and active-transaction checks applied.
+ */
+export async function performArchiveTransaction(ctx: MutationCtx, access: AuthorizedTransaction) {
+  const txn = access.transaction;
+  await ctx.db.patch(txn._id, { status: "archived", archivedAt: Date.now() });
+  const archivedTransaction = await ctx.db.get(txn._id);
+  if (!archivedTransaction) {
+    throw new Error("Transaction not found");
+  }
+  await syncTransactionSearchDocument(ctx, archivedTransaction);
+
+  await recordEvent(ctx, {
+    entity: transactionEntity(txn._id, txn.circleId),
+    actor: access.membership,
+    action: "archived",
+    changes: [],
+  });
+
+  const recorder = await ctx.db.get(txn.recordedByMemberId);
+  if (recorder) {
+    await notifyTransactionLifecycleChange(ctx, {
+      recorderUserId: recorder.userId,
+      actorUserId: access.user._id,
+      actorDisplayName: access.membership.displayName,
+      circle: access.circle,
+      transaction: archivedTransaction,
+      action: "archived",
+    });
+  }
+
+  return txn._id;
+}
+
+/**
  * Archives a Transaction — the moderation / void path that preserves the record
  * instead of deleting it (TXN-3; PRD stories 39, 40, 41, 46). An Archived
  * Transaction is frozen (edits rejected — TXN-2), excluded from Dashboard totals and
@@ -1026,35 +1062,46 @@ export const archiveTransaction = mutation({
       throw new Error("Transaction is already archived");
     }
 
-    await ctx.db.patch(txn._id, { status: "archived", archivedAt: Date.now() });
-    const archivedTransaction = await ctx.db.get(txn._id);
-    if (!archivedTransaction) {
-      throw new Error("Transaction not found");
-    }
-    await syncTransactionSearchDocument(ctx, archivedTransaction);
-
-    await recordEvent(ctx, {
-      entity: transactionEntity(txn._id, txn.circleId),
-      actor: access.membership, // the moderator who archived it
-      action: "archived",
-      changes: [],
-    });
-
-    const recorder = await ctx.db.get(txn.recordedByMemberId);
-    if (recorder) {
-      await notifyTransactionLifecycleChange(ctx, {
-        recorderUserId: recorder.userId,
-        actorUserId: access.user._id,
-        actorDisplayName: access.membership.displayName,
-        circle: access.circle,
-        transaction: archivedTransaction,
-        action: "archived",
-      });
-    }
-
-    return args.transactionId;
+    return performArchiveTransaction(ctx, access);
   },
 });
+
+/**
+ * Core restore-Transaction write shared by the browser mutation and MCP (#327).
+ * Caller must already hold {@link AuthorizedTransaction} with writable,
+ * setup-complete, canArchive, and archived-transaction checks applied.
+ */
+export async function performRestoreTransaction(ctx: MutationCtx, access: AuthorizedTransaction) {
+  const txn = access.transaction;
+  // Setting `archivedAt` to undefined removes the field (it is schema-optional).
+  await ctx.db.patch(txn._id, { status: "active", archivedAt: undefined });
+  const restoredTransaction = await ctx.db.get(txn._id);
+  if (!restoredTransaction) {
+    throw new Error("Transaction not found");
+  }
+  await syncTransactionSearchDocument(ctx, restoredTransaction);
+
+  await recordEvent(ctx, {
+    entity: transactionEntity(txn._id, txn.circleId),
+    actor: access.membership,
+    action: "restored",
+    changes: [],
+  });
+
+  const recorder = await ctx.db.get(txn.recordedByMemberId);
+  if (recorder) {
+    await notifyTransactionLifecycleChange(ctx, {
+      recorderUserId: recorder.userId,
+      actorUserId: access.user._id,
+      actorDisplayName: access.membership.displayName,
+      circle: access.circle,
+      transaction: restoredTransaction,
+      action: "restored",
+    });
+  }
+
+  return txn._id;
+}
 
 /**
  * Restores an Archived Transaction back to active (TXN-3; PRD stories 40, 41) — it
@@ -1084,33 +1131,6 @@ export const restoreTransaction = mutation({
       throw new Error("Transaction is not archived");
     }
 
-    // Setting `archivedAt` to undefined removes the field (it is schema-optional).
-    await ctx.db.patch(txn._id, { status: "active", archivedAt: undefined });
-    const restoredTransaction = await ctx.db.get(txn._id);
-    if (!restoredTransaction) {
-      throw new Error("Transaction not found");
-    }
-    await syncTransactionSearchDocument(ctx, restoredTransaction);
-
-    await recordEvent(ctx, {
-      entity: transactionEntity(txn._id, txn.circleId),
-      actor: access.membership, // the moderator who restored it
-      action: "restored",
-      changes: [],
-    });
-
-    const recorder = await ctx.db.get(txn.recordedByMemberId);
-    if (recorder) {
-      await notifyTransactionLifecycleChange(ctx, {
-        recorderUserId: recorder.userId,
-        actorUserId: access.user._id,
-        actorDisplayName: access.membership.displayName,
-        circle: access.circle,
-        transaction: restoredTransaction,
-        action: "restored",
-      });
-    }
-
-    return args.transactionId;
+    return performRestoreTransaction(ctx, access);
   },
 });

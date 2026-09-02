@@ -596,6 +596,32 @@ export const mcpUpdateTransactionResultSchema = mcpCreateTransactionResultSchema
 
 export type McpUpdateTransactionResult = z.infer<typeof mcpUpdateTransactionResultSchema>;
 
+export const mcpArchiveTransactionInputSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  transactionRef: mcpTransactionRefSchema,
+});
+
+export type McpArchiveTransactionInput = z.infer<typeof mcpArchiveTransactionInputSchema>;
+
+const mcpLifecycleTransactionViewSchema = z.object({
+  status: z.enum(["active", "archived"]),
+});
+
+export const mcpArchiveTransactionResultSchema = z.object({
+  ref: mcpTransactionRefSchema,
+  transaction: mcpLifecycleTransactionViewSchema,
+});
+
+export type McpArchiveTransactionResult = z.infer<typeof mcpArchiveTransactionResultSchema>;
+
+export const mcpRestoreTransactionInputSchema = mcpArchiveTransactionInputSchema;
+
+export type McpRestoreTransactionInput = z.infer<typeof mcpRestoreTransactionInputSchema>;
+
+export const mcpRestoreTransactionResultSchema = mcpArchiveTransactionResultSchema;
+
+export type McpRestoreTransactionResult = z.infer<typeof mcpRestoreTransactionResultSchema>;
+
 const mcpCreateTransactionOperationSchema = mcpCreateTransactionCoreSchema
   .extend({
     kind: z.literal("create_transaction"),
@@ -608,9 +634,19 @@ const mcpUpdateTransactionOperationSchema = mcpUpdateTransactionFieldsSchema
   })
   .superRefine(refineUpdateTransactionInput);
 
+const mcpArchiveTransactionOperationSchema = mcpArchiveTransactionInputSchema.extend({
+  kind: z.literal("archive_transaction"),
+});
+
+const mcpRestoreTransactionOperationSchema = mcpRestoreTransactionInputSchema.extend({
+  kind: z.literal("restore_transaction"),
+});
+
 export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpCreateTransactionOperationSchema,
   mcpUpdateTransactionOperationSchema,
+  mcpArchiveTransactionOperationSchema,
+  mcpRestoreTransactionOperationSchema,
 ]);
 
 export type McpWriteOperation = z.infer<typeof mcpWriteOperationSchema>;
