@@ -284,6 +284,19 @@ jobs:
           path.write_text(text.replace(kv_needle, kv_id).replace(site_needle, origin))
           "
 
+      - name: Install MCP Worker previous HMAC secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
+        working-directory: packages/mcp-worker
+        run: |
+          if [ -z "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            echo "No previous HMAC secret to install"
+            exit 0
+          fi
+          printf '%s' "$MCP_WORKER_HMAC_SECRET_PREVIOUS" | pnpm exec wrangler secret put MCP_WORKER_HMAC_SECRET_PREVIOUS
+
       - name: Deploy MCP Worker
         uses: cloudflare/wrangler-action@v4
         with:
@@ -298,7 +311,7 @@ jobs:
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           MCP_WORKER_SIGNING_PRIVATE_JWK: ${{ secrets.MCP_WORKER_SIGNING_PRIVATE_JWK }}
 
-      - name: Sync MCP Worker previous HMAC secret
+      - name: Remove MCP Worker previous HMAC secret
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -306,10 +319,22 @@ jobs:
         working-directory: packages/mcp-worker
         run: |
           if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
-            printf '%s' "$MCP_WORKER_HMAC_SECRET_PREVIOUS" | pnpm exec wrangler secret put MCP_WORKER_HMAC_SECRET_PREVIOUS
-          else
-            pnpm exec wrangler secret delete MCP_WORKER_HMAC_SECRET_PREVIOUS --force || true
+            echo "Keeping MCP_WORKER_HMAC_SECRET_PREVIOUS during rotation"
+            exit 0
           fi
+          set +e
+          out=$(pnpm exec wrangler secret delete MCP_WORKER_HMAC_SECRET_PREVIOUS --force 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if printf '%s' "$out" | grep -qiE 'not found|does not exist|no such secret'; then
+            echo "MCP_WORKER_HMAC_SECRET_PREVIOUS already absent"
+            exit 0
+          fi
+          printf '%s\n' "$out" >&2
+          exit "$status"
 
       - name: Verify MCP Worker discovery
         env:
