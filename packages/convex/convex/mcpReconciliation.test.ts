@@ -443,6 +443,50 @@ describe("MCP Worker cleanup reconciliation", () => {
     }
   });
 
+  it("ignores stale cleanup failure claims from concurrent actions", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, circle } = await seedOwnerWithCircle(t);
+    const grant = await createActiveMcpGrant(t, {
+      userId: ada.userId,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT,
+      workerGrantId: "worker-grant-1",
+    });
+    const now = Date.now();
+    await t.run((ctx) => revokeMcpGrant(ctx, { grantId: grant._id, now }));
+
+    const first = await t.mutation(internal.mcpReconciliation.beginWorkerCleanupAttempt, {
+      grantId: grant._id,
+      force: true,
+      now,
+    });
+    const second = await t.mutation(internal.mcpReconciliation.beginWorkerCleanupAttempt, {
+      grantId: grant._id,
+      force: true,
+      now,
+    });
+    expect(first).toMatchObject({ ok: true, claimGeneration: 1 });
+    expect(second).toMatchObject({ ok: true, claimGeneration: 2 });
+
+    const stale = await t.mutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
+      grantId: grant._id,
+      error: "stale",
+      claimGeneration: 1,
+      now,
+    });
+    expect(stale).toEqual({ ok: false, error: "stale_claim" });
+
+    const live = await t.mutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
+      grantId: grant._id,
+      error: "live",
+      claimGeneration: 2,
+      now,
+    });
+    expect(live).toMatchObject({ ok: true, exhausted: false });
+    expect((await t.run((ctx) => ctx.db.get(grant._id)))?.workerCleanupAttempts).toBe(1);
+  });
+
   it("logs only safe operational identifiers during cleanup failure", async () => {
     const t = convexTest(schema, modules);
     const { ada, circle } = await seedOwnerWithCircle(t);

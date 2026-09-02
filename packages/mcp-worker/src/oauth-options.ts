@@ -111,20 +111,27 @@ export function oauthProviderOptions(
               headers: { "Retry-After": "2" },
             });
           }
-          // Decoupled Worker grant: Convex already fails closed — drop the Worker grant (#330).
-          try {
-            await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
-          } catch {
-            console.error(
-              "[mcp-reconcile] orphan worker grant purge failed",
-              options.grantId,
-              mcpGrantId,
-            );
-            throw new OAuthError("temporarily_unavailable", {
-              description: "PocketCircle grant cleanup is temporarily unavailable",
-              statusCode: 503,
-              headers: { "Retry-After": "2" },
-            });
+          // Purge only when Convex proves the grant is gone/inactive — not for
+          // client scope mistakes against an otherwise-active connection (#330).
+          const purgeWorkerGrant =
+            result.error === "grant_not_found" ||
+            result.error === "grant_inactive" ||
+            result.error === "principal_mismatch";
+          if (purgeWorkerGrant) {
+            try {
+              await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
+            } catch {
+              console.error(
+                "[mcp-reconcile] orphan worker grant purge failed",
+                options.grantId,
+                mcpGrantId,
+              );
+              throw new OAuthError("temporarily_unavailable", {
+                description: "PocketCircle grant cleanup is temporarily unavailable",
+                statusCode: 503,
+                headers: { "Retry-After": "2" },
+              });
+            }
           }
           throw new OAuthError("invalid_grant", {
             description: "PocketCircle grant no longer valid",

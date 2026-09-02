@@ -377,6 +377,8 @@ export default defineSchema({
     workerCleanupNextAttemptAt: v.optional(v.number()),
     /** Sanitized last cleanup error — never credentials or financial payloads. */
     workerCleanupLastError: v.optional(v.string()),
+    /** Monotonic claim id so concurrent cleanup actions cannot double-count failures. */
+    workerCleanupClaimGeneration: v.optional(v.number()),
   })
     .index("by_principal", ["principalId"])
     .index("by_user", ["userId"])

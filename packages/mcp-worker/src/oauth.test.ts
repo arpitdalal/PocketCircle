@@ -686,6 +686,27 @@ describe("authorization handoff", () => {
     });
     expect(refreshOk.status).toBe(200);
 
+    // Active Convex grant + client scope mistake must not disconnect the Worker grant.
+    const revokeOnScope = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/validate-grant"
+        ? Response.json({ ok: false, error: "scope_broadened" }, { status: 400 })
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
+    const refreshScopeBroadened = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshScopeBroadened.status).toBe(400);
+    expect(revokeOnScope).not.toHaveBeenCalled();
+    revokeOnScope.mockRestore();
+
     // Decoupled Worker grant: definitive Convex rejection purges the Worker grant (#330).
     const revokeOrphan = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
     stubConvexFetch((endpoint) =>

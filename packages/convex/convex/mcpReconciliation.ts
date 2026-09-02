@@ -10,6 +10,7 @@ import {
   MCP_REVOCATION_TTL_MS,
   MCP_WORKER_CLEANUP_BACKOFF_BASE,
   MCP_WORKER_CLEANUP_BATCH_SIZE,
+  MCP_WORKER_CLEANUP_CLAIM_LEASE_MS,
   MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS,
   MCP_WORKER_CLEANUP_MAX_ATTEMPTS,
   MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS,
@@ -128,12 +129,19 @@ export const recordWorkerCleanupFailure = internalMutation({
   args: {
     grantId: v.id("mcpGrants"),
     error: v.string(),
+    claimGeneration: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const grant = await ctx.db.get(args.grantId);
     if (grant?.workerCleanupStatus !== "pending_revoke") {
       return { ok: false as const, error: "not_pending" as const };
+    }
+    if (
+      args.claimGeneration !== undefined &&
+      args.claimGeneration !== (grant.workerCleanupClaimGeneration ?? 0)
+    ) {
+      return { ok: false as const, error: "stale_claim" as const };
     }
     const now = args.now ?? Date.now();
     const attempts = (grant.workerCleanupAttempts ?? 0) + 1;
@@ -169,6 +177,60 @@ export const recordWorkerCleanupFailure = internalMutation({
 });
 
 /**
+ * Atomically leases a pending cleanup before the Worker call so concurrent
+ * sweep/retry actions cannot both burn the retry budget.
+ */
+export const beginWorkerCleanupAttempt = internalMutation({
+  args: {
+    grantId: v.id("mcpGrants"),
+    force: v.optional(v.boolean()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const grant = await ctx.db.get(args.grantId);
+    if (!grant) {
+      return { ok: false as const, error: "grant_not_found" as const };
+    }
+    if (grant.status !== "revoked") {
+      return { ok: false as const, error: "grant_not_revoked" as const };
+    }
+    if (grant.workerCleanupStatus === "completed") {
+      return { ok: true as const, alreadyComplete: true as const };
+    }
+    if (grant.workerCleanupStatus === "exhausted") {
+      return { ok: false as const, error: "cleanup_exhausted" as const };
+    }
+    if (grant.workerCleanupStatus !== "pending_revoke") {
+      return { ok: false as const, error: "cleanup_not_pending" as const };
+    }
+
+    const now = args.now ?? Date.now();
+    if (!grant.workerGrantId) {
+      await patchCleanupCompleted(ctx, grant._id, now);
+      console.log("[mcp-reconcile] completed orphan convex cleanup", String(grant._id));
+      return { ok: true as const, orphanCompleted: true as const };
+    }
+    if (!args.force && !isCleanupDue(grant, now)) {
+      return { ok: false as const, error: "not_due" as const };
+    }
+
+    const claimGeneration = (grant.workerCleanupClaimGeneration ?? 0) + 1;
+    await ctx.db.patch(grant._id, {
+      workerCleanupClaimGeneration: claimGeneration,
+      workerCleanupNextAttemptAt: now + MCP_WORKER_CLEANUP_CLAIM_LEASE_MS,
+      updatedAt: now,
+    });
+    return {
+      ok: true as const,
+      claimGeneration,
+      grantId: grant._id,
+      principalId: grant.principalId,
+      workerGrantId: grant.workerGrantId,
+    };
+  },
+});
+
+/**
  * Asks the Worker to revoke the linked OAuth grant, then Convex completes.
  * Fails closed on the Convex side — never flips status back to active.
  */
@@ -179,60 +241,45 @@ export const runWorkerCleanup = internalAction({
     args,
     // Explicit return: TS circular inference via internal.mcpReconciliation.* calls.
   ): Promise<{ ok: true; alreadyComplete?: true } | { ok: false; error: string }> => {
-    const grant = await ctx.runQuery(internal.mcpReconciliation.getGrantForCleanup, {
+    const now = Date.now();
+    const claimed = await ctx.runMutation(internal.mcpReconciliation.beginWorkerCleanupAttempt, {
       grantId: args.grantId,
+      force: args.force,
+      now,
     });
-    if (!grant) {
-      return { ok: false, error: "grant_not_found" };
+    if (!claimed.ok) {
+      return { ok: false, error: claimed.error };
     }
-    if (grant.status !== "revoked") {
-      return { ok: false, error: "grant_not_revoked" };
-    }
-    if (grant.workerCleanupStatus === "completed") {
+    if ("alreadyComplete" in claimed && claimed.alreadyComplete) {
       return { ok: true, alreadyComplete: true };
     }
-    if (grant.workerCleanupStatus === "exhausted") {
-      return { ok: false, error: "cleanup_exhausted" };
+    if ("orphanCompleted" in claimed && claimed.orphanCompleted) {
+      return { ok: true };
     }
-    if (grant.workerCleanupStatus !== "pending_revoke") {
+    if (!("claimGeneration" in claimed)) {
       return { ok: false, error: "cleanup_not_pending" };
     }
-
-    if (!grant.workerGrantId) {
-      const orphaned = await ctx.runMutation(
-        internal.mcpReconciliation.completeOrphanedConvexCleanup,
-        { grantId: grant._id },
-      );
-      return orphaned.ok ? { ok: true } : { ok: false, error: orphaned.error };
-    }
-    const workerGrantId = grant.workerGrantId;
-
-    const now = Date.now();
-    if (!args.force && !isCleanupDue(grant, now)) {
-      return { ok: false, error: "not_due" };
-    }
+    const { claimGeneration, workerGrantId, principalId, grantId } = claimed;
 
     const origin = mcpWorkerOrigin();
     const secrets = mcpWorkerVerificationSecrets();
     const secret = secrets[0];
     if (!origin || !secret) {
-      // Do not burn retry budget or re-enqueue — cron retries once configured.
+      // Do not burn retry budget — cron retries once configured. Claim lease expires.
       console.error(
         "[mcp-reconcile] missing MCP_WORKER_ORIGIN or HMAC; leaving pending",
-        String(grant._id),
+        String(grantId),
       );
       return { ok: false, error: "not_configured" };
     }
     const workerOrigin = origin;
-    const grantDocId = grant._id;
-    const principalId = grant.principalId;
 
     async function postRevocation(signingSecret: string) {
       const revocationToken = await signMcpRevocation(
         {
           v: 1,
           jti: generateOpaqueToken(),
-          grantId: String(grantDocId),
+          grantId: String(grantId),
           principalId,
           workerGrantId,
           iat: now,
@@ -259,8 +306,9 @@ export const runWorkerCleanup = internalAction({
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "fetch_failed";
       await ctx.runMutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
-        grantId: grant._id,
+        grantId,
         error: message,
+        claimGeneration,
         now,
       });
       return { ok: false, error: "worker_unreachable" };
@@ -268,8 +316,9 @@ export const runWorkerCleanup = internalAction({
 
     if (!response.ok) {
       await ctx.runMutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
-        grantId: grant._id,
+        grantId,
         error: `worker_http_${response.status}`,
+        claimGeneration,
         now,
       });
       return { ok: false, error: "worker_cleanup_failed" };
@@ -280,25 +329,26 @@ export const runWorkerCleanup = internalAction({
       grantId: args.grantId,
     });
     if (after?.workerCleanupStatus === "completed") {
-      console.log("[mcp-reconcile] cleanup completed", String(grant._id));
+      console.log("[mcp-reconcile] cleanup completed", String(grantId));
       return { ok: true };
     }
 
     const completed = await ctx.runMutation(internal.mcpReconciliation.markCleanupCompleted, {
-      grantId: String(grant._id),
+      grantId: String(grantId),
       workerGrantId,
-      principalId: grant.principalId,
+      principalId,
       now,
     });
     if (!completed.ok) {
       await ctx.runMutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
-        grantId: grant._id,
+        grantId,
         error: completed.error,
+        claimGeneration,
         now,
       });
       return { ok: false, error: completed.error };
     }
-    console.log("[mcp-reconcile] cleanup completed", String(grant._id));
+    console.log("[mcp-reconcile] cleanup completed", String(grantId));
     return { ok: true };
   },
 });
@@ -315,12 +365,16 @@ export const markCleanupCompleted = internalMutation({
 
 /**
  * Scheduled orphan sweep: due `pending_revoke` rows (and revoked rows missing a
- * Worker grant id) get cleanup enqueued. Also backfills pre-#330 rows that lack
- * `workerCleanupNextAttemptAt` onto the compound due index first. Bounded per
- * run; continues via scheduler when the batch is full.
+ * Worker grant id) get cleanup enqueued. Also cursor-paginates legacy rows that
+ * lack `workerCleanupNextAttemptAt` onto the compound due index. Bounded per
+ * run; continues via scheduler when the batch or legacy page is unfinished.
  */
 export const reconcilePendingWorkerCleanups = internalMutation({
-  args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
+  args: {
+    now: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    legacyCursor: v.optional(v.union(v.string(), v.null())),
+  },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     const limit = Math.max(1, Math.min(args.limit ?? MCP_WORKER_CLEANUP_BATCH_SIZE, 100));
@@ -340,14 +394,14 @@ export const reconcilePendingWorkerCleanups = internalMutation({
       await enqueueMcpWorkerCleanup(ctx, { grantId: grant._id, delayMs: 0, force: true });
     }
 
-    // Backfill legacy rows onto the compound index before claiming due work, so
-    // claimed pages cannot hide later missing-attempt rows behind `.take(limit)`.
+    // Cursor through legacy pending rows so claimed pages cannot hide later
+    // missing-attempt grants behind a fixed `.take(N)`.
     const legacyPage = await ctx.db
       .query("mcpGrants")
       .withIndex("by_worker_cleanup_status", (q) => q.eq("workerCleanupStatus", "pending_revoke"))
-      .take(legacyScanSize);
+      .paginate({ numItems: legacyScanSize, cursor: args.legacyCursor ?? null });
     let backfilled = 0;
-    for (const grant of legacyPage) {
+    for (const grant of legacyPage.page) {
       if (grant.workerCleanupNextAttemptAt !== undefined) {
         continue;
       }
@@ -371,14 +425,12 @@ export const reconcilePendingWorkerCleanups = internalMutation({
       processed += 1;
     }
 
-    if (
-      processed === limit ||
-      due.length === limit ||
-      (backfilled > 0 && legacyPage.length === legacyScanSize)
-    ) {
+    const continueLegacy = !legacyPage.isDone;
+    if (continueLegacy || processed === limit || due.length === limit) {
       await ctx.scheduler.runAfter(0, internal.mcpReconciliation.reconcilePendingWorkerCleanups, {
         now,
         limit,
+        legacyCursor: continueLegacy ? legacyPage.continueCursor : null,
       });
     }
     console.log("[mcp-reconcile] orphan sweep processed", processed, "backfilled", backfilled);

@@ -63,8 +63,10 @@ export default function Connections() {
         }
         await completeMcpConnectionRevocation(workerOrigin, result.value.cleanupToken);
       }
+      const cleanupFinished =
+        Boolean(result.value.cleanupToken) || result.value.cleanupStatus === "completed";
       show(
-        result.value.cleanupToken || result.value.cleanupStatus !== "pending_revoke"
+        cleanupFinished
           ? "Connection revoked."
           : "PocketCircle access revoked; Worker cleanup is pending.",
       );
