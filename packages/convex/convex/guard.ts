@@ -297,6 +297,14 @@ export async function requireCategoryAccess(
   if (!access) {
     throw new Error("Category not found");
   }
+  return authorizedCategoryFromAccess(access, category);
+}
+
+/** Compose category entity permissions over an already-resolved Circle access. */
+export function authorizedCategoryFromAccess(
+  access: AuthorizedCircle,
+  category: Doc<"categories">,
+) {
   const isCreator = category.creatorUserId === access.user._id;
   return { ...access, category, isCreator, canArchive: isCreator || access.isOwner };
 }

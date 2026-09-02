@@ -46,6 +46,7 @@ import {
 } from "./categories.js";
 import {
   type AuthorizedCircle,
+  authorizedCategoryFromAccess,
   authorizedTransactionFromAccess,
   resolveCircleAccessForUser,
 } from "./guard.js";
@@ -1986,17 +1987,10 @@ export async function updateCategoryForAccess(
     return updateCategoryFailureFrom(error);
   }
 
-  const isCreator = category.creatorUserId === access.user._id;
-  if (!isCreator || category.status !== "active") {
+  const categoryAccess = authorizedCategoryFromAccess(access, category);
+  if (!categoryAccess.isCreator || category.status !== "active") {
     return { ok: false as const, error: "category_inaccessible" as const };
   }
-
-  const categoryAccess = {
-    ...access,
-    category,
-    isCreator,
-    canArchive: isCreator || access.isOwner,
-  };
 
   try {
     await updateCategoryForMember(ctx, {

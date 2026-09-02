@@ -642,7 +642,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: false,
+        idempotentHint: true,
       },
     },
     async (args, ctx) =>

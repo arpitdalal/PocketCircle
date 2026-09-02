@@ -700,9 +700,11 @@ const mcpCreateCategoryOperationSchema = mcpCreateCategoryCoreSchema.extend({
   kind: z.literal("create_category"),
 });
 
-const mcpUpdateCategoryOperationSchema = mcpUpdateCategoryCoreSchema.extend({
-  kind: z.literal("update_category"),
-});
+const mcpUpdateCategoryOperationSchema = mcpUpdateCategoryFieldsSchema
+  .extend({
+    kind: z.literal("update_category"),
+  })
+  .superRefine(refineUpdateCategoryInput);
 
 export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpCreateTransactionOperationSchema,

@@ -19,7 +19,7 @@ import {
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createActiveMcpGrant } from "../test/mcp.js";
+import { createActiveMcpGrant, seedMcpWriteFixture } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import {
@@ -101,45 +101,6 @@ async function executeMcpWrite(
     effectiveScopes,
     operation,
   });
-}
-
-async function seedMcpWriteFixture(
-  t: ReturnType<typeof convexTest>,
-  options?: { includeMemberGrant?: boolean; ownerEmail?: string },
-) {
-  const owner = await t.run((ctx) =>
-    seedPersonalCircleOwner(ctx, {
-      email: options?.ownerEmail ?? "writer@example.com",
-      displayName: "Writer Owner",
-    }),
-  );
-  const f = await t.run((ctx) =>
-    seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-  );
-  const member = await t.run((ctx) =>
-    addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
-  );
-  const grant = await createActiveMcpGrant(t, {
-    userId: owner.userId,
-    circleIds: [f.circleId],
-    scopes: READ_WRITE,
-    clientId: CLIENT_ID,
-    clientKind: "static",
-    redirectUri: REDIRECT_URI,
-  });
-  const circleRef = buildRef("Trip", f.circleId);
-  if (!options?.includeMemberGrant) {
-    return { owner, f, member, grant, circleRef };
-  }
-  const memberGrant = await createActiveMcpGrant(t, {
-    userId: member.user._id,
-    circleIds: [f.circleId],
-    scopes: READ_WRITE,
-    clientId: `${CLIENT_ID}/member`,
-    clientKind: "static",
-    redirectUri: REDIRECT_URI,
-  });
-  return { owner, f, member, grant, memberGrant, circleRef };
 }
 
 async function seedUpdateFixture(
@@ -4074,19 +4035,24 @@ describe("MCP create_category write", () => {
         .withIndex("by_user", (q) => q.eq("userId", owner.userId))
         .unique();
       expect(activation?.categoryCreatedAt).toEqual(expect.any(Number));
-      const histories = await ctx.db.query("histories").collect();
+      const created = await ctx.db
+        .query("categories")
+        .withIndex("by_circle_type_name", (q) =>
+          q.eq("circleId", f.circleId).eq("type", "expense").eq("nameLower", "coffee"),
+        )
+        .unique();
+      if (!created) {
+        throw new Error("created category missing");
+      }
+      const histories = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", created._id))
+        .collect();
       expect(
         histories.some(
           (event) => event.action === "created" && event.changes.some((c) => c.field === "name"),
         ),
       ).toBe(true);
-      const sameNameCount = await ctx.db
-        .query("categories")
-        .withIndex("by_circle_type_name", (q) =>
-          q.eq("circleId", f.circleId).eq("type", "expense").eq("nameLower", "coffee"),
-        )
-        .collect();
-      expect(sameNameCount).toHaveLength(1);
     });
   });
 
