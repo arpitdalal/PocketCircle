@@ -2676,6 +2676,17 @@ describe("MCP Worker bridge HTTP routes", () => {
     expect(await response.json()).toEqual({ ok: false, error: "invalid_body" });
   });
 
+  it("rejects an oversized bridge body before domain work", async () => {
+    const t = convexTest(schema, modules);
+    const pad = "x".repeat(70_000);
+    const response = await t.fetch(
+      "/mcp/redeem-approval",
+      await workerRequestInit("/mcp/redeem-approval", { token: "x", handoffId: "h1", pad }),
+    );
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ ok: false, error: "payload_too_large" });
+  });
+
   it("executes get_current_user and list_authorized_circles via /mcp/operation", async () => {
     const t = convexTest(schema, modules);
     const ada = await t.run((ctx) =>

@@ -1,4 +1,5 @@
 import {
+  MCP_JSON_MAX_BODY_BYTES,
   type McpOperationBody,
   type McpWriteOperationBody,
   mcpOperationBodySchema,
@@ -34,6 +35,7 @@ const WORKER_AUTH_PREFIX = "PocketCircleWorker ";
 
 /** Sentinel distinguishing "assertion rejected" from a legitimately empty/`{}` body. */
 const WORKER_AUTH_FAILED = Symbol("mcp_worker_auth_failed");
+const WORKER_PAYLOAD_TOO_LARGE = Symbol("mcp_worker_payload_too_large");
 
 /**
  * Verifies the Worker's signed per-request service assertion (#318):
@@ -53,7 +55,14 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
     return WORKER_AUTH_FAILED;
   }
   const token = authHeader.slice(WORKER_AUTH_PREFIX.length);
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MCP_JSON_MAX_BODY_BYTES) {
+    return WORKER_PAYLOAD_TOO_LARGE;
+  }
   const bodyText = await request.text();
+  if (new TextEncoder().encode(bodyText).byteLength > MCP_JSON_MAX_BODY_BYTES) {
+    return WORKER_PAYLOAD_TOO_LARGE;
+  }
   const assertion = await verifyMcpWorkerAssertion(token, jwks, Date.now());
   if (!assertion) {
     return WORKER_AUTH_FAILED;
@@ -145,6 +154,9 @@ function workerBridgeRoute<T extends z.ZodType>(
     method: "POST",
     handler: httpAction(async (ctx, request) => {
       const body = await verifyWorkerRequest(ctx, request, path);
+      if (body === WORKER_PAYLOAD_TOO_LARGE) {
+        return jsonResponse(413, { ok: false, error: "payload_too_large" });
+      }
       if (body === WORKER_AUTH_FAILED) {
         return jsonResponse(401, { ok: false, error: "unauthorized" });
       }

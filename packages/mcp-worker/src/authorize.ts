@@ -7,6 +7,7 @@ import {
   verifyMcpRevocation,
 } from "@pocketcircle/domain";
 import { z } from "zod";
+import { MCP_JSON_MAX_BODY_BYTES, readBoundedJson } from "./bounded-body.js";
 import { handleClientProvisioning } from "./client-provisioning.js";
 import { completeRevocation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
@@ -16,7 +17,14 @@ import {
   loadOrResumeHandoff,
   storeHandoffAuthRequest,
 } from "./handoff-store.js";
+import {
+  assertWithinRateLimit,
+  clientIpOf,
+  rateLimitedResponse,
+  unauthenticatedRateLimitKey,
+} from "./rate-limit.js";
 import { mcpResourceUri, requestOrigin } from "./reachable.js";
+import { mcpLog } from "./safe-log.js";
 
 function mcpWorkerHmacSecrets(env: Env) {
   const current = env.MCP_WORKER_HMAC_SECRET;
@@ -81,7 +89,7 @@ async function readBody(request: Request) {
   if (!contentType.toLowerCase().startsWith("application/json")) {
     return null;
   }
-  return request.json().catch(() => null);
+  return readBoundedJson(request, MCP_JSON_MAX_BODY_BYTES);
 }
 
 async function handleAuthorizeStart(request: Request, env: Env) {
@@ -90,9 +98,36 @@ async function handleAuthorizeStart(request: Request, env: Env) {
     authRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
   } catch (error) {
     if (error instanceof AuthorizationError) {
+      await assertWithinRateLimit(
+        env,
+        "failed_auth",
+        unauthenticatedRateLimitKey({
+          className: "failed_auth",
+          ip: clientIpOf(request),
+        }),
+      );
       return authorizationErrorRedirect(error);
     }
     throw error;
+  }
+
+  const withinLimit = await assertWithinRateLimit(
+    env,
+    "authorization",
+    unauthenticatedRateLimitKey({
+      className: "authorization",
+      clientId: authRequest.clientId,
+      ip: clientIpOf(request),
+    }),
+  );
+  if (!withinLimit.ok) {
+    mcpLog({
+      event: "authorize_start",
+      outcome: "rate_limited",
+      status: 429,
+      toolClass: "authorization",
+    });
+    return rateLimitedResponse();
   }
 
   const client = await env.OAUTH_PROVIDER.lookupClient(authRequest.clientId);

@@ -1232,6 +1232,9 @@ describe("MCP tools execution", () => {
     });
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
+    expect(JSON.stringify(body)).not.toMatch(/\$\{/);
+    expect(JSON.stringify(body)).not.toContain("Coffee");
+    expect(JSON.stringify(body)).not.toContain("@");
     expect(body).toMatchObject({
       jsonrpc: "2.0",
       result: {
@@ -1586,6 +1589,69 @@ describe("MCP tools execution", () => {
     const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 31 });
     expect(throttled.status).toBe(429);
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("returns 429 when archive_transaction exceeds the tighter destructive rate limit", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.operation.kind).toBe("archive_transaction");
+        return Response.json({
+          ok: true,
+          value: { ref: "txn1", transaction: { status: "archived" } },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const toolCall = {
+      method: "tools/call" as const,
+      params: {
+        name: "archive_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+        },
+      },
+    };
+
+    for (let i = 0; i < 10; i++) {
+      const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
+      expect(res.status).toBe(200);
+    }
+
+    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 11 });
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("rejects oversized MCP JSON before Convex with 413", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
+    const huge = "x".repeat(70_000);
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers: {
+        host: "mcp.pocketcircle.app",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2026-07-28",
+        "content-length": String(huge.length + 64),
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "get_current_user", arguments: { pad: huge } },
+      }),
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "payload_too_large" });
   });
 
   it("calls update_transaction and returns the updated transaction", async () => {

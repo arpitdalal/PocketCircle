@@ -21,14 +21,39 @@
     "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]
   },
   "migrations": [{ "tag": "v1-handoff-store", "new_sqlite_classes": ["HandoffStore"] }],
+  // Free-tier capacity shields (#331). Counters are location-local and permissive;
+  // they protect shared quotas, they do not replace authorization. Keys and
+  // upgrade triggers: docs/research/mcp-capacity-gates.md
   "ratelimits": [
     {
-      "name": "MCP_WRITE_RATE_LIMITER",
+      "name": "MCP_AUTH_RATE_LIMITER",
       "namespace_id": "1001",
-      "simple": {
-        "limit": 30,
-        "period": 60
-      }
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "MCP_TOKEN_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "MCP_FAILED_AUTH_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "MCP_READ_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "MCP_WRITE_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "MCP_DESTRUCTIVE_RATE_LIMITER",
+      "namespace_id": "1006",
+      "simple": { "limit": 10, "period": 60 }
     }
   ],
   "vars": {

@@ -22,6 +22,10 @@ export const MCP_APPROVAL_TTL_MS = 5 * 60 * 1000;
 export const MCP_REVOCATION_TTL_MS = 5 * 60 * 1000;
 export const MCP_PENDING_ACTIVATION_TTL_MS = 20 * 60 * 1000;
 export const MCP_WORKER_ASSERTION_TTL_MS = 30_000;
+/** Reject Worker↔Convex and Worker JSON bodies above this before domain work (#331). */
+export const MCP_JSON_MAX_BODY_BYTES = 65_536;
+/** Admin client provisioning stays smaller than ordinary MCP JSON. */
+export const MCP_PROVISIONING_MAX_BODY_BYTES = 8_192;
 /** Bounded Worker cleanup retries after Convex-first revocation (#330). */
 export const MCP_WORKER_CLEANUP_MAX_ATTEMPTS = 5;
 export const MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS = 60_000;
