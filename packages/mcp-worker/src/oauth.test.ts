@@ -1600,7 +1600,7 @@ describe("MCP tools execution", () => {
     });
 
     const toolCall = {
-      method: "tools/call" as const,
+      method: "tools/call",
       params: {
         name: options.toolName,
         arguments: options.arguments,

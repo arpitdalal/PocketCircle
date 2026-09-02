@@ -21,7 +21,7 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 | --- | --- | --- | --- |
 | `MCP_AUTH_RATE_LIMITER` | 60s | 120 | `authorization\|c:{clientId}\|ip:{ip}` |
 | `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | `token\|c:{clientId}\|ip:{ip}` |
-| `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:-\\|ip:{ip}` (+ Cache API block for already-throttled IPs) |
+| `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:-\|ip:{ip}` (+ Cache API block for already-throttled IPs) |
 | `MCP_READ_RATE_LIMITER` | 60s | 120 | `u:{user}\|c:{client}\|g:{grant}\|t:read` |
 | `MCP_WRITE_RATE_LIMITER` | 60s | 30 | `…\|t:write` |
 | `MCP_DESTRUCTIVE_RATE_LIMITER` | 60s | 10 | `…\|t:destructive` |
