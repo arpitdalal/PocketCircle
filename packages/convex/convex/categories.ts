@@ -16,6 +16,7 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import { type MutationCtx, mutation, query } from "./_generated/server.js";
 import { markActivationMilestone } from "./activation.js";
 import {
+  type AuthorizedCategory,
   type AuthorizedCircle,
   requireCategoryAccess,
   requireCircleAccess,
@@ -172,6 +173,69 @@ export async function createCategoryForMember(ctx: MutationCtx, args: CreateCate
   }
 
   return { created: true, categoryId, name: input.name };
+}
+
+interface UpdateCategoryForMemberArgs {
+  access: AuthorizedCategory;
+  name?: string;
+  color?: string;
+}
+
+/** Shared Category field-edit write used by the browser mutation and MCP (#328). */
+export async function updateCategoryForMember(ctx: MutationCtx, args: UpdateCategoryForMemberArgs) {
+  if (!args.access.isCreator) {
+    throw new Error("Only the member who created this category can edit it");
+  }
+
+  const category = args.access.category;
+  if (category.status !== "active") {
+    throw new Error("Archived categories can't be edited");
+  }
+
+  const input = categoryUpdateSchema.parse({ name: args.name, color: args.color });
+
+  const patch: Partial<Doc<"categories">> = {};
+  const changes: HistoryChange[] = [];
+
+  if (input.name !== undefined && input.name !== category.name) {
+    const nameLower = input.name.toLowerCase();
+    const existing = await ctx.db
+      .query("categories")
+      .withIndex("by_circle_type_name", (q) =>
+        q.eq("circleId", category.circleId).eq("type", category.type).eq("nameLower", nameLower),
+      )
+      .first();
+    if (existing && existing._id !== category._id) {
+      throw duplicateCategoryNameError();
+    }
+    patch.name = input.name;
+    patch.nameLower = nameLower;
+    changes.push({ field: "name", from: category.name, to: input.name });
+  }
+
+  if (input.color !== undefined && input.color !== category.color) {
+    patch.color = input.color;
+    changes.push({
+      field: "color",
+      from: colorLabel(category.color),
+      to: colorLabel(input.color),
+    });
+  }
+
+  if (changes.length === 0) {
+    return category._id;
+  }
+
+  await ctx.db.patch(category._id, patch);
+
+  await recordEvent(ctx, {
+    entity: categoryEntity(category._id, category.circleId),
+    actor: args.access.membership,
+    action: "edited",
+    changes,
+  });
+
+  return category._id;
 }
 
 /**
@@ -536,68 +600,11 @@ export const updateCategory = mutation({
     const access = await requireCategoryAccess(ctx, args.categoryId);
     access.assertWritable(); // an archived Circle is read-only (PRD story 79)
     access.assertSetupComplete();
-
-    // Only the creator edits fields (PRD story 55). The Owner's moderation power is
-    // archive/restore, NOT field edits (PRD story 56) — same generic message either way.
-    if (!access.isCreator) {
-      throw new Error("Only the member who created this category can edit it");
-    }
-
-    const category = access.category;
-    // An Archived Category is frozen — restore it first. Blocked here, never by the
-    // UI alone (ADR 0015); its name stays reserved while archived (PRD story 54).
-    if (category.status !== "active") {
-      throw new Error("Archived categories can't be edited");
-    }
-
-    const input = categoryUpdateSchema.parse({ name: args.name, color: args.color });
-
-    const patch: Partial<Doc<"categories">> = {};
-    const changes: HistoryChange[] = [];
-
-    if (input.name !== undefined && input.name !== category.name) {
-      const nameLower = input.name.toLowerCase();
-      // Re-run uniqueness on rename, across ALL statuses (archived names stay
-      // reserved) — finding ITSELF (a case-only rename) is not a collision.
-      const existing = await ctx.db
-        .query("categories")
-        .withIndex("by_circle_type_name", (q) =>
-          q.eq("circleId", category.circleId).eq("type", category.type).eq("nameLower", nameLower),
-        )
-        .first();
-      if (existing && existing._id !== category._id) {
-        throw duplicateCategoryNameError();
-      }
-      patch.name = input.name;
-      patch.nameLower = nameLower;
-      changes.push({ field: "name", from: category.name, to: input.name });
-    }
-
-    if (input.color !== undefined && input.color !== category.color) {
-      patch.color = input.color;
-      // Frozen display labels, never the raw color id (ADR 0018).
-      changes.push({
-        field: "color",
-        from: colorLabel(category.color),
-        to: colorLabel(input.color),
-      });
-    }
-
-    // No real change ⇒ a true no-op: no patch, no spurious history.
-    if (changes.length === 0) {
-      return args.categoryId;
-    }
-
-    await ctx.db.patch(category._id, patch);
-
-    await recordEvent(ctx, {
-      entity: categoryEntity(category._id, category.circleId),
-      actor: access.membership,
-      action: "edited",
-      changes,
+    return updateCategoryForMember(ctx, {
+      access,
+      name: args.name,
+      color: args.color,
     });
-
-    return args.categoryId;
   },
 });
 

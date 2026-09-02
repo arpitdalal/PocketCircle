@@ -12,6 +12,7 @@ import {
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
   mcpCircleViewSchema,
+  mcpCreateCategoryResultSchema,
   mcpCreateTransactionResultSchema,
   mcpDashboardSchema,
   mcpListCategoryTransactionsResultSchema,
@@ -26,6 +27,7 @@ import {
   mcpScopesInclude,
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
+  mcpUpdateCategoryResultSchema,
   mcpUpdateTransactionResultSchema,
   normalizeMcpImage,
   normalizeMcpScopes,
@@ -47,6 +49,7 @@ import {
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
   archiveTransactionForAccess,
+  createCategoryForAccess,
   createTransactionForAccess,
   getCategoryAnalyticsForUser,
   getCategoryForUser,
@@ -66,6 +69,7 @@ import {
   searchTransactionsForUser,
   toMcpCircleView,
   toMcpCurrentUserView,
+  updateCategoryForAccess,
   updateTransactionForAccess,
 } from "./operations.js";
 
@@ -666,6 +670,20 @@ export const executeMcpWriteOperation = internalMutation({
         circleRef: v.string(),
         transactionRef: v.string(),
       }),
+      v.object({
+        kind: v.literal("create_category"),
+        circleRef: v.string(),
+        name: v.string(),
+        type: v.union(v.literal("expense"), v.literal("income")),
+        color: v.string(),
+      }),
+      v.object({
+        kind: v.literal("update_category"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+        name: v.optional(v.string()),
+        color: v.optional(v.string()),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -785,6 +803,42 @@ export const executeMcpWriteOperation = internalMutation({
         return { ok: false as const, error: restored.error };
       }
       const validated = validateMcpResult(mcpRestoreTransactionResultSchema, restored.value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "create_category") {
+      const created = await createCategoryForAccess(ctx, circleAuthz.value.access, {
+        name: args.operation.name,
+        type: args.operation.type,
+        color: args.operation.color,
+      });
+      if (!created.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: created.error };
+      }
+      const validated = validateMcpResult(mcpCreateCategoryResultSchema, created.value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "update_category") {
+      const updated = await updateCategoryForAccess(ctx, circleAuthz.value.access, {
+        categoryRef: args.operation.categoryRef,
+        ...(args.operation.name === undefined ? {} : { name: args.operation.name }),
+        ...(args.operation.color === undefined ? {} : { color: args.operation.color }),
+      });
+      if (!updated.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: updated.error };
+      }
+      const validated = validateMcpResult(mcpUpdateCategoryResultSchema, updated.value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }

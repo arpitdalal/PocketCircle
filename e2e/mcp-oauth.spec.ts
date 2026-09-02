@@ -1,13 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
-import {
-  clickCircleChromeTab,
-  createCategoryViaForm,
-  expect,
-  localPlainDate,
-  openPersonalCircleFromHome,
-  test,
-} from "./fixtures.js";
+import { expect, localPlainDate, openPersonalCircleFromHome, test } from "./fixtures.js";
 
 const WORKER_ORIGIN = process.env.MCP_E2E_WORKER_ORIGIN;
 const PROVISIONING_TOKEN = process.env.MCP_E2E_CLIENT_PROVISIONING_TOKEN;
@@ -302,10 +295,9 @@ test.describe("local MCP OAuth", () => {
     }
 
     const categoryName = `E2E MCP Cat ${Date.now()}`;
+    const updatedCategoryName = `${categoryName} updated`;
     const txnTitle = `E2E MCP Coffee ${Date.now()}`;
     await openPersonalCircleFromHome(page);
-    await clickCircleChromeTab(page, "Categories");
-    await createCategoryViaForm(page, { name: categoryName });
 
     const clientId = await provisionMcpClient(request, "PocketCircle local MCP write client");
     const authorized = await authorizeMcpClient(page, request, {
@@ -330,7 +322,46 @@ test.describe("local MCP OAuth", () => {
     const circleRef = requiredString(circle, "ref");
     const expectedCurrency = requiredString(circle, "currency");
 
-    const categoriesRes = await postMcp("tools/call", 2, {
+    const createCategoryRes = await postMcp("tools/call", 2, {
+      name: "create_category",
+      arguments: {
+        circleRef,
+        name: categoryName,
+        type: "expense",
+        color: "teal",
+      },
+    });
+    expect(createCategoryRes.status()).toBe(200);
+    const createdCategoryContent = mcpStructuredContent(await createCategoryRes.json());
+    expect(createdCategoryContent).toMatchObject({
+      ref: expect.any(String),
+      category: expect.objectContaining({
+        name: categoryName,
+        type: "expense",
+        color: "teal",
+      }),
+    });
+    const categoryRef = requiredString(createdCategoryContent, "ref");
+
+    const updateCategoryRes = await postMcp("tools/call", 3, {
+      name: "update_category",
+      arguments: {
+        circleRef,
+        categoryRef,
+        name: updatedCategoryName,
+        color: "amber",
+      },
+    });
+    expect(updateCategoryRes.status()).toBe(200);
+    const updatedCategoryContent = mcpStructuredContent(await updateCategoryRes.json());
+    expect(updatedCategoryContent).toMatchObject({
+      category: expect.objectContaining({
+        name: updatedCategoryName,
+        color: "amber",
+      }),
+    });
+
+    const categoriesRes = await postMcp("tools/call", 4, {
       name: "list_categories",
       arguments: { circleRef },
     });
@@ -344,14 +375,14 @@ test.describe("local MCP OAuth", () => {
         typeof entry === "object" &&
         entry !== null &&
         "name" in entry &&
-        Reflect.get(entry, "name") === categoryName,
+        Reflect.get(entry, "name") === updatedCategoryName,
     );
     if (typeof matchedCategory !== "object" || matchedCategory === null) {
-      throw new Error("created category not found in MCP list");
+      throw new Error("updated category not found in MCP list");
     }
-    const categoryRef = requiredString(matchedCategory, "ref");
+    expect(requiredString(matchedCategory, "ref")).toBe(categoryRef);
 
-    const createRes = await postMcp("tools/call", 3, {
+    const createRes = await postMcp("tools/call", 5, {
       name: "create_transaction",
       arguments: {
         circleRef,
@@ -373,7 +404,7 @@ test.describe("local MCP OAuth", () => {
       }),
     });
 
-    const searchRes = await postMcp("tools/call", 4, {
+    const searchRes = await postMcp("tools/call", 6, {
       name: "search_transactions",
       arguments: {
         circleRef,
@@ -404,7 +435,7 @@ test.describe("local MCP OAuth", () => {
       throw new Error("missing created transaction ref");
     }
 
-    const updateRes = await postMcp("tools/call", 5, {
+    const updateRes = await postMcp("tools/call", 7, {
       name: "update_transaction",
       arguments: {
         circleRef,
@@ -418,7 +449,7 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ title: updatedTitle }),
     });
 
-    const detailBeforeArchive = await postMcp("tools/call", 6, {
+    const detailBeforeArchive = await postMcp("tools/call", 8, {
       name: "get_transaction",
       arguments: {
         circleRef,
@@ -432,7 +463,7 @@ test.describe("local MCP OAuth", () => {
       status: "active",
     });
 
-    const searchAfterUpdate = await postMcp("tools/call", 7, {
+    const searchAfterUpdate = await postMcp("tools/call", 9, {
       name: "search_transactions",
       arguments: {
         circleRef,
@@ -449,7 +480,7 @@ test.describe("local MCP OAuth", () => {
       ]),
     });
 
-    const archiveRes = await postMcp("tools/call", 8, {
+    const archiveRes = await postMcp("tools/call", 10, {
       name: "archive_transaction",
       arguments: {
         circleRef,
@@ -462,7 +493,7 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ status: "archived" }),
     });
 
-    const ledgerAfterArchive = await postMcp("tools/call", 9, {
+    const ledgerAfterArchive = await postMcp("tools/call", 11, {
       name: "get_monthly_ledger",
       arguments: {
         circleRef,
@@ -475,7 +506,7 @@ test.describe("local MCP OAuth", () => {
       totals: { expenseMinor: 0 },
     });
 
-    const restoreRes = await postMcp("tools/call", 10, {
+    const restoreRes = await postMcp("tools/call", 12, {
       name: "restore_transaction",
       arguments: {
         circleRef,
@@ -488,7 +519,7 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ status: "active" }),
     });
 
-    const ledgerAfterRestore = await postMcp("tools/call", 11, {
+    const ledgerAfterRestore = await postMcp("tools/call", 13, {
       name: "get_monthly_ledger",
       arguments: {
         circleRef,

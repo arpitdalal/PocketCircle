@@ -36,10 +36,13 @@ import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import {
   type CategoryDetailView,
   type CategoryView,
+  createCategoryForMember,
   filterCategoriesForAccess,
   getCategoryForAccess,
   listCategoryHistoryForAccess,
   listRecentCategoryTransactionsForAccess,
+  toCategoryDetailView,
+  updateCategoryForMember,
 } from "./categories.js";
 import {
   type AuthorizedCircle,
@@ -1858,4 +1861,164 @@ export async function restoreTransactionForAccess(
     requiredStatus: "archived",
     perform: performRestoreTransaction,
   });
+}
+
+export type CreateCategoryForAccessArgs = {
+  name: string;
+  type: "expense" | "income";
+  color: string;
+};
+
+function mapCategoryWriteFailure(error: unknown) {
+  if (error instanceof ConvexError) {
+    const parsed = mutationErrorDataSchema.safeParse(error.data);
+    if (parsed.success) {
+      switch (parsed.data.code) {
+        case "circle.archived":
+          return "circle_archived" as const;
+        case "circle.setupIncomplete":
+          return "circle_setup_incomplete" as const;
+        case "category.nameDuplicate":
+          return "category_name_duplicate" as const;
+        default:
+          return null;
+      }
+    }
+  }
+  if (error instanceof ZodError) {
+    return "validation_failed" as const;
+  }
+  return null;
+}
+
+function createCategoryFailureFrom(error: unknown) {
+  const mapped = mapCategoryWriteFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+/** Shared explicit-User create Category write for MCP (#328). */
+export async function createCategoryForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: CreateCategoryForAccessArgs,
+) {
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return createCategoryFailureFrom(error);
+  }
+
+  let categoryId: Id<"categories">;
+  try {
+    const result = await createCategoryForMember(ctx, {
+      access,
+      name: args.name,
+      type: args.type,
+      color: args.color,
+      duplicate: "throw",
+      origin: "manual",
+    });
+    if (!result.created || result.categoryId === undefined) {
+      throw new Error("Category not created");
+    }
+    categoryId = result.categoryId;
+  } catch (error) {
+    return createCategoryFailureFrom(error);
+  }
+
+  const category = await ctx.db.get(categoryId);
+  if (!category) {
+    throw new Error("Category not found");
+  }
+  const viewer = { userId: access.user._id, isOwner: access.isOwner };
+  const detail = await toCategoryDetailView(ctx, category, viewer);
+  return {
+    ok: true as const,
+    value: {
+      ref: detail.ref,
+      category: toMcpCategoryDetailView(detail),
+    },
+  };
+}
+
+export type UpdateCategoryForAccessArgs = {
+  categoryRef: string;
+  name?: string;
+  color?: string;
+};
+
+function updateCategoryFailureFrom(error: unknown) {
+  const mapped = mapCategoryWriteFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+/** Shared explicit-User update Category write for MCP (#328). */
+export async function updateCategoryForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: UpdateCategoryForAccessArgs,
+) {
+  const categoryId = resolveCategoryRef(ctx, args.categoryRef);
+  if (!categoryId) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+  const category = await ctx.db.get(categoryId);
+  if (!category || category.circleId !== access.circle._id) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+
+  const hasUpdate = args.name !== undefined || args.color !== undefined;
+  if (!hasUpdate) {
+    return { ok: false as const, error: "validation_failed" as const };
+  }
+
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return updateCategoryFailureFrom(error);
+  }
+
+  const isCreator = category.creatorUserId === access.user._id;
+  if (!isCreator || category.status !== "active") {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+
+  const categoryAccess = {
+    ...access,
+    category,
+    isCreator,
+    canArchive: isCreator || access.isOwner,
+  };
+
+  try {
+    await updateCategoryForMember(ctx, {
+      access: categoryAccess,
+      ...(args.name === undefined ? {} : { name: args.name }),
+      ...(args.color === undefined ? {} : { color: args.color }),
+    });
+  } catch (error) {
+    return updateCategoryFailureFrom(error);
+  }
+
+  const updated = await ctx.db.get(categoryId);
+  if (!updated) {
+    throw new Error("Category not found");
+  }
+  const viewer = { userId: access.user._id, isOwner: access.isOwner };
+  const detail = await toCategoryDetailView(ctx, updated, viewer);
+  return {
+    ok: true as const,
+    value: {
+      ref: detail.ref,
+      category: toMcpCategoryDetailView(detail),
+    },
+  };
 }

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { isValidMinorUnits } from "./money.js";
-import { LIMITS, transactionFieldSchemas } from "./validation.js";
+import {
+  categoryInputSchema,
+  categoryUpdateSchema,
+  LIMITS,
+  transactionFieldSchemas,
+} from "./validation.js";
 
 /**
  * MCP grant vocabulary shared by Convex authorization and (later) the Worker
@@ -622,6 +627,55 @@ export const mcpRestoreTransactionResultSchema = mcpArchiveTransactionResultSche
 
 export type McpRestoreTransactionResult = z.infer<typeof mcpRestoreTransactionResultSchema>;
 
+const mcpCreateCategoryCoreSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  name: categoryInputSchema.shape.name,
+  type: categoryInputSchema.shape.type,
+  color: categoryInputSchema.shape.color,
+});
+
+export const mcpCreateCategoryInputSchema = mcpCreateCategoryCoreSchema;
+
+export type McpCreateCategoryInput = z.infer<typeof mcpCreateCategoryInputSchema>;
+
+export const mcpCreateCategoryResultSchema = z.object({
+  ref: mcpCategoryRefSchema,
+  category: mcpCategoryDetailSchema,
+});
+
+export type McpCreateCategoryResult = z.infer<typeof mcpCreateCategoryResultSchema>;
+
+const mcpUpdateCategoryFieldsSchema = z.object({
+  circleRef: mcpCircleRefSchema,
+  categoryRef: mcpCategoryRefSchema,
+  name: categoryUpdateSchema.shape.name,
+  color: categoryUpdateSchema.shape.color,
+});
+
+function refineUpdateCategoryInput(
+  value: z.infer<typeof mcpUpdateCategoryFieldsSchema>,
+  ctx: z.RefinementCtx,
+) {
+  const hasUpdate = value.name !== undefined || value.color !== undefined;
+  if (!hasUpdate) {
+    ctx.addIssue({
+      code: "custom",
+      message: "At least one field must be provided",
+    });
+  }
+}
+
+const mcpUpdateCategoryCoreSchema =
+  mcpUpdateCategoryFieldsSchema.superRefine(refineUpdateCategoryInput);
+
+export const mcpUpdateCategoryInputSchema = mcpUpdateCategoryCoreSchema;
+
+export type McpUpdateCategoryInput = z.infer<typeof mcpUpdateCategoryInputSchema>;
+
+export const mcpUpdateCategoryResultSchema = mcpCreateCategoryResultSchema;
+
+export type McpUpdateCategoryResult = z.infer<typeof mcpUpdateCategoryResultSchema>;
+
 const mcpCreateTransactionOperationSchema = mcpCreateTransactionCoreSchema
   .extend({
     kind: z.literal("create_transaction"),
@@ -642,11 +696,21 @@ const mcpRestoreTransactionOperationSchema = mcpRestoreTransactionInputSchema.ex
   kind: z.literal("restore_transaction"),
 });
 
+const mcpCreateCategoryOperationSchema = mcpCreateCategoryCoreSchema.extend({
+  kind: z.literal("create_category"),
+});
+
+const mcpUpdateCategoryOperationSchema = mcpUpdateCategoryCoreSchema.extend({
+  kind: z.literal("update_category"),
+});
+
 export const mcpWriteOperationSchema = z.discriminatedUnion("kind", [
   mcpCreateTransactionOperationSchema,
   mcpUpdateTransactionOperationSchema,
   mcpArchiveTransactionOperationSchema,
   mcpRestoreTransactionOperationSchema,
+  mcpCreateCategoryOperationSchema,
+  mcpUpdateCategoryOperationSchema,
 ]);
 
 export type McpWriteOperation = z.infer<typeof mcpWriteOperationSchema>;

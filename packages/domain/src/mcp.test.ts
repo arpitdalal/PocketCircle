@@ -7,6 +7,7 @@ import {
   mcpMemberViewSchema,
   mcpOperationBodySchema,
   mcpScopesInclude,
+  mcpUpdateCategoryInputSchema,
   mcpUpdateTransactionInputSchema,
   mcpWriteOperationBodySchema,
   normalizeMcpImage,
@@ -365,5 +366,38 @@ describe("MCP schemas", () => {
       },
     });
     expect(restore.success).toBe(true);
+  });
+
+  it("validates mcpWriteOperationBodySchema for create_category and update_category", () => {
+    const createCategory = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "create_category",
+        circleRef: "trip-c123",
+        name: "Coffee",
+        type: "expense",
+        color: "teal",
+      },
+    });
+    expect(createCategory.success).toBe(true);
+
+    const updateCategory = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "update_category",
+        circleRef: "trip-c123",
+        categoryRef: "coffee-cat1",
+        name: "Updated coffee",
+      },
+    });
+    expect(updateCategory.success).toBe(true);
+
+    const emptyUpdate = mcpUpdateCategoryInputSchema.safeParse({
+      circleRef: "trip-c123",
+      categoryRef: "coffee-cat1",
+    });
+    expect(emptyUpdate.success).toBe(false);
   });
 });
