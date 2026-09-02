@@ -75,6 +75,17 @@ export function unauthenticatedRateLimitMaterial(parts: {
   return `${parts.className}|c:${parts.clientId ?? "-"}|ip:${parts.ip ?? "unknown"}`;
 }
 
+/**
+ * IP-only pre-auth material — caps total attempts from one IP even when
+ * attacker-controlled clientIds rotate composite buckets.
+ */
+export function unauthenticatedIpRateLimitMaterial(parts: {
+  className: Exclude<McpRateLimitClass, McpToolClass>;
+  ip?: string;
+}) {
+  return `${parts.className}|ip:${parts.ip ?? "unknown"}`;
+}
+
 function limiterFor(env: Env, className: McpRateLimitClass) {
   switch (className) {
     case "authorization":

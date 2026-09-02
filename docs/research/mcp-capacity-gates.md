@@ -19,14 +19,14 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 
 | Binding | Period | Limit | Key material (SHA-256 before `limit()`) |
 | --- | --- | --- | --- |
-| `MCP_AUTH_RATE_LIMITER` | 60s | 120 | `authorization\|c:{clientId}\|ip:{ip}` |
-| `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | `token\|c:{clientId}\|ip:{ip}` |
+| `MCP_AUTH_RATE_LIMITER` | 60s | 120 | IP-only `authorization\|ip:{ip}` **and** `authorization\|c:{clientId}\|ip:{ip}` |
+| `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | IP-only `token\|ip:{ip}` **and** `token\|c:{clientId}\|ip:{ip}` |
 | `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:-\|ip:{ip}` (+ Cache API block for already-throttled IPs) |
 | `MCP_READ_RATE_LIMITER` | 60s | 120 | `u:{user}\|c:{client}\|g:{grant}\|t:read` |
 | `MCP_WRITE_RATE_LIMITER` | 60s | 30 | `…\|t:write` |
 | `MCP_DESTRUCTIVE_RATE_LIMITER` | 60s | 10 | `…\|t:destructive` |
 
-Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth buckets always include caller IP so a public `clientId` cannot be rotated or shared as a DoS vector.
+Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth surfaces always apply an IP-only bucket first so rotating a public `clientId` cannot bypass the cap; composite client+IP buckets remain for per-client fairness. Failed-auth counts only presented-but-invalid credentials (not bare WWW-Authenticate challenges). `/authorize` gates the IP bucket before `parseAuthRequest` and redirects validated clients with `temporarily_unavailable` when throttled.
 
 ## Request size
 

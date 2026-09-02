@@ -22,6 +22,7 @@ import {
   clientIpOf,
   markFailedAuthBlocked,
   rateLimitedResponse,
+  unauthenticatedIpRateLimitMaterial,
   unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpResourceUri, requestOrigin } from "./reachable.js";
@@ -93,7 +94,39 @@ async function readBody(request: Request) {
   return readBoundedJson(request, MCP_JSON_MAX_BODY_BYTES);
 }
 
+function authorizationRateLimitedRedirect(authRequest: {
+  redirectUri?: string;
+  state?: string;
+  issuer?: string;
+}) {
+  return authorizationErrorRedirect(
+    new AuthorizationError("temporarily_unavailable", {
+      description: "rate limited",
+      redirectUri: authRequest.redirectUri,
+      state: authRequest.state,
+      issuer: authRequest.issuer,
+    }),
+  );
+}
+
 async function handleAuthorizeStart(request: Request, env: Env) {
+  const ip = clientIpOf(request) ?? "unknown";
+  // Cheap IP-only gate before parseAuthRequest (CIMD/KV) so exhausted IPs skip OAuth work.
+  const withinIp = await assertWithinRateLimit(
+    env,
+    "authorization",
+    unauthenticatedIpRateLimitMaterial({ className: "authorization", ip }),
+  );
+  if (!withinIp.ok) {
+    mcpLog({
+      event: "authorize_start",
+      outcome: "rate_limited",
+      status: 429,
+      toolClass: "authorization",
+    });
+    return rateLimitedResponse();
+  }
+
   let authRequest: AuthRequest;
   try {
     authRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
@@ -104,18 +137,18 @@ async function handleAuthorizeStart(request: Request, env: Env) {
         "failed_auth",
         unauthenticatedRateLimitMaterial({
           className: "failed_auth",
-          ip: clientIpOf(request),
+          ip,
         }),
       );
       if (!withinFailedAuth.ok) {
-        await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
+        await markFailedAuthBlocked(ip);
         mcpLog({
           event: "authorize_start",
           outcome: "rate_limited",
           status: 429,
           toolClass: "failed_auth",
         });
-        return rateLimitedResponse();
+        return error.redirectUri ? authorizationRateLimitedRedirect(error) : rateLimitedResponse();
       }
       return authorizationErrorRedirect(error);
     }
@@ -128,7 +161,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
     unauthenticatedRateLimitMaterial({
       className: "authorization",
       clientId: authRequest.clientId,
-      ip: clientIpOf(request),
+      ip,
     }),
   );
   if (!withinLimit.ok) {
@@ -138,7 +171,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
       status: 429,
       toolClass: "authorization",
     });
-    return rateLimitedResponse();
+    return authorizationRateLimitedRedirect(authRequest);
   }
 
   const client = await env.OAUTH_PROVIDER.lookupClient(authRequest.clientId);

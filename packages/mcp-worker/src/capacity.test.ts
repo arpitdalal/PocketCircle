@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   authenticatedRateLimitMaterial,
   toolClassOf,
+  unauthenticatedIpRateLimitMaterial,
   unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog, scrubMcpLogRecord, scrubMcpLogText } from "./safe-log.js";
@@ -33,6 +34,21 @@ describe("rate-limit keys", () => {
         ip: "1.2.3.4",
       }),
     ).toBe("failed_auth|c:-|ip:1.2.3.4");
+  });
+
+  it("builds IP-only pre-auth material that ignores client rotation", () => {
+    expect(
+      unauthenticatedIpRateLimitMaterial({
+        className: "authorization",
+        ip: "1.2.3.4",
+      }),
+    ).toBe("authorization|ip:1.2.3.4");
+    expect(
+      unauthenticatedIpRateLimitMaterial({
+        className: "token",
+        ip: "1.2.3.4",
+      }),
+    ).toBe("token|ip:1.2.3.4");
   });
 
   it("classifies archive tools as destructive", () => {
@@ -101,9 +117,11 @@ describe("safe-log scrubbing", () => {
 });
 
 describe("server instructions", () => {
-  it("tells clients stored fields are untrusted typed data", () => {
+  it("tells clients stored fields are untrusted in both result channels", () => {
     expect(MCP_SERVER_INSTRUCTIONS).toContain("untrusted user data");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("structuredContent");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("JSON text content");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("either channel");
     expect(MCP_SERVER_INSTRUCTIONS).not.toMatch(/\$\{/);
   });
 });

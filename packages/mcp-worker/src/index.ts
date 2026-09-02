@@ -9,6 +9,7 @@ import {
   markFailedAuthBlocked,
   oauthRateLimitedResponse,
   rateLimitedResponse,
+  unauthenticatedIpRateLimitMaterial,
   unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog } from "./safe-log.js";
@@ -84,6 +85,21 @@ export default {
           },
         );
       }
+      // IP-only gate first so rotating client_id cannot bypass the token cap.
+      const withinIp = await assertWithinRateLimit(
+        env,
+        "token",
+        unauthenticatedIpRateLimitMaterial({ className: "token", ip }),
+      );
+      if (!withinIp.ok) {
+        mcpLog({
+          event: "token_exchange",
+          outcome: "rate_limited",
+          status: 429,
+          toolClass: "token",
+        });
+        return oauthRateLimitedResponse();
+      }
       const clientId = await clientIdFromTokenForm(request);
       const withinLimit = await assertWithinRateLimit(
         env,
@@ -117,8 +133,12 @@ export default {
     }
 
     const response = await provider.fetch(request, env, ctx);
-    // Provider rejects invalid bearers before apiHandler — count those here (#331).
-    if (url.pathname === "/mcp" && response.status === 401) {
+    // Count only presented-but-invalid credentials — bare challenges start OAuth discovery.
+    if (
+      url.pathname === "/mcp" &&
+      response.status === 401 &&
+      request.headers.get("authorization")
+    ) {
       const limited = await enforceFailedAuthLimit(env, request, {
         event: "mcp_request",
         oauthShape: false,

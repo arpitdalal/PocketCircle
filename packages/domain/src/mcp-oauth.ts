@@ -61,7 +61,8 @@ export async function readBoundedUtf8(request: Request, maxBytes: number) {
     }
     size += chunk.value.byteLength;
     if (size > maxBytes) {
-      await reader.cancel();
+      // Never await cancel — tee siblings (request.clone()) can hang if one side awaits.
+      void reader.cancel();
       return null;
     }
     chunks.push(chunk.value);

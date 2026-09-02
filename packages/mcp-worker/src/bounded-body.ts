@@ -45,5 +45,11 @@ export async function assertClonedBodyWithinLimit(request: Request, maxBytes: nu
   if (!request.body) {
     return true;
   }
-  return (await readBoundedUtf8(request.clone(), maxBytes)) !== null;
+  // Clone tees the body. If the clone hits the ceiling, cancel both branches
+  // without awaiting — awaiting one tee cancel while the sibling stays unread can hang.
+  const withinLimit = (await readBoundedUtf8(request.clone(), maxBytes)) !== null;
+  if (!withinLimit) {
+    void request.body.cancel();
+  }
+  return withinLimit;
 }

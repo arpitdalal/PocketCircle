@@ -1676,6 +1676,36 @@ describe("MCP tools execution", () => {
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
   });
 
+  it("does not count bare WWW-Authenticate challenges toward failed-auth limits", async () => {
+    const ip = "198.51.100.88";
+    const sendChallenge = (id: number) =>
+      SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+        method: "POST",
+        headers: {
+          host: "mcp.pocketcircle.app",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2026-07-28",
+          "cf-connecting-ip": ip,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "initialize",
+          params: {
+            protocolVersion: "2026-07-28",
+            capabilities: {},
+            clientInfo: { name: "challenge-client", version: "0.0.1" },
+          },
+        }),
+      });
+
+    for (let i = 0; i < 35; i++) {
+      const res = await sendChallenge(i + 1);
+      expect(res.status).toBe(401);
+    }
+  });
+
   it("calls update_transaction and returns the updated transaction", async () => {
     const { accessToken, grantId } = await obtainAccessToken([
       "pocketcircle:read",
