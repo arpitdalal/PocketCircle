@@ -2025,26 +2025,8 @@ export type ArchiveCategoryForAccessArgs = {
 
 export type RestoreCategoryForAccessArgs = ArchiveCategoryForAccessArgs;
 
-function mapLifecycleCategoryFailure(error: unknown) {
-  const mapped = mapCategoryWriteFailure(error);
-  if (mapped !== null) {
-    return mapped;
-  }
-  if (error instanceof Error) {
-    if (
-      error.message.includes("Only the creator or the owner") ||
-      error.message.includes("Category is already archived") ||
-      error.message.includes("Category is not archived") ||
-      error.message.includes("Category not found")
-    ) {
-      return "category_inaccessible" as const;
-    }
-  }
-  return null;
-}
-
 function lifecycleCategoryFailureFrom(error: unknown) {
-  const mapped = mapLifecycleCategoryFailure(error);
+  const mapped = mapCategoryWriteFailure(error);
   if (mapped === null) {
     throw error;
   }

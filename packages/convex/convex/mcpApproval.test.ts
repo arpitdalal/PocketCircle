@@ -4626,11 +4626,13 @@ describe("MCP archive_category write", () => {
         creatorUserId: member.user._id,
       }),
     );
-    const ownArchived = await executeMcpWrite(t, memberGrant._id, {
-      kind: "archive_category",
-      circleRef,
-      categoryRef: buildRef("Own coffee", ownCategoryId),
-    });
+    const ownArchived = await mutateAndDrain(t, () =>
+      executeMcpWrite(t, memberGrant._id, {
+        kind: "archive_category",
+        circleRef,
+        categoryRef: buildRef("Own coffee", ownCategoryId),
+      }),
+    );
     expect(ownArchived).toMatchObject({ ok: true, value: { category: { status: "archived" } } });
     await t.run(async (ctx) => {
       expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
@@ -4716,11 +4718,13 @@ async function runCategoryLifecycleWriteDenialSuite(kind: CategoryLifecycleWrite
   });
 
   expect(
-    await executeMcpWrite(t, grant._id, {
-      kind,
-      circleRef,
-      categoryRef,
-    }),
+    await mutateAndDrain(t, () =>
+      executeMcpWrite(t, grant._id, {
+        kind,
+        circleRef,
+        categoryRef,
+      }),
+    ),
   ).toMatchObject({ ok: true });
   expect(
     await executeMcpWrite(t, grant._id, {
@@ -4904,11 +4908,13 @@ describe("MCP restore_category write", () => {
         creatorUserId: member.user._id,
       }),
     );
-    const ownRestored = await executeMcpWrite(t, memberGrant._id, {
-      kind: "restore_category",
-      circleRef,
-      categoryRef: buildRef("Own restore", ownCategoryId),
-    });
+    const ownRestored = await mutateAndDrain(t, () =>
+      executeMcpWrite(t, memberGrant._id, {
+        kind: "restore_category",
+        circleRef,
+        categoryRef: buildRef("Own restore", ownCategoryId),
+      }),
+    );
     expect(ownRestored).toMatchObject({ ok: true, value: { category: { status: "active" } } });
     await t.run(async (ctx) => {
       expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
