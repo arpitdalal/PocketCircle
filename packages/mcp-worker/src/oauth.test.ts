@@ -1177,6 +1177,14 @@ describe("MCP tools execution", () => {
             name: "restore_transaction",
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
           }),
+          expect.objectContaining({
+            name: "archive_category",
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+          }),
+          expect.objectContaining({
+            name: "restore_category",
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+          }),
         ]),
       },
     });
@@ -1575,8 +1583,29 @@ describe("MCP tools execution", () => {
   });
 
   async function callLifecycleToolAndExpectStatus(
-    toolName: "archive_transaction" | "restore_transaction",
-    expectedStatus: "archived" | "active",
+    tool:
+      | {
+          name: "archive_transaction" | "restore_transaction";
+          arguments: { circleRef: string; transactionRef: string };
+          value: { ref: string; transaction: { status: "archived" | "active" } };
+        }
+      | {
+          name: "archive_category" | "restore_category";
+          arguments: { circleRef: string; categoryRef: string };
+          value: {
+            ref: string;
+            category: {
+              ref: string;
+              name: string;
+              type: "expense" | "income";
+              color: string;
+              status: "archived" | "active";
+              creator: { displayName: string; image: null };
+              canEditFields: boolean;
+              canArchive: boolean;
+            };
+          };
+        },
   ) {
     const { accessToken, grantId } = await obtainAccessToken([
       "pocketcircle:read",
@@ -1590,15 +1619,10 @@ describe("MCP tools execution", () => {
           return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
         }
         expect(opBody.data.grantId).toBe(grantId);
-        expect(opBody.data.operation.kind).toBe(toolName);
+        expect(opBody.data.operation.kind).toBe(tool.name);
         return Response.json({
           ok: true,
-          value: {
-            ref: "txn1",
-            transaction: {
-              status: expectedStatus,
-            },
-          },
+          value: tool.value,
         });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
@@ -1607,27 +1631,30 @@ describe("MCP tools execution", () => {
     const res = await sendMcpRequest(accessToken, {
       method: "tools/call",
       params: {
-        name: toolName,
-        arguments: {
-          circleRef: "trip-circle_1",
-          transactionRef: "coffee-txn1",
-        },
+        name: tool.name,
+        arguments: tool.arguments,
       },
     });
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
+    const expectedStatus =
+      "transaction" in tool.value ? tool.value.transaction.status : tool.value.category.status;
+    const structuredContent =
+      "transaction" in tool.value
+        ? { transaction: expect.objectContaining({ status: expectedStatus }) }
+        : { category: expect.objectContaining({ status: expectedStatus }) };
     expect(body).toMatchObject({
       jsonrpc: "2.0",
-      result: {
-        structuredContent: {
-          transaction: expect.objectContaining({ status: expectedStatus }),
-        },
-      },
+      result: { structuredContent },
     });
   }
 
   it("calls archive_transaction and returns the archived transaction", async () => {
-    await callLifecycleToolAndExpectStatus("archive_transaction", "archived");
+    await callLifecycleToolAndExpectStatus({
+      name: "archive_transaction",
+      arguments: { circleRef: "trip-circle_1", transactionRef: "coffee-txn1" },
+      value: { ref: "txn1", transaction: { status: "archived" } },
+    });
   });
 
   it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for archive_transaction", async () => {
@@ -1650,7 +1677,70 @@ describe("MCP tools execution", () => {
   });
 
   it("calls restore_transaction and returns the restored transaction", async () => {
-    await callLifecycleToolAndExpectStatus("restore_transaction", "active");
+    await callLifecycleToolAndExpectStatus({
+      name: "restore_transaction",
+      arguments: { circleRef: "trip-circle_1", transactionRef: "coffee-txn1" },
+      value: { ref: "txn1", transaction: { status: "active" } },
+    });
+  });
+
+  it("calls archive_category and returns the archived category", async () => {
+    await callLifecycleToolAndExpectStatus({
+      name: "archive_category",
+      arguments: { circleRef: "trip-circle_1", categoryRef: "coffee-cat1" },
+      value: {
+        ref: "coffee-cat1",
+        category: {
+          ref: "coffee-cat1",
+          name: "Coffee",
+          type: "expense",
+          color: "teal",
+          status: "archived",
+          creator: { displayName: "Writer", image: null },
+          canEditFields: true,
+          canArchive: true,
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for archive_category", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "archive_category",
+        arguments: {
+          circleRef: "trip-circle_1",
+          categoryRef: "coffee-cat1",
+        },
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+  });
+
+  it("calls restore_category and returns the restored category", async () => {
+    await callLifecycleToolAndExpectStatus({
+      name: "restore_category",
+      arguments: { circleRef: "trip-circle_1", categoryRef: "coffee-cat1" },
+      value: {
+        ref: "coffee-cat1",
+        category: {
+          ref: "coffee-cat1",
+          name: "Coffee",
+          type: "expense",
+          color: "teal",
+          status: "active",
+          creator: { displayName: "Writer", image: null },
+          canEditFields: true,
+          canArchive: true,
+        },
+      },
+    });
   });
 
   it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {

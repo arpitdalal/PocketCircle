@@ -113,7 +113,9 @@ function isMcpWriteOperationBody(body: McpOperationBody): body is McpWriteOperat
     body.operation.kind === "archive_transaction" ||
     body.operation.kind === "restore_transaction" ||
     body.operation.kind === "create_category" ||
-    body.operation.kind === "update_category"
+    body.operation.kind === "update_category" ||
+    body.operation.kind === "archive_category" ||
+    body.operation.kind === "restore_category"
   );
 }
 

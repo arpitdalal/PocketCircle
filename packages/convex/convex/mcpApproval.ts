@@ -8,6 +8,7 @@
 import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
+  mcpArchiveCategoryResultSchema,
   mcpArchiveTransactionResultSchema,
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
@@ -23,6 +24,7 @@ import {
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
+  mcpRestoreCategoryResultSchema,
   mcpRestoreTransactionResultSchema,
   mcpScopesInclude,
   mcpSearchTransactionsResultSchema,
@@ -48,6 +50,7 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
+  archiveCategoryForAccess,
   archiveTransactionForAccess,
   createCategoryForAccess,
   createTransactionForAccess,
@@ -65,6 +68,7 @@ import {
   listTransactionHistoryForUser,
   paginateMembersForUser,
   resolveCircleRef,
+  restoreCategoryForAccess,
   restoreTransactionForAccess,
   searchTransactionsForUser,
   toMcpCircleView,
@@ -684,6 +688,16 @@ export const executeMcpWriteOperation = internalMutation({
         name: v.optional(v.string()),
         color: v.optional(v.string()),
       }),
+      v.object({
+        kind: v.literal("archive_category"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+      }),
+      v.object({
+        kind: v.literal("restore_category"),
+        circleRef: v.string(),
+        categoryRef: v.string(),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -839,6 +853,38 @@ export const executeMcpWriteOperation = internalMutation({
         return { ok: false as const, error: updated.error };
       }
       const validated = validateMcpResult(mcpUpdateCategoryResultSchema, updated.value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "archive_category") {
+      const archived = await archiveCategoryForAccess(ctx, circleAuthz.value.access, {
+        categoryRef: args.operation.categoryRef,
+      });
+      if (!archived.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: archived.error };
+      }
+      const validated = validateMcpResult(mcpArchiveCategoryResultSchema, archived.value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "restore_category") {
+      const restored = await restoreCategoryForAccess(ctx, circleAuthz.value.access, {
+        categoryRef: args.operation.categoryRef,
+      });
+      if (!restored.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: restored.error };
+      }
+      const validated = validateMcpResult(mcpRestoreCategoryResultSchema, restored.value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }

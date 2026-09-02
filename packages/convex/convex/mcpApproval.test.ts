@@ -4502,3 +4502,453 @@ describe("MCP update_category write", () => {
     ).toMatchObject({ ok: true, value: { category: { name: "Rejoined rename" } } });
   });
 });
+
+describe("MCP archive_category write", () => {
+  it("archives by creator and owner, keeps historical txn, blocks new selection, records history, and notifies", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef } = await seedMcpWriteFixture(t);
+    const memberCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Member snacks",
+        creatorUserId: member.user._id,
+      }),
+    );
+    const memberCategoryRef = buildRef("Member snacks", memberCategoryId);
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Kept lunch",
+        categoryIds: [memberCategoryId],
+      }),
+    );
+
+    const archivedByOwner = await mutateAndDrain(t, () =>
+      executeMcpWrite(t, grant._id, {
+        kind: "archive_category",
+        circleRef,
+        categoryRef: memberCategoryRef,
+      }),
+    );
+    expect(archivedByOwner).toMatchObject({
+      ok: true,
+      value: { category: { status: "archived", name: "Member snacks" } },
+    });
+
+    const detail = await executeMcpRead(t, grant._id, {
+      kind: "get_category",
+      circleRef,
+      categoryRef: memberCategoryRef,
+    });
+    expect(detail).toMatchObject({
+      ok: true,
+      value: { status: "archived", name: "Member snacks" },
+    });
+
+    const recent = await executeMcpRead(t, grant._id, {
+      kind: "list_category_transactions",
+      circleRef,
+      categoryRef: memberCategoryRef,
+    });
+    expect(recent).toMatchObject({
+      ok: true,
+      value: {
+        transactions: [
+          expect.objectContaining({ title: "Kept lunch", ref: buildRef("Kept lunch", txnId) }),
+        ],
+      },
+    });
+
+    const history = await executeMcpRead(t, grant._id, {
+      kind: "list_category_history",
+      circleRef,
+      categoryRef: memberCategoryRef,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(history).toMatchObject({ ok: true });
+    if (!history.ok) {
+      throw new Error("expected history");
+    }
+    expect(history.value.page.some((event) => event.action === "archived")).toBe(true);
+
+    const activeList = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+    });
+    expect(activeList).toMatchObject({ ok: true });
+    if (!activeList.ok) {
+      throw new Error("expected active list");
+    }
+    expect(activeList.value.page.some((category) => category.ref === memberCategoryRef)).toBe(
+      false,
+    );
+
+    const archivedList = await executeMcpRead(t, grant._id, {
+      kind: "list_categories",
+      circleRef,
+      filters: { status: "archived" },
+    });
+    expect(archivedList).toMatchObject({ ok: true });
+    if (!archivedList.ok) {
+      throw new Error("expected archived list");
+    }
+    expect(archivedList.value.page.some((category) => category.ref === memberCategoryRef)).toBe(
+      true,
+    );
+
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "create_transaction",
+        circleRef,
+        type: "expense",
+        title: "Blocked attach",
+        amountMinorUnits: 100,
+        date: "2026-06-01",
+        categoryRefs: [memberCategoryRef],
+        expectedCurrency: "USD",
+      }),
+    ).toMatchObject({ ok: false, error: "category_inaccessible" });
+
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    });
+
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/member-archive-cat`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const ownCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Own coffee",
+        creatorUserId: member.user._id,
+      }),
+    );
+    const ownArchived = await executeMcpWrite(t, memberGrant._id, {
+      kind: "archive_category",
+      circleRef,
+      categoryRef: buildRef("Own coffee", ownCategoryId),
+    });
+    expect(ownArchived).toMatchObject({ ok: true, value: { category: { status: "archived" } } });
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+    });
+  });
+
+  it("rejects unrelated Member, repeated archive, and invalid states without duplicate history or notifications", async () => {
+    await runCategoryLifecycleWriteDenialSuite("archive_category");
+  });
+});
+
+type CategoryLifecycleWriteKind = "archive_category" | "restore_category";
+
+async function runCategoryLifecycleWriteDenialSuite(kind: CategoryLifecycleWriteKind) {
+  const t = convexTest(schema, modules);
+  const isArchive = kind === "archive_category";
+  const clientPrefix = isArchive ? "archive-cat" : "restore-cat";
+  const expectedAction = isArchive ? "archived" : "restored";
+  const { owner, f, member, grant, circleRef } = await seedMcpWriteFixture(t);
+  const categoryId = await t.run((ctx) =>
+    makeCategory(ctx, f.circleId, {
+      name: "Lifecycle",
+      ...(isArchive ? {} : { status: "archived" as const }),
+      creatorUserId: owner.userId,
+    }),
+  );
+  const categoryRef = buildRef("Lifecycle", categoryId);
+  const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+  const incomplete = await t.run((ctx) =>
+    seedOwnedCircle(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),
+  );
+  const archivedCircle = await t.run((ctx) =>
+    seedOwnedCircle(ctx, owner.owner, { name: "Archived", archived: true }),
+  );
+  const edgeInvalidRef = await t.run(async (ctx) => {
+    if (isArchive) {
+      const archivedId = await makeCategory(ctx, f.circleId, {
+        name: "Already archived",
+        status: "archived",
+        creatorUserId: owner.userId,
+      });
+      return buildRef("Already archived", archivedId);
+    }
+    const activeId = await makeCategory(ctx, f.circleId, {
+      name: "Still active",
+      creatorUserId: owner.userId,
+    });
+    return buildRef("Still active", activeId);
+  });
+  const incompleteCategoryId = await t.run((ctx) =>
+    makeCategory(ctx, incomplete.circleId, {
+      name: "Draft cat",
+      ...(isArchive ? {} : { status: "archived" as const }),
+      creatorUserId: owner.userId,
+    }),
+  );
+  const archivedCircleCategoryId = await t.run((ctx) =>
+    makeCategory(ctx, archivedCircle.circleId, {
+      name: "Archived circle cat",
+      ...(isArchive ? {} : { status: "archived" as const }),
+      creatorUserId: owner.userId,
+    }),
+  );
+  const memberGrant = await createActiveMcpGrant(t, {
+    userId: member.user._id,
+    circleIds: [f.circleId],
+    scopes: READ_WRITE,
+    clientId: `${CLIENT_ID}/${clientPrefix}-deny`,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+
+  expect(
+    await executeMcpWrite(t, memberGrant._id, {
+      kind,
+      circleRef,
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: false, error: "category_inaccessible" });
+  await t.run(async (ctx) => {
+    expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(0);
+  });
+
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef,
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: true });
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef,
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: false, error: "category_inaccessible" });
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef,
+      categoryRef: edgeInvalidRef,
+    }),
+  ).toMatchObject({ ok: false, error: "category_inaccessible" });
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef: buildRef("Other", other.circleId),
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef,
+      categoryRef: "not-a-category",
+    }),
+  ).toMatchObject({ ok: false, error: "category_inaccessible" });
+  expect(
+    await executeMcpWrite(
+      t,
+      grant._id,
+      {
+        kind,
+        circleRef,
+        categoryRef,
+      },
+      ["pocketcircle:read"],
+    ),
+  ).toMatchObject({ ok: false, error: "insufficient_scope" });
+
+  const incompleteGrant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [incomplete.circleId],
+    scopes: READ_WRITE,
+    clientId: `${CLIENT_ID}/${clientPrefix}-incomplete`,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+  expect(
+    await executeMcpWrite(t, incompleteGrant._id, {
+      kind,
+      circleRef: buildRef("Draft", incomplete.circleId),
+      categoryRef: buildRef("Draft cat", incompleteCategoryId),
+    }),
+  ).toMatchObject({ ok: false, error: "circle_setup_incomplete" });
+
+  const archivedGrant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [archivedCircle.circleId],
+    scopes: READ_WRITE,
+    clientId: `${CLIENT_ID}/${clientPrefix}-archived-circle`,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+  expect(
+    await executeMcpWrite(t, archivedGrant._id, {
+      kind,
+      circleRef: buildRef("Archived", archivedCircle.circleId),
+      categoryRef: buildRef("Archived circle cat", archivedCircleCategoryId),
+    }),
+  ).toMatchObject({ ok: false, error: "circle_archived" });
+
+  await t.run(async (ctx) => {
+    const histories = await ctx.db
+      .query("histories")
+      .withIndex("by_entity", (q) => q.eq("entityId", categoryId))
+      .collect();
+    expect(histories.filter((event) => event.action === expectedAction)).toHaveLength(1);
+    expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(0);
+  });
+
+  await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+  expect(
+    await executeMcpWrite(t, grant._id, {
+      kind,
+      circleRef,
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: false, error: "grant_unavailable" });
+
+  const freshGrant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [f.circleId],
+    scopes: READ_WRITE,
+    clientId: `${CLIENT_ID}/${clientPrefix}-removed`,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+  await t.run(async (ctx) => {
+    const membership = await ctx.db
+      .query("members")
+      .withIndex("by_circle_and_user", (q) =>
+        q.eq("circleId", f.circleId).eq("userId", owner.userId),
+      )
+      .unique();
+    if (!membership) throw new Error("owner membership missing");
+    await ctx.db.patch(membership._id, { status: "removed" });
+  });
+  expect(
+    await executeMcpWrite(t, freshGrant._id, {
+      kind,
+      circleRef,
+      categoryRef,
+    }),
+  ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+}
+
+describe("MCP restore_category write", () => {
+  it("restores by creator and owner, re-enables selection, records history, and notifies", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef } = await seedMcpWriteFixture(t);
+    const categoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Restorable",
+        status: "archived",
+        creatorUserId: member.user._id,
+      }),
+    );
+    const categoryRef = buildRef("Restorable", categoryId);
+
+    const restored = await mutateAndDrain(t, () =>
+      executeMcpWrite(t, grant._id, {
+        kind: "restore_category",
+        circleRef,
+        categoryRef,
+      }),
+    );
+    expect(restored).toMatchObject({
+      ok: true,
+      value: { category: { status: "active", name: "Restorable" } },
+    });
+
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "create_transaction",
+        circleRef,
+        type: "expense",
+        title: "After restore",
+        amountMinorUnits: 250,
+        date: "2026-06-01",
+        categoryRefs: [categoryRef],
+        expectedCurrency: "USD",
+      }),
+    ).toMatchObject({ ok: true });
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", categoryId))
+        .collect();
+      expect(histories.some((event) => event.action === "restored")).toBe(true);
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    });
+
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/member-restore-cat`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const ownCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Own restore",
+        status: "archived",
+        creatorUserId: member.user._id,
+      }),
+    );
+    const ownRestored = await executeMcpWrite(t, memberGrant._id, {
+      kind: "restore_category",
+      circleRef,
+      categoryRef: buildRef("Own restore", ownCategoryId),
+    });
+    expect(ownRestored).toMatchObject({ ok: true, value: { category: { status: "active" } } });
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+    });
+  });
+
+  it("rejects a restore that would collide with a same-name Category", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, grant, circleRef } = await seedMcpWriteFixture(t);
+    const categoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Collision",
+        status: "archived",
+        creatorUserId: owner.userId,
+      }),
+    );
+    await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Collision",
+        creatorUserId: owner.userId,
+      }),
+    );
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_category",
+        circleRef,
+        categoryRef: buildRef("Collision", categoryId),
+      }),
+    ).toMatchObject({ ok: false, error: "category_name_duplicate" });
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(categoryId))?.status).toBe("archived");
+      const histories = await ctx.db
+        .query("histories")
+        .withIndex("by_entity", (q) => q.eq("entityId", categoryId))
+        .collect();
+      expect(histories.filter((event) => event.action === "restored")).toHaveLength(0);
+    });
+  });
+
+  it("rejects unrelated Member, repeated restore, and invalid states without duplicate history or notifications", async () => {
+    await runCategoryLifecycleWriteDenialSuite("restore_category");
+  });
+});

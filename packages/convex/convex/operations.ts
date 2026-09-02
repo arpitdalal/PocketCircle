@@ -41,6 +41,8 @@ import {
   getCategoryForAccess,
   listCategoryHistoryForAccess,
   listRecentCategoryTransactionsForAccess,
+  performArchiveCategory,
+  performRestoreCategory,
   toCategoryDetailView,
   updateCategoryForMember,
 } from "./categories.js";
@@ -2015,4 +2017,118 @@ export async function updateCategoryForAccess(
       category: toMcpCategoryDetailView(detail),
     },
   };
+}
+
+export type ArchiveCategoryForAccessArgs = {
+  categoryRef: string;
+};
+
+export type RestoreCategoryForAccessArgs = ArchiveCategoryForAccessArgs;
+
+function mapLifecycleCategoryFailure(error: unknown) {
+  const mapped = mapCategoryWriteFailure(error);
+  if (mapped !== null) {
+    return mapped;
+  }
+  if (error instanceof Error) {
+    if (
+      error.message.includes("Only the creator or the owner") ||
+      error.message.includes("Category is already archived") ||
+      error.message.includes("Category is not archived") ||
+      error.message.includes("Category not found")
+    ) {
+      return "category_inaccessible" as const;
+    }
+  }
+  return null;
+}
+
+function lifecycleCategoryFailureFrom(error: unknown) {
+  const mapped = mapLifecycleCategoryFailure(error);
+  if (mapped === null) {
+    throw error;
+  }
+  return { ok: false as const, error: mapped };
+}
+
+async function lifecycleCategoryForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: ArchiveCategoryForAccessArgs,
+  options: {
+    requiredStatus: "active" | "archived";
+    perform: (
+      mutationCtx: MutationCtx,
+      categoryAccess: ReturnType<typeof authorizedCategoryFromAccess>,
+    ) => Promise<Id<"categories">>;
+  },
+) {
+  const categoryId = resolveCategoryRef(ctx, args.categoryRef);
+  if (!categoryId) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+  const category = await ctx.db.get(categoryId);
+  if (!category || category.circleId !== access.circle._id) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+
+  try {
+    access.assertWritable();
+    access.assertSetupComplete();
+  } catch (error) {
+    return lifecycleCategoryFailureFrom(error);
+  }
+
+  const categoryAccess = authorizedCategoryFromAccess(access, category);
+  if (!categoryAccess.canArchive) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+  if (category.status !== options.requiredStatus) {
+    return { ok: false as const, error: "category_inaccessible" as const };
+  }
+
+  let updatedId: Id<"categories">;
+  try {
+    updatedId = await options.perform(ctx, categoryAccess);
+  } catch (error) {
+    return lifecycleCategoryFailureFrom(error);
+  }
+
+  const updated = await ctx.db.get(updatedId);
+  if (!updated) {
+    throw new Error("Category not found");
+  }
+  const viewer = { userId: access.user._id, isOwner: access.isOwner };
+  const detail = await toCategoryDetailView(ctx, updated, viewer);
+  return {
+    ok: true as const,
+    value: {
+      ref: detail.ref,
+      category: toMcpCategoryDetailView(detail),
+    },
+  };
+}
+
+/** Shared explicit-User archive Category write for MCP (#329). */
+export async function archiveCategoryForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: ArchiveCategoryForAccessArgs,
+) {
+  return lifecycleCategoryForAccess(ctx, access, args, {
+    requiredStatus: "active",
+    perform: performArchiveCategory,
+  });
+}
+
+/** Shared explicit-User restore Category write for MCP (#329). */
+export async function restoreCategoryForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: RestoreCategoryForAccessArgs,
+) {
+  return lifecycleCategoryForAccess(ctx, access, args, {
+    requiredStatus: "archived",
+    perform: performRestoreCategory,
+  });
 }
