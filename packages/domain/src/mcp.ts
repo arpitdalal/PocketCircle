@@ -603,7 +603,16 @@ export const mcpArchiveTransactionInputSchema = z.object({
 
 export type McpArchiveTransactionInput = z.infer<typeof mcpArchiveTransactionInputSchema>;
 
-export const mcpArchiveTransactionResultSchema = mcpCreateTransactionResultSchema;
+const mcpLifecycleTransactionViewSchema = z.object({
+  ref: mcpTransactionRefSchema,
+  title: z.string(),
+  status: z.enum(["active", "archived"]),
+});
+
+export const mcpArchiveTransactionResultSchema = z.object({
+  ref: mcpTransactionRefSchema,
+  transaction: mcpLifecycleTransactionViewSchema,
+});
 
 export type McpArchiveTransactionResult = z.infer<typeof mcpArchiveTransactionResultSchema>;
 
@@ -611,7 +620,7 @@ export const mcpRestoreTransactionInputSchema = mcpArchiveTransactionInputSchema
 
 export type McpRestoreTransactionInput = z.infer<typeof mcpRestoreTransactionInputSchema>;
 
-export const mcpRestoreTransactionResultSchema = mcpCreateTransactionResultSchema;
+export const mcpRestoreTransactionResultSchema = mcpArchiveTransactionResultSchema;
 
 export type McpRestoreTransactionResult = z.infer<typeof mcpRestoreTransactionResultSchema>;
 

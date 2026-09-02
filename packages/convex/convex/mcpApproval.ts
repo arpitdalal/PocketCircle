@@ -768,11 +768,7 @@ export const executeMcpWriteOperation = internalMutation({
         await trackGrantUse();
         return { ok: false as const, error: archived.error };
       }
-      const value = {
-        ref: archived.value.ref,
-        transaction: archived.value,
-      };
-      const validated = validateMcpResult(mcpArchiveTransactionResultSchema, value);
+      const validated = validateMcpResult(mcpArchiveTransactionResultSchema, archived.value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }
@@ -788,11 +784,7 @@ export const executeMcpWriteOperation = internalMutation({
         await trackGrantUse();
         return { ok: false as const, error: restored.error };
       }
-      const value = {
-        ref: restored.value.ref,
-        transaction: restored.value,
-      };
-      const validated = validateMcpResult(mcpRestoreTransactionResultSchema, value);
+      const validated = validateMcpResult(mcpRestoreTransactionResultSchema, restored.value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }

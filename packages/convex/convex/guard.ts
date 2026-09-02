@@ -243,6 +243,14 @@ export async function requireTransactionAccess(
   if (!access) {
     throw new Error("Transaction not found");
   }
+  return authorizedTransactionFromAccess(access, transaction);
+}
+
+/** Compose transaction entity permissions over an already-resolved Circle access. */
+export function authorizedTransactionFromAccess(
+  access: AuthorizedCircle,
+  transaction: Doc<"transactions">,
+): AuthorizedTransaction {
   const isRecorder = transaction.recordedByMemberId === access.membership._id;
   return { ...access, transaction, isRecorder, canArchive: isRecorder || access.isOwner };
 }

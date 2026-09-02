@@ -1591,8 +1591,12 @@ describe("MCP tools execution", () => {
         return Response.json({
           ok: true,
           value: {
-            ...mockCreateTransactionResult,
-            transaction: { ...mockCreateTransactionResult.transaction, status: "archived" },
+            ref: "coffee-txn1",
+            transaction: {
+              ref: "coffee-txn1",
+              title: "Coffee",
+              status: "archived",
+            },
           },
         });
       }
@@ -1657,8 +1661,12 @@ describe("MCP tools execution", () => {
         return Response.json({
           ok: true,
           value: {
-            ...mockCreateTransactionResult,
-            transaction: { ...mockCreateTransactionResult.transaction, status: "active" },
+            ref: "coffee-txn1",
+            transaction: {
+              ref: "coffee-txn1",
+              title: "Coffee",
+              status: "active",
+            },
           },
         });
       }

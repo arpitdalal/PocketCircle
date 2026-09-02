@@ -103,6 +103,51 @@ async function executeMcpWrite(
   });
 }
 
+async function seedUpdateFixture(
+  t: ReturnType<typeof convexTest>,
+  options?: { status?: "active" | "archived" },
+) {
+  const owner = await t.run((ctx) =>
+    seedPersonalCircleOwner(ctx, { email: "updater@example.com", displayName: "Updater Owner" }),
+  );
+  const f = await t.run((ctx) =>
+    seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+  );
+  const member = await t.run((ctx) =>
+    addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
+  );
+  const txnId = await t.run((ctx) =>
+    seedTransaction(ctx, f, {
+      title: "Team lunch",
+      note: "Sushi",
+      amountMinorUnits: 2_500,
+      date: "2026-06-01",
+      categoryIds: [f.groceriesId],
+      ...(options?.status === "archived" ? { status: "archived" as const } : {}),
+    }),
+  );
+  const grant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [f.circleId],
+    scopes: READ_WRITE,
+    clientId: CLIENT_ID,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+  return {
+    owner,
+    f,
+    member,
+    txnId,
+    grant,
+    circleRef: buildRef("Trip", f.circleId),
+    transactionRef: buildRef("Team lunch", txnId),
+    groceriesRef: buildRef("Groceries", f.groceriesId),
+    diningRef: buildRef("Dining", f.diningId),
+    salaryRef: buildRef("Salary", f.salaryId),
+  };
+}
+
 function signingKey(value: string = PRIVATE_JWK_JSON) {
   const key = parseMcpWorkerPrivateJwk(value);
   if (!key) throw new Error("invalid test private JWK");
@@ -2416,6 +2461,50 @@ describe("MCP Worker bridge HTTP routes", () => {
     };
   }
 
+  async function executeLifecycleBridgeOperation(
+    kind: "archive_transaction" | "restore_transaction",
+    initialStatus: "active" | "archived",
+  ) {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: `bridge-${kind}@example.com`,
+        displayName: "Bridge Owner",
+      }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Bridge lunch",
+        ...(initialStatus === "archived" ? { status: "archived" as const } : {}),
+      }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const body = {
+      grantId: grant._id,
+      effectiveScopes: READ_WRITE,
+      operation: {
+        kind,
+        circleRef: buildRef("Trip", f.circleId),
+        transactionRef: buildRef("Bridge lunch", txnId),
+      },
+    };
+    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
+    return {
+      res,
+      expectedStatus: kind === "archive_transaction" ? "archived" : "active",
+    };
+  }
+
   it("rejects a request with no Worker assertion", async () => {
     const t = convexTest(schema, modules);
     const response = await t.fetch("/mcp/redeem-approval", {
@@ -2794,83 +2883,35 @@ describe("MCP Worker bridge HTTP routes", () => {
   });
 
   it("executes archive_transaction via /mcp/operation", async () => {
-    const t = convexTest(schema, modules);
-    const owner = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "bridge-archive@example.com",
-        displayName: "Bridge Owner",
-      }),
+    const { res, expectedStatus } = await executeLifecycleBridgeOperation(
+      "archive_transaction",
+      "active",
     );
-    const f = await t.run((ctx) =>
-      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-    );
-    const txnId = await t.run((ctx) => seedTransaction(ctx, f, { title: "Bridge lunch" }));
-    const grant = await createActiveMcpGrant(t, {
-      userId: owner.userId,
-      circleIds: [f.circleId],
-      scopes: READ_WRITE,
-      clientId: CLIENT_ID,
-      clientKind: "static",
-      redirectUri: REDIRECT_URI,
-    });
-    const body = {
-      grantId: grant._id,
-      effectiveScopes: READ_WRITE,
-      operation: {
-        kind: "archive_transaction" as const,
-        circleRef: buildRef("Trip", f.circleId),
-        transactionRef: buildRef("Bridge lunch", txnId),
-      },
-    };
-    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       ok: true,
       value: {
-        transaction: expect.objectContaining({ title: "Bridge lunch", status: "archived" }),
+        transaction: expect.objectContaining({ title: "Bridge lunch", status: expectedStatus }),
       },
     });
+    expect(JSON.stringify(body)).not.toContain("amountMinorUnits");
   });
 
   it("executes restore_transaction via /mcp/operation", async () => {
-    const t = convexTest(schema, modules);
-    const owner = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: "bridge-restore@example.com",
-        displayName: "Bridge Owner",
-      }),
+    const { res, expectedStatus } = await executeLifecycleBridgeOperation(
+      "restore_transaction",
+      "archived",
     );
-    const f = await t.run((ctx) =>
-      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-    );
-    const txnId = await t.run((ctx) =>
-      seedTransaction(ctx, f, { title: "Bridge lunch", status: "archived" }),
-    );
-    const grant = await createActiveMcpGrant(t, {
-      userId: owner.userId,
-      circleIds: [f.circleId],
-      scopes: READ_WRITE,
-      clientId: CLIENT_ID,
-      clientKind: "static",
-      redirectUri: REDIRECT_URI,
-    });
-    const body = {
-      grantId: grant._id,
-      effectiveScopes: READ_WRITE,
-      operation: {
-        kind: "restore_transaction" as const,
-        circleRef: buildRef("Trip", f.circleId),
-        transactionRef: buildRef("Bridge lunch", txnId),
-      },
-    };
-    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       ok: true,
       value: {
-        transaction: expect.objectContaining({ title: "Bridge lunch", status: "active" }),
+        transaction: expect.objectContaining({ title: "Bridge lunch", status: expectedStatus }),
       },
     });
+    expect(JSON.stringify(body)).not.toContain("amountMinorUnits");
   });
 });
 
@@ -3166,47 +3207,6 @@ describe("MCP create_transaction write", () => {
 });
 
 describe("MCP update_transaction write", () => {
-  async function seedUpdateFixture(t: ReturnType<typeof convexTest>) {
-    const owner = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, { email: "updater@example.com", displayName: "Updater Owner" }),
-    );
-    const f = await t.run((ctx) =>
-      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-    );
-    const member = await t.run((ctx) =>
-      addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
-    );
-    const txnId = await t.run((ctx) =>
-      seedTransaction(ctx, f, {
-        title: "Team lunch",
-        note: "Sushi",
-        amountMinorUnits: 2_500,
-        date: "2026-06-01",
-        categoryIds: [f.groceriesId],
-      }),
-    );
-    const grant = await createActiveMcpGrant(t, {
-      userId: owner.userId,
-      circleIds: [f.circleId],
-      scopes: READ_WRITE,
-      clientId: CLIENT_ID,
-      clientKind: "static",
-      redirectUri: REDIRECT_URI,
-    });
-    return {
-      owner,
-      f,
-      member,
-      txnId,
-      grant,
-      circleRef: buildRef("Trip", f.circleId),
-      transactionRef: buildRef("Team lunch", txnId),
-      groceriesRef: buildRef("Groceries", f.groceriesId),
-      diningRef: buildRef("Dining", f.diningId),
-      salaryRef: buildRef("Salary", f.salaryId),
-    };
-  }
-
   it("updates each field, combined edits, type change, Paid By, history, and search sync", async () => {
     const t = convexTest(schema, modules);
     const { member, grant, circleRef, transactionRef, groceriesRef, diningRef, salaryRef, txnId } =
@@ -3620,47 +3620,6 @@ describe("MCP update_transaction write", () => {
   });
 });
 
-async function seedLifecycleWriteFixture(
-  t: ReturnType<typeof convexTest>,
-  options?: { status?: "active" | "archived" },
-) {
-  const owner = await t.run((ctx) =>
-    seedPersonalCircleOwner(ctx, { email: "archiver@example.com", displayName: "Archive Owner" }),
-  );
-  const f = await t.run((ctx) =>
-    seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-  );
-  const member = await t.run((ctx) =>
-    addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
-  );
-  const txnId = await t.run((ctx) =>
-    seedTransaction(ctx, f, {
-      title: "Team lunch",
-      amountMinorUnits: 2_500,
-      date: "2026-06-01",
-      categoryIds: [f.groceriesId],
-      ...(options?.status === "archived" ? { status: "archived" as const } : {}),
-    }),
-  );
-  const grant = await createActiveMcpGrant(t, {
-    userId: owner.userId,
-    circleIds: [f.circleId],
-    scopes: READ_WRITE,
-    clientId: CLIENT_ID,
-    clientKind: "static",
-    redirectUri: REDIRECT_URI,
-  });
-  return {
-    owner,
-    f,
-    member,
-    txnId,
-    grant,
-    circleRef: buildRef("Trip", f.circleId),
-    transactionRef: buildRef("Team lunch", txnId),
-  };
-}
-
 describe("MCP archive_transaction write", () => {
   it("archives by recorder and owner, excludes totals, records history, and notifies another Member", async () => {
     const t = convexTest(schema, modules);
@@ -3788,7 +3747,7 @@ describe("MCP archive_transaction write", () => {
   it("rejects unrelated Member, repeated archive, and invalid states without partial writes", async () => {
     const t = convexTest(schema, modules);
     const { owner, f, member, grant, circleRef, transactionRef, txnId } =
-      await seedLifecycleWriteFixture(t);
+      await seedUpdateFixture(t);
     const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
     const incomplete = await t.run((ctx) =>
       seedOwnedFixture(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),
@@ -3951,8 +3910,10 @@ describe("MCP archive_transaction write", () => {
 describe("MCP restore_transaction write", () => {
   it("restores archived Transaction, returns totals, records history, and notifies another Member", async () => {
     const t = convexTest(schema, modules);
-    const { owner, f, member, grant, circleRef, transactionRef, txnId } =
-      await seedLifecycleWriteFixture(t, { status: "archived" });
+    const { owner, f, member, grant, circleRef, transactionRef, txnId } = await seedUpdateFixture(
+      t,
+      { status: "archived" },
+    );
     await t.run((ctx) =>
       seedTransaction(ctx, f, {
         title: "Other txn",
@@ -4048,8 +4009,10 @@ describe("MCP restore_transaction write", () => {
 
   it("rejects unrelated Member, repeated restore, active Transaction, and invalid states", async () => {
     const t = convexTest(schema, modules);
-    const { owner, f, member, grant, circleRef, transactionRef, txnId } =
-      await seedLifecycleWriteFixture(t, { status: "archived" });
+    const { owner, f, member, grant, circleRef, transactionRef, txnId } = await seedUpdateFixture(
+      t,
+      { status: "archived" },
+    );
     const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
     const incomplete = await t.run((ctx) =>
       seedOwnedFixture(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),

@@ -41,7 +41,11 @@ import {
   listCategoryHistoryForAccess,
   listRecentCategoryTransactionsForAccess,
 } from "./categories.js";
-import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
+import {
+  type AuthorizedCircle,
+  authorizedTransactionFromAccess,
+  resolveCircleAccessForUser,
+} from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
@@ -866,6 +870,19 @@ export function toMcpTransactionDetailView(view: TransactionDetailView, currency
       createdAt: view.audit.createdAt,
       updatedBy: toMcpMemberAttributionView(view.audit.updatedBy),
       updatedAt: view.audit.updatedAt,
+    },
+  };
+}
+
+/** Write-only lifecycle confirmation: ref, title, and status only (no readable fields). */
+export function toMcpLifecycleTransactionView(transaction: Doc<"transactions">) {
+  const ref = buildRef(transaction.title, transaction._id);
+  return {
+    ref,
+    transaction: {
+      ref,
+      title: transaction.title,
+      status: transaction.status,
     },
   };
 }
@@ -1771,16 +1788,6 @@ function lifecycleTransactionFailureFrom(error: unknown) {
   return { ok: false as const, error: mapped };
 }
 
-function buildTransactionAccess(access: AuthorizedCircle, transaction: Doc<"transactions">) {
-  const isRecorder = transaction.recordedByMemberId === access.membership._id;
-  return {
-    ...access,
-    transaction,
-    isRecorder,
-    canArchive: isRecorder || access.isOwner,
-  };
-}
-
 /** Shared explicit-User archive Transaction write for MCP (#327). */
 export async function archiveTransactionForAccess(
   ctx: MutationCtx,
@@ -1803,7 +1810,7 @@ export async function archiveTransactionForAccess(
     return lifecycleTransactionFailureFrom(error);
   }
 
-  const txnAccess = buildTransactionAccess(access, transaction);
+  const txnAccess = authorizedTransactionFromAccess(access, transaction);
   if (!txnAccess.canArchive) {
     return { ok: false as const, error: "transaction_inaccessible" as const };
   }
@@ -1822,16 +1829,9 @@ export async function archiveTransactionForAccess(
   if (!archived) {
     throw new Error("Transaction not found");
   }
-  const detail = await toTransactionDetailView(
-    ctx,
-    archived,
-    newViewCaches(),
-    access.membership._id,
-    access.isOwner,
-  );
   return {
     ok: true as const,
-    value: toMcpTransactionDetailView(detail, access.circle.currency),
+    value: toMcpLifecycleTransactionView(archived),
   };
 }
 
@@ -1857,7 +1857,7 @@ export async function restoreTransactionForAccess(
     return lifecycleTransactionFailureFrom(error);
   }
 
-  const txnAccess = buildTransactionAccess(access, transaction);
+  const txnAccess = authorizedTransactionFromAccess(access, transaction);
   if (!txnAccess.canArchive) {
     return { ok: false as const, error: "transaction_inaccessible" as const };
   }
@@ -1876,15 +1876,8 @@ export async function restoreTransactionForAccess(
   if (!restored) {
     throw new Error("Transaction not found");
   }
-  const detail = await toTransactionDetailView(
-    ctx,
-    restored,
-    newViewCaches(),
-    access.membership._id,
-    access.isOwner,
-  );
   return {
     ok: true as const,
-    value: toMcpTransactionDetailView(detail, access.circle.currency),
+    value: toMcpLifecycleTransactionView(restored),
   };
 }
