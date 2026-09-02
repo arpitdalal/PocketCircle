@@ -704,7 +704,7 @@ describe("authorization handoff", () => {
       }),
     });
     expect(refreshRevoked.status).toBe(400);
-    expect(revokeOrphan).toHaveBeenCalled();
+    expect(revokeOrphan).toHaveBeenCalledWith(expect.any(String), "principal_opaque");
     revokeOrphan.mockRestore();
 
     // Lost browser response: retry returns the same redirect and does not create

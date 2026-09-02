@@ -27,6 +27,8 @@ export const MCP_WORKER_CLEANUP_MAX_ATTEMPTS = 5;
 export const MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS = 60_000;
 export const MCP_WORKER_CLEANUP_BACKOFF_BASE = 2;
 export const MCP_WORKER_CLEANUP_BATCH_SIZE = 32;
+/** Abort hung Convex→Worker cleanup fetches so attempts still advance. */
+export const MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS = 15_000;
 const MCP_WORKER_ASSERTION_CLOCK_SKEW_MS = 5_000;
 /** Pending grant abandoned if Worker never finishes token exchange in this window. */
 export const MCP_PENDING_GRANT_TTL_MS = MCP_APPROVAL_TTL_MS;

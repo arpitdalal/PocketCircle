@@ -12,6 +12,7 @@ import {
   MCP_WORKER_CLEANUP_BATCH_SIZE,
   MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS,
   MCP_WORKER_CLEANUP_MAX_ATTEMPTS,
+  MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS,
   signMcpRevocation,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
@@ -37,10 +38,11 @@ function cleanupBackoffMs(attemptAfterFailure: number) {
 /** Schedule one Worker cleanup attempt for a revoked grant that still needs it. */
 export async function enqueueMcpWorkerCleanup(
   ctx: MutationCtx,
-  args: { grantId: Id<"mcpGrants">; delayMs?: number },
+  args: { grantId: Id<"mcpGrants">; delayMs?: number; force?: boolean },
 ) {
   await ctx.scheduler.runAfter(args.delayMs ?? 0, internal.mcpReconciliation.runWorkerCleanup, {
     grantId: args.grantId,
+    force: args.force,
   });
 }
 
@@ -171,7 +173,7 @@ export const recordWorkerCleanupFailure = internalMutation({
  * Fails closed on the Convex side — never flips status back to active.
  */
 export const runWorkerCleanup = internalAction({
-  args: { grantId: v.id("mcpGrants") },
+  args: { grantId: v.id("mcpGrants"), force: v.optional(v.boolean()) },
   handler: async (
     ctx,
     args,
@@ -205,7 +207,7 @@ export const runWorkerCleanup = internalAction({
     }
 
     const now = Date.now();
-    if (!isCleanupDue(grant, now)) {
+    if (!args.force && !isCleanupDue(grant, now)) {
       return { ok: false, error: "not_due" };
     }
 
@@ -239,6 +241,7 @@ export const runWorkerCleanup = internalAction({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ revocationToken }),
+        signal: AbortSignal.timeout(MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS),
       });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "fetch_failed";
@@ -315,7 +318,12 @@ export const reconcilePendingWorkerCleanups = internalMutation({
         console.log("[mcp-reconcile] purged stale convex orphan", String(grant._id));
         return;
       }
-      await enqueueMcpWorkerCleanup(ctx, { grantId: grant._id, delayMs: 0 });
+      // Claim past this sweep's `now` so continuation cannot reselect the same page.
+      await ctx.db.patch(grant._id, {
+        workerCleanupNextAttemptAt: now + cleanupBackoffMs((grant.workerCleanupAttempts ?? 0) + 1),
+        updatedAt: now,
+      });
+      await enqueueMcpWorkerCleanup(ctx, { grantId: grant._id, delayMs: 0, force: true });
     }
 
     let processed = 0;

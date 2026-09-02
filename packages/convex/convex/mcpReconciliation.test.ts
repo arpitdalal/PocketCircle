@@ -374,7 +374,10 @@ describe("MCP Worker cleanup reconciliation", () => {
 
     await mutateAndDrain(t, () => t.run((ctx) => revokeMcpGrant(ctx, { grantId: grant._id })));
 
-    const logged = [...logSpy.mock.calls, ...errSpy.mock.calls].flat().map(String).join(" ");
+    const logged = [...logSpy.mock.calls, ...errSpy.mock.calls]
+      .flat()
+      .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+      .join(" ");
     expect(logged).toContain(String(grant._id));
     expect(logged).not.toMatch(/ada@example\.com|evil\.example/i);
 

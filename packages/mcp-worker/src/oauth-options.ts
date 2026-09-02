@@ -115,11 +115,16 @@ export function oauthProviderOptions(
           try {
             await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
           } catch {
-            console.log(
+            console.error(
               "[mcp-reconcile] orphan worker grant purge failed",
               options.grantId,
-              options.userId,
+              mcpGrantId,
             );
+            throw new OAuthError("temporarily_unavailable", {
+              description: "PocketCircle grant cleanup is temporarily unavailable",
+              statusCode: 503,
+              headers: { "Retry-After": "2" },
+            });
           }
           throw new OAuthError("invalid_grant", {
             description: "PocketCircle grant no longer valid",

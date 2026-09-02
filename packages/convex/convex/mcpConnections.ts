@@ -94,7 +94,9 @@ export const revokeMcpConnection = mutation({
     if (cleanupStatus === "exhausted") {
       await ctx.db.patch(revoked.value._id, {
         workerCleanupStatus: "pending_revoke",
+        workerCleanupAttempts: 0,
         workerCleanupNextAttemptAt: now,
+        workerCleanupLastError: undefined,
         updatedAt: now,
       });
       cleanupStatus = "pending_revoke";
