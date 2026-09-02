@@ -2466,36 +2466,17 @@ describe("MCP Worker bridge HTTP routes", () => {
     initialStatus: "active" | "archived",
   ) {
     const t = convexTest(schema, modules);
-    const owner = await t.run((ctx) =>
-      seedPersonalCircleOwner(ctx, {
-        email: `bridge-${kind}@example.com`,
-        displayName: "Bridge Owner",
-      }),
+    const { grant, circleRef, transactionRef } = await seedUpdateFixture(
+      t,
+      initialStatus === "archived" ? { status: "archived" } : undefined,
     );
-    const f = await t.run((ctx) =>
-      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
-    );
-    const txnId = await t.run((ctx) =>
-      seedTransaction(ctx, f, {
-        title: "Bridge lunch",
-        ...(initialStatus === "archived" ? { status: "archived" as const } : {}),
-      }),
-    );
-    const grant = await createActiveMcpGrant(t, {
-      userId: owner.userId,
-      circleIds: [f.circleId],
-      scopes: READ_WRITE,
-      clientId: CLIENT_ID,
-      clientKind: "static",
-      redirectUri: REDIRECT_URI,
-    });
     const body = {
       grantId: grant._id,
       effectiveScopes: READ_WRITE,
       operation: {
         kind,
-        circleRef: buildRef("Trip", f.circleId),
-        transactionRef: buildRef("Bridge lunch", txnId),
+        circleRef,
+        transactionRef,
       },
     };
     const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
