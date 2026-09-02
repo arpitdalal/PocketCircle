@@ -48,7 +48,7 @@ import {
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
-import { contentLengthExceeds, MCP_JSON_MAX_BODY_BYTES } from "./bounded-body.js";
+import { assertClonedBodyWithinLimit, MCP_JSON_MAX_BODY_BYTES } from "./bounded-body.js";
 import { executeMcpOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
@@ -891,9 +891,6 @@ async function detectToolCall(request: Request) {
   if (request.method.toUpperCase() !== "POST") {
     return null;
   }
-  if (contentLengthExceeds(request, MCP_JSON_MAX_BODY_BYTES)) {
-    return null;
-  }
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
     return null;
@@ -928,6 +925,20 @@ async function detectToolCall(request: Request) {
   }
 }
 
+function payloadTooLargeResponse(started: number) {
+  mcpLog({
+    event: "mcp_request",
+    outcome: "rejected",
+    status: 413,
+    errorCode: "payload_too_large",
+    durationMs: performance.now() - started,
+  });
+  return new Response(JSON.stringify({ error: "payload_too_large" }), {
+    status: 413,
+    headers: { "Content-Type": "application/json", "cache-control": "no-store" },
+  });
+}
+
 export function createMcpApiHandler(env: Env) {
   const allowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
@@ -955,25 +966,15 @@ export function createMcpApiHandler(env: Env) {
   return {
     fetch: async (request: Request, envArg: Env, ctx: ExecutionContext) => {
       const started = performance.now();
-      if (contentLengthExceeds(request, MCP_JSON_MAX_BODY_BYTES)) {
-        mcpLog({
-          event: "mcp_request",
-          outcome: "rejected",
-          status: 413,
-          errorCode: "payload_too_large",
-          durationMs: performance.now() - started,
-        });
-        return new Response(JSON.stringify({ error: "payload_too_large" }), {
-          status: 413,
-          headers: { "Content-Type": "application/json", "cache-control": "no-store" },
-        });
+      if (!(await assertClonedBodyWithinLimit(request, MCP_JSON_MAX_BODY_BYTES))) {
+        return payloadTooLargeResponse(started);
       }
 
       const toolClass = await detectToolCall(request);
       if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
         const caller = await resolveAuthorizedCaller(env, request);
         if (!caller.ok) {
-          await assertWithinRateLimit(
+          const withinFailedAuth = await assertWithinRateLimit(
             envArg,
             "failed_auth",
             unauthenticatedRateLimitKey({
@@ -981,6 +982,16 @@ export function createMcpApiHandler(env: Env) {
               ip: clientIpOf(request),
             }),
           );
+          if (!withinFailedAuth.ok) {
+            mcpLog({
+              event: "mcp_request",
+              outcome: "rate_limited",
+              status: 429,
+              toolClass: "failed_auth",
+              durationMs: performance.now() - started,
+            });
+            return rateLimitedResponse();
+          }
           mcpLog({
             event: "mcp_request",
             outcome: "rejected",

@@ -34,19 +34,35 @@ Worker JSON surfaces and the Convex MCP bridge reject bodies above `MCP_JSON_MAX
 
 ## Profiling
 
-Run the local micro-bench (Worker parse + rate-limit key path, no Convex):
+Run the local micro-bench (bounded-body check + rate-limit key path, no Convex):
 
 ```bash
 pnpm --filter @pocketcircle/mcp-worker exec vitest run src/capacity.profile.test.ts
 ```
 
-That reports p50/p95 wall time for the local path. **Production CPU** must still be confirmed in the Cloudflare Workers dashboard (CPU time per request) after deploy — wall-clock local time is not CPU time.
+That reports p50/p95 **wall time** for the local path. It is a regression canary under the 10 ms Workers Free CPU budget, not a substitute for Cloudflare CPU samples.
 
-Before public launch (#332), record:
+**Production CPU** must still be confirmed in the Cloudflare Workers dashboard (CPU time per request) after deploy.
 
-1. Worker CPU p50/p95 for `get_current_user`, `search_transactions` (max page), and `create_transaction`.
-2. Convex Insights: function calls, DB I/O, egress for the same paths.
-3. KV read/write daily totals under expected connection churn.
+### Local baseline (key + body-limit path)
+
+Recorded by `capacity.profile.test.ts` in CI/dev: p95 wall time must stay **&lt; 5 ms** on this path so the remaining CPU budget covers OAuth unwrap + Convex fetch.
+
+### Modeled Convex Free load (per authenticated tool call)
+
+| Resource | Per tool call | Free monthly/day ceiling | Implied tool ceiling |
+| --- | --- | --- | --- |
+| Function calls | ~2 (HTTP action + query/mutation) | 1,000,000 / month | ~500,000 tools / month |
+| DB I/O / egress | page-size dependent | 1 GB each / month | Bind first on search/history max pages |
+| Worker CPU | measured in dashboard | 10 ms / request | Upgrade at p95 ≥ 8 ms |
+
+Before public launch (#332), replace modeled rows with dashboard samples for `get_current_user`, max-page `search_transactions`, and `create_transaction`.
+
+## Log audit
+
+Worker operational logs go only through `mcpLog` / `mcpLogError` (`packages/mcp-worker/src/safe-log.ts`) — allowlisted fields, scrubbed strings.
+
+Convex MCP bridge routes do not log request bodies. Existing `mcpReconciliation` logs emit only grant ids and attempt counters (no tokens, amounts, titles, notes, names, or emails). `sanitizeOperationalError` still strips emails/URLs from terminal-failure vendor text.
 
 ## Upgrade triggers
 

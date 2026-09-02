@@ -1551,47 +1551,40 @@ describe("MCP tools execution", () => {
   });
 
   it("returns 429 when create_transaction exceeds the per-grant write rate limit", async () => {
-    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
-
-    stubConvexFetch((endpoint, body) => {
-      if (endpoint === "/mcp/operation") {
-        const opBody = mcpOperationBodySchema.safeParse(body);
-        if (!opBody.success) {
-          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
-        }
-        expect(opBody.data.operation.kind).toBe("create_transaction");
-        return Response.json({ ok: true, value: mockCreateTransactionResult });
-      }
-      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
-    });
-
-    const toolCall = {
-      method: "tools/call" as const,
-      params: {
-        name: "create_transaction",
-        arguments: {
-          circleRef: "trip-circle_1",
-          type: "expense",
-          title: "Coffee",
-          amountMinorUnits: 500,
-          date: "2026-06-01",
-          categoryRefs: ["groceries-cat1"],
-          expectedCurrency: "USD",
-        },
+    await expectToolCallRateLimited({
+      toolName: "create_transaction",
+      allowedCalls: 30,
+      arguments: {
+        circleRef: "trip-circle_1",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        date: "2026-06-01",
+        categoryRefs: ["groceries-cat1"],
+        expectedCurrency: "USD",
       },
-    };
-
-    for (let i = 0; i < 30; i++) {
-      const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
-      expect(res.status).toBe(200);
-    }
-
-    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 31 });
-    expect(throttled.status).toBe(429);
-    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+      mockValue: mockCreateTransactionResult,
+    });
   });
 
   it("returns 429 when archive_transaction exceeds the tighter destructive rate limit", async () => {
+    await expectToolCallRateLimited({
+      toolName: "archive_transaction",
+      allowedCalls: 10,
+      arguments: {
+        circleRef: "trip-circle_1",
+        transactionRef: "coffee-txn1",
+      },
+      mockValue: { ref: "txn1", transaction: { status: "archived" } },
+    });
+  });
+
+  async function expectToolCallRateLimited(options: {
+    toolName: string;
+    allowedCalls: number;
+    arguments: Record<string, unknown>;
+    mockValue: unknown;
+  }) {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
 
     stubConvexFetch((endpoint, body) => {
@@ -1600,11 +1593,8 @@ describe("MCP tools execution", () => {
         if (!opBody.success) {
           return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
         }
-        expect(opBody.data.operation.kind).toBe("archive_transaction");
-        return Response.json({
-          ok: true,
-          value: { ref: "txn1", transaction: { status: "archived" } },
-        });
+        expect(opBody.data.operation.kind).toBe(options.toolName);
+        return Response.json({ ok: true, value: options.mockValue });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
@@ -1612,23 +1602,23 @@ describe("MCP tools execution", () => {
     const toolCall = {
       method: "tools/call" as const,
       params: {
-        name: "archive_transaction",
-        arguments: {
-          circleRef: "trip-circle_1",
-          transactionRef: "coffee-txn1",
-        },
+        name: options.toolName,
+        arguments: options.arguments,
       },
     };
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < options.allowedCalls; i++) {
       const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
       expect(res.status).toBe(200);
     }
 
-    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 11 });
+    const throttled = await sendMcpRequest(accessToken, {
+      ...toolCall,
+      id: options.allowedCalls + 1,
+    });
     expect(throttled.status).toBe(429);
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
-  });
+  }
 
   it("rejects oversized MCP JSON before Convex with 413", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);

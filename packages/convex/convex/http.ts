@@ -1,10 +1,12 @@
 import {
+  contentLengthExceeds,
   MCP_JSON_MAX_BODY_BYTES,
   type McpOperationBody,
   type McpWriteOperationBody,
   mcpOperationBodySchema,
   mcpReadOperationBodySchema,
   sha256Hex,
+  utf8ByteLength,
   verifyMcpWorkerAssertion,
 } from "@pocketcircle/domain";
 import { httpRouter } from "convex/server";
@@ -55,12 +57,11 @@ async function verifyWorkerRequest(ctx: ActionCtx, request: Request, path: strin
     return WORKER_AUTH_FAILED;
   }
   const token = authHeader.slice(WORKER_AUTH_PREFIX.length);
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MCP_JSON_MAX_BODY_BYTES) {
+  if (contentLengthExceeds(request.headers, MCP_JSON_MAX_BODY_BYTES)) {
     return WORKER_PAYLOAD_TOO_LARGE;
   }
   const bodyText = await request.text();
-  if (new TextEncoder().encode(bodyText).byteLength > MCP_JSON_MAX_BODY_BYTES) {
+  if (utf8ByteLength(bodyText) > MCP_JSON_MAX_BODY_BYTES) {
     return WORKER_PAYLOAD_TOO_LARGE;
   }
   const assertion = await verifyMcpWorkerAssertion(token, jwks, Date.now());

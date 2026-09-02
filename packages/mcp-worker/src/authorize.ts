@@ -98,7 +98,7 @@ async function handleAuthorizeStart(request: Request, env: Env) {
     authRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
   } catch (error) {
     if (error instanceof AuthorizationError) {
-      await assertWithinRateLimit(
+      const withinFailedAuth = await assertWithinRateLimit(
         env,
         "failed_auth",
         unauthenticatedRateLimitKey({
@@ -106,6 +106,15 @@ async function handleAuthorizeStart(request: Request, env: Env) {
           ip: clientIpOf(request),
         }),
       );
+      if (!withinFailedAuth.ok) {
+        mcpLog({
+          event: "authorize_start",
+          outcome: "rate_limited",
+          status: 429,
+          toolClass: "failed_auth",
+        });
+        return rateLimitedResponse();
+      }
       return authorizationErrorRedirect(error);
     }
     throw error;

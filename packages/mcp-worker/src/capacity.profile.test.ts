@@ -1,4 +1,6 @@
+import { MCP_JSON_MAX_BODY_BYTES } from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
+import { assertClonedBodyWithinLimit } from "./bounded-body.js";
 import {
   authenticatedRateLimitKey,
   toolClassOf,
@@ -6,7 +8,7 @@ import {
 } from "./rate-limit.js";
 
 /**
- * Local wall-time micro-bench for the rate-limit key path (#331).
+ * Local wall-time micro-bench for the capacity-critical Worker path (#331).
  * Reports p50/p95 so capacity docs have a reproducible local baseline.
  * Production Worker CPU must still be measured in the Cloudflare dashboard.
  */
@@ -19,10 +21,22 @@ function percentile(sorted: number[], p: number) {
 }
 
 describe("capacity profile", () => {
-  it("keeps local rate-limit key work well under the 10ms Workers Free CPU budget", () => {
+  it("keeps local body-limit + rate-limit key work well under the 10ms Workers Free CPU budget", async () => {
     const samples: number[] = [];
     for (let i = 0; i < 200; i++) {
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: i,
+        method: "tools/call",
+        params: { name: i % 2 === 0 ? "get_circle" : "archive_transaction" },
+      });
+      const request = new Request("https://mcp.pocketcircle.app/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
       const started = performance.now();
+      expect(await assertClonedBodyWithinLimit(request, MCP_JSON_MAX_BODY_BYTES)).toBe(true);
       authenticatedRateLimitKey({
         userId: `user-${i}`,
         clientId: `client-${i % 3}`,
@@ -48,6 +62,6 @@ describe("capacity profile", () => {
         workersFreeCpuMs: 10,
       }),
     );
-    expect(p95).toBeLessThan(1);
+    expect(p95).toBeLessThan(5);
   });
 });

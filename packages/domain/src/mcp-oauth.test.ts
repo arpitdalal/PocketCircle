@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  contentLengthExceeds,
+  MCP_JSON_MAX_BODY_BYTES,
   MCP_RESOURCE_URI,
   MCP_REVOCATION_TTL_MS,
   MCP_WORKER_ASSERTION_TTL_MS,
@@ -14,6 +16,7 @@ import {
   signMcpHandoff,
   signMcpRevocation,
   signMcpWorkerAssertion,
+  utf8ByteLength,
   verifyMcpApproval,
   verifyMcpHandoff,
   verifyMcpRevocation,
@@ -302,5 +305,27 @@ describe("sha256Hex", () => {
     );
     expect(await sha256Hex("hello")).toBe(await sha256Hex("hello"));
     expect(await sha256Hex("hello")).not.toBe(await sha256Hex("world"));
+  });
+});
+
+describe("MCP JSON body ceilings", () => {
+  it("flags Content-Length above the shared ceiling", () => {
+    expect(
+      contentLengthExceeds(
+        new Headers({ "content-length": String(MCP_JSON_MAX_BODY_BYTES + 1) }),
+        MCP_JSON_MAX_BODY_BYTES,
+      ),
+    ).toBe(true);
+    expect(
+      contentLengthExceeds(
+        new Headers({ "content-length": String(MCP_JSON_MAX_BODY_BYTES) }),
+        MCP_JSON_MAX_BODY_BYTES,
+      ),
+    ).toBe(false);
+  });
+
+  it("counts UTF-8 bytes for oversized body checks", () => {
+    expect(utf8ByteLength("é")).toBe(2);
+    expect(utf8ByteLength("x".repeat(MCP_JSON_MAX_BODY_BYTES))).toBe(MCP_JSON_MAX_BODY_BYTES);
   });
 });

@@ -53,7 +53,7 @@ export default {
       }
       const response = await provider.fetch(request, env, ctx);
       if (response.status === 400 || response.status === 401) {
-        await assertWithinRateLimit(
+        const withinFailedAuth = await assertWithinRateLimit(
           env,
           "failed_auth",
           unauthenticatedRateLimitKey({
@@ -62,6 +62,15 @@ export default {
             ip: clientIpOf(request),
           }),
         );
+        if (!withinFailedAuth.ok) {
+          mcpLog({
+            event: "token_exchange",
+            outcome: "rate_limited",
+            status: 429,
+            toolClass: "failed_auth",
+          });
+          return oauthRateLimitedResponse();
+        }
       }
       return response;
     }

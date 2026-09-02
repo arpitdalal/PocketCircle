@@ -1,6 +1,10 @@
-import { MCP_JSON_MAX_BODY_BYTES, MCP_PROVISIONING_MAX_BODY_BYTES } from "@pocketcircle/domain";
+import {
+  contentLengthExceeds,
+  MCP_JSON_MAX_BODY_BYTES,
+  MCP_PROVISIONING_MAX_BODY_BYTES,
+} from "@pocketcircle/domain";
 
-export { MCP_JSON_MAX_BODY_BYTES, MCP_PROVISIONING_MAX_BODY_BYTES };
+export { contentLengthExceeds, MCP_JSON_MAX_BODY_BYTES, MCP_PROVISIONING_MAX_BODY_BYTES };
 
 /**
  * Reads a JSON body, rejecting when Content-Length or streamed size exceeds
@@ -8,8 +12,7 @@ export { MCP_JSON_MAX_BODY_BYTES, MCP_PROVISIONING_MAX_BODY_BYTES };
  * Prefer this over `request.json()` so oversized payloads never reach Convex.
  */
 export async function readBoundedJson(request: Request, maxBytes: number) {
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+  if (contentLengthExceeds(request.headers, maxBytes)) {
     return null;
   }
   if (!request.body) {
@@ -46,8 +49,34 @@ export async function readBoundedJson(request: Request, maxBytes: number) {
   }
 }
 
-/** True when Content-Length alone already exceeds the ceiling (cheap pre-check). */
-export function contentLengthExceeds(request: Request, maxBytes: number) {
-  const declaredLength = Number(request.headers.get("content-length"));
-  return Number.isFinite(declaredLength) && declaredLength > maxBytes;
+/**
+ * Streams a clone of the body and returns false if it exceeds `maxBytes`.
+ * Leaves the original request body unread for downstream handlers.
+ */
+export async function assertClonedBodyWithinLimit(request: Request, maxBytes: number) {
+  if (contentLengthExceeds(request.headers, maxBytes)) {
+    return false;
+  }
+  if (request.method.toUpperCase() === "GET" || request.method.toUpperCase() === "HEAD") {
+    return true;
+  }
+  if (!request.body) {
+    return true;
+  }
+  const reader = request.clone().body?.getReader();
+  if (!reader) {
+    return true;
+  }
+  let size = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      return true;
+    }
+    size += chunk.value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return false;
+    }
+  }
 }

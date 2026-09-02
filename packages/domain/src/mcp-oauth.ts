@@ -26,6 +26,16 @@ export const MCP_WORKER_ASSERTION_TTL_MS = 30_000;
 export const MCP_JSON_MAX_BODY_BYTES = 65_536;
 /** Admin client provisioning stays smaller than ordinary MCP JSON. */
 export const MCP_PROVISIONING_MAX_BODY_BYTES = 8_192;
+
+/** True when Content-Length alone already exceeds the ceiling (cheap pre-check). */
+export function contentLengthExceeds(headers: Headers, maxBytes: number) {
+  const declaredLength = Number(headers.get("content-length"));
+  return Number.isFinite(declaredLength) && declaredLength > maxBytes;
+}
+
+export function utf8ByteLength(text: string) {
+  return new TextEncoder().encode(text).byteLength;
+}
 /** Bounded Worker cleanup retries after Convex-first revocation (#330). */
 export const MCP_WORKER_CLEANUP_MAX_ATTEMPTS = 5;
 export const MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS = 60_000;

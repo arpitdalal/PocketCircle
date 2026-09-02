@@ -17,8 +17,6 @@ export const ORDINARY_WRITE_TOOL_NAMES = new Set([
 /** Archive tools — destructiveHint true; separate, tighter bucket. */
 export const DESTRUCTIVE_TOOL_NAMES = new Set(["archive_category", "archive_transaction"]);
 
-export const WRITE_TOOL_NAMES = new Set([...ORDINARY_WRITE_TOOL_NAMES, ...DESTRUCTIVE_TOOL_NAMES]);
-
 export const READ_TOOL_NAMES = new Set([
   "get_current_user",
   "list_authorized_circles",
