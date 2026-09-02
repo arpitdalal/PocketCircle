@@ -1746,9 +1746,7 @@ export type ArchiveTransactionForAccessArgs = {
   transactionRef: string;
 };
 
-export type RestoreTransactionForAccessArgs = {
-  transactionRef: string;
-};
+export type RestoreTransactionForAccessArgs = ArchiveTransactionForAccessArgs;
 
 function mapLifecycleTransactionFailure(error: unknown) {
   if (error instanceof ConvexError) {
@@ -1785,11 +1783,17 @@ function lifecycleTransactionFailureFrom(error: unknown) {
   return { ok: false as const, error: mapped };
 }
 
-/** Shared explicit-User archive Transaction write for MCP (#327). */
-export async function archiveTransactionForAccess(
+async function lifecycleTransactionForAccess(
   ctx: MutationCtx,
   access: AuthorizedCircle,
   args: ArchiveTransactionForAccessArgs,
+  options: {
+    requiredStatus: "active" | "archived";
+    perform: (
+      mutationCtx: MutationCtx,
+      txnAccess: ReturnType<typeof authorizedTransactionFromAccess>,
+    ) => Promise<Id<"transactions">>;
+  },
 ) {
   const transactionId = resolveTransactionRef(ctx, args.transactionRef);
   if (!transactionId) {
@@ -1811,25 +1815,37 @@ export async function archiveTransactionForAccess(
   if (!txnAccess.canArchive) {
     return { ok: false as const, error: "transaction_inaccessible" as const };
   }
-  if (transaction.status !== "active") {
+  if (transaction.status !== options.requiredStatus) {
     return { ok: false as const, error: "transaction_inaccessible" as const };
   }
 
-  let archivedId: Id<"transactions">;
+  let updatedId: Id<"transactions">;
   try {
-    archivedId = await performArchiveTransaction(ctx, txnAccess);
+    updatedId = await options.perform(ctx, txnAccess);
   } catch (error) {
     return lifecycleTransactionFailureFrom(error);
   }
 
-  const archived = await ctx.db.get(archivedId);
-  if (!archived) {
+  const updated = await ctx.db.get(updatedId);
+  if (!updated) {
     throw new Error("Transaction not found");
   }
   return {
     ok: true as const,
-    value: toMcpLifecycleTransactionView(archived),
+    value: toMcpLifecycleTransactionView(updated),
   };
+}
+
+/** Shared explicit-User archive Transaction write for MCP (#327). */
+export async function archiveTransactionForAccess(
+  ctx: MutationCtx,
+  access: AuthorizedCircle,
+  args: ArchiveTransactionForAccessArgs,
+) {
+  return lifecycleTransactionForAccess(ctx, access, args, {
+    requiredStatus: "active",
+    perform: performArchiveTransaction,
+  });
 }
 
 /** Shared explicit-User restore Transaction write for MCP (#327). */
@@ -1838,43 +1854,8 @@ export async function restoreTransactionForAccess(
   access: AuthorizedCircle,
   args: RestoreTransactionForAccessArgs,
 ) {
-  const transactionId = resolveTransactionRef(ctx, args.transactionRef);
-  if (!transactionId) {
-    return { ok: false as const, error: "transaction_inaccessible" as const };
-  }
-  const transaction = await ctx.db.get(transactionId);
-  if (!transaction || transaction.circleId !== access.circle._id) {
-    return { ok: false as const, error: "transaction_inaccessible" as const };
-  }
-
-  try {
-    access.assertWritable();
-    access.assertSetupComplete();
-  } catch (error) {
-    return lifecycleTransactionFailureFrom(error);
-  }
-
-  const txnAccess = authorizedTransactionFromAccess(access, transaction);
-  if (!txnAccess.canArchive) {
-    return { ok: false as const, error: "transaction_inaccessible" as const };
-  }
-  if (transaction.status !== "archived") {
-    return { ok: false as const, error: "transaction_inaccessible" as const };
-  }
-
-  let restoredId: Id<"transactions">;
-  try {
-    restoredId = await performRestoreTransaction(ctx, txnAccess);
-  } catch (error) {
-    return lifecycleTransactionFailureFrom(error);
-  }
-
-  const restored = await ctx.db.get(restoredId);
-  if (!restored) {
-    throw new Error("Transaction not found");
-  }
-  return {
-    ok: true as const,
-    value: toMcpLifecycleTransactionView(restored),
-  };
+  return lifecycleTransactionForAccess(ctx, access, args, {
+    requiredStatus: "archived",
+    perform: performRestoreTransaction,
+  });
 }
