@@ -360,6 +360,8 @@ test.describe("local MCP OAuth", () => {
         color: "amber",
       }),
     });
+    const updatedCategoryRef = requiredString(updatedCategoryContent, "ref");
+    expect(updatedCategoryRef).not.toBe(categoryRef);
 
     const categoriesRes = await postMcp("tools/call", 4, {
       name: "list_categories",
@@ -380,7 +382,7 @@ test.describe("local MCP OAuth", () => {
     if (typeof matchedCategory !== "object" || matchedCategory === null) {
       throw new Error("updated category not found in MCP list");
     }
-    expect(requiredString(matchedCategory, "ref")).toBe(categoryRef);
+    expect(requiredString(matchedCategory, "ref")).toBe(updatedCategoryRef);
 
     const createRes = await postMcp("tools/call", 5, {
       name: "create_transaction",
@@ -390,7 +392,7 @@ test.describe("local MCP OAuth", () => {
         title: txnTitle,
         amountMinorUnits: 500,
         date: localPlainDate(),
-        categoryRefs: [categoryRef],
+        categoryRefs: [updatedCategoryRef],
         expectedCurrency,
       },
     });
