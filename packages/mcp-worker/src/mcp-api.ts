@@ -972,36 +972,42 @@ export function createMcpApiHandler(env: Env) {
       }
 
       const toolClass = await detectToolCall(request);
-      if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
-        const caller = await resolveAuthorizedCaller(env, request);
-        if (!caller.ok) {
-          const withinFailedAuth = await assertWithinRateLimit(
-            envArg,
-            "failed_auth",
-            unauthenticatedRateLimitMaterial({
-              className: "failed_auth",
-              ip: clientIpOf(request),
-            }),
-          );
-          if (!withinFailedAuth.ok) {
-            await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
-            mcpLog({
-              event: "mcp_request",
-              outcome: "rate_limited",
-              status: 429,
-              toolClass: "failed_auth",
-              durationMs: performance.now() - started,
-            });
-            return rateLimitedResponse();
-          }
+      // Authenticated MCP methods (initialize, tools/list, ping, …) share the read
+      // bucket; tool calls keep class-specific write/destructive caps.
+      const rateClass =
+        toolClass === "write" || toolClass === "destructive" || toolClass === "read"
+          ? toolClass
+          : ("read" as const);
+      const caller = await resolveAuthorizedCaller(env, request);
+      if (!caller.ok) {
+        const withinFailedAuth = await assertWithinRateLimit(
+          envArg,
+          "failed_auth",
+          unauthenticatedRateLimitMaterial({
+            className: "failed_auth",
+            ip: clientIpOf(request),
+          }),
+        );
+        if (!withinFailedAuth.ok) {
+          await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
           mcpLog({
             event: "mcp_request",
-            outcome: "rejected",
-            toolClass,
-            errorCode: caller.error,
+            outcome: "rate_limited",
+            status: 429,
+            toolClass: "failed_auth",
             durationMs: performance.now() - started,
           });
-        } else {
+          return rateLimitedResponse();
+        }
+        mcpLog({
+          event: "mcp_request",
+          outcome: "rejected",
+          ...(toolClass ? { toolClass } : {}),
+          errorCode: caller.error,
+          durationMs: performance.now() - started,
+        });
+      } else {
+        if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
           const requiredScope =
             toolClass === "read" ? ("pocketcircle:read" as const) : ("pocketcircle:write" as const);
           if (!caller.value.effectiveScopes.includes(requiredScope)) {
@@ -1013,26 +1019,26 @@ export function createMcpApiHandler(env: Env) {
               { requiredScopes: [requiredScope] },
             );
           }
-          const withinLimit = await assertWithinRateLimit(
-            envArg,
-            toolClass,
-            authenticatedRateLimitMaterial({
-              userId: caller.value.userId,
-              clientId: caller.value.clientId,
-              grantId: caller.value.grantId,
-              toolClass,
-            }),
-          );
-          if (!withinLimit.ok) {
-            mcpLog({
-              event: "mcp_request",
-              outcome: "rate_limited",
-              status: 429,
-              toolClass,
-              durationMs: performance.now() - started,
-            });
-            return rateLimitedResponse();
-          }
+        }
+        const withinLimit = await assertWithinRateLimit(
+          envArg,
+          rateClass,
+          authenticatedRateLimitMaterial({
+            userId: caller.value.userId,
+            clientId: caller.value.clientId,
+            grantId: caller.value.grantId,
+            toolClass: rateClass,
+          }),
+        );
+        if (!withinLimit.ok) {
+          mcpLog({
+            event: "mcp_request",
+            outcome: "rate_limited",
+            status: 429,
+            toolClass: rateClass,
+            durationMs: performance.now() - started,
+          });
+          return rateLimitedResponse();
         }
       }
 
@@ -1041,7 +1047,7 @@ export function createMcpApiHandler(env: Env) {
         event: "mcp_request",
         outcome: response.status >= 400 ? "error" : "ok",
         status: response.status,
-        ...(toolClass ? { toolClass } : {}),
+        toolClass: rateClass,
         durationMs: performance.now() - started,
       });
       return response;

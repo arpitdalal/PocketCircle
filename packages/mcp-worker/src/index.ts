@@ -1,5 +1,9 @@
 import { defaultHandler } from "./authorize.js";
-import { assertClonedBodyWithinLimit, MCP_TOKEN_MAX_BODY_BYTES } from "./bounded-body.js";
+import {
+  assertClonedBodyWithinLimit,
+  MCP_JSON_MAX_BODY_BYTES,
+  MCP_TOKEN_MAX_BODY_BYTES,
+} from "./bounded-body.js";
 import type { Env } from "./env.js";
 import { createOAuthProvider } from "./oauth-options.js";
 import {
@@ -54,6 +58,13 @@ async function enforceFailedAuthLimit(
   return null;
 }
 
+function payloadTooLargeJson() {
+  return new Response(JSON.stringify({ error: "payload_too_large" }), {
+    status: 413,
+    headers: { "Content-Type": "application/json", "cache-control": "no-store" },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // Per-request provider so tokenExchangeCallback closes over live `env`
@@ -62,14 +73,22 @@ export default {
     const url = new URL(request.url);
     const ip = clientIpOf(request) ?? "unknown";
 
-    if (url.pathname === "/mcp" && (await isFailedAuthBlocked(ip))) {
+    // Skip OAuth/KV once failed-auth already throttled this IP (mcp + token).
+    if ((url.pathname === "/mcp" || url.pathname === "/token") && (await isFailedAuthBlocked(ip))) {
       mcpLog({
-        event: "mcp_request",
+        event: url.pathname === "/token" ? "token_exchange" : "mcp_request",
         outcome: "rate_limited",
         status: 429,
         toolClass: "failed_auth",
       });
-      return rateLimitedResponse();
+      return url.pathname === "/token" ? oauthRateLimitedResponse() : rateLimitedResponse();
+    }
+
+    // Bound /mcp before OAuth dispatch so oversized bodies never spend KV auth work.
+    if (url.pathname === "/mcp" && request.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(request, MCP_JSON_MAX_BODY_BYTES))) {
+        return payloadTooLargeJson();
+      }
     }
 
     if (url.pathname === "/token" && request.method === "POST") {
