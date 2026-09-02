@@ -298,6 +298,19 @@ jobs:
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           MCP_WORKER_SIGNING_PRIVATE_JWK: ${{ secrets.MCP_WORKER_SIGNING_PRIVATE_JWK }}
 
+      - name: Sync MCP Worker previous HMAC secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
+        working-directory: packages/mcp-worker
+        run: |
+          if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            printf '%s' "$MCP_WORKER_HMAC_SECRET_PREVIOUS" | pnpm exec wrangler secret put MCP_WORKER_HMAC_SECRET_PREVIOUS
+          else
+            pnpm exec wrangler secret delete MCP_WORKER_HMAC_SECRET_PREVIOUS --force || true
+          fi
+
       - name: Verify MCP Worker discovery
         env:
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}

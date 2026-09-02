@@ -16,6 +16,8 @@ declare global {
       CONVEX_SITE_URL: string;
       MCP_CLIENT_PROVISIONING_TOKEN?: string;
       MCP_WORKER_HMAC_SECRET: string;
+      /** Optional prior HMAC during rotation — verify revocation/handoff with both. */
+      MCP_WORKER_HMAC_SECRET_PREVIOUS?: string;
       MCP_WORKER_SIGNING_PRIVATE_JWK: string;
       MCP_RESOURCE_URI?: string;
       MCP_ISSUER?: string;

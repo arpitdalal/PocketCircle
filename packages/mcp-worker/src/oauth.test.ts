@@ -954,7 +954,7 @@ describe("authorization handoff", () => {
 });
 
 describe("MCP connection revocation", () => {
-  async function cleanupToken() {
+  async function cleanupToken(secret = HMAC_SECRET) {
     const now = Date.now();
     return signMcpRevocation(
       {
@@ -966,7 +966,7 @@ describe("MCP connection revocation", () => {
         iat: now,
         exp: now + MCP_REVOCATION_TTL_MS,
       },
-      HMAC_SECRET,
+      secret,
     );
   }
 
@@ -1044,6 +1044,27 @@ describe("MCP connection revocation", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ revoked: true });
+    expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
+    revokeGrant.mockRestore();
+  });
+
+  it("accepts /internal/revoke signed with the previous HMAC during rotation", async () => {
+    const previous = "previous-mcp-worker-secret";
+    const provider = getOAuthApi(oauthProviderOptions(env, defaultHandler), env);
+    const revokeGrant = vi.spyOn(provider, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch(() => Response.json({ ok: true }));
+    const revocationToken = await cleanupToken(previous);
+
+    const response = await defaultHandler.fetch(
+      new Request("https://mcp.pocketcircle.app/internal/revoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ revocationToken }),
+      }),
+      { ...env, MCP_WORKER_HMAC_SECRET_PREVIOUS: previous, OAUTH_PROVIDER: provider },
+    );
+
+    expect(response.status).toBe(200);
     expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
     revokeGrant.mockRestore();
   });

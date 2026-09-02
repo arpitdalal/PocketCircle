@@ -24,7 +24,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server.js";
-import { currentMcpWorkerSecret, mcpWorkerOrigin } from "./mcpWorkerSecrets.js";
+import { mcpWorkerOrigin, mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import { generateOpaqueToken } from "./opaqueToken.js";
 import { reportTerminalFailure, sanitizeOperationalError } from "./terminalFailure.js";
 
@@ -205,6 +205,7 @@ export const runWorkerCleanup = internalAction({
       );
       return orphaned.ok ? { ok: true } : { ok: false, error: orphaned.error };
     }
+    const workerGrantId = grant.workerGrantId;
 
     const now = Date.now();
     if (!args.force && !isCleanupDue(grant, now)) {
@@ -212,7 +213,8 @@ export const runWorkerCleanup = internalAction({
     }
 
     const origin = mcpWorkerOrigin();
-    const secret = currentMcpWorkerSecret();
+    const secrets = mcpWorkerVerificationSecrets();
+    const secret = secrets[0];
     if (!origin || !secret) {
       // Do not burn retry budget or re-enqueue — cron retries once configured.
       console.error(
@@ -221,28 +223,39 @@ export const runWorkerCleanup = internalAction({
       );
       return { ok: false, error: "not_configured" };
     }
+    const workerOrigin = origin;
+    const grantDocId = grant._id;
+    const principalId = grant.principalId;
 
-    const revocationToken = await signMcpRevocation(
-      {
-        v: 1,
-        jti: generateOpaqueToken(),
-        grantId: String(grant._id),
-        principalId: grant.principalId,
-        workerGrantId: grant.workerGrantId,
-        iat: now,
-        exp: now + MCP_REVOCATION_TTL_MS,
-      },
-      secret,
-    );
-
-    let response: Response;
-    try {
-      response = await fetch(new URL("/internal/revoke", origin), {
+    async function postRevocation(signingSecret: string) {
+      const revocationToken = await signMcpRevocation(
+        {
+          v: 1,
+          jti: generateOpaqueToken(),
+          grantId: String(grantDocId),
+          principalId,
+          workerGrantId,
+          iat: now,
+          exp: now + MCP_REVOCATION_TTL_MS,
+        },
+        signingSecret,
+      );
+      return fetch(new URL("/internal/revoke", workerOrigin), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ revocationToken }),
         signal: AbortSignal.timeout(MCP_WORKER_CLEANUP_REQUEST_TIMEOUT_MS),
       });
+    }
+
+    let response: Response;
+    try {
+      response = await postRevocation(secret);
+      // During HMAC rotation Convex may lead the Worker — retry once with the
+      // previous secret without consuming the retry budget.
+      if (response.status === 400 && secrets[1]) {
+        response = await postRevocation(secrets[1]);
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "fetch_failed";
       await ctx.runMutation(internal.mcpReconciliation.recordWorkerCleanupFailure, {
@@ -273,7 +286,7 @@ export const runWorkerCleanup = internalAction({
 
     const completed = await ctx.runMutation(internal.mcpReconciliation.markCleanupCompleted, {
       grantId: String(grant._id),
-      workerGrantId: grant.workerGrantId,
+      workerGrantId,
       principalId: grant.principalId,
       now,
     });
@@ -303,14 +316,15 @@ export const markCleanupCompleted = internalMutation({
 /**
  * Scheduled orphan sweep: due `pending_revoke` rows (and revoked rows missing a
  * Worker grant id) get cleanup enqueued. Also backfills pre-#330 rows that lack
- * `workerCleanupNextAttemptAt` so the compound index cannot see them. Bounded
- * per run; continues via scheduler when the batch is full.
+ * `workerCleanupNextAttemptAt` onto the compound due index first. Bounded per
+ * run; continues via scheduler when the batch is full.
  */
 export const reconcilePendingWorkerCleanups = internalMutation({
   args: { now: v.optional(v.number()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     const limit = Math.max(1, Math.min(args.limit ?? MCP_WORKER_CLEANUP_BATCH_SIZE, 100));
+    const legacyScanSize = Math.min(Math.max(limit * 8, limit), 200);
 
     async function processGrant(grant: Doc<"mcpGrants">) {
       if (!grant.workerGrantId) {
@@ -324,6 +338,21 @@ export const reconcilePendingWorkerCleanups = internalMutation({
         updatedAt: now,
       });
       await enqueueMcpWorkerCleanup(ctx, { grantId: grant._id, delayMs: 0, force: true });
+    }
+
+    // Backfill legacy rows onto the compound index before claiming due work, so
+    // claimed pages cannot hide later missing-attempt rows behind `.take(limit)`.
+    const legacyPage = await ctx.db
+      .query("mcpGrants")
+      .withIndex("by_worker_cleanup_status", (q) => q.eq("workerCleanupStatus", "pending_revoke"))
+      .take(legacyScanSize);
+    let backfilled = 0;
+    for (const grant of legacyPage) {
+      if (grant.workerCleanupNextAttemptAt !== undefined) {
+        continue;
+      }
+      await ctx.db.patch(grant._id, { workerCleanupNextAttemptAt: now, updatedAt: now });
+      backfilled += 1;
     }
 
     let processed = 0;
@@ -342,33 +371,17 @@ export const reconcilePendingWorkerCleanups = internalMutation({
       processed += 1;
     }
 
-    // Legacy pending_revoke rows without nextAttemptAt are invisible to the
-    // compound index — backfill and process until the batch is full.
-    if (processed < limit) {
-      const legacy = await ctx.db
-        .query("mcpGrants")
-        .withIndex("by_worker_cleanup_status", (q) => q.eq("workerCleanupStatus", "pending_revoke"))
-        .take(limit);
-      for (const grant of legacy) {
-        if (processed >= limit) {
-          break;
-        }
-        if (grant.workerCleanupNextAttemptAt !== undefined) {
-          continue;
-        }
-        await ctx.db.patch(grant._id, { workerCleanupNextAttemptAt: now, updatedAt: now });
-        await processGrant(grant);
-        processed += 1;
-      }
-    }
-
-    if (processed === limit || due.length === limit) {
+    if (
+      processed === limit ||
+      due.length === limit ||
+      (backfilled > 0 && legacyPage.length === legacyScanSize)
+    ) {
       await ctx.scheduler.runAfter(0, internal.mcpReconciliation.reconcilePendingWorkerCleanups, {
         now,
         limit,
       });
     }
-    console.log("[mcp-reconcile] orphan sweep processed", processed);
+    console.log("[mcp-reconcile] orphan sweep processed", processed, "backfilled", backfilled);
     return processed;
   },
 });

@@ -6,6 +6,7 @@
 import {
   MCP_WORKER_CLEANUP_INITIAL_BACKOFF_MS,
   MCP_WORKER_CLEANUP_MAX_ATTEMPTS,
+  verifyMcpRevocation,
 } from "@pocketcircle/domain";
 import { HttpResponse, http } from "@pocketcircle/mocks";
 import { server } from "@pocketcircle/mocks/server";
@@ -350,6 +351,96 @@ describe("MCP Worker cleanup reconciliation", () => {
 
     const row = await t.run((ctx) => ctx.db.get(pending.value._id));
     expect(row?.status).toBe("revoked");
+  });
+
+  it("retries once with previous HMAC on Worker 400 without burning budget", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, circle } = await seedOwnerWithCircle(t);
+    const grant = await createActiveMcpGrant(t, {
+      userId: ada.userId,
+      circleIds: [circle.circleId],
+      scopes: ["pocketcircle:read"],
+      clientId: CLIENT,
+      workerGrantId: "worker-grant-1",
+    });
+    vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", "previous-mcp-worker-secret");
+
+    let calls = 0;
+    stubWorkerRevoke(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return HttpResponse.json({ error: "invalid_revocation_token" }, { status: 400 });
+      }
+      await t.mutation(internal.mcpApproval.completeRevocationFromWorker, {
+        grantId: String(grant._id),
+        workerGrantId: "worker-grant-1",
+        principalId: grant.principalId,
+      });
+      return HttpResponse.json({ revoked: true });
+    });
+
+    await mutateAndDrain(t, () => t.run((ctx) => revokeMcpGrant(ctx, { grantId: grant._id })));
+
+    expect(calls).toBe(2);
+    const row = await t.run((ctx) => ctx.db.get(grant._id));
+    expect(row?.workerCleanupStatus).toBe("completed");
+    expect(row?.workerCleanupAttempts ?? 0).toBe(0);
+  });
+
+  it("backfills then paginates legacy pending_revoke past the first page", async () => {
+    const t = convexTest(schema, modules);
+    const { ada, circle } = await seedOwnerWithCircle(t);
+    const now = Date.now();
+    const grants = [];
+    for (let i = 0; i < 3; i += 1) {
+      const grant = await createActiveMcpGrant(t, {
+        userId: ada.userId,
+        circleIds: [circle.circleId],
+        scopes: ["pocketcircle:read"],
+        clientId: `${CLIENT}#legacy-${i}`,
+        workerGrantId: `worker-grant-legacy-${i}`,
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(grant._id, {
+          status: "revoked",
+          revokedAt: now,
+          updatedAt: now,
+          workerCleanupStatus: "pending_revoke",
+          workerCleanupAttempts: 0,
+          workerCleanupNextAttemptAt: undefined,
+        });
+      });
+      grants.push(grant);
+    }
+
+    stubWorkerRevoke(async (body) => {
+      expect(body).toMatchObject({ revocationToken: expect.any(String) });
+      const token =
+        body && typeof body === "object" && "revocationToken" in body ? body.revocationToken : null;
+      expect(typeof token).toBe("string");
+      if (typeof token !== "string") {
+        throw new Error("missing revocation token");
+      }
+      const payload = await verifyMcpRevocation(token, SECRET);
+      expect(payload).toBeTruthy();
+      if (!payload) {
+        throw new Error("invalid revocation token");
+      }
+      await t.mutation(internal.mcpApproval.completeRevocationFromWorker, {
+        grantId: payload.grantId,
+        workerGrantId: payload.workerGrantId,
+        principalId: payload.principalId,
+      });
+      return HttpResponse.json({ revoked: true });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.mcpReconciliation.reconcilePendingWorkerCleanups, { now, limit: 1 }),
+    );
+
+    for (const grant of grants) {
+      expect((await t.run((ctx) => ctx.db.get(grant._id)))?.workerCleanupStatus).toBe("completed");
+    }
   });
 
   it("logs only safe operational identifiers during cleanup failure", async () => {
