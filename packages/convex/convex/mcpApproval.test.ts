@@ -2792,6 +2792,86 @@ describe("MCP Worker bridge HTTP routes", () => {
       },
     });
   });
+
+  it("executes archive_transaction via /mcp/operation", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "bridge-archive@example.com",
+        displayName: "Bridge Owner",
+      }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+    );
+    const txnId = await t.run((ctx) => seedTransaction(ctx, f, { title: "Bridge lunch" }));
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const body = {
+      grantId: grant._id,
+      effectiveScopes: READ_WRITE,
+      operation: {
+        kind: "archive_transaction" as const,
+        circleRef: buildRef("Trip", f.circleId),
+        transactionRef: buildRef("Bridge lunch", txnId),
+      },
+    };
+    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      value: {
+        transaction: expect.objectContaining({ title: "Bridge lunch", status: "archived" }),
+      },
+    });
+  });
+
+  it("executes restore_transaction via /mcp/operation", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, {
+        email: "bridge-restore@example.com",
+        displayName: "Bridge Owner",
+      }),
+    );
+    const f = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+    );
+    const txnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Bridge lunch", status: "archived" }),
+    );
+    const grant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const body = {
+      grantId: grant._id,
+      effectiveScopes: READ_WRITE,
+      operation: {
+        kind: "restore_transaction" as const,
+        circleRef: buildRef("Trip", f.circleId),
+        transactionRef: buildRef("Bridge lunch", txnId),
+      },
+    };
+    const res = await t.fetch("/mcp/operation", await workerRequestInit("/mcp/operation", body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      value: {
+        transaction: expect.objectContaining({ title: "Bridge lunch", status: "active" }),
+      },
+    });
+  });
 });
 
 describe("MCP create_transaction write", () => {
@@ -3536,6 +3616,594 @@ describe("MCP update_transaction write", () => {
     await t.run(async (ctx) => {
       const unchanged = await ctx.db.get(txnId);
       expect(unchanged?.title).toBe("Team lunch");
+    });
+  });
+});
+
+async function seedLifecycleWriteFixture(
+  t: ReturnType<typeof convexTest>,
+  options?: { status?: "active" | "archived" },
+) {
+  const owner = await t.run((ctx) =>
+    seedPersonalCircleOwner(ctx, { email: "archiver@example.com", displayName: "Archive Owner" }),
+  );
+  const f = await t.run((ctx) =>
+    seedOwnedFixture(ctx, owner.owner, { name: "Trip", currency: "USD" }),
+  );
+  const member = await t.run((ctx) =>
+    addMember(ctx, f.circleId, "maya@example.com", "Maya Member"),
+  );
+  const txnId = await t.run((ctx) =>
+    seedTransaction(ctx, f, {
+      title: "Team lunch",
+      amountMinorUnits: 2_500,
+      date: "2026-06-01",
+      categoryIds: [f.groceriesId],
+      ...(options?.status === "archived" ? { status: "archived" as const } : {}),
+    }),
+  );
+  const grant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [f.circleId],
+    scopes: READ_WRITE,
+    clientId: CLIENT_ID,
+    clientKind: "static",
+    redirectUri: REDIRECT_URI,
+  });
+  return {
+    owner,
+    f,
+    member,
+    txnId,
+    grant,
+    circleRef: buildRef("Trip", f.circleId),
+    transactionRef: buildRef("Team lunch", txnId),
+  };
+}
+
+describe("MCP archive_transaction write", () => {
+  it("archives by recorder and owner, excludes totals, records history, and notifies another Member", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) =>
+      seedPersonalCircleOwner(ctx, { email: "owner@example.com", displayName: "Circle Owner" }),
+    );
+    const f = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Shared" }));
+    const member = await t.run((ctx) =>
+      addMember(ctx, f.circleId, "recorder@example.com", "Recorder Member"),
+    );
+    const memberTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Member lunch",
+        amountMinorUnits: 1_500,
+        date: "2026-06-01",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const ownerGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: CLIENT_ID,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const circleRef = buildRef("Shared", f.circleId);
+    const memberTxnRef = buildRef("Member lunch", memberTxnId);
+
+    const ledgerBefore = await executeMcpRead(t, ownerGrant._id, {
+      kind: "get_monthly_ledger",
+      circleRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledgerBefore).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 1_500 } },
+    });
+    const dashboardBefore = await executeMcpRead(t, ownerGrant._id, {
+      kind: "get_dashboard",
+      circleRef,
+      month: "2026-06",
+    });
+    expect(dashboardBefore).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 1_500 } },
+    });
+
+    const archived = await mutateAndDrain(t, () =>
+      executeMcpWrite(t, ownerGrant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef: memberTxnRef,
+      }),
+    );
+    expect(archived).toMatchObject({
+      ok: true,
+      value: { transaction: { status: "archived", title: "Member lunch" } },
+    });
+
+    const ledgerAfter = await executeMcpRead(t, ownerGrant._id, {
+      kind: "get_monthly_ledger",
+      circleRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledgerAfter).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 0 } },
+    });
+    const dashboardAfter = await executeMcpRead(t, ownerGrant._id, {
+      kind: "get_dashboard",
+      circleRef,
+      month: "2026-06",
+    });
+    expect(dashboardAfter).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 0 } },
+    });
+
+    expect(
+      await executeMcpWrite(t, ownerGrant._id, {
+        kind: "update_transaction",
+        circleRef,
+        transactionRef: memberTxnRef,
+        title: "Blocked edit",
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db.query("histories").collect();
+      expect(
+        histories.some((event) => event.entityId === memberTxnId && event.action === "archived"),
+      ).toBe(true);
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    });
+
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/member-archive`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const ownTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Own coffee",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const ownArchived = await executeMcpWrite(t, memberGrant._id, {
+      kind: "archive_transaction",
+      circleRef,
+      transactionRef: buildRef("Own coffee", ownTxnId),
+    });
+    expect(ownArchived).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+    });
+  });
+
+  it("rejects unrelated Member, repeated archive, and invalid states without partial writes", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef, transactionRef, txnId } =
+      await seedLifecycleWriteFixture(t);
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const incomplete = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),
+    );
+    const archivedCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Archived", archived: true }),
+    );
+    const archivedTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Already archived", status: "archived" }),
+    );
+    const incompleteTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, incomplete, { title: "Draft txn" }),
+    );
+    const archivedCircleTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, archivedCircle, { title: "Archived circle txn" }),
+    );
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/member-deny`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    expect(
+      await executeMcpWrite(t, memberGrant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(0);
+    });
+
+    const archived = await executeMcpWrite(t, grant._id, {
+      kind: "archive_transaction",
+      circleRef,
+      transactionRef,
+    });
+    expect(archived).toMatchObject({ ok: true });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "archive_transaction",
+        circleRef: buildRef("Other", other.circleId),
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef: buildRef("Already archived", archivedTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef: "not-a-transaction",
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(
+        t,
+        grant._id,
+        {
+          kind: "archive_transaction",
+          circleRef,
+          transactionRef,
+        },
+        ["pocketcircle:read"],
+      ),
+    ).toMatchObject({ ok: false, error: "insufficient_scope" });
+
+    const incompleteGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [incomplete.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/archive-incomplete`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, incompleteGrant._id, {
+        kind: "archive_transaction",
+        circleRef: buildRef("Draft", incomplete.circleId),
+        transactionRef: buildRef("Draft txn", incompleteTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "circle_setup_incomplete" });
+
+    const archivedGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [archivedCircle.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/archive-archived-circle`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, archivedGrant._id, {
+        kind: "archive_transaction",
+        circleRef: buildRef("Archived", archivedCircle.circleId),
+        transactionRef: buildRef("Archived circle txn", archivedCircleTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "circle_archived" });
+
+    await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "grant_unavailable" });
+
+    const freshGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/archive-removed`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    expect(
+      await executeMcpWrite(t, freshGrant._id, {
+        kind: "archive_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db.query("histories").collect();
+      expect(histories.filter((event) => event.entityId === txnId)).toHaveLength(1);
+    });
+  });
+});
+
+describe("MCP restore_transaction write", () => {
+  it("restores archived Transaction, returns totals, records history, and notifies another Member", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef, transactionRef, txnId } =
+      await seedLifecycleWriteFixture(t, { status: "archived" });
+    await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Other txn",
+        amountMinorUnits: 500,
+        date: "2026-06-02",
+      }),
+    );
+
+    const ledgerBefore = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledgerBefore).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 500 } },
+    });
+
+    const restored = await executeMcpWrite(t, grant._id, {
+      kind: "restore_transaction",
+      circleRef,
+      transactionRef,
+    });
+    expect(restored).toMatchObject({
+      ok: true,
+      value: { transaction: { status: "active", title: "Team lunch" } },
+    });
+
+    const ledgerAfter = await executeMcpRead(t, grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef,
+      month: "2026-06",
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ledgerAfter).toMatchObject({
+      ok: true,
+      value: { totals: { expenseMinor: 3_000 } },
+    });
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db.query("histories").collect();
+      expect(
+        histories.some((event) => event.entityId === txnId && event.action === "restored"),
+      ).toBe(true);
+    });
+
+    const memberTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Member archived",
+        status: "archived",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const memberTxnRef = buildRef("Member archived", memberTxnId);
+    await mutateAndDrain(t, () =>
+      executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef: memberTxnRef,
+      }),
+    );
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(1);
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+    });
+
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/member-restore`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    const recorderTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        title: "Recorder archived",
+        status: "archived",
+        recordedByMemberId: member.memberId,
+      }),
+    );
+    const recorderRestored = await executeMcpWrite(t, memberGrant._id, {
+      kind: "restore_transaction",
+      circleRef,
+      transactionRef: buildRef("Recorder archived", recorderTxnId),
+    });
+    expect(recorderRestored).toMatchObject({
+      ok: true,
+      value: { transaction: { status: "active" } },
+    });
+  });
+
+  it("rejects unrelated Member, repeated restore, active Transaction, and invalid states", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, f, member, grant, circleRef, transactionRef, txnId } =
+      await seedLifecycleWriteFixture(t, { status: "archived" });
+    const other = await t.run((ctx) => seedOwnedFixture(ctx, owner.owner, { name: "Other" }));
+    const incomplete = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Draft", setupCompletedAt: null }),
+    );
+    const archivedCircle = await t.run((ctx) =>
+      seedOwnedFixture(ctx, owner.owner, { name: "Archived", archived: true }),
+    );
+    const activeTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, f, { title: "Active txn", status: "active" }),
+    );
+    const incompleteTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, incomplete, { title: "Draft txn", status: "archived" }),
+    );
+    const archivedCircleTxnId = await t.run((ctx) =>
+      seedTransaction(ctx, archivedCircle, { title: "Archived circle txn", status: "archived" }),
+    );
+    const memberGrant = await createActiveMcpGrant(t, {
+      userId: member.user._id,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/restore-deny`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+
+    expect(
+      await executeMcpWrite(t, memberGrant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    await t.run(async (ctx) => {
+      expect(await listNotificationsForUser(ctx, owner.userId)).toHaveLength(0);
+      expect(await listNotificationsForUser(ctx, member.user._id)).toHaveLength(0);
+    });
+
+    const restored = await executeMcpWrite(t, grant._id, {
+      kind: "restore_transaction",
+      circleRef,
+      transactionRef,
+    });
+    expect(restored).toMatchObject({ ok: true });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef: buildRef("Active txn", activeTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef: buildRef("Other", other.circleId),
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef: "not-a-transaction",
+      }),
+    ).toMatchObject({ ok: false, error: "transaction_inaccessible" });
+    expect(
+      await executeMcpWrite(
+        t,
+        grant._id,
+        {
+          kind: "restore_transaction",
+          circleRef,
+          transactionRef,
+        },
+        ["pocketcircle:read"],
+      ),
+    ).toMatchObject({ ok: false, error: "insufficient_scope" });
+
+    const incompleteGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [incomplete.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/restore-incomplete`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, incompleteGrant._id, {
+        kind: "restore_transaction",
+        circleRef: buildRef("Draft", incomplete.circleId),
+        transactionRef: buildRef("Draft txn", incompleteTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "circle_setup_incomplete" });
+
+    const archivedGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [archivedCircle.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/restore-archived-circle`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    expect(
+      await executeMcpWrite(t, archivedGrant._id, {
+        kind: "restore_transaction",
+        circleRef: buildRef("Archived", archivedCircle.circleId),
+        transactionRef: buildRef("Archived circle txn", archivedCircleTxnId),
+      }),
+    ).toMatchObject({ ok: false, error: "circle_archived" });
+
+    await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    expect(
+      await executeMcpWrite(t, grant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "grant_unavailable" });
+
+    const freshGrant = await createActiveMcpGrant(t, {
+      userId: owner.userId,
+      circleIds: [f.circleId],
+      scopes: READ_WRITE,
+      clientId: `${CLIENT_ID}/restore-removed`,
+      clientKind: "static",
+      redirectUri: REDIRECT_URI,
+    });
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) =>
+          q.eq("circleId", f.circleId).eq("userId", owner.userId),
+        )
+        .unique();
+      if (!membership) throw new Error("owner membership missing");
+      await ctx.db.patch(membership._id, { status: "removed" });
+    });
+    expect(
+      await executeMcpWrite(t, freshGrant._id, {
+        kind: "restore_transaction",
+        circleRef,
+        transactionRef,
+      }),
+    ).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    await t.run(async (ctx) => {
+      const histories = await ctx.db.query("histories").collect();
+      expect(histories.filter((event) => event.entityId === txnId)).toHaveLength(1);
     });
   });
 });

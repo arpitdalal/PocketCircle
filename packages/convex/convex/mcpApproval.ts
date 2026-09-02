@@ -8,6 +8,7 @@
 import {
   MCP_PENDING_ACTIVATION_TTL_MS,
   MCP_PENDING_GRANT_TTL_MS,
+  mcpArchiveTransactionResultSchema,
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
   mcpCircleViewSchema,
@@ -21,6 +22,7 @@ import {
   mcpPaginatedCircleHistorySchema,
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
+  mcpRestoreTransactionResultSchema,
   mcpScopesInclude,
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
@@ -44,6 +46,7 @@ import {
 } from "./mcpGrant.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
+  archiveTransactionForAccess,
   createTransactionForAccess,
   getCategoryAnalyticsForUser,
   getCategoryForUser,
@@ -59,6 +62,7 @@ import {
   listTransactionHistoryForUser,
   paginateMembersForUser,
   resolveCircleRef,
+  restoreTransactionForAccess,
   searchTransactionsForUser,
   toMcpCircleView,
   toMcpCurrentUserView,
@@ -652,6 +656,16 @@ export const executeMcpWriteOperation = internalMutation({
         paidByMemberId: v.optional(v.string()),
         expectedCurrency: v.optional(v.string()),
       }),
+      v.object({
+        kind: v.literal("archive_transaction"),
+        circleRef: v.string(),
+        transactionRef: v.string(),
+      }),
+      v.object({
+        kind: v.literal("restore_transaction"),
+        circleRef: v.string(),
+        transactionRef: v.string(),
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -739,6 +753,46 @@ export const executeMcpWriteOperation = internalMutation({
         transaction: updated.value,
       };
       const validated = validateMcpResult(mcpUpdateTransactionResultSchema, value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "archive_transaction") {
+      const archived = await archiveTransactionForAccess(ctx, circleAuthz.value.access, {
+        transactionRef: args.operation.transactionRef,
+      });
+      if (!archived.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: archived.error };
+      }
+      const value = {
+        ref: archived.value.ref,
+        transaction: archived.value,
+      };
+      const validated = validateMcpResult(mcpArchiveTransactionResultSchema, value);
+      if (!validated.ok) {
+        throw new Error("invalid_result");
+      }
+      await trackGrantUse();
+      return { ok: true as const, value: validated.value };
+    }
+
+    if (args.operation.kind === "restore_transaction") {
+      const restored = await restoreTransactionForAccess(ctx, circleAuthz.value.access, {
+        transactionRef: args.operation.transactionRef,
+      });
+      if (!restored.ok) {
+        await trackGrantUse();
+        return { ok: false as const, error: restored.error };
+      }
+      const value = {
+        ref: restored.value.ref,
+        transaction: restored.value,
+      };
+      const validated = validateMcpResult(mcpRestoreTransactionResultSchema, value);
       if (!validated.ok) {
         throw new Error("invalid_result");
       }

@@ -342,4 +342,28 @@ describe("MCP schemas", () => {
     });
     expect(amountWithoutCurrency.success).toBe(false);
   });
+
+  it("validates mcpWriteOperationBodySchema for archive_transaction and restore_transaction", () => {
+    const archive = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "archive_transaction",
+        circleRef: "trip-c123",
+        transactionRef: "coffee-txn1",
+      },
+    });
+    expect(archive.success).toBe(true);
+
+    const restore = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "restore_transaction",
+        circleRef: "trip-c123",
+        transactionRef: "coffee-txn1",
+      },
+    });
+    expect(restore.success).toBe(true);
+  });
 });

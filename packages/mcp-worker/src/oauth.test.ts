@@ -1169,6 +1169,14 @@ describe("MCP tools execution", () => {
             name: "list_circle_history",
             annotations: { readOnlyHint: true, idempotentHint: true },
           }),
+          expect.objectContaining({
+            name: "archive_transaction",
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+          }),
+          expect.objectContaining({
+            name: "restore_transaction",
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+          }),
         ]),
       },
     });
@@ -1564,6 +1572,119 @@ describe("MCP tools execution", () => {
     const wwwAuth = res.headers.get("www-authenticate");
     expect(wwwAuth).toContain('error="insufficient_scope"');
     expect(wwwAuth).toContain('scope="pocketcircle:write"');
+  });
+
+  it("calls archive_transaction and returns the archived transaction", async () => {
+    const { accessToken, grantId } = await obtainAccessToken([
+      "pocketcircle:read",
+      "pocketcircle:write",
+    ]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("archive_transaction");
+        return Response.json({
+          ok: true,
+          value: {
+            ...mockCreateTransactionResult,
+            transaction: { ...mockCreateTransactionResult.transaction, status: "archived" },
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "archive_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          transaction: expect.objectContaining({ status: "archived" }),
+        },
+      },
+    });
+  });
+
+  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for archive_transaction", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "archive_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+        },
+      },
+    });
+    expect(res.status).toBe(403);
+    const wwwAuth = res.headers.get("www-authenticate");
+    expect(wwwAuth).toContain('error="insufficient_scope"');
+    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+  });
+
+  it("calls restore_transaction and returns the restored transaction", async () => {
+    const { accessToken, grantId } = await obtainAccessToken([
+      "pocketcircle:read",
+      "pocketcircle:write",
+    ]);
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation.kind).toBe("restore_transaction");
+        return Response.json({
+          ok: true,
+          value: {
+            ...mockCreateTransactionResult,
+            transaction: { ...mockCreateTransactionResult.transaction, status: "active" },
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "restore_transaction",
+        arguments: {
+          circleRef: "trip-circle_1",
+          transactionRef: "coffee-txn1",
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        structuredContent: {
+          transaction: expect.objectContaining({ status: "active" }),
+        },
+      },
+    });
   });
 
   it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {

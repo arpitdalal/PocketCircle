@@ -7,6 +7,8 @@ import {
 import {
   type McpReadOperation,
   type McpWriteOperation,
+  mcpArchiveTransactionInputSchema,
+  mcpArchiveTransactionResultSchema,
   mcpCategoryAnalyticsSchema,
   mcpCategoryDetailSchema,
   mcpCategoryRefSchema,
@@ -27,6 +29,8 @@ import {
   mcpPaginatedMembersSchema,
   mcpPaginatedTransactionHistorySchema,
   mcpPaginationOptsSchema,
+  mcpRestoreTransactionInputSchema,
+  mcpRestoreTransactionResultSchema,
   mcpSearchTransactionsInputSchema,
   mcpSearchTransactionsResultSchema,
   mcpTransactionDetailSchema,
@@ -668,10 +672,71 @@ export function buildMcpServer(env: Env, request?: Request) {
       ),
   );
 
+  server.registerTool(
+    "archive_transaction",
+    {
+      title: "Archive Transaction",
+      description:
+        "Archive an active Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Archiving freezes the Transaction and removes it from Dashboard and report totals without deleting it. Confirm the exact transactionRef before calling. Repeating archive on an already-archived Transaction returns an error.",
+      inputSchema: mcpArchiveTransactionInputSchema,
+      outputSchema: mcpArchiveTransactionResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "archive_transaction",
+          circleRef: args.circleRef,
+          transactionRef: args.transactionRef,
+        },
+        mcpArchiveTransactionResultSchema,
+      ),
+  );
+
+  server.registerTool(
+    "restore_transaction",
+    {
+      title: "Restore Transaction",
+      description:
+        "Restore an archived Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Restoring returns the Transaction to active reporting and field editing for the Recorded By Member. Repeating restore on an already-active Transaction returns an error.",
+      inputSchema: mcpRestoreTransactionInputSchema,
+      outputSchema: mcpRestoreTransactionResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        {
+          kind: "restore_transaction",
+          circleRef: args.circleRef,
+          transactionRef: args.transactionRef,
+        },
+        mcpRestoreTransactionResultSchema,
+      ),
+  );
+
   return server;
 }
 
-const WRITE_TOOL_NAMES = new Set(["create_transaction", "update_transaction"]);
+const WRITE_TOOL_NAMES = new Set([
+  "create_transaction",
+  "update_transaction",
+  "archive_transaction",
+  "restore_transaction",
+]);
 
 const READ_TOOL_NAMES = new Set([
   "get_current_user",
