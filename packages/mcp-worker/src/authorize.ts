@@ -268,6 +268,10 @@ export const defaultHandler = {
     if (url.pathname === "/revoke" && request.method === "POST") {
       return handleRevoke(request, env);
     }
+    // Service cleanup from Convex reconciliation — HMAC token is the authn (#330).
+    if (url.pathname === "/internal/revoke" && request.method === "POST") {
+      return handleRevoke(request, env);
+    }
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

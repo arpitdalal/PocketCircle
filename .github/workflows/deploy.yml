@@ -213,6 +213,7 @@ jobs:
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
           MCP_WORKER_VERIFYING_JWKS: ${{ secrets.MCP_WORKER_VERIFYING_JWKS }}
+          VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
         run: |
           pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
           if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
@@ -222,6 +223,7 @@ jobs:
           if [ -z "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
             pnpm --filter @pocketcircle/convex exec convex env remove MCP_WORKER_HMAC_SECRET_PREVIOUS
           fi
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_ORIGIN "$VITE_MCP_WORKER_ORIGIN"
 
       # Convex before Worker: this release's web bundle needs additive Convex
       # fields/functions (Feature Announcements, #282) immediately. Deploy the

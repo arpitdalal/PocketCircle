@@ -686,6 +686,27 @@ describe("authorization handoff", () => {
     });
     expect(refreshOk.status).toBe(200);
 
+    // Decoupled Worker grant: definitive Convex rejection purges the Worker grant (#330).
+    const revokeOrphan = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch((endpoint) =>
+      endpoint === "/mcp/validate-grant"
+        ? Response.json({ ok: false, error: "grant_inactive" }, { status: 400 })
+        : Response.json({ ok: false, error: "unexpected" }, { status: 500 }),
+    );
+    const refreshRevoked = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        resource: RESOURCE,
+      }),
+    });
+    expect(refreshRevoked.status).toBe(400);
+    expect(revokeOrphan).toHaveBeenCalled();
+    revokeOrphan.mockRestore();
+
     // Lost browser response: retry returns the same redirect and does not create
     // another logical completion.
     stubConvexFetch((endpoint) => {
@@ -1009,6 +1030,22 @@ describe("MCP connection revocation", () => {
       body: JSON.stringify({ revocationToken: "forged" }),
     });
     expect(foreign.status).toBe(403);
+  });
+
+  it("accepts service cleanup on /internal/revoke without a browser Origin", async () => {
+    const revokeGrant = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
+    stubConvexFetch(() => Response.json({ ok: true }));
+
+    const response = await SELF.fetch("https://mcp.pocketcircle.app/internal/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revocationToken: await cleanupToken() }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ revoked: true });
+    expect(revokeGrant).toHaveBeenCalledWith("worker-grant-1", "principal-opaque-1");
+    revokeGrant.mockRestore();
   });
 });
 

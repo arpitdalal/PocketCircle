@@ -48,6 +48,7 @@ import {
   recordMcpGrantUse,
   revokeMcpGrant,
 } from "./mcpGrant.js";
+import { markMcpWorkerCleanupCompleted } from "./mcpReconciliation.js";
 import { mcpWorkerVerificationSecrets } from "./mcpWorkerSecrets.js";
 import {
   archiveCategoryForAccess,
@@ -202,30 +203,12 @@ export const completeRevocationFromWorker = internalMutation({
     workerGrantId: v.string(),
     principalId: v.string(),
   },
-  handler: async (ctx, args) => {
-    const id = ctx.db.normalizeId("mcpGrants", args.grantId);
-    const grant = id ? await ctx.db.get(id) : null;
-    if (!grant) {
-      return { ok: false as const, error: "grant_not_found" as const };
-    }
-    if (grant.principalId !== args.principalId || grant.workerGrantId !== args.workerGrantId) {
-      return { ok: false as const, error: "grant_mismatch" as const };
-    }
-    if (grant.status !== "revoked") {
-      return { ok: false as const, error: "grant_not_revoked" as const };
-    }
-    if (grant.workerCleanupStatus === "completed") {
-      return { ok: true as const };
-    }
-    if (grant.workerCleanupStatus !== "pending_revoke") {
-      return { ok: false as const, error: "cleanup_not_pending" as const };
-    }
-    await ctx.db.patch(grant._id, {
-      workerCleanupStatus: "completed",
-      updatedAt: Date.now(),
-    });
-    return { ok: true as const };
-  },
+  handler: async (ctx, args) =>
+    await markMcpWorkerCleanupCompleted(ctx, {
+      grantId: args.grantId,
+      workerGrantId: args.workerGrantId,
+      principalId: args.principalId,
+    }),
 });
 
 export type ValidateActiveGrantError =

@@ -111,6 +111,16 @@ export function oauthProviderOptions(
               headers: { "Retry-After": "2" },
             });
           }
+          // Decoupled Worker grant: Convex already fails closed — drop the Worker grant (#330).
+          try {
+            await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
+          } catch {
+            console.log(
+              "[mcp-reconcile] orphan worker grant purge failed",
+              options.grantId,
+              options.userId,
+            );
+          }
           throw new OAuthError("invalid_grant", {
             description: "PocketCircle grant no longer valid",
           });

@@ -222,7 +222,9 @@ function ConnectionCard({
   onRetry: () => void;
 }) {
   const revoked = connection.status === "revoked";
-  const cleanupPending = connection.workerCleanupStatus === "pending_revoke";
+  const cleanupPending =
+    connection.workerCleanupStatus === "pending_revoke" ||
+    connection.workerCleanupStatus === "exhausted";
 
   return (
     <article className="rounded-xl border border-border bg-card p-5 shadow-sm">

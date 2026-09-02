@@ -8,6 +8,7 @@ export const TERMINAL_FAILURE_KINDS = [
   "feedback_email_exhausted",
   "account_deletion_email_exhausted",
   "account_deletion_cleanup_failed",
+  "mcp_worker_cleanup_exhausted",
 ] as const;
 
 export const terminalFailureKindValidator = v.union(
@@ -16,6 +17,7 @@ export const terminalFailureKindValidator = v.union(
   v.literal("feedback_email_exhausted"),
   v.literal("account_deletion_email_exhausted"),
   v.literal("account_deletion_cleanup_failed"),
+  v.literal("mcp_worker_cleanup_exhausted"),
 );
 
 export const terminalFailureArgsValidator = v.object({
@@ -31,6 +33,7 @@ const LOG_MESSAGE = {
   feedback_email_exhausted: "Feedback email exhausted all retries",
   account_deletion_email_exhausted: "Account deletion email exhausted all retries",
   account_deletion_cleanup_failed: "Account deletion cleanup failed",
+  mcp_worker_cleanup_exhausted: "MCP Worker grant cleanup exhausted all retries",
 } as const;
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
