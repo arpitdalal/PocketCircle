@@ -1,9 +1,9 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
+import { MCP_PROVISIONING_MAX_BODY_BYTES, readBoundedJson } from "./bounded-body.js";
 import type { Env } from "./env.js";
 
 const PROVISIONING_PATH = "/admin/oauth/clients";
-const MAX_BODY_BYTES = 8_192;
 const MIN_SECRET_BYTES = 32;
 
 function safeMetadataUrl(value: string) {
@@ -57,42 +57,6 @@ async function isAuthorized(request: Request, secret: string) {
     return false;
   }
   return equalSecret(token, secret);
-}
-
-async function readBoundedJson(request: Request) {
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return null;
-  }
-  if (!request.body) {
-    return null;
-  }
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) {
-      break;
-    }
-    size += chunk.value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(chunk.value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes));
-  } catch {
-    return null;
-  }
 }
 
 function sameStrings(left: string[] | undefined, right: string[]) {
@@ -157,7 +121,9 @@ export async function handleClientProvisioning(request: Request, env: Env) {
     return json(415, { error: "unsupported_media_type" });
   }
 
-  const parsed = clientInputSchema.safeParse(await readBoundedJson(request));
+  const parsed = clientInputSchema.safeParse(
+    await readBoundedJson(request, MCP_PROVISIONING_MAX_BODY_BYTES),
+  );
   if (!parsed.success) {
     return json(400, { error: "invalid_client_metadata" });
   }

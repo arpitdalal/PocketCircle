@@ -1232,6 +1232,9 @@ describe("MCP tools execution", () => {
     });
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
+    expect(JSON.stringify(body)).not.toMatch(/\$\{/);
+    expect(JSON.stringify(body)).not.toContain("Coffee");
+    expect(JSON.stringify(body)).not.toContain("@");
     expect(body).toMatchObject({
       jsonrpc: "2.0",
       result: {
@@ -1548,6 +1551,40 @@ describe("MCP tools execution", () => {
   });
 
   it("returns 429 when create_transaction exceeds the per-grant write rate limit", async () => {
+    await expectToolCallRateLimited({
+      toolName: "create_transaction",
+      allowedCalls: 30,
+      arguments: {
+        circleRef: "trip-circle_1",
+        type: "expense",
+        title: "Coffee",
+        amountMinorUnits: 500,
+        date: "2026-06-01",
+        categoryRefs: ["groceries-cat1"],
+        expectedCurrency: "USD",
+      },
+      mockValue: mockCreateTransactionResult,
+    });
+  });
+
+  it("returns 429 when archive_transaction exceeds the tighter destructive rate limit", async () => {
+    await expectToolCallRateLimited({
+      toolName: "archive_transaction",
+      allowedCalls: 10,
+      arguments: {
+        circleRef: "trip-circle_1",
+        transactionRef: "coffee-txn1",
+      },
+      mockValue: { ref: "txn1", transaction: { status: "archived" } },
+    });
+  });
+
+  async function expectToolCallRateLimited(options: {
+    toolName: string;
+    allowedCalls: number;
+    arguments: Record<string, unknown>;
+    mockValue: unknown;
+  }) {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
 
     stubConvexFetch((endpoint, body) => {
@@ -1556,36 +1593,117 @@ describe("MCP tools execution", () => {
         if (!opBody.success) {
           return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
         }
-        expect(opBody.data.operation.kind).toBe("create_transaction");
-        return Response.json({ ok: true, value: mockCreateTransactionResult });
+        expect(opBody.data.operation.kind).toBe(options.toolName);
+        return Response.json({ ok: true, value: options.mockValue });
       }
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
 
     const toolCall = {
-      method: "tools/call" as const,
+      method: "tools/call",
       params: {
-        name: "create_transaction",
-        arguments: {
-          circleRef: "trip-circle_1",
-          type: "expense",
-          title: "Coffee",
-          amountMinorUnits: 500,
-          date: "2026-06-01",
-          categoryRefs: ["groceries-cat1"],
-          expectedCurrency: "USD",
-        },
+        name: options.toolName,
+        arguments: options.arguments,
       },
     };
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < options.allowedCalls; i++) {
       const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
       expect(res.status).toBe(200);
     }
 
-    const throttled = await sendMcpRequest(accessToken, { ...toolCall, id: 31 });
+    const throttled = await sendMcpRequest(accessToken, {
+      ...toolCall,
+      id: options.allowedCalls + 1,
+    });
     expect(throttled.status).toBe(429);
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  }
+
+  it("rejects oversized MCP JSON before Convex with 413", async () => {
+    const { accessToken } = await obtainAccessToken(["pocketcircle:read", "pocketcircle:write"]);
+    const huge = "x".repeat(70_000);
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers: {
+        host: "mcp.pocketcircle.app",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2026-07-28",
+        "content-length": String(huge.length + 64),
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "get_current_user", arguments: { pad: huge } },
+      }),
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "payload_too_large" });
+  });
+
+  it("returns 429 when failed authentication exceeds its rate limit", async () => {
+    const ip = "198.51.100.77";
+    const sendInvalid = (id: number) =>
+      SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+        method: "POST",
+        headers: {
+          host: "mcp.pocketcircle.app",
+          authorization: "Bearer not-a-real-token",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "get_current_user",
+          "cf-connecting-ip": ip,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "get_current_user", arguments: {} },
+        }),
+      });
+
+    for (let i = 0; i < 30; i++) {
+      const res = await sendInvalid(i + 1);
+      expect(res.status).toBe(401);
+    }
+    const throttled = await sendInvalid(31);
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("does not count bare WWW-Authenticate challenges toward failed-auth limits", async () => {
+    const ip = "198.51.100.88";
+    const sendChallenge = (id: number) =>
+      SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+        method: "POST",
+        headers: {
+          host: "mcp.pocketcircle.app",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2026-07-28",
+          "cf-connecting-ip": ip,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "initialize",
+          params: {
+            protocolVersion: "2026-07-28",
+            capabilities: {},
+            clientInfo: { name: "challenge-client", version: "0.0.1" },
+          },
+        }),
+      });
+
+    for (let i = 0; i < 35; i++) {
+      const res = await sendChallenge(i + 1);
+      expect(res.status).toBe(401);
+    }
   });
 
   it("calls update_transaction and returns the updated transaction", async () => {

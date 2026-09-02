@@ -11,7 +11,12 @@ declare global {
       OAUTH_KV: KVNamespace;
       HANDOFF_STORE: DurableObjectNamespace<HandoffStore>;
       OAUTH_PROVIDER: OAuthHelpers;
+      MCP_AUTH_RATE_LIMITER: RateLimit;
+      MCP_TOKEN_RATE_LIMITER: RateLimit;
+      MCP_FAILED_AUTH_RATE_LIMITER: RateLimit;
+      MCP_READ_RATE_LIMITER: RateLimit;
       MCP_WRITE_RATE_LIMITER: RateLimit;
+      MCP_DESTRUCTIVE_RATE_LIMITER: RateLimit;
       APP_ORIGIN: string;
       CONVEX_SITE_URL: string;
       MCP_CLIENT_PROVISIONING_TOKEN?: string;

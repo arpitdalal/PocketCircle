@@ -13,6 +13,7 @@ import { activateGrant, validateGrant } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { createMcpApiHandler } from "./mcp-api.js";
 import { mcpAuthorizationServerIssuer, mcpResourceUri } from "./reachable.js";
+import { mcpLogError } from "./safe-log.js";
 
 const grantPropsSchema = z.object({ mcpGrantId: z.string().min(1) });
 
@@ -121,11 +122,7 @@ export function oauthProviderOptions(
             try {
               await env.OAUTH_PROVIDER.revokeGrant(options.grantId, options.userId);
             } catch {
-              console.error(
-                "[mcp-reconcile] orphan worker grant purge failed",
-                options.grantId,
-                mcpGrantId,
-              );
+              mcpLogError("orphan_worker_grant_purge_failed");
               throw new OAuthError("temporarily_unavailable", {
                 description: "PocketCircle grant cleanup is temporarily unavailable",
                 statusCode: 503,

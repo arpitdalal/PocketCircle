@@ -48,10 +48,21 @@ import {
 } from "@pocketcircle/domain";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
+import { assertClonedBodyWithinLimit, MCP_JSON_MAX_BODY_BYTES } from "./bounded-body.js";
 import { executeMcpOperation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
 import { pocketCircleOAuthApi } from "./oauth-options.js";
-import { assertMcpWriteWithinRateLimit } from "./write-rate-limit.js";
+import {
+  assertWithinRateLimit,
+  authenticatedRateLimitMaterial,
+  clientIpOf,
+  markFailedAuthBlocked,
+  rateLimitedResponse,
+  toolClassOf,
+  unauthenticatedRateLimitMaterial,
+} from "./rate-limit.js";
+import { mcpLog } from "./safe-log.js";
+import { MCP_SERVER_INSTRUCTIONS } from "./server-instructions.js";
 
 function hostnameOf(urlString: string | undefined) {
   if (!urlString) {
@@ -65,6 +76,13 @@ function hostnameOf(urlString: string | undefined) {
 }
 
 const grantPropsSchema = z.object({ mcpGrantId: z.string().min(1) });
+
+type AuthorizedCaller = {
+  grantId: string;
+  userId: string;
+  clientId: string;
+  effectiveScopes: string[];
+};
 
 async function resolveAuthorizedCaller(env: Env, req?: Request) {
   const authHeader = req?.headers.get("authorization") ?? "";
@@ -83,12 +101,15 @@ async function resolveAuthorizedCaller(env: Env, req?: Request) {
   if (!parsedProps.success) {
     return { ok: false as const, error: "missing_grant_props" };
   }
+  const value: AuthorizedCaller = {
+    grantId: parsedProps.data.mcpGrantId,
+    userId: summary.userId,
+    clientId: summary.grant.clientId,
+    effectiveScopes: summary.scope,
+  };
   return {
     ok: true as const,
-    value: {
-      grantId: parsedProps.data.mcpGrantId,
-      effectiveScopes: summary.scope,
-    },
+    value,
   };
 }
 
@@ -173,7 +194,10 @@ async function handleToolExecution<T>(
 }
 
 export function buildMcpServer(env: Env, request?: Request) {
-  const server = new McpServer({ name: "PocketCircle MCP", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "PocketCircle MCP", version: "0.1.0" },
+    { instructions: MCP_SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool(
     "get_current_user",
@@ -855,36 +879,6 @@ export function buildMcpServer(env: Env, request?: Request) {
   return server;
 }
 
-const WRITE_TOOL_NAMES = new Set([
-  "create_category",
-  "update_category",
-  "archive_category",
-  "restore_category",
-  "create_transaction",
-  "update_transaction",
-  "archive_transaction",
-  "restore_transaction",
-]);
-
-const READ_TOOL_NAMES = new Set([
-  "get_current_user",
-  "list_authorized_circles",
-  "get_circle",
-  "list_members",
-  "list_circle_history",
-  "search_transactions",
-  "get_transaction",
-  "list_transaction_history",
-  "get_monthly_ledger",
-  "get_dashboard",
-  "get_monthly_comparison",
-  "get_category_analytics",
-  "list_categories",
-  "get_category",
-  "list_category_transactions",
-  "list_category_history",
-]);
-
 const rpcCallSchema = z.object({
   method: z.string(),
   params: z
@@ -894,54 +888,19 @@ const rpcCallSchema = z.object({
     .optional(),
 });
 
-async function detectWriteToolCall(request: Request) {
+async function detectToolCall(request: Request) {
   if (request.method.toUpperCase() !== "POST") {
-    return false;
+    return null;
   }
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
-    return false;
+    return null;
   }
   try {
     const json: unknown = await request.clone().json();
     const parsed = rpcCallSchema.safeParse(json);
     if (!parsed.success) {
-      return false;
-    }
-    const bodyMethod = parsed.data.method;
-    const bodyName = parsed.data.params?.name;
-
-    const mcpMethod = request.headers.get("mcp-method");
-    const mcpName = request.headers.get("mcp-name");
-
-    if (mcpMethod && mcpMethod !== bodyMethod) {
-      return false;
-    }
-    if (mcpName && mcpName !== bodyName) {
-      return false;
-    }
-
-    return (
-      bodyMethod === "tools/call" && typeof bodyName === "string" && WRITE_TOOL_NAMES.has(bodyName)
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function detectReadToolCall(request: Request) {
-  if (request.method.toUpperCase() !== "POST") {
-    return false;
-  }
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    return false;
-  }
-  try {
-    const json: unknown = await request.clone().json();
-    const parsed = rpcCallSchema.safeParse(json);
-    if (!parsed.success) {
-      return false;
+      return null;
     }
     const bodyMethod = parsed.data.method;
     const bodyName = parsed.data.params?.name;
@@ -952,18 +911,33 @@ async function detectReadToolCall(request: Request) {
     // If mirrored headers are present, ensure they don't mismatch the body.
     // Let SDK handler return 400 HeaderMismatch on invalid combinations.
     if (mcpMethod && mcpMethod !== bodyMethod) {
-      return false;
+      return null;
     }
     if (mcpName && mcpName !== bodyName) {
-      return false;
+      return null;
     }
 
-    return (
-      bodyMethod === "tools/call" && typeof bodyName === "string" && READ_TOOL_NAMES.has(bodyName)
-    );
+    if (bodyMethod !== "tools/call" || typeof bodyName !== "string") {
+      return null;
+    }
+    return toolClassOf(bodyName);
   } catch {
-    return false;
+    return null;
   }
+}
+
+function payloadTooLargeResponse(started: number) {
+  mcpLog({
+    event: "mcp_request",
+    outcome: "rejected",
+    status: 413,
+    errorCode: "payload_too_large",
+    durationMs: performance.now() - started,
+  });
+  return new Response(JSON.stringify({ error: "payload_too_large" }), {
+    status: 413,
+    headers: { "Content-Type": "application/json", "cache-control": "no-store" },
+  });
 }
 
 export function createMcpApiHandler(env: Env) {
@@ -992,42 +966,93 @@ export function createMcpApiHandler(env: Env) {
 
   return {
     fetch: async (request: Request, envArg: Env, ctx: ExecutionContext) => {
-      const isReadTool = await detectReadToolCall(request);
-      if (isReadTool) {
-        const caller = await resolveAuthorizedCaller(env, request);
-        if (caller.ok && !caller.value.effectiveScopes.includes("pocketcircle:read")) {
-          return bearerAuthChallengeResponse(
-            new OAuthError(
-              OAuthErrorCode.InsufficientScope,
-              "The access token does not have required scope pocketcircle:read",
-            ),
-            { requiredScopes: ["pocketcircle:read"] },
-          );
-        }
+      const started = performance.now();
+      if (!(await assertClonedBodyWithinLimit(request, MCP_JSON_MAX_BODY_BYTES))) {
+        return payloadTooLargeResponse(started);
       }
-      const isWriteTool = await detectWriteToolCall(request);
-      if (isWriteTool) {
-        const caller = await resolveAuthorizedCaller(env, request);
-        if (caller.ok && !caller.value.effectiveScopes.includes("pocketcircle:write")) {
-          return bearerAuthChallengeResponse(
-            new OAuthError(
-              OAuthErrorCode.InsufficientScope,
-              "The access token does not have required scope pocketcircle:write",
-            ),
-            { requiredScopes: ["pocketcircle:write"] },
+
+      const toolClass = await detectToolCall(request);
+      // Authenticated MCP methods (initialize, tools/list, ping, …) share the read
+      // bucket; tool calls keep class-specific write/destructive caps.
+      const rateClass =
+        toolClass === "write" || toolClass === "destructive" || toolClass === "read"
+          ? toolClass
+          : ("read" as const);
+      const caller = await resolveAuthorizedCaller(env, request);
+      if (!caller.ok) {
+        if (caller.error !== "missing_bearer_token") {
+          const withinFailedAuth = await assertWithinRateLimit(
+            envArg,
+            "failed_auth",
+            unauthenticatedRateLimitMaterial({
+              className: "failed_auth",
+              ip: clientIpOf(request),
+            }),
           );
-        }
-        if (caller.ok) {
-          const withinLimit = await assertMcpWriteWithinRateLimit(envArg, caller.value.grantId);
-          if (!withinLimit.ok) {
-            return new Response(JSON.stringify({ error: "rate_limited" }), {
+          if (!withinFailedAuth.ok) {
+            await markFailedAuthBlocked(clientIpOf(request) ?? "unknown");
+            mcpLog({
+              event: "mcp_request",
+              outcome: "rate_limited",
               status: 429,
-              headers: { "Content-Type": "application/json" },
+              toolClass: "failed_auth",
+              durationMs: performance.now() - started,
             });
+            return rateLimitedResponse();
+          }
+        }
+        mcpLog({
+          event: "mcp_request",
+          outcome: "rejected",
+          ...(toolClass ? { toolClass } : {}),
+          errorCode: caller.error,
+          durationMs: performance.now() - started,
+        });
+      } else {
+        const withinLimit = await assertWithinRateLimit(
+          envArg,
+          rateClass,
+          authenticatedRateLimitMaterial({
+            userId: caller.value.userId,
+            clientId: caller.value.clientId,
+            grantId: caller.value.grantId,
+            toolClass: rateClass,
+          }),
+        );
+        if (!withinLimit.ok) {
+          mcpLog({
+            event: "mcp_request",
+            outcome: "rate_limited",
+            status: 429,
+            toolClass: rateClass,
+            durationMs: performance.now() - started,
+          });
+          return rateLimitedResponse();
+        }
+        if (toolClass === "read" || toolClass === "write" || toolClass === "destructive") {
+          const requiredScope =
+            toolClass === "read" ? ("pocketcircle:read" as const) : ("pocketcircle:write" as const);
+          if (!caller.value.effectiveScopes.includes(requiredScope)) {
+            return bearerAuthChallengeResponse(
+              new OAuthError(
+                OAuthErrorCode.InsufficientScope,
+                `The access token does not have required scope ${requiredScope}`,
+              ),
+              { requiredScopes: [requiredScope] },
+            );
           }
         }
       }
-      return mcpHandler(request, envArg, ctx);
+
+      const response = await mcpHandler(request, envArg, ctx);
+      mcpLog({
+        event: "mcp_request",
+        outcome: response.status >= 400 ? "error" : "ok",
+        status: response.status,
+        toolClass: rateClass,
+        durationMs: performance.now() - started,
+      });
+      return response;
     },
   } satisfies ExportedHandler<Env>;
 }

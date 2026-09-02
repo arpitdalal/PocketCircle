@@ -19,5 +19,8 @@ export default defineProject({
   test: {
     name: "mcp-worker",
     include: ["src/**/*.test.ts"],
+    // Rate-limit bindings share Worker-local counters across the pool; parallel
+    // files race the write/destructive suites (#331).
+    fileParallelism: false,
   },
 });
