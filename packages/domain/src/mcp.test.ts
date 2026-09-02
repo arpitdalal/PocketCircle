@@ -7,6 +7,7 @@ import {
   mcpMemberViewSchema,
   mcpOperationBodySchema,
   mcpScopesInclude,
+  mcpUpdateTransactionInputSchema,
   mcpWriteOperationBodySchema,
   normalizeMcpImage,
   normalizeMcpScopes,
@@ -313,5 +314,32 @@ describe("MCP schemas", () => {
       expectedCurrency: "USD",
     });
     expect(tooManyCategories.success).toBe(false);
+  });
+
+  it("validates mcpWriteOperationBodySchema for update_transaction", () => {
+    const valid = mcpWriteOperationBodySchema.safeParse({
+      grantId: "g123",
+      effectiveScopes: ["pocketcircle:write"],
+      operation: {
+        kind: "update_transaction",
+        circleRef: "trip-c123",
+        transactionRef: "coffee-txn1",
+        title: "Updated coffee",
+      },
+    });
+    expect(valid.success).toBe(true);
+
+    const emptyUpdate = mcpUpdateTransactionInputSchema.safeParse({
+      circleRef: "trip-c123",
+      transactionRef: "coffee-txn1",
+    });
+    expect(emptyUpdate.success).toBe(false);
+
+    const amountWithoutCurrency = mcpUpdateTransactionInputSchema.safeParse({
+      circleRef: "trip-c123",
+      transactionRef: "coffee-txn1",
+      amountMinorUnits: 500,
+    });
+    expect(amountWithoutCurrency.success).toBe(false);
   });
 });
