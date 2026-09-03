@@ -119,43 +119,78 @@ const listCirclesOutputSchema = z.object({
 
 const circleRefInputSchema = z.object({ circleRef: mcpCircleRefSchema });
 const listMembersInputSchema = circleRefInputSchema.extend({
-  includeHistorical: z.boolean().optional(),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  includeHistorical: z
+    .boolean()
+    .optional()
+    .describe(
+      "When true, include removed Members needed for historical attribution. Defaults to current Members only.",
+    ),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page. Omit for the default first page (50). If set, cursor must be null on page 1 or a prior continueCursor.",
+    ),
 });
 const listCircleHistoryInputSchema = circleRefInputSchema.extend({
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page. Omit for the default first page (50). If set, cursor must be null on page 1 or a prior continueCursor.",
+    ),
 });
 const transactionRefInputSchema = circleRefInputSchema.extend({
   transactionRef: mcpTransactionRefSchema,
 });
 const listTransactionHistoryInputSchema = transactionRefInputSchema.extend({
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page. Omit for the default first page (50). If set, cursor must be null on page 1 or a prior continueCursor.",
+    ),
 });
 const monthlyLedgerInputSchema = circleRefInputSchema.extend({
-  month: z.string().max(7),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  month: z.string().max(7).describe("Caller-local calendar month as YYYY-MM."),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page over the month's Transactions. Omit for the default first page (50). cursor null = first page.",
+    ),
 });
 const dashboardInputSchema = circleRefInputSchema.extend({
-  month: z.string().max(7),
+  month: z.string().max(7).describe("Caller-local calendar month as YYYY-MM."),
 });
 const monthlyComparisonInputSchema = circleRefInputSchema.extend({
-  endMonth: z.string().max(7),
-  rangeMonths: mcpComparisonRangeMonthsSchema,
+  endMonth: z.string().max(7).describe("Inclusive end month (YYYY-MM) for the comparison window."),
+  rangeMonths: mcpComparisonRangeMonthsSchema.describe(
+    "How many months to include ending at endMonth: 1, 3, 6, or 12.",
+  ),
 });
 const categoryAnalyticsInputSchema = circleRefInputSchema.extend({
-  month: z.string().max(7),
+  month: z.string().max(7).describe("Caller-local calendar month as YYYY-MM."),
   type: z.enum(["expense", "income"]),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page. Omit for the default first page (50). Ranking cursors become stale when rankings change — restart from cursor null if stale_pagination is returned.",
+    ),
 });
 const listCategoriesInputSchema = circleRefInputSchema.extend({
   filters: mcpListCategoriesFiltersSchema.optional(),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      'Optional cursor page. Omit entirely for the default first page (50). If set, cursor must be null on page 1 — not 1 or "1".',
+    ),
 });
 const categoryRefInputSchema = circleRefInputSchema.extend({
   categoryRef: mcpCategoryRefSchema,
 });
 const listCategoryHistoryInputSchema = categoryRefInputSchema.extend({
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Optional cursor page. Omit for the default first page (50). If set, cursor must be null on page 1 or a prior continueCursor.",
+    ),
 });
 
 async function handleToolExecution<T>(
@@ -203,7 +238,8 @@ export function buildMcpServer(env: Env, request?: Request) {
     "get_current_user",
     {
       title: "Get Current User",
-      description: "Get the authenticated PocketCircle user's identity",
+      description:
+        "Get the authenticated PocketCircle user's id, display name, image, and account createdAt.",
       inputSchema: z.object({}),
       outputSchema: mcpCurrentUserViewSchema,
       annotations: {
@@ -225,7 +261,8 @@ export function buildMcpServer(env: Env, request?: Request) {
     "list_authorized_circles",
     {
       title: "List Authorized Circles",
-      description: "List PocketCircle circles authorized by the user for this connection",
+      description:
+        "List Circles this connection may access. Newly created or joined Circles stay excluded until the User reauthorizes. Use each circle.ref in later tools.",
       inputSchema: z.object({}),
       outputSchema: listCirclesOutputSchema,
       annotations: {
@@ -270,7 +307,8 @@ export function buildMcpServer(env: Env, request?: Request) {
     "list_members",
     {
       title: "List Circle Members",
-      description: "List display identities, roles, and lifecycle status for an authorized Circle",
+      description:
+        "List display identities, roles, and lifecycle status for an authorized Circle. Pass includeHistorical for removed Members when attributing history. Paginate with optional paginationOpts (omit for first page; cursor null = page 1).",
       inputSchema: listMembersInputSchema,
       outputSchema: mcpPaginatedMembersSchema,
       annotations: {
@@ -327,7 +365,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Search Transactions",
       description:
-        "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger",
+        "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger. Use either offset pagination (page/pageSize) or cursor paginationOpts — never both. Prefer omitting pagination for the first page defaults; if using paginationOpts, cursor null means page 1.",
       inputSchema: mcpSearchTransactionsInputSchema,
       outputSchema: mcpSearchTransactionsResultSchema,
       annotations: {
@@ -524,7 +562,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "List Categories",
       description:
-        "List Categories in an authorized Circle with optional Transaction type, lifecycle scope (active, archived, or all), and case-insensitive name filtering. Defaults to active Categories. Archived Categories remain readable for history but are not valid new Transaction selections. Results paginate via paginationOpts (default first 50 rows).",
+        "List Categories in an authorized Circle with optional Transaction type, lifecycle scope (active, archived, or all), and case-insensitive name filtering. Defaults to active Categories. Archived Categories remain readable for history but are not valid new Transaction selections. paginationOpts is optional — omit it for the default first 50 rows; if provided, set cursor to null for page 1 (not 1), then reuse continueCursor.",
       inputSchema: listCategoriesInputSchema,
       outputSchema: mcpPaginatedCategoriesSchema,
       annotations: {

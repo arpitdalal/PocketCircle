@@ -122,6 +122,8 @@ describe("server instructions", () => {
     expect(MCP_SERVER_INSTRUCTIONS).toContain("structuredContent");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("JSON text content");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("either channel");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("cursor must be null for page 1");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("integer minor units");
     expect(MCP_SERVER_INSTRUCTIONS).not.toMatch(/\$\{/);
   });
 });
