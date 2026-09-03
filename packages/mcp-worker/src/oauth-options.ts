@@ -10,7 +10,7 @@ import {
 } from "@pocketcircle/domain";
 import { z } from "zod";
 import { activateGrant, validateGrant } from "./convex-bridge.js";
-import type { Env } from "./env.js";
+import { type Env, type OAuthEnv, withWorkersOauthKv } from "./env.js";
 import { createMcpApiHandler } from "./mcp-api.js";
 import { mcpAuthorizationServerIssuer, mcpResourceUri } from "./reachable.js";
 import { mcpLogError } from "./safe-log.js";
@@ -49,7 +49,7 @@ async function rejectFailedActivation(
  * (`getOAuthApi`) — `tokenExchangeCallback` has no `env` argument.
  */
 export function oauthProviderOptions(
-  env: Env,
+  env: OAuthEnv,
   defaultHandler: ExportedHandler<Env>,
   origin?: string,
 ) {
@@ -144,7 +144,7 @@ export function createOAuthProvider(
   defaultHandler: ExportedHandler<Env>,
   origin?: string,
 ) {
-  return new OAuthProvider(oauthProviderOptions(env, defaultHandler, origin));
+  return new OAuthProvider(oauthProviderOptions(withWorkersOauthKv(env), defaultHandler, origin));
 }
 
 const oauthApiHandler = {
@@ -154,5 +154,6 @@ const oauthApiHandler = {
 } satisfies ExportedHandler<Env>;
 
 export function pocketCircleOAuthApi(env: Env, origin?: string) {
-  return getOAuthApi(oauthProviderOptions(env, oauthApiHandler, origin), env);
+  const oauthEnv = withWorkersOauthKv(env);
+  return getOAuthApi(oauthProviderOptions(oauthEnv, oauthApiHandler, origin), oauthEnv);
 }

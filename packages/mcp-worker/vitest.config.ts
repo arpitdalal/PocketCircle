@@ -7,6 +7,10 @@ export default defineProject({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
+          // Keep consent redirects and Convex site stable even when a local
+          // `.dev.vars` overrides wrangler `vars` for manual `wrangler dev`.
+          APP_ORIGIN: "https://pocketcircle.app",
+          CONVEX_SITE_URL: "https://placeholder.convex.site",
           // Secrets are not in wrangler vars; tests supply fixed signing material.
           MCP_WORKER_HMAC_SECRET: "test-mcp-worker-secret",
           MCP_WORKER_SIGNING_PRIVATE_JWK:

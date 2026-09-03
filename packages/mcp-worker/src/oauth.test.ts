@@ -9,6 +9,7 @@ import {
 } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
+import { withWorkersOauthKv } from "./env.js";
 import { createMcpApiHandler } from "./mcp-api.js";
 import { oauthProviderOptions } from "./oauth-options.js";
 
@@ -18,6 +19,11 @@ const HMAC_SECRET = "test-mcp-worker-secret";
 
 let clientId = "";
 
+function oauthApi() {
+  const oauthEnv = withWorkersOauthKv(env);
+  return getOAuthApi(oauthProviderOptions(oauthEnv, defaultHandler), oauthEnv);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -25,7 +31,7 @@ afterEach(() => {
 beforeAll(async () => {
   // OAUTH_PROVIDER is injected during fetch; tests create clients via getOAuthApi.
   // createClient always mints the clientId — use the returned value.
-  const created = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).createClient({
+  const created = await oauthApi().createClient({
     tokenEndpointAuthMethod: "none",
     redirectUris: [REDIRECT_URI],
     clientName: "PocketCircle Dev Client",
@@ -245,9 +251,7 @@ describe("static OAuth client provisioning", () => {
     expect(repeated.status).toBe(200);
     expect(await repeated.json()).toEqual({ clientId: createdBody.clientId, created: false });
 
-    const stored = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).lookupClient(
-      createdBody.clientId,
-    );
+    const stored = await oauthApi().lookupClient(createdBody.clientId);
     expect(stored).toMatchObject({
       ...metadata,
       tokenEndpointAuthMethod: "none",
@@ -778,11 +782,11 @@ describe("authorization handoff", () => {
       return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
     });
     const clientKey = `client:${clientId}`;
-    const storedClient = await env.OAUTH_KV.get(clientKey);
+    const storedClient = await env.POCKET_CIRCLE_OAUTH_KV.get(clientKey);
     if (!storedClient) {
       throw new Error("missing test OAuth client");
     }
-    await env.OAUTH_KV.delete(clientKey);
+    await env.POCKET_CIRCLE_OAUTH_KV.delete(clientKey);
 
     const first = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
       method: "POST",
@@ -791,7 +795,7 @@ describe("authorization handoff", () => {
     });
     expect(first.status).toBe(503);
 
-    await env.OAUTH_KV.put(clientKey, storedClient);
+    await env.POCKET_CIRCLE_OAUTH_KV.put(clientKey, storedClient);
     const retry = await browserFetch(
       `https://mcp.pocketcircle.app/authorize/handoff?id=${handoffId}`,
     );
@@ -830,9 +834,7 @@ describe("authorization handoff", () => {
       expect(complete.status).toBe(200);
     }
 
-    const grants = await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).listUserGrants(
-      principalId,
-    );
+    const grants = await oauthApi().listUserGrants(principalId);
     expect(grants.items).toHaveLength(2);
   });
 
@@ -891,13 +893,7 @@ describe("authorization handoff", () => {
 
     expect(tokenResponse.status).toBe(400);
     expect(await tokenResponse.json()).toMatchObject({ error: "invalid_grant" });
-    expect(
-      (
-        await getOAuthApi(oauthProviderOptions(env, defaultHandler), env).listUserGrants(
-          principalId,
-        )
-      ).items,
-    ).toEqual([]);
+    expect((await oauthApi().listUserGrants(principalId)).items).toEqual([]);
   });
 
   it("complete rejects resource mismatch between handoff and redeemed grant", async () => {
@@ -1071,7 +1067,7 @@ describe("MCP connection revocation", () => {
 
   it("accepts /internal/revoke signed with the previous HMAC during rotation", async () => {
     const previous = "previous-mcp-worker-secret";
-    const provider = getOAuthApi(oauthProviderOptions(env, defaultHandler), env);
+    const provider = oauthApi();
     const revokeGrant = vi.spyOn(provider, "revokeGrant").mockResolvedValue(undefined);
     stubConvexFetch(() => Response.json({ ok: true }));
     const revocationToken = await cleanupToken(previous);

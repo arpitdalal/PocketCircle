@@ -4,11 +4,15 @@ import type { HandoffStore } from "./handoff-store.js";
 /**
  * Worker bindings. Declared on `Cloudflare.Env` so `getOAuthApi` / vitest pool
  * types (defaulting to `Cloudflare.Env`) match application code.
+ *
+ * OAuth KV is bound as `POCKET_CIRCLE_OAUTH_KV` (account-scoped title). The
+ * Cloudflare OAuth provider still hard-requires `env.OAUTH_KV` — use
+ * {@link withWorkersOauthKv} at the provider boundary.
  */
 declare global {
   namespace Cloudflare {
     interface Env {
-      OAUTH_KV: KVNamespace;
+      POCKET_CIRCLE_OAUTH_KV: KVNamespace;
       HANDOFF_STORE: DurableObjectNamespace<HandoffStore>;
       OAUTH_PROVIDER: OAuthHelpers;
       MCP_AUTH_RATE_LIMITER: RateLimit;
@@ -31,3 +35,15 @@ declare global {
 }
 
 export type Env = Cloudflare.Env;
+
+/** Env shape expected by `@cloudflare/workers-oauth-provider` (fixed `OAUTH_KV` name). */
+export type OAuthEnv = Env & { OAUTH_KV: KVNamespace };
+
+/**
+ * Alias the account-scoped KV binding to the name the OAuth library hardcodes.
+ * Mutates `env` in place so OAuthProvider can still inject `OAUTH_PROVIDER` onto
+ * the same object Workers/tests pass through `fetch`.
+ */
+export function withWorkersOauthKv(env: Env) {
+  return Object.assign(env, { OAUTH_KV: env.POCKET_CIRCLE_OAUTH_KV });
+}
