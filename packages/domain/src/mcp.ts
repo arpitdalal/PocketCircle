@@ -122,17 +122,41 @@ export const mcpCircleHistoryEventSchema = z.object({
 export type McpCircleHistoryEvent = z.infer<typeof mcpCircleHistoryEventSchema>;
 
 export const mcpPaginationOptsSchema = z.object({
-  numItems: z.number().int().min(1).max(100),
-  cursor: z.string().max(4096).nullable(),
+  numItems: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .describe(
+      "Page size (1-100). Prefer omitting paginationOpts for the default first page of 50.",
+    ),
+  cursor: z
+    .string()
+    .max(4096)
+    .nullable()
+    .describe(
+      "Opaque Convex continuation cursor. Use null for the first page — never page numbers like 1 or 2. For later pages, pass continueCursor from the previous response exactly.",
+    ),
 });
 
-export const mcpCircleRefSchema = z.string().min(1).max(300);
+export const mcpCircleRefSchema = z
+  .string()
+  .min(1)
+  .max(300)
+  .describe(
+    "Circle ref from list_authorized_circles (stable id string, not the Circle display name).",
+  );
 
 function mcpPaginatedSchema<T extends z.ZodType>(itemSchema: T) {
   return z.object({
     page: z.array(itemSchema).max(100),
-    isDone: z.boolean(),
-    continueCursor: z.string().max(4096),
+    isDone: z.boolean().describe("True when there is no further page."),
+    continueCursor: z
+      .string()
+      .max(4096)
+      .describe(
+        "Opaque cursor for the next page. Pass as paginationOpts.cursor on the following call; ignore when isDone is true.",
+      ),
   });
 }
 
@@ -140,7 +164,11 @@ export const mcpPaginatedMembersSchema = mcpPaginatedSchema(mcpMemberViewSchema)
 
 export const mcpPaginatedCircleHistorySchema = mcpPaginatedSchema(mcpCircleHistoryEventSchema);
 
-export const mcpTransactionRefSchema = z.string().min(1).max(300);
+export const mcpTransactionRefSchema = z
+  .string()
+  .min(1)
+  .max(300)
+  .describe("Transaction ref from search, ledger, dashboard, or create/update results.");
 
 export const mcpMemberAttributionSchema = z.object({
   displayName: z.string().min(1).max(LIMITS.displayNameMax),
@@ -296,7 +324,11 @@ export const mcpCategoryAnalyticsSchema = z.object({
 
 export type McpCategoryAnalytics = z.infer<typeof mcpCategoryAnalyticsSchema>;
 
-export const mcpCategoryRefSchema = z.string().min(1).max(300);
+export const mcpCategoryRefSchema = z
+  .string()
+  .min(1)
+  .max(300)
+  .describe("Category ref from list_categories, analytics, or create/update category results.");
 
 const mcpCategoryCreatorSchema = z.object({
   displayName: z.string().min(1).max(LIMITS.displayNameMax),
@@ -329,9 +361,17 @@ const mcpCategoryFilterTypeSchema = z.enum(["all", "expense", "income"]);
 const mcpCategoryLifecycleFilterSchema = z.enum(["active", "archived", "all"]);
 
 export const mcpListCategoriesFiltersSchema = z.object({
-  type: mcpCategoryFilterTypeSchema.optional(),
-  status: mcpCategoryLifecycleFilterSchema.optional(),
-  query: z.string().max(LIMITS.categoryNameMax).optional(),
+  type: mcpCategoryFilterTypeSchema
+    .optional()
+    .describe("Transaction type filter. Defaults to all types when omitted."),
+  status: mcpCategoryLifecycleFilterSchema
+    .optional()
+    .describe("Lifecycle filter. Defaults to active when omitted."),
+  query: z
+    .string()
+    .max(LIMITS.categoryNameMax)
+    .optional()
+    .describe("Case-insensitive Category name substring."),
 });
 
 export const mcpListCategoryTransactionsResultSchema = z.object({
@@ -349,17 +389,49 @@ const mcpTransactionLifecycleFilterSchema = z.enum(["active", "archived", "all"]
 
 export const mcpSearchTransactionsFiltersSchema = z
   .object({
-    query: z.string().max(LIMITS.transactionSearchQueryMax).optional(),
+    query: z
+      .string()
+      .max(LIMITS.transactionSearchQueryMax)
+      .optional()
+      .describe("Case-insensitive text match on title and note."),
     type: mcpTransactionFilterTypeSchema.optional(),
-    status: mcpTransactionLifecycleFilterSchema.optional(),
-    categoryRefs: z.array(z.string().min(1).max(300)).max(20).optional(),
+    status: mcpTransactionLifecycleFilterSchema
+      .optional()
+      .describe("Lifecycle filter. Defaults to active when omitted."),
+    categoryRefs: z
+      .array(z.string().min(1).max(300))
+      .max(20)
+      .optional()
+      .describe("Match Transactions tagged with any of these Category refs."),
     recordedByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
     paidByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
-    dateFrom: z.string().max(10).optional(),
-    dateTo: z.string().max(10).optional(),
-    amountMin: z.number().int().min(0).optional(),
-    amountMax: z.number().int().min(0).optional(),
-    month: z.string().max(7).optional(),
+    dateFrom: z
+      .string()
+      .max(10)
+      .optional()
+      .describe("Inclusive plain date YYYY-MM-DD. Do not combine with month."),
+    dateTo: z
+      .string()
+      .max(10)
+      .optional()
+      .describe("Inclusive plain date YYYY-MM-DD. Do not combine with month."),
+    amountMin: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Minimum amount in Circle currency minor units (inclusive)."),
+    amountMax: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Maximum amount in Circle currency minor units (inclusive)."),
+    month: z
+      .string()
+      .max(7)
+      .optional()
+      .describe("Caller-local calendar month YYYY-MM. Do not combine with dateFrom/dateTo."),
   })
   .superRefine((value, ctx) => {
     if (value.month !== undefined && (value.dateFrom !== undefined || value.dateTo !== undefined)) {
@@ -373,9 +445,25 @@ export const mcpSearchTransactionsFiltersSchema = z
 const mcpSearchTransactionsCoreSchema = z.object({
   circleRef: mcpCircleRefSchema,
   filters: mcpSearchTransactionsFiltersSchema.optional(),
-  page: z.number().int().min(1).max(40).optional(),
-  pageSize: z.number().int().min(1).max(100).optional(),
-  paginationOpts: mcpPaginationOptsSchema.optional(),
+  page: z
+    .number()
+    .int()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe("1-based offset page. Mutually exclusive with paginationOpts."),
+  pageSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Offset page size when using page. Mutually exclusive with paginationOpts."),
+  paginationOpts: mcpPaginationOptsSchema
+    .optional()
+    .describe(
+      "Cursor pagination. Mutually exclusive with page/pageSize. Prefer this for large result sets.",
+    ),
 });
 
 function refineMcpSearchTransactionsPagination(
@@ -496,11 +584,33 @@ const mcpCreateTransactionCoreSchema = z.object({
   amountMinorUnits: z
     .number()
     .int()
-    .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" }),
-  date: transactionFieldSchemas.date,
-  categoryRefs: z.array(mcpCategoryRefSchema).min(1).max(LIMITS.maxCategoriesPerTransaction),
-  paidByMemberId: z.string().min(1).max(128).optional(),
-  expectedCurrency: z.string().min(1).max(3),
+    .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" })
+    .describe(
+      "Positive amount in the Circle currency's minor units (e.g. cents for USD: 500 = $5.00). Not a decimal major-unit amount.",
+    ),
+  date: transactionFieldSchemas.date.describe(
+    "Transaction plain date as YYYY-MM-DD in the caller's local calendar.",
+  ),
+  categoryRefs: z
+    .array(mcpCategoryRefSchema)
+    .min(1)
+    .max(LIMITS.maxCategoriesPerTransaction)
+    .describe(
+      "One or more active Category refs in this Circle whose type matches the Transaction type. Refs must be unique.",
+    ),
+  paidByMemberId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "Optional Paid By Member id from list_members. Defaults to the authenticated Member.",
+    ),
+  expectedCurrency: z
+    .string()
+    .min(1)
+    .max(3)
+    .describe("Circle currency code (e.g. USD). Must match the Circle currency exactly."),
 });
 
 function refineUniqueCategoryRefList(refs: readonly string[], ctx: z.RefinementCtx) {
@@ -547,15 +657,28 @@ const mcpUpdateTransactionFieldsSchema = z.object({
     .number()
     .int()
     .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" })
-    .optional(),
-  date: transactionFieldSchemas.date.optional(),
+    .optional()
+    .describe(
+      "Positive amount in Circle currency minor units. When set, also send expectedCurrency matching the Circle.",
+    ),
+  date: transactionFieldSchemas.date
+    .optional()
+    .describe("Transaction plain date as YYYY-MM-DD in the caller's local calendar."),
   categoryRefs: z
     .array(mcpCategoryRefSchema)
     .min(1)
     .max(LIMITS.maxCategoriesPerTransaction)
-    .optional(),
+    .optional()
+    .describe(
+      "Replacement Category set when changing categories or type. Must match the Transaction type.",
+    ),
   paidByMemberId: z.string().min(1).max(128).optional(),
-  expectedCurrency: z.string().min(1).max(3).optional(),
+  expectedCurrency: z
+    .string()
+    .min(1)
+    .max(3)
+    .optional()
+    .describe("Required when changing amountMinorUnits. Must match the Circle currency."),
 });
 
 function refineUpdateTransactionInput(
@@ -630,7 +753,9 @@ export type McpRestoreTransactionResult = z.infer<typeof mcpRestoreTransactionRe
 const mcpCreateCategoryCoreSchema = z.object({
   circleRef: mcpCircleRefSchema,
   name: categoryInputSchema.shape.name,
-  type: categoryInputSchema.shape.type,
+  type: categoryInputSchema.shape.type.describe(
+    "expense or income — must match Transactions that will use this Category.",
+  ),
   color: categoryInputSchema.shape.color,
 });
 
