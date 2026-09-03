@@ -5,5 +5,8 @@ MCP_WORKER_HMAC_SECRET=<random-secret>
 MCP_WORKER_SIGNING_PRIVATE_JWK=<private-jwk-json>
 # Optional, temporary: enables POST /admin/oauth/clients. Remove after use.
 # MCP_CLIENT_PROVISIONING_TOKEN=<random-secret>
+# These override wrangler.jsonc `vars` for local wrangler only (vitest pins its own).
 APP_ORIGIN=http://127.0.0.1:5173
+# Default: self-hosted Convex HTTP site (scripts/e2e-local.sh / local Docker).
+# For cloud Convex, use your deployment's *.convex.site URL instead.
 CONVEX_SITE_URL=http://127.0.0.1:3211

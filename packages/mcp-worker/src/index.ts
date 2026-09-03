@@ -4,7 +4,7 @@ import {
   MCP_JSON_MAX_BODY_BYTES,
   MCP_TOKEN_MAX_BODY_BYTES,
 } from "./bounded-body.js";
-import type { Env } from "./env.js";
+import { type Env, withWorkersOauthKv } from "./env.js";
 import { createOAuthProvider } from "./oauth-options.js";
 import {
   assertWithinRateLimit,
@@ -68,7 +68,9 @@ function payloadTooLargeJson() {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // Per-request provider so tokenExchangeCallback closes over live `env`
-    // (the callback API has no env arg).
+    // (the callback API has no env arg). Alias POCKET_CIRCLE_OAUTH_KV → OAUTH_KV
+    // for @cloudflare/workers-oauth-provider, which hardcodes that binding name.
+    const oauthEnv = withWorkersOauthKv(env);
     const provider = createOAuthProvider(env, defaultHandler, new URL(request.url).origin);
     const url = new URL(request.url);
     const ip = clientIpOf(request) ?? "unknown";
@@ -148,7 +150,7 @@ export default {
         });
         return oauthRateLimitedResponse();
       }
-      const response = await provider.fetch(request, env, ctx);
+      const response = await provider.fetch(request, oauthEnv, ctx);
       if (response.status === 400 || response.status === 401) {
         const limited = await enforceFailedAuthLimit(env, request, {
           event: "token_exchange",
@@ -161,7 +163,7 @@ export default {
       return response;
     }
 
-    const response = await provider.fetch(request, env, ctx);
+    const response = await provider.fetch(request, oauthEnv, ctx);
     // Count only presented-but-invalid credentials — bare challenges start OAuth discovery.
     if (
       url.pathname === "/mcp" &&
@@ -179,6 +181,6 @@ export default {
     return response;
   },
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
-    await createOAuthProvider(env, defaultHandler).purgeExpiredData(env);
+    await createOAuthProvider(env, defaultHandler).purgeExpiredData(withWorkersOauthKv(env));
   },
 } satisfies ExportedHandler<Env>;

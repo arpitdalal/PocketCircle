@@ -13,9 +13,11 @@
     "crons": ["0 3 * * *"]
   },
   "kv_namespaces": [
-    // Production deploy.yml substitutes MCP_OAUTH_KV_NAMESPACE_ID. Local wrangler
-    // dev / vitest provision a namespace from this binding without Cloudflare.
-    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }
+    // Binding name is account-scoped. Production deploy.yml substitutes
+    // MCP_OAUTH_KV_NAMESPACE_ID. Local wrangler dev / vitest provision a
+    // namespace from this binding without Cloudflare. The OAuth library still
+    // reads env.OAUTH_KV — Worker code aliases via withWorkersOauthKv.
+    { "binding": "POCKET_CIRCLE_OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID" }
   ],
   "durable_objects": {
     "bindings": [{ "name": "HANDOFF_STORE", "class_name": "HandoffStore" }]

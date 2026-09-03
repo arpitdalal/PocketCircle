@@ -166,13 +166,17 @@ MCP_OAUTH_KV_NAMESPACE_ID=<cloudflare-kv-namespace-id>
 VITE_MCP_WORKER_ORIGIN=https://pocketcircle-mcp-worker.<workers-subdomain>.workers.dev
 ```
 
-Create the OAuth namespace once with the production Cloudflare account selected:
+Create the OAuth namespace once with the production Cloudflare account selected
+(title is account-scoped; the Worker binds it as `POCKET_CIRCLE_OAUTH_KV`):
 
 ```sh
-pnpm --filter @pocketcircle/mcp-worker exec wrangler kv namespace create OAUTH_KV
+pnpm --filter @pocketcircle/mcp-worker exec wrangler kv namespace create POCKET_CIRCLE_OAUTH_KV
 ```
 
-Copy the returned namespace ID into `MCP_OAUTH_KV_NAMESPACE_ID`. The MCP Worker
+Copy the returned namespace ID into the GitHub Actions variable
+`MCP_OAUTH_KV_NAMESPACE_ID` (repo or `production` environment — deploy reads
+`vars.MCP_OAUTH_KV_NAMESPACE_ID`). Do not hardcode the id in `wrangler.jsonc`;
+the deploy workflow substitutes the placeholder at release time. The MCP Worker
 name is `pocketcircle-mcp-worker`; use its assigned `workers.dev` origin for
 `VITE_MCP_WORKER_ORIGIN`. The custom `mcp.pocketcircle.app` domain stays disabled
 in this release. The first MCP deployment creates the Durable Object namespace
