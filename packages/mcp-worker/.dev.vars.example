@@ -12,3 +12,9 @@ APP_ORIGIN=http://127.0.0.1:5173
 CONVEX_SITE_URL=https://<your-deployment>.convex.site
 # Self-hosted Docker only (scripts/e2e-local.sh / local backend on :3211):
 # CONVEX_SITE_URL=http://127.0.0.1:3211
+# Cursor / local MCP OAuth: wrangler remaps request URL+Host to the custom
+# domain, so pin issuer/resource to the URL you put in mcp.json.
+MCP_ISSUER=http://127.0.0.1:8788
+MCP_RESOURCE_URI=http://127.0.0.1:8788/mcp
+# Opt-in private-use redirect schemes for DCR (comma-separated). See research note.
+MCP_DCR_ALLOWED_SCHEMES=cursor,vscode

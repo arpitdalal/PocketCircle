@@ -16,6 +16,11 @@ export default defineProject({
           MCP_WORKER_SIGNING_PRIVATE_JWK:
             '{"key_ops":["sign"],"ext":true,"kty":"EC","x":"pUT8Qgi_S3CzQeEpsVsOpOWQtHQffFeyQnrDn0Ez_hM","y":"ZJUnZqOxoZZmmnrivG1fFpw7BfeHBEfGGoVA2Y0Q7Vo","crv":"P-256","d":"HQgOJVhMah1F2_TIH_2T3tSXYMUxMCYx_0trUiMrpVI","kid":"test-current","alg":"ES256"}',
           MCP_CLIENT_PROVISIONING_TOKEN: "test-client-provisioning-token-at-least-32-bytes",
+          // Empty clears Cursor-local pins from `.dev.vars` (see .dev.vars.example).
+          MCP_ISSUER: "",
+          MCP_RESOURCE_URI: "",
+          // Matches wrangler.jsonc prod default so Cursor-like DCR tests pass.
+          MCP_DCR_ALLOWED_SCHEMES: "cursor,vscode",
         },
       },
     }),

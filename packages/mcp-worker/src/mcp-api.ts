@@ -1007,7 +1007,9 @@ export function createMcpApiHandler(env: Env) {
     }
 
     return createMcpHandler((mcpContext) => buildMcpServer(env, mcpContext.requestInfo), {
-      legacy: "reject",
+      // Cursor (and other 2025-era clients) still speak 2025-11-25; agents SDK
+      // routes those to a legacy-compat lane. Modern 2026-07-28 stays default.
+      legacy: "stateless",
       allowedHostnames: Array.from(allowedHostnames),
       allowedOriginHostnames: Array.from(allowedOriginHostnames),
     });

@@ -17,6 +17,7 @@ import {
   unauthenticatedIpRateLimitMaterial,
   unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
+import { publicWorkerOrigin, requestWithPublicOrigin } from "./reachable.js";
 import { mcpLog } from "./safe-log.js";
 
 export { HandoffStore } from "./handoff-store.js";
@@ -71,9 +72,13 @@ export default {
     // Per-request provider so tokenExchangeCallback closes over live `env`
     // (the callback API has no env arg). Alias POCKET_CIRCLE_OAUTH_KV → OAUTH_KV
     // for @cloudflare/workers-oauth-provider, which hardcodes that binding name.
+    // Rewrite URL when wrangler remapped custom_domain but client dialed loopback.
+    // Prefer MCP_ISSUER — local wrangler also rewrites Host to the custom domain.
+    const publicOrigin = publicWorkerOrigin(env, request);
+    const publicRequest = requestWithPublicOrigin(request, publicOrigin);
     const oauthEnv = withWorkersOauthKv(env);
-    const provider = createOAuthProvider(env, defaultHandler, new URL(request.url).origin);
-    const url = new URL(request.url);
+    const provider = createOAuthProvider(env, defaultHandler, publicOrigin);
+    const url = new URL(publicRequest.url);
     const ip = clientIpOf(request) ?? "unknown";
 
     // Skip OAuth/KV once failed-auth already throttled this IP.
@@ -98,14 +103,14 @@ export default {
     }
 
     // Bound /mcp before OAuth dispatch so oversized bodies never spend KV auth work.
-    if (url.pathname === "/mcp" && request.method === "POST") {
-      if (!(await assertClonedBodyWithinLimit(request, MCP_JSON_MAX_BODY_BYTES))) {
+    if (url.pathname === "/mcp" && publicRequest.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(publicRequest, MCP_JSON_MAX_BODY_BYTES))) {
         return payloadTooLargeJson();
       }
     }
 
-    if (url.pathname === "/token" && request.method === "POST") {
-      if (!(await assertClonedBodyWithinLimit(request, MCP_TOKEN_MAX_BODY_BYTES))) {
+    if (url.pathname === "/token" && publicRequest.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(publicRequest, MCP_TOKEN_MAX_BODY_BYTES))) {
         return new Response(
           JSON.stringify({
             error: "invalid_request",
@@ -132,7 +137,7 @@ export default {
         });
         return oauthRateLimitedResponse();
       }
-      const clientId = await clientIdFromTokenForm(request);
+      const clientId = await clientIdFromTokenForm(publicRequest);
       const withinLimit = await assertWithinRateLimit(
         env,
         "token",
@@ -151,9 +156,9 @@ export default {
         });
         return oauthRateLimitedResponse();
       }
-      const response = await provider.fetch(request, oauthEnv, ctx);
+      const response = await provider.fetch(publicRequest, oauthEnv, ctx);
       if (response.status === 400 || response.status === 401) {
-        const limited = await enforceFailedAuthLimit(env, request, {
+        const limited = await enforceFailedAuthLimit(env, publicRequest, {
           event: "token_exchange",
           oauthShape: true,
         });
@@ -165,8 +170,8 @@ export default {
     }
 
     // DCR burns Free KV writes — bind body + IP gate before provider/KV work (#354).
-    if (url.pathname === "/oauth/register" && request.method === "POST") {
-      if (!(await assertClonedBodyWithinLimit(request, MCP_PROVISIONING_MAX_BODY_BYTES))) {
+    if (url.pathname === "/oauth/register" && publicRequest.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(publicRequest, MCP_PROVISIONING_MAX_BODY_BYTES))) {
         return new Response(
           JSON.stringify({
             error: "invalid_client_metadata",
@@ -194,14 +199,14 @@ export default {
       }
     }
 
-    const response = await provider.fetch(request, oauthEnv, ctx);
+    const response = await provider.fetch(publicRequest, oauthEnv, ctx);
     // Count only presented-but-invalid credentials — bare challenges start OAuth discovery.
     if (
       url.pathname === "/mcp" &&
       response.status === 401 &&
-      request.headers.get("authorization")
+      publicRequest.headers.get("authorization")
     ) {
-      const limited = await enforceFailedAuthLimit(env, request, {
+      const limited = await enforceFailedAuthLimit(env, publicRequest, {
         event: "mcp_request",
         oauthShape: false,
       });

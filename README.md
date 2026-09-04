@@ -77,7 +77,7 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 MCP (optional but required for Connections / consent locally):
 
 1. Set in root `.env.local` (see `.env.example`):
-   `VITE_MCP_WORKER_ORIGIN=http://127.0.0.1:8787`
+   `VITE_MCP_WORKER_ORIGIN=http://127.0.0.1:8788`
 2. Generate shared Worker↔Convex secrets and install the Convex-side verifiers
    on the cloud dev deployment (root `.env.local` is not read by Convex):
 
@@ -95,7 +95,12 @@ pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS
    (private JWK stays Worker-only). Set `CONVEX_SITE_URL` to the same value as root
    `VITE_CONVEX_SITE_URL` (your cloud `*.convex.site`). Use `http://127.0.0.1:3211`
    only with the self-hosted Docker backend. Keep `APP_ORIGIN` on the same port as
-   Vite (`localhost` and `127.0.0.1` are interchangeable for Worker CORS).
+   Vite (`localhost` and `127.0.0.1` are interchangeable for Worker CORS). Keep the
+   example `MCP_ISSUER` / `MCP_RESOURCE_URI` so Cursor against `:8788` gets matching
+   OAuth metadata (local wrangler remaps the custom domain into `request.url`).
+   Worker uses **8788** so Cursor can bind its OAuth loopback on **8787**.
+   `MCP_DCR_ALLOWED_SCHEMES` lists private-use redirect schemes for DCR
+   (`cursor,vscode` by default in wrangler / `.dev.vars.example`).
 
 ```sh
 pnpm dev
