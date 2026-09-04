@@ -8,7 +8,7 @@
   },
   "scripts": {
     "prepare": "lefthook install",
-    "dev": "pnpm run --parallel \"/^dev:(web|mcp|convex)$/\"",
+    "dev": "pnpm --parallel --filter @pocketcircle/web-app --filter @pocketcircle/mcp-worker --filter @pocketcircle/convex run dev",
     "dev:web": "pnpm --filter @pocketcircle/web-app dev",
     "dev:web:mocks": "pnpm --filter @pocketcircle/web-app dev:mocks",
     "dev:mcp": "pnpm --filter @pocketcircle/mcp-worker dev",
