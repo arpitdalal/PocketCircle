@@ -75,8 +75,11 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 ## Run App
 
 ```sh
-pnpm --filter @pocketcircle/web-app dev --host 127.0.0.1
+pnpm dev
 ```
+
+Runs the web app, MCP Worker, and Convex together (`dev:web`, `dev:mcp`, `dev:convex`).
+For web only: `pnpm dev:web`. MCP alone: `pnpm dev:mcp`.
 
 Open:
 
@@ -86,10 +89,10 @@ http://127.0.0.1:5173/
 
 In normal local dev, `Continue with Google` starts the real Google OAuth flow against real vendors, so authentication is exercised before production.
 
-To bypass auth and mock third-party vendors (Resend, PostHog, Sentry) via MSW, run mock mode with the `VITE_MOCKS` flag:
+To bypass auth and mock third-party vendors (Resend, PostHog, Sentry) via MSW:
 
 ```sh
-pnpm --filter @pocketcircle/web-app dev:mocks --host 127.0.0.1
+pnpm dev:web:mocks -- --host 127.0.0.1
 ```
 
 ## Checks
@@ -163,7 +166,7 @@ production deployment:
 VITE_CONVEX_URL=https://<production-deployment>.convex.cloud
 VITE_CONVEX_SITE_URL=https://<production-deployment>.convex.site
 MCP_OAUTH_KV_NAMESPACE_ID=<cloudflare-kv-namespace-id>
-VITE_MCP_WORKER_ORIGIN=https://pocketcircle-mcp-worker.<workers-subdomain>.workers.dev
+VITE_MCP_WORKER_ORIGIN=https://mcp.pocketcircle.app
 ```
 
 Create the OAuth namespace once with the production Cloudflare account selected
@@ -177,9 +180,9 @@ Copy the returned namespace ID into the GitHub Actions variable
 `MCP_OAUTH_KV_NAMESPACE_ID` (repo or `production` environment — deploy reads
 `vars.MCP_OAUTH_KV_NAMESPACE_ID`). Do not hardcode the id in `wrangler.jsonc`;
 the deploy workflow substitutes the placeholder at release time. The MCP Worker
-name is `pocketcircle-mcp-worker`; use its assigned `workers.dev` origin for
-`VITE_MCP_WORKER_ORIGIN`. The custom `mcp.pocketcircle.app` domain stays disabled
-in this release. The first MCP deployment creates the Durable Object namespace
+name is `pocketcircle-mcp-worker`. Production clients use custom domain
+`https://mcp.pocketcircle.app` (`VITE_MCP_WORKER_ORIGIN`); `workers.dev` stays
+enabled for rollback. The first MCP deployment creates the Durable Object namespace
 and daily cleanup cron from `wrangler.jsonc`; KV is the only manually provisioned
 resource. The workflow binds the Worker to `VITE_CONVEX_SITE_URL`. Do not hardcode
 a guessed `*.convex.site` host in `packages/mcp-worker/wrangler.jsonc`.
@@ -190,7 +193,7 @@ fresh token containing at least 32 random bytes, then remove the secret so the
 route returns `404`:
 
 ```sh
-MCP_WORKER_ORIGIN="https://pocketcircle-mcp-worker.<workers-subdomain>.workers.dev"
+MCP_WORKER_ORIGIN="https://mcp.pocketcircle.app"
 MCP_PROVISIONING_TOKEN="$(openssl rand -base64 32)"
 printf '%s' "${MCP_PROVISIONING_TOKEN}" \
   | pnpm --filter @pocketcircle/mcp-worker exec wrangler secret put MCP_CLIENT_PROVISIONING_TOKEN

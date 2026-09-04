@@ -29,6 +29,65 @@ beforeEach(() => {
 });
 
 describe("Connections", () => {
+  it("always shows connect steps and a copyable MCP server URL", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [makeMcpConnectionView()],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByText(/Paste this URL into Claude, Cursor/i)).toBeVisible();
+    expect(screen.getByText(/Add a remote MCP server and paste the URL above/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+  });
+
+  it("keeps connect instructions when the ledger is empty", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "No connected assistants yet" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+  });
+
+  it("puts cleanup-pending revoked connections under Action needed", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [
+        makeMcpConnectionView({
+          id: "c-cleanup",
+          clientName: "Needs Cleanup",
+          status: "revoked",
+          workerCleanupStatus: "pending_revoke",
+        }),
+        makeMcpConnectionView({
+          id: "c-active",
+          clientName: "Live Client",
+          status: "active",
+        }),
+        makeMcpConnectionView({
+          id: "c-done",
+          clientName: "Fully Revoked",
+          status: "revoked",
+          workerCleanupStatus: "completed",
+        }),
+      ],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Action needed" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Connected" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Revoked \(1\)/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Finish cleanup" })).toBeVisible();
+    expect(screen.getByText("Live Client")).toBeVisible();
+    expect(screen.queryByText("Fully Revoked")).not.toBeInTheDocument();
+  });
+
   it("lists safe connection metadata without credential fields", async () => {
     const connection = makeMcpConnectionView();
     configureConvex({
@@ -78,7 +137,7 @@ describe("Connections", () => {
     workerFetch.mockRestore();
   });
 
-  it("does not claim Worker cleanup finished when exhausted retry cannot run", async () => {
+  it("does not claim finish cleanup succeeded when exhausted retry cannot run", async () => {
     const revokeMcpConnection = vi.fn().mockResolvedValue({
       ok: true,
       value: { cleanupToken: null, cleanupStatus: "exhausted" },
@@ -95,13 +154,13 @@ describe("Connections", () => {
     const user = userEvent.setup();
     renderConnections();
 
-    await user.click(await screen.findByRole("button", { name: "Retry cleanup" }));
+    await user.click(await screen.findByRole("button", { name: "Finish cleanup" }));
 
     await waitFor(() => {
       expect(revokeMcpConnection).toHaveBeenCalledWith({ connectionId: connection.id });
     });
     expect(
-      await screen.findByText("PocketCircle access revoked; Worker cleanup is pending."),
+      await screen.findByText("Access revoked. Finishing with the assistant is still pending."),
     ).toBeVisible();
     expect(screen.queryByText("Connection revoked.")).not.toBeInTheDocument();
   });

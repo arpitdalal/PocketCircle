@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { screen } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -27,6 +30,35 @@ async function openAccountMenu(u: UserEvent) {
   await u.click(screen.getByRole("button", { name: "Account menu" }));
 }
 
+function countAccountMenuNewBadgeMounts() {
+  const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const marker = /<AccountMenuNewBadge\b/g;
+  let total = 0;
+
+  function walk(dir: string) {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === "dist") {
+        continue;
+      }
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/\.(tsx|ts|jsx|js)$/.test(name) || /\.test\./.test(name)) {
+        continue;
+      }
+      const matches = readFileSync(path, "utf8").match(marker);
+      if (matches) {
+        total += matches.length;
+      }
+    }
+  }
+
+  walk(appRoot);
+  return total;
+}
+
 describe("AccountMenu", () => {
   const user = {
     id: "u1",
@@ -38,6 +70,10 @@ describe("AccountMenu", () => {
     createdAt: 1,
     acknowledgedFeatureAnnouncementIds: [],
   };
+
+  it("keeps at most one AccountMenuNewBadge mount across the web app", () => {
+    expect(countAccountMenuNewBadgeMounts()).toBeLessThanOrEqual(1);
+  });
 
   it("opens the menu and navigates to Settings", async () => {
     const u = userEvent.setup();
@@ -75,13 +111,26 @@ describe("AccountMenu", () => {
       initialEntries: ["/"],
     });
     await openAccountMenu(u);
-    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
-      "Settings",
-      "Connections",
-      "What's new",
-      "Send feedback",
-      "Sign out",
-    ]);
+    expect(
+      (await screen.findAllByRole("menuitem")).map((item) =>
+        (item.textContent ?? "").replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["Settings", "ConnectionsNew", "What's new", "Send feedback", "Sign out"]);
+  });
+
+  it("badges Connections as New while that feature owns the account-menu slot", async () => {
+    const u = userEvent.setup();
+    const view = renderRoutes(
+      <>
+        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
+        <Route path="/connections" element={<div>connections-screen</div>} />
+      </>,
+      { initialEntries: ["/"] },
+    );
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: /Connections/ }));
+    expect(view.location()).toBe("/connections");
+    expect(await screen.findByText("connections-screen")).toBeInTheDocument();
   });
 
   it("navigates Send feedback to the global /feedback route", async () => {

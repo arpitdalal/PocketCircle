@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
 import { Avatar } from "~/components/ui/avatar.js";
+import { Badge } from "~/components/ui/badge.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { signOut } from "~/lib/auth-client.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
@@ -15,8 +16,17 @@ const menuItemClass =
   "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground outline-none select-none data-disabled:cursor-default data-disabled:opacity-70 data-highlighted:bg-muted/60";
 
 /**
+ * Single-slot “New” affordance for one account-menu link at a time.
+ * Move this element when another feature should own the badge; never mount twice.
+ * Guarded by the at-most-one mount test in `account-menu.test.tsx`.
+ */
+function AccountMenuNewBadge() {
+  return <Badge variant="soft">New</Badge>;
+}
+
+/**
  * Header account control: avatar trigger opens a Base UI `Menu` with identity,
- * Settings, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
+ * Settings, Connections, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
  * Sign out (ADR 0019 / issue #124). Send feedback is always the global route;
  * Circle-scoped origins only carry `returnTo` so Back can restore them. Circle
  * chrome owns contextual Feedback.
@@ -77,11 +87,15 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               Settings
             </Menu.LinkItem>
             <Menu.LinkItem
-              className={menuItemClass}
+              className={`${menuItemClass} justify-between`}
               closeOnClick
               render={<Link to="/connections" prefetch="intent" />}
             >
+              {/* TODO(account-menu-new-badge): Remove AccountMenuNewBadge when the next
+                  feature claims this slot. At most one mount — see
+                  account-menu.test.tsx. */}
               Connections
+              <AccountMenuNewBadge />
             </Menu.LinkItem>
             <Menu.LinkItem
               className={menuItemClass}
