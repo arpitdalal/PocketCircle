@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
 import { Avatar } from "~/components/ui/avatar.js";
+import { Badge } from "~/components/ui/badge.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { signOut } from "~/lib/auth-client.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
@@ -14,9 +15,29 @@ import { cn } from "~/lib/utils.js";
 const menuItemClass =
   "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground outline-none select-none data-disabled:cursor-default data-disabled:opacity-70 data-highlighted:bg-muted/60";
 
+type AccountMenuItemId = "settings" | "connections" | "whats-new" | "feedback" | "install";
+
+/**
+ * Single-slot “New” owner in the account menu. Flip this when another item
+ * should own the badge; never set more than one owner. Menu items call
+ * `accountMenuNewBadge` so ownership stays in one place.
+ */
+const ACCOUNT_MENU_NEW_FOR: AccountMenuItemId = "connections";
+
+function accountMenuNewBadge(item: AccountMenuItemId) {
+  if (item !== ACCOUNT_MENU_NEW_FOR) {
+    return null;
+  }
+  return (
+    <Badge variant="soft" data-account-menu-new="true">
+      New
+    </Badge>
+  );
+}
+
 /**
  * Header account control: avatar trigger opens a Base UI `Menu` with identity,
- * Settings, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
+ * Settings, Connections, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
  * Sign out (ADR 0019 / issue #124). Send feedback is always the global route;
  * Circle-scoped origins only carry `returnTo` so Back can restore them. Circle
  * chrome owns contextual Feedback.
@@ -77,11 +98,14 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               Settings
             </Menu.LinkItem>
             <Menu.LinkItem
-              className={menuItemClass}
+              className={`${menuItemClass} justify-between`}
               closeOnClick
               render={<Link to="/connections" prefetch="intent" />}
             >
+              {/* TODO(account-menu-new-badge): Flip ACCOUNT_MENU_NEW_FOR when another
+                  feature claims this slot. */}
               Connections
+              {accountMenuNewBadge("connections")}
             </Menu.LinkItem>
             <Menu.LinkItem
               className={menuItemClass}

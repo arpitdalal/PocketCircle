@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mcpWorkerOrigin, posthogHost, posthogKey } from "./env.js";
+import { mcpServerUrl, mcpWorkerOrigin, posthogHost, posthogKey } from "./env.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -47,6 +47,13 @@ describe("mcpWorkerOrigin", () => {
     expect(mcpWorkerOrigin()).toBeUndefined();
     vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "");
     expect(mcpWorkerOrigin()).toBeUndefined();
+  });
+
+  it("builds the /mcp resource URL from the Worker origin", () => {
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "https://mcp.pocketcircle.app");
+    expect(mcpServerUrl()).toBe("https://mcp.pocketcircle.app/mcp");
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "");
+    expect(mcpServerUrl()).toBeUndefined();
   });
 });
 

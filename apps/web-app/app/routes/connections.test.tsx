@@ -2,14 +2,20 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { McpConnection } from "~/lib/data.js";
 import { SnackbarProvider } from "~/lib/snackbar.js";
 import {
   configureConvex,
   convexReactMock,
   makeCurrentUserView,
   makeMcpConnectionView,
+  testId,
 } from "~/test/convex-react.js";
 import Connections from "./connections.js";
+
+function connectionId(value: string) {
+  return testId<McpConnection["id"]>(value);
+}
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -29,6 +35,106 @@ beforeEach(() => {
 });
 
 describe("Connections", () => {
+  it("always shows connect steps and a copyable MCP server URL", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [makeMcpConnectionView()],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByText(/Paste this URL into Claude, Cursor/i)).toBeVisible();
+    expect(screen.getByText(/Add a remote MCP server and paste the URL above/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy MCP server URL" })).toBeEnabled();
+    expect(screen.getByText(/Never paste API keys or tokens into chat to connect/i)).toBeVisible();
+  });
+
+  it("keeps connect instructions when the ledger is empty", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "No connected assistants yet" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+  });
+
+  it("keeps the connect panel while the ledger is still loading", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [],
+      mcpConnectionsStatus: "LoadingFirstPage",
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByLabelText("Loading connections")).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("puts cleanup-pending revoked connections under Action needed", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [
+        makeMcpConnectionView({
+          id: connectionId("c-cleanup"),
+          clientName: "Needs Cleanup",
+          status: "revoked",
+          workerCleanupStatus: "pending_revoke",
+        }),
+        makeMcpConnectionView({
+          id: connectionId("c-active"),
+          clientName: "Live Client",
+          status: "active",
+        }),
+        makeMcpConnectionView({
+          id: connectionId("c-done"),
+          clientName: "Fully Revoked",
+          status: "revoked",
+          workerCleanupStatus: "completed",
+        }),
+      ],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Action needed" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Connected" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Revoked \(1\)/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Finish cleanup" })).toBeVisible();
+    expect(screen.getByText("Live Client")).toBeVisible();
+    expect(screen.queryByText("Fully Revoked")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the empty ledger when only completed revocations remain", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [
+        makeMcpConnectionView({
+          id: connectionId("c-done"),
+          clientName: "Fully Revoked",
+          status: "revoked",
+          workerCleanupStatus: "completed",
+        }),
+      ],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("button", { name: /Revoked \(1\)/ })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connected" })).not.toBeInTheDocument();
+  });
+
   it("lists safe connection metadata without credential fields", async () => {
     const connection = makeMcpConnectionView();
     configureConvex({
@@ -78,7 +184,7 @@ describe("Connections", () => {
     workerFetch.mockRestore();
   });
 
-  it("does not claim Worker cleanup finished when exhausted retry cannot run", async () => {
+  it("does not claim finish cleanup succeeded when exhausted retry cannot run", async () => {
     const revokeMcpConnection = vi.fn().mockResolvedValue({
       ok: true,
       value: { cleanupToken: null, cleanupStatus: "exhausted" },
@@ -95,13 +201,13 @@ describe("Connections", () => {
     const user = userEvent.setup();
     renderConnections();
 
-    await user.click(await screen.findByRole("button", { name: "Retry cleanup" }));
+    await user.click(await screen.findByRole("button", { name: "Finish cleanup" }));
 
     await waitFor(() => {
       expect(revokeMcpConnection).toHaveBeenCalledWith({ connectionId: connection.id });
     });
     expect(
-      await screen.findByText("PocketCircle access revoked; Worker cleanup is pending."),
+      await screen.findByText("Access revoked. Finishing with the assistant is still pending."),
     ).toBeVisible();
     expect(screen.queryByText("Connection revoked.")).not.toBeInTheDocument();
   });

@@ -79,10 +79,11 @@ export function InputGroupAddon({
         if (e.key !== "Enter" && e.key !== " ") {
           return;
         }
-        e.preventDefault();
+        // Descendant buttons must keep native Enter/Space activation (Copy, etc.).
         if (e.target instanceof Element && e.target.closest("button")) {
           return;
         }
+        e.preventDefault();
         e.currentTarget.parentElement?.querySelector("input")?.focus();
       }}
       {...props}

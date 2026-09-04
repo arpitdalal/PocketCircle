@@ -8,6 +8,7 @@ import {
 } from "@pocketcircle/domain";
 import { z } from "zod";
 import { MCP_JSON_MAX_BODY_BYTES, readBoundedJson } from "./bounded-body.js";
+import { browserOriginAllowed } from "./browser-origin.js";
 import { handleClientProvisioning } from "./client-provisioning.js";
 import { completeRevocation } from "./convex-bridge.js";
 import type { Env } from "./env.js";
@@ -46,9 +47,13 @@ const revokeRequestSchema = z.object({
   revocationToken: z.string().min(1),
 });
 
-function corsHeaders(env: Env) {
+function corsHeaders(env: Env, requestOriginHeader: string | null) {
+  const allowOrigin =
+    requestOriginHeader && browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN)
+      ? requestOriginHeader
+      : env.APP_ORIGIN;
   return {
-    "access-control-allow-origin": env.APP_ORIGIN,
+    "access-control-allow-origin": allowOrigin,
     "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
@@ -56,10 +61,13 @@ function corsHeaders(env: Env) {
   };
 }
 
-function jsonResponse(status: number, body: unknown, env: Env) {
+function jsonResponse(status: number, body: unknown, env: Env, request: Request) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json", ...corsHeaders(env) },
+    headers: {
+      "content-type": "application/json",
+      ...corsHeaders(env, request.headers.get("origin")),
+    },
   });
 }
 
@@ -229,25 +237,25 @@ async function handleAuthorizeStart(request: Request, env: Env) {
 async function handleLoadHandoff(request: Request, env: Env) {
   const handoffId = new URL(request.url).searchParams.get("id");
   if (!handoffId || !MCP_HANDOFF_ID_REGEX.test(handoffId)) {
-    return jsonResponse(400, { error: "missing_handoff_id" }, env);
+    return jsonResponse(400, { error: "missing_handoff_id" }, env, request);
   }
   const result = await loadOrResumeHandoff(env.HANDOFF_STORE, handoffId, requestOrigin(request));
   if (result.kind === "handoff") {
-    return jsonResponse(200, { handoff: result.handoff }, env);
+    return jsonResponse(200, { handoff: result.handoff }, env, request);
   }
   if (result.kind === "completed") {
-    return jsonResponse(200, { redirectTo: result.redirectTo }, env);
+    return jsonResponse(200, { redirectTo: result.redirectTo }, env, request);
   }
   if (result.kind === "failed") {
-    return jsonResponse(result.retryable ? 503 : 400, result, env);
+    return jsonResponse(result.retryable ? 503 : 400, result, env, request);
   }
-  return jsonResponse(400, { error: "handoff_expired_or_replayed" }, env);
+  return jsonResponse(400, { error: "handoff_expired_or_replayed" }, env, request);
 }
 
 async function handleComplete(request: Request, env: Env) {
   const parsed = completeRequestSchema.safeParse(await readBody(request));
   if (!parsed.success) {
-    return jsonResponse(400, { error: "missing_authorization_completion" }, env);
+    return jsonResponse(400, { error: "missing_authorization_completion" }, env, request);
   }
   const { approvalToken, handoffId } = parsed.data;
 
@@ -258,7 +266,7 @@ async function handleComplete(request: Request, env: Env) {
     requestOrigin(request),
   );
   if (completion.kind === "completed") {
-    return jsonResponse(200, { redirectTo: completion.redirectTo }, env);
+    return jsonResponse(200, { redirectTo: completion.redirectTo }, env, request);
   }
   const error =
     completion.kind === "expired"
@@ -267,39 +275,44 @@ async function handleComplete(request: Request, env: Env) {
         ? completion.error
         : completion.kind;
   const retryable = completion.kind === "failed" && completion.retryable;
-  return jsonResponse(retryable ? 503 : 400, { error, retryable }, env);
+  return jsonResponse(retryable ? 503 : 400, { error, retryable }, env, request);
 }
 
 async function handleDeny(request: Request, env: Env) {
   const parsed = denyRequestSchema.safeParse(await readBody(request));
   if (!parsed.success) {
-    return jsonResponse(400, { error: "missing_handoff_id" }, env);
+    return jsonResponse(400, { error: "missing_handoff_id" }, env, request);
   }
   const { handoffId } = parsed.data;
 
   const denied = await denyHandoffAuthorization(env.HANDOFF_STORE, handoffId);
   if (!denied.ok) {
-    return jsonResponse(400, { error: denied.error }, env);
+    return jsonResponse(400, { error: denied.error }, env, request);
   }
 
-  return jsonResponse(200, { redirectTo: denied.redirectTo }, env);
+  return jsonResponse(200, { redirectTo: denied.redirectTo }, env, request);
 }
 
 /** Convex has already failed closed; this removes the complete linked Worker grant. */
 async function handleRevoke(request: Request, env: Env) {
   const parsed = revokeRequestSchema.safeParse(await readBody(request));
   if (!parsed.success) {
-    return jsonResponse(400, { error: "missing_revocation_token" }, env);
+    return jsonResponse(400, { error: "missing_revocation_token" }, env, request);
   }
   const payload = await verifyMcpRevocation(parsed.data.revocationToken, mcpWorkerHmacSecrets(env));
   if (!payload) {
-    return jsonResponse(400, { error: "invalid_revocation_token" }, env);
+    return jsonResponse(400, { error: "invalid_revocation_token" }, env, request);
   }
 
   try {
     await env.OAUTH_PROVIDER.revokeGrant(payload.workerGrantId, payload.principalId);
   } catch {
-    return jsonResponse(503, { error: "worker_cleanup_unavailable", retryable: true }, env);
+    return jsonResponse(
+      503,
+      { error: "worker_cleanup_unavailable", retryable: true },
+      env,
+      request,
+    );
   }
 
   const completed = await completeRevocation(env, {
@@ -312,9 +325,10 @@ async function handleRevoke(request: Request, env: Env) {
       completed.retryable ? 503 : 400,
       { error: completed.error, retryable: completed.retryable },
       env,
+      request,
     );
   }
-  return jsonResponse(200, { revoked: true }, env);
+  return jsonResponse(200, { revoked: true }, env, request);
 }
 
 export const defaultHandler = {
@@ -324,16 +338,20 @@ export const defaultHandler = {
       return provisioning;
     }
     const url = new URL(request.url);
+    const requestOriginHeader = request.headers.get("origin");
     const browserEndpoint =
       url.pathname === "/authorize/complete" ||
       url.pathname === "/authorize/deny" ||
       url.pathname === "/authorize/handoff" ||
       url.pathname === "/revoke";
-    if (browserEndpoint && request.headers.get("origin") !== env.APP_ORIGIN) {
+    if (browserEndpoint && !browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN)) {
       return new Response("Forbidden", { status: 403, headers: { "cache-control": "no-store" } });
     }
     if (browserEndpoint && request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders(env) });
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(env, requestOriginHeader),
+      });
     }
     if (url.pathname === "/authorize" && request.method === "GET") {
       return handleAuthorizeStart(request, env);

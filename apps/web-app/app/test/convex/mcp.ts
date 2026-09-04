@@ -9,12 +9,19 @@ export interface McpState {
   /** `parseMcpHandoff` — `undefined` ≡ loading, `null` ≡ invalid/expired. */
   mcpHandoff?: McpHandoffView | null;
   mcpConnections?: McpConnection[];
+  mcpConnectionsStatus?: PaginatedPage["status"];
   approveMcpAuthorization?: Mock;
   revokeMcpConnection?: Mock;
 }
 
 export function mcpDouble(state: McpState) {
-  const { mcpHandoff, mcpConnections, approveMcpAuthorization, revokeMcpConnection } = state;
+  const {
+    mcpHandoff,
+    mcpConnections,
+    mcpConnectionsStatus,
+    approveMcpAuthorization,
+    revokeMcpConnection,
+  } = state;
   return {
     queries: {
       [getFunctionName(api.mcpConsent.parseMcpHandoff)]: () => mcpHandoff,
@@ -23,7 +30,7 @@ export function mcpDouble(state: McpState) {
       [getFunctionName(api.mcpConnections.listMcpConnections)]: () =>
         ({
           results: mcpConnections ?? [],
-          status: "Exhausted",
+          status: mcpConnectionsStatus ?? "Exhausted",
           loadMore: () => {},
         }) satisfies PaginatedPage,
     },

@@ -4,8 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-11",
   "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
-  // Custom domain intentionally disabled until #318 is verified end-to-end.
+  // workers.dev kept for rollback/debug; production clients use the custom domain.
   "workers_dev": true,
+  "routes": [{ "pattern": "mcp.pocketcircle.app", "custom_domain": true }],
   // OAuth metadata is derived from the request origin. Preview aliases would
   // advertise alternate issuers and resources that are not production origins.
   "preview_urls": false,

@@ -54,6 +54,12 @@ export function mcpWorkerOrigin() {
   }
 }
 
+/** Streamable HTTP MCP resource URL clients paste (`{origin}/mcp`). */
+export function mcpServerUrl() {
+  const origin = mcpWorkerOrigin();
+  return origin ? `${origin}/mcp` : undefined;
+}
+
 /** Sentry DSN for client error monitoring (ADR 0012). Unset locally → init no-ops. */
 export const SENTRY_DSN = optionalEnvString(import.meta.env.VITE_SENTRY_DSN);
 

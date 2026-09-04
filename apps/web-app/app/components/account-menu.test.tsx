@@ -39,6 +39,18 @@ describe("AccountMenu", () => {
     acknowledgedFeatureAnnouncementIds: [],
   };
 
+  it("renders exactly one New badge on Connections while that item owns the slot", async () => {
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    const connections = await screen.findByRole("menuitem", { name: /Connections/ });
+    expect(connections.textContent?.replace(/\s+/g, " ").trim()).toBe("ConnectionsNew");
+    expect(document.querySelectorAll('[data-account-menu-new="true"]')).toHaveLength(1);
+    expect(connections.querySelector('[data-account-menu-new="true"]')).not.toBeNull();
+  });
+
   it("opens the menu and navigates to Settings", async () => {
     const u = userEvent.setup();
     const view = renderRoutes(
@@ -75,13 +87,26 @@ describe("AccountMenu", () => {
       initialEntries: ["/"],
     });
     await openAccountMenu(u);
-    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
-      "Settings",
-      "Connections",
-      "What's new",
-      "Send feedback",
-      "Sign out",
-    ]);
+    expect(
+      (await screen.findAllByRole("menuitem")).map((item) =>
+        (item.textContent ?? "").replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["Settings", "ConnectionsNew", "What's new", "Send feedback", "Sign out"]);
+  });
+
+  it("badges Connections as New while that feature owns the account-menu slot", async () => {
+    const u = userEvent.setup();
+    const view = renderRoutes(
+      <>
+        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
+        <Route path="/connections" element={<div>connections-screen</div>} />
+      </>,
+      { initialEntries: ["/"] },
+    );
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: /Connections/ }));
+    expect(view.location()).toBe("/connections");
+    expect(await screen.findByText("connections-screen")).toBeInTheDocument();
   });
 
   it("navigates Send feedback to the global /feedback route", async () => {

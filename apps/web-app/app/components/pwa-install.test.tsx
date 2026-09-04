@@ -185,7 +185,7 @@ describe("PWA install via AccountMenu", () => {
     ).not.toBeInTheDocument();
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
-      "Connections",
+      "ConnectionsNew",
       "What's new",
       "Send feedback",
       "Sign out",
@@ -280,7 +280,7 @@ describe("PWA install via AccountMenu", () => {
     await openAccountMenu(u);
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
       "Settings",
-      "Connections",
+      "ConnectionsNew",
       "What's new",
       "Install PocketCircle",
       "Send feedback",
