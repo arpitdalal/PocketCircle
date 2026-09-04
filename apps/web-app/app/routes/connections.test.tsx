@@ -2,14 +2,20 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { McpConnection } from "~/lib/data.js";
 import { SnackbarProvider } from "~/lib/snackbar.js";
 import {
   configureConvex,
   convexReactMock,
   makeCurrentUserView,
   makeMcpConnectionView,
+  testId,
 } from "~/test/convex-react.js";
 import Connections from "./connections.js";
+
+function connectionId(value: string) {
+  return testId<McpConnection["id"]>(value);
+}
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -61,18 +67,18 @@ describe("Connections", () => {
       currentUser: makeCurrentUserView(),
       mcpConnections: [
         makeMcpConnectionView({
-          id: "c-cleanup",
+          id: connectionId("c-cleanup"),
           clientName: "Needs Cleanup",
           status: "revoked",
           workerCleanupStatus: "pending_revoke",
         }),
         makeMcpConnectionView({
-          id: "c-active",
+          id: connectionId("c-active"),
           clientName: "Live Client",
           status: "active",
         }),
         makeMcpConnectionView({
-          id: "c-done",
+          id: connectionId("c-done"),
           clientName: "Fully Revoked",
           status: "revoked",
           workerCleanupStatus: "completed",
@@ -97,7 +103,7 @@ describe("Connections", () => {
       currentUser: makeCurrentUserView(),
       mcpConnections: [
         makeMcpConnectionView({
-          id: "c-done",
+          id: connectionId("c-done"),
           clientName: "Fully Revoked",
           status: "revoked",
           workerCleanupStatus: "completed",
