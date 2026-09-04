@@ -15,13 +15,24 @@ import { cn } from "~/lib/utils.js";
 const menuItemClass =
   "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground outline-none select-none data-disabled:cursor-default data-disabled:opacity-70 data-highlighted:bg-muted/60";
 
+type AccountMenuItemId = "settings" | "connections" | "whats-new" | "feedback" | "install";
+
 /**
- * Single-slot “New” affordance for one account-menu link at a time.
- * Move this element when another feature should own the badge; never mount twice.
- * Guarded by the at-most-one mount test in `account-menu.test.tsx`.
+ * Single-slot “New” owner in the account menu. Flip this when another item
+ * should own the badge; never set more than one owner. Menu items call
+ * `accountMenuNewBadge` so ownership stays in one place.
  */
-function AccountMenuNewBadge() {
-  return <Badge variant="soft">New</Badge>;
+const ACCOUNT_MENU_NEW_FOR: AccountMenuItemId = "connections";
+
+function accountMenuNewBadge(item: AccountMenuItemId) {
+  if (item !== ACCOUNT_MENU_NEW_FOR) {
+    return null;
+  }
+  return (
+    <Badge variant="soft" data-account-menu-new="true">
+      New
+    </Badge>
+  );
 }
 
 /**
@@ -91,11 +102,10 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               closeOnClick
               render={<Link to="/connections" prefetch="intent" />}
             >
-              {/* TODO(account-menu-new-badge): Remove AccountMenuNewBadge when the next
-                  feature claims this slot. At most one mount — see
-                  account-menu.test.tsx. */}
+              {/* TODO(account-menu-new-badge): Flip ACCOUNT_MENU_NEW_FOR when another
+                  feature claims this slot. */}
               Connections
-              <AccountMenuNewBadge />
+              {accountMenuNewBadge("connections")}
             </Menu.LinkItem>
             <Menu.LinkItem
               className={menuItemClass}

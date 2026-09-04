@@ -1043,6 +1043,30 @@ describe("MCP connection revocation", () => {
     expect(foreign.status).toBe(403);
   });
 
+  it("allows loopback Origin against the other loopback APP_ORIGIN on /revoke", async () => {
+    const loopbackEnv = { ...env, APP_ORIGIN: "http://127.0.0.1:5173" };
+    const allowed = await defaultHandler.fetch(
+      new Request("https://mcp.pocketcircle.app/revoke", {
+        method: "OPTIONS",
+        headers: { origin: "http://localhost:5173" },
+      }),
+      loopbackEnv,
+      createExecutionContext(),
+    );
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+
+    const blocked = await defaultHandler.fetch(
+      new Request("https://mcp.pocketcircle.app/revoke", {
+        method: "OPTIONS",
+        headers: { origin: "http://localhost:5173" },
+      }),
+      env,
+      createExecutionContext(),
+    );
+    expect(blocked.status).toBe(403);
+  });
+
   it("accepts service cleanup on /internal/revoke without a browser Origin", async () => {
     const revokeGrant = vi.spyOn(env.OAUTH_PROVIDER, "revokeGrant").mockResolvedValue(undefined);
     stubConvexFetch(() => Response.json({ ok: true }));

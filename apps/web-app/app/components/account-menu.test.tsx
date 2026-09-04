@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { screen } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -30,35 +27,6 @@ async function openAccountMenu(u: UserEvent) {
   await u.click(screen.getByRole("button", { name: "Account menu" }));
 }
 
-function countAccountMenuNewBadgeMounts() {
-  const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const marker = /<AccountMenuNewBadge\b/g;
-  let total = 0;
-
-  function walk(dir: string) {
-    for (const name of readdirSync(dir)) {
-      if (name === "node_modules" || name === "dist") {
-        continue;
-      }
-      const path = join(dir, name);
-      if (statSync(path).isDirectory()) {
-        walk(path);
-        continue;
-      }
-      if (!/\.(tsx|ts|jsx|js)$/.test(name) || /\.test\./.test(name)) {
-        continue;
-      }
-      const matches = readFileSync(path, "utf8").match(marker);
-      if (matches) {
-        total += matches.length;
-      }
-    }
-  }
-
-  walk(appRoot);
-  return total;
-}
-
 describe("AccountMenu", () => {
   const user = {
     id: "u1",
@@ -71,8 +39,16 @@ describe("AccountMenu", () => {
     acknowledgedFeatureAnnouncementIds: [],
   };
 
-  it("keeps at most one AccountMenuNewBadge mount across the web app", () => {
-    expect(countAccountMenuNewBadgeMounts()).toBeLessThanOrEqual(1);
+  it("renders exactly one New badge on Connections while that item owns the slot", async () => {
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    const connections = await screen.findByRole("menuitem", { name: /Connections/ });
+    expect(connections.textContent?.replace(/\s+/g, " ").trim()).toBe("ConnectionsNew");
+    expect(document.querySelectorAll('[data-account-menu-new="true"]')).toHaveLength(1);
+    expect(connections.querySelector('[data-account-menu-new="true"]')).not.toBeNull();
   });
 
   it("opens the menu and navigates to Settings", async () => {

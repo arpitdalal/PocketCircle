@@ -74,6 +74,15 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 
 ## Run App
 
+MCP (optional but required for Connections / consent locally):
+
+1. Uncomment and set in root `.env.local` (see `.env.example`):
+   `VITE_MCP_WORKER_ORIGIN=http://127.0.0.1:8787`
+2. `cp packages/mcp-worker/.dev.vars.example packages/mcp-worker/.dev.vars` and fill
+   `MCP_WORKER_HMAC_SECRET` / `MCP_WORKER_SIGNING_PRIVATE_JWK` to match the Convex
+   deployment; keep `APP_ORIGIN` on the same port as Vite (`localhost` and
+   `127.0.0.1` are interchangeable for Worker CORS).
+
 ```sh
 pnpm dev
 ```

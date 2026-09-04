@@ -62,6 +62,22 @@ describe("Connections", () => {
     expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
   });
 
+  it("keeps the connect panel while the ledger is still loading", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [],
+      mcpConnectionsStatus: "LoadingFirstPage",
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
+    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByLabelText("Loading connections")).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("puts cleanup-pending revoked connections under Action needed", async () => {
     configureConvex({
       currentUser: makeCurrentUserView(),

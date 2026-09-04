@@ -96,9 +96,7 @@ export default function Connections() {
     }
   }
 
-  if (connections.status === "LoadingFirstPage") {
-    return <ConnectionsLoading />;
-  }
+  const loadingLedger = connections.status === "LoadingFirstPage";
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -121,15 +119,19 @@ export default function Connections() {
         </div>
       ) : null}
 
-      <ConnectionLists
-        connections={connections.connections}
-        busyId={busyId}
-        onRevoke={(connection) => setSelected(connection)}
-        onRetry={(connection) => void revokeConnection(connection)}
-        canLoadMore={connections.status === "CanLoadMore" || connections.status === "LoadingMore"}
-        loadingMore={connections.status === "LoadingMore"}
-        onLoadMore={connections.loadMore}
-      />
+      {loadingLedger ? (
+        <ConnectionsLedgerLoading />
+      ) : (
+        <ConnectionLists
+          connections={connections.connections}
+          busyId={busyId}
+          onRevoke={(connection) => setSelected(connection)}
+          onRetry={(connection) => void revokeConnection(connection)}
+          canLoadMore={connections.status === "CanLoadMore" || connections.status === "LoadingMore"}
+          loadingMore={connections.status === "LoadingMore"}
+          onLoadMore={connections.loadMore}
+        />
+      )}
 
       <ModalDialog
         open={selected !== null}
@@ -391,14 +393,10 @@ function ConnectAssistantPanel() {
   );
 }
 
-function ConnectionsLoading() {
+function ConnectionsLedgerLoading() {
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <div className="space-y-3">
-        <span className="block h-8 w-44 animate-pulse-soft rounded bg-muted" />
-        <span className="block h-4 w-full max-w-xl animate-pulse-soft rounded bg-muted" />
-      </div>
-      <div className="h-56 animate-pulse-soft rounded-xl border border-border bg-card" />
+    <div role="status" className="space-y-4" aria-busy="true" aria-label="Loading connections">
+      <div className="h-48 animate-pulse-soft rounded-xl border border-border bg-card" />
       <div className="h-48 animate-pulse-soft rounded-xl border border-border bg-card" />
     </div>
   );
@@ -442,9 +440,9 @@ function ConnectionCard({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate font-display text-lg font-semibold">
+            <h3 className="truncate font-display text-lg font-semibold">
               {connectionTitle(connection)}
-            </h2>
+            </h3>
             <Badge
               variant={revoked ? "secondary" : connection.status === "pending" ? "outline" : "soft"}
             >
