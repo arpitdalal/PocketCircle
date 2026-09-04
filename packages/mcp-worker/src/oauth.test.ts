@@ -216,6 +216,7 @@ describe("MCP Worker OAuth discovery", () => {
 
   it("registers a public Cursor-like client via DCR", async () => {
     const redirectUris = [
+      "cursor://anysphere.cursor-mcp/oauth/callback",
       "http://localhost:8787/callback",
       "https://www.cursor.com/agents/mcp/oauth/callback",
     ];
@@ -1441,6 +1442,42 @@ describe("MCP tools execution", () => {
     });
     return res;
   }
+
+  it("accepts Cursor-era 2025-11-25 initialize via legacy-compat lane", async () => {
+    const { accessToken } = await obtainAccessToken();
+    const res = await SELF.fetch("https://mcp.pocketcircle.app/mcp", {
+      method: "POST",
+      headers: {
+        host: "mcp.pocketcircle.app",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "cursor-test", version: "0.0.0" },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const dataLine = text.split("\n").find((line) => line.startsWith("data:"));
+    expect(dataLine, text).toBeTruthy();
+    const body: unknown = JSON.parse(dataLine?.slice("data:".length).trim() ?? "");
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      id: 0,
+      result: {
+        protocolVersion: "2025-11-25",
+      },
+    });
+  });
 
   it("lists all read tools with read-only annotations", async () => {
     const { accessToken } = await obtainAccessToken();

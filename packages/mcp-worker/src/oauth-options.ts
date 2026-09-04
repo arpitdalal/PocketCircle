@@ -9,7 +9,10 @@ import {
   MCP_SCOPES,
 } from "@pocketcircle/domain";
 import { z } from "zod";
-import { evaluateClientRegistrationPolicy } from "./client-registration-policy.js";
+import {
+  evaluateClientRegistrationPolicy,
+  parseAllowedCustomRedirectSchemes,
+} from "./client-registration-policy.js";
 import { activateGrant, validateGrant } from "./convex-bridge.js";
 import { type Env, type OAuthEnv, withWorkersOauthKv } from "./env.js";
 import { createMcpApiHandler } from "./mcp-api.js";
@@ -67,7 +70,9 @@ export function oauthProviderOptions(
     // CIMD remains preferred; admin createClient is unaffected by DCR TTL.
     clientRegistrationEndpoint: "/oauth/register",
     clientRegistrationCallback: ({ clientMetadata }) =>
-      evaluateClientRegistrationPolicy(clientMetadata),
+      evaluateClientRegistrationPolicy(clientMetadata, {
+        allowedCustomSchemes: parseAllowedCustomRedirectSchemes(env.MCP_DCR_ALLOWED_SCHEMES),
+      }),
     clientIdMetadataDocumentEnabled: true,
     allowImplicitFlow: false,
     allowPlainPKCE: false,

@@ -31,6 +31,11 @@ declare global {
       MCP_WORKER_SIGNING_PRIVATE_JWK: string;
       MCP_RESOURCE_URI?: string;
       MCP_ISSUER?: string;
+      /**
+       * Comma-separated private-use redirect schemes for DCR (e.g. `cursor,vscode`).
+       * https + loopback http always allowed; denylisted schemes never are.
+       */
+      MCP_DCR_ALLOWED_SCHEMES?: string;
     }
   }
 }

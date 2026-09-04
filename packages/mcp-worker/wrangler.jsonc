@@ -69,6 +69,8 @@
     "APP_ORIGIN": "https://pocketcircle.app",
     // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a
     // *.convex.site host — Convex assigns the deployment subdomain.
-    "CONVEX_SITE_URL": "https://placeholder.convex.site"
+    "CONVEX_SITE_URL": "https://placeholder.convex.site",
+    // DCR private-use redirect schemes (option C). Comma-separated, no `:`.
+    "MCP_DCR_ALLOWED_SCHEMES": "cursor,vscode"
   }
 }
