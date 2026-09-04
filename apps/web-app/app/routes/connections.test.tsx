@@ -40,7 +40,8 @@ describe("Connections", () => {
     expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
     expect(screen.getByText(/Paste this URL into Claude, Cursor/i)).toBeVisible();
     expect(screen.getByText(/Add a remote MCP server and paste the URL above/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Copy MCP server URL" })).toBeEnabled();
+    expect(screen.getByText(/Never paste API keys or tokens into chat to connect/i)).toBeVisible();
   });
 
   it("keeps connect instructions when the ledger is empty", async () => {
@@ -86,6 +87,30 @@ describe("Connections", () => {
     expect(screen.getByRole("button", { name: "Finish cleanup" })).toBeVisible();
     expect(screen.getByText("Live Client")).toBeVisible();
     expect(screen.queryByText("Fully Revoked")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the empty ledger when only completed revocations remain", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      mcpConnections: [
+        makeMcpConnectionView({
+          id: "c-done",
+          clientName: "Fully Revoked",
+          status: "revoked",
+          workerCleanupStatus: "completed",
+        }),
+      ],
+    });
+    renderConnections();
+
+    expect(await screen.findByRole("button", { name: /Revoked \(1\)/ })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "No connected assistants yet" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connected" })).not.toBeInTheDocument();
   });
 
   it("lists safe connection metadata without credential fields", async () => {

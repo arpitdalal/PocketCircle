@@ -223,7 +223,7 @@ function ConnectionLists({
   onLoadMore: () => void;
 }) {
   const { actionNeeded, connected, revoked } = partitionConnections(connections);
-  const showEmpty = actionNeeded.length === 0 && connected.length === 0;
+  const showEmpty = actionNeeded.length === 0 && connected.length === 0 && revoked.length === 0;
 
   return (
     <div className="space-y-8">
@@ -354,6 +354,7 @@ function ConnectAssistantPanel() {
                 type="button"
                 size="sm"
                 disabled={copyBusy}
+                aria-label="Copy MCP server URL"
                 onClick={() => void copyUrl()}
               >
                 {copyBusy ? "Copying…" : "Copy"}
@@ -382,6 +383,10 @@ function ConnectAssistantPanel() {
         <li>Choose Circles and permissions, then Allow.</li>
         <li>The connection appears below. Revoke anytime.</li>
       </ol>
+      <p className="text-xs leading-5 text-muted-foreground">
+        Never paste API keys or tokens into chat to connect. PocketCircle uses sign-in and approval
+        only.
+      </p>
     </section>
   );
 }
