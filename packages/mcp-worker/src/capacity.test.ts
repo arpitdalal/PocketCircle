@@ -49,6 +49,12 @@ describe("rate-limit keys", () => {
         ip: "1.2.3.4",
       }),
     ).toBe("token|ip:1.2.3.4");
+    expect(
+      unauthenticatedIpRateLimitMaterial({
+        className: "client_registration",
+        ip: "1.2.3.4",
+      }),
+    ).toBe("client_registration|ip:1.2.3.4");
   });
 
   it("classifies archive tools as destructive", () => {

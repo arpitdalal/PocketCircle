@@ -22,11 +22,12 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 | `MCP_AUTH_RATE_LIMITER` | 60s | 120 | IP-only `authorization\|ip:{ip}` **and** `authorization\|c:{clientId}\|ip:{ip}` |
 | `MCP_TOKEN_RATE_LIMITER` | 60s | 120 | IP-only `token\|ip:{ip}` **and** `token\|c:{clientId}\|ip:{ip}` |
 | `MCP_FAILED_AUTH_RATE_LIMITER` | 60s | 30 | `failed_auth\|c:-\|ip:{ip}` (+ Cache API block for already-throttled IPs) |
+| `MCP_DCR_RATE_LIMITER` | 60s | 20 | IP-only `client_registration\|ip:{ip}` (DCR KV-write shield; #354) |
 | `MCP_READ_RATE_LIMITER` | 60s | 120 | `u:{user}\|c:{client}\|g:{grant}\|t:read` (also covers authenticated non-tool MCP methods) |
 | `MCP_WRITE_RATE_LIMITER` | 60s | 30 | `…\|t:write` |
 | `MCP_DESTRUCTIVE_RATE_LIMITER` | 60s | 10 | `…\|t:destructive` |
 
-Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth surfaces always apply an IP-only bucket first so rotating a public `clientId` cannot bypass the cap; composite client+IP buckets remain for per-client fairness. Failed-auth counts only presented-but-invalid credentials (not bare WWW-Authenticate challenges or missing bearer tokens), and Cache API pre-blocks apply to `/mcp`, `/token`, and `GET /authorize`. `/authorize` gates the IP bucket before `parseAuthRequest` and redirects validated clients with `temporarily_unavailable` when throttled. Authenticated `/mcp` bodies are size-checked before OAuth dispatch; scope-denied tool calls still consume the authenticated class bucket.
+Cloudflare Rate Limiting keys are capped at 64 bytes, so every `limit()` call uses `sha256Hex(material)`. Pre-auth surfaces always apply an IP-only bucket first so rotating a public `clientId` cannot bypass the cap; composite client+IP buckets remain for per-client fairness. Failed-auth counts only presented-but-invalid credentials (not bare WWW-Authenticate challenges or missing bearer tokens), and Cache API pre-blocks apply to `/mcp`, `/token`, and `GET /authorize`. `/authorize` gates the IP bucket before `parseAuthRequest` and redirects validated clients with `temporarily_unavailable` when throttled. `POST /oauth/register` is body-bounded (`MCP_PROVISIONING_MAX_BODY_BYTES`) and IP-gated via `MCP_DCR_RATE_LIMITER` (20/min) before provider KV writes — tighter than auth/token because each registration consumes Free KV write budget. Authenticated `/mcp` bodies are size-checked before OAuth dispatch; scope-denied tool calls still consume the authenticated class bucket.
 
 ## Request size
 

@@ -234,8 +234,12 @@ pnpm --filter @pocketcircle/mcp-worker exec wrangler secret delete MCP_CLIENT_PR
 The response contains the pre-registered `clientId` to configure in that client.
 Repeating the exact metadata returns the same ID, so retrying a lost response is
 safe. The endpoint always creates a public authorization-code client with PKCE;
-it cannot create a client secret or enable another grant type. General clients
-should use CIMD, which remains enabled. DCR remains disabled.
+it cannot create a client secret or enable another grant type. Prefer paste-URL
+setup for assistants: CIMD (preferred) and rate-limited Dynamic Client
+Registration (compatibility for Cursor-class clients) both work with only
+`https://mcp.pocketcircle.app/mcp`. Keep admin pre-registration for rare
+partner/static clients — do not leave `MCP_CLIENT_PROVISIONING_TOKEN` enabled
+in production for normal use.
 
 To rotate the browser-envelope HMAC without interrupting an authorization
 already in progress:

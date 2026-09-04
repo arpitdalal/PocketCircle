@@ -44,6 +44,12 @@
       "simple": { "limit": 30, "period": 60 }
     },
     {
+      // Tighter than auth/token — each DCR is KV writes on Free (1k/day). #354
+      "name": "MCP_DCR_RATE_LIMITER",
+      "namespace_id": "1007",
+      "simple": { "limit": 20, "period": 60 }
+    },
+    {
       "name": "MCP_READ_RATE_LIMITER",
       "namespace_id": "1004",
       "simple": { "limit": 120, "period": 60 }

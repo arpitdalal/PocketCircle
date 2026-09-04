@@ -18,6 +18,7 @@ declare global {
       MCP_AUTH_RATE_LIMITER: RateLimit;
       MCP_TOKEN_RATE_LIMITER: RateLimit;
       MCP_FAILED_AUTH_RATE_LIMITER: RateLimit;
+      MCP_DCR_RATE_LIMITER: RateLimit;
       MCP_READ_RATE_LIMITER: RateLimit;
       MCP_WRITE_RATE_LIMITER: RateLimit;
       MCP_DESTRUCTIVE_RATE_LIMITER: RateLimit;
