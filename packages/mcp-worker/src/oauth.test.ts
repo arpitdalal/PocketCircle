@@ -1051,7 +1051,6 @@ describe("MCP connection revocation", () => {
         headers: { origin: "http://localhost:5173" },
       }),
       loopbackEnv,
-      createExecutionContext(),
     );
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
@@ -1062,7 +1061,6 @@ describe("MCP connection revocation", () => {
         headers: { origin: "http://localhost:5173" },
       }),
       env,
-      createExecutionContext(),
     );
     expect(blocked.status).toBe(403);
   });
