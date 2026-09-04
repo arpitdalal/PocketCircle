@@ -311,6 +311,9 @@ jobs:
           MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
           MCP_WORKER_SIGNING_PRIVATE_JWK: ${{ secrets.MCP_WORKER_SIGNING_PRIVATE_JWK }}
 
+      # wrangler secret delete prompts for confirmation; secret bulk with JSON
+      # null is the documented non-interactive delete path (wrangler >= 4.97.0).
+      # https://developers.cloudflare.com/workers/wrangler/commands/#secret-bulk
       - name: Remove MCP Worker previous HMAC secret
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -323,7 +326,7 @@ jobs:
             exit 0
           fi
           set +e
-          out=$(pnpm exec wrangler secret delete MCP_WORKER_HMAC_SECRET_PREVIOUS --force 2>&1)
+          out=$(printf '%s\n' '{"MCP_WORKER_HMAC_SECRET_PREVIOUS":null}' | pnpm exec wrangler secret bulk 2>&1)
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then

@@ -7,6 +7,13 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-09-04
+
+### Fixed
+
+- Completes the v0.4.0 production release after fixing MCP Worker HMAC cleanup
+  in the deploy pipeline.
+
 ## [v0.4.0] - 2026-09-04
 
 ### Added
