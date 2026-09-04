@@ -7,6 +7,24 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-09-04
+
+### Added
+
+- New Transaction and New Category now include Save & new so you can save one
+  entry and keep the form open for another.
+- Keyboard users can skip to main content from the authenticated app shell.
+- PocketCircle now works with AI assistants that support remote MCP (for
+  example Claude, Cursor, etc). After you approve Circles and permissions in the
+  browser, the assistant can review spending and record or update transactions
+  and categories in those Circles.
+- The account menu now includes Connections for the MCP server URL, connected
+  assistants, and revoking access.
+
+### Fixed
+
+- Changing chart or list filters no longer jumps the page back to the top.
+
 ## [v0.3.0] - 2026-08-26
 
 ### Added
