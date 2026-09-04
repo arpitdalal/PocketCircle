@@ -8,6 +8,7 @@ MCP_WORKER_SIGNING_PRIVATE_JWK=<private-jwk-json>
 # These override wrangler.jsonc `vars` for local wrangler only (vitest pins its own).
 # APP_ORIGIN may be localhost or 127.0.0.1 — Worker treats them as equivalent on loopback.
 APP_ORIGIN=http://127.0.0.1:5173
-# Default: self-hosted Convex HTTP site (scripts/e2e-local.sh / local Docker).
-# For cloud Convex, use your deployment's *.convex.site URL instead.
-CONVEX_SITE_URL=http://127.0.0.1:3211
+# Must match VITE_CONVEX_SITE_URL from repo-root .env.local (cloud Convex site).
+CONVEX_SITE_URL=https://<your-deployment>.convex.site
+# Self-hosted Docker only (scripts/e2e-local.sh / local backend on :3211):
+# CONVEX_SITE_URL=http://127.0.0.1:3211

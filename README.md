@@ -80,8 +80,10 @@ MCP (optional but required for Connections / consent locally):
    `VITE_MCP_WORKER_ORIGIN=http://127.0.0.1:8787`
 2. `cp packages/mcp-worker/.dev.vars.example packages/mcp-worker/.dev.vars` and fill
    `MCP_WORKER_HMAC_SECRET` / `MCP_WORKER_SIGNING_PRIVATE_JWK` to match the Convex
-   deployment; keep `APP_ORIGIN` on the same port as Vite (`localhost` and
-   `127.0.0.1` are interchangeable for Worker CORS).
+   deployment. Set `CONVEX_SITE_URL` to the same value as root `VITE_CONVEX_SITE_URL`
+   (your cloud `*.convex.site`). Use `http://127.0.0.1:3211` only with the
+   self-hosted Docker backend. Keep `APP_ORIGIN` on the same port as Vite
+   (`localhost` and `127.0.0.1` are interchangeable for Worker CORS).
 
 ```sh
 pnpm dev
