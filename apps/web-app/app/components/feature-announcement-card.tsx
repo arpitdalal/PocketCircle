@@ -13,6 +13,7 @@ import {
 import { MOCKS } from "~/lib/env.js";
 import {
   activeFeatureAnnouncement,
+  featureAnnouncementNeedsSource,
   featureAnnouncementRouteScope,
   hasRecordedImpression,
   isEligibleForFeatureAnnouncement,
@@ -27,6 +28,7 @@ import { useValueChange } from "~/lib/use-value-change.js";
 import { cn } from "~/lib/utils.js";
 
 const ACK_FAILURE_TOAST = "Couldn't save that preference.";
+const CONNECTIONS_HREF = "/connections";
 
 /**
  * Fixed non-modal Feature Announcement card (#282). Mounted from the protected
@@ -56,22 +58,27 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   const scope = featureAnnouncementRouteScope(location.pathname);
   const eligible =
     announcement !== null && scope !== null && isEligibleForFeatureAnnouncement(announcement, user);
+  const needsSource = announcement !== null && featureAnnouncementNeedsSource(announcement);
 
   const circles = useMyCircles();
   const circleId =
-    scope?.kind === "circle"
+    needsSource && scope?.kind === "circle"
       ? circles?.find((circle) => circle.ref === scope.circleRef)?.id
       : undefined;
-  const circleLookupPending = scope?.kind === "circle" && circles === undefined;
-  const circleMissing = scope?.kind === "circle" && circles !== undefined && circleId === undefined;
+  const circleLookupPending = needsSource && scope?.kind === "circle" && circles === undefined;
+  const circleMissing =
+    needsSource && scope?.kind === "circle" && circles !== undefined && circleId === undefined;
 
-  const sourceEnabled = !MOCKS && eligible && !circleLookupPending && !circleMissing;
+  const sourceEnabled = !MOCKS && eligible && needsSource && !circleLookupPending && !circleMissing;
   const source = useFeatureAnnouncementSource(circleId, sourceEnabled);
 
   const sourceReady = source !== undefined;
   const hasSource = source != null;
   const visible =
-    eligible && !circleLookupPending && !circleMissing && sourceReady && hasSource && source;
+    eligible &&
+    !circleLookupPending &&
+    !circleMissing &&
+    (needsSource ? sourceReady && hasSource && Boolean(source) : true);
 
   // Genuinely visible: mounted card not covered by soft promo or iOS instructions.
   const liveVisible = Boolean(visible) && !installSurfaceOpen;
@@ -131,20 +138,28 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
   };
 
   const aboveCircleNav = scope?.kind === "circle";
-  const detailPath =
+  const ctaPath =
     visible && announcement
-      ? withReturnTo(
-          transactionDetailHref({ ref: visible.circleRef }, { ref: visible.transactionRef }),
-          returnTo,
-        )
+      ? announcement.id === "mcp-connections"
+        ? withReturnTo(CONNECTIONS_HREF, returnTo)
+        : source
+          ? withReturnTo(
+              transactionDetailHref({ ref: source.circleRef }, { ref: source.transactionRef }),
+              returnTo,
+            )
+          : null
       : null;
+  const ctaState =
+    announcement?.id === "duplicate-transaction"
+      ? { featureAnnouncementFocus: announcement.id }
+      : undefined;
 
   return (
     <>
       {ackResult !== null ? (
         <div hidden data-testid="feature-announcement-ack" data-result={ackResult} />
       ) : null}
-      {visible && announcement && detailPath ? (
+      {visible && announcement && ctaPath ? (
         <>
           <section
             aria-labelledby={titleId}
@@ -181,8 +196,8 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
             </div>
             <div className="mt-3">
               <Link
-                to={detailPath}
-                state={{ featureAnnouncementFocus: announcement.id }}
+                to={ctaPath}
+                state={ctaState}
                 className={buttonVariants({ variant: "default", size: "sm" })}
                 onClick={onCtaClick}
               >

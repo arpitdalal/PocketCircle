@@ -3,7 +3,7 @@ import { circleRefOf } from "./circle-path.js";
 
 /**
  * Typed in-repo Feature Announcement catalog (#282). Newest entry owns the slot.
- * `eligibleBefore` is immutable product history — set at Duplicate release prep.
+ * `eligibleBefore` is immutable product history — set at that campaign's release prep.
  */
 export interface FeatureAnnouncement {
   readonly id: FeatureAnnouncementId;
@@ -25,7 +25,21 @@ export const FEATURE_ANNOUNCEMENTS = [
     // Release cutoff: Users created at or after this instant never see the card.
     eligibleBefore: "2026-08-26T13:40:00.000Z",
   },
+  {
+    id: "mcp-connections",
+    label: "New",
+    title: "Connect PocketCircle to your AI assistant",
+    body: "Paste the MCP server URL from Connections, approve Circles, then ask your assistant about shared spending.",
+    ctaLabel: "Open Connections",
+    // MCP Connections went live with v0.4.1 (2026-09-04T19:24:27Z).
+    eligibleBefore: "2026-09-04T19:25:00.000Z",
+  },
 ] as const satisfies readonly FeatureAnnouncement[];
+
+/** Duplicate CTA needs a Transaction source; MCP CTA is a static Connections href. */
+export function featureAnnouncementNeedsSource(announcement: FeatureAnnouncement) {
+  return announcement.id === "duplicate-transaction";
+}
 
 /** The single campaign that owns the announcement slot (newest catalog entry). */
 export function activeFeatureAnnouncement() {

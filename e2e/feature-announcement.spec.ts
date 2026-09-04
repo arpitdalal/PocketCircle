@@ -2,11 +2,7 @@ import {
   createIsolatedBrowserContext,
   establishE2ESession,
   expect,
-  inlineCreateFormCategory,
   openHome,
-  returnFromTransactionDetail,
-  saveButton,
-  selectGlobalAddCircle,
   test,
 } from "./fixtures.js";
 
@@ -17,8 +13,9 @@ import {
  * `eligibleBefore` at or after account creation time.
  */
 
-/** Well before any Duplicate release cutoff — keeps E2E Users eligible. */
+/** Well before any campaign release cutoff — keeps E2E Users eligible. */
 const ANNOUNCEMENT_ELIGIBLE_CREATED_AT = Date.parse("2020-01-01T00:00:00.000Z");
+const ACTIVE_TITLE = /Connect PocketCircle to your AI assistant/i;
 
 async function establishAnnouncementEligibleSession(
   page: import("@playwright/test").Page,
@@ -41,22 +38,7 @@ async function establishAnnouncementEligibleSession(
   }, ANNOUNCEMENT_ELIGIBLE_CREATED_AT);
 }
 
-async function seedSourceTransaction(
-  page: import("@playwright/test").Page,
-  opts: { categoryName: string; sourceTitle: string; amount: string },
-) {
-  await openHome(page);
-  await page.getByRole("link", { name: "Add transaction" }).click();
-  await selectGlobalAddCircle(page);
-  const createForm = page.getByRole("form", { name: /add expense/i });
-  await createForm.getByLabel("Title").fill(opts.sourceTitle);
-  await createForm.getByLabel(/Amount/).fill(opts.amount);
-  await inlineCreateFormCategory(page, createForm, opts.categoryName);
-  await saveButton(createForm).click();
-  await expect(page.getByRole("heading", { level: 2, name: opts.sourceTitle })).toBeVisible();
-}
-
-test("Feature Announcement CTA reaches focused Duplicate and preserves the return chain", async ({
+test("Feature Announcement CTA opens Connections and acknowledges the campaign", async ({
   browser,
   baseURL,
 }, testInfo) => {
@@ -71,36 +53,20 @@ test("Feature Announcement CTA reaches focused Duplicate and preserves the retur
       name: "Ann CTA",
     });
 
-    const categoryName = `Ann Cat ${stamp}`.slice(0, 40);
-    const sourceTitle = `Ann Source ${stamp}`;
-    const copyTitle = `Ann Copy ${stamp}`;
-    await seedSourceTransaction(page, {
-      categoryName,
-      sourceTitle,
-      amount: "12.50",
-    });
+    await openHome(page);
+    const card = page.getByRole("region", { name: ACTIVE_TITLE });
+    await expect(card).toBeVisible();
+    await card.getByRole("link", { name: "Open Connections" }).click();
+
+    await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: ACTIVE_TITLE })).toHaveCount(0);
+    await expect(page.getByTestId("feature-announcement-ack")).toHaveAttribute(
+      "data-result",
+      "saved",
+    );
 
     await openHome(page);
-    const card = page.getByRole("region", { name: /Duplicate a transaction/i });
-    await expect(card).toBeVisible();
-    await card.getByRole("link", { name: "Try Duplicate" }).click();
-
-    await expect(page.getByRole("heading", { level: 2, name: sourceTitle })).toBeVisible();
-    const duplicate = page.getByRole("link", { name: `Duplicate ${sourceTitle}` });
-    await expect(duplicate).toBeFocused();
-
-    await duplicate.click();
-    await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
-    const dupForm = page.getByRole("form", { name: /add expense/i });
-    await dupForm.getByLabel("Title").fill(copyTitle);
-    await saveButton(dupForm).click();
-    await expect(page.getByRole("heading", { level: 2, name: copyTitle })).toBeVisible();
-
-    await returnFromTransactionDetail(page);
-    await expect(page.getByRole("heading", { level: 2, name: sourceTitle })).toBeVisible();
-    await returnFromTransactionDetail(page);
-    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: ACTIVE_TITLE })).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -121,16 +87,8 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
       name: "Ann Dismiss",
     });
 
-    const categoryName = `Ann Dismiss Cat ${stamp}`.slice(0, 40);
-    const sourceTitle = `Ann Dismiss Source ${stamp}`;
-    await seedSourceTransaction(page, {
-      categoryName,
-      sourceTitle,
-      amount: "9.00",
-    });
-
     await openHome(page);
-    const card = page.getByRole("region", { name: /Duplicate a transaction/i });
+    const card = page.getByRole("region", { name: ACTIVE_TITLE });
     await expect(card).toBeVisible();
     await card.getByRole("button", { name: "Close" }).click();
     await expect(card).toHaveCount(0);
@@ -142,7 +100,7 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
 
     await page.reload();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: /Duplicate a transaction/i })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: ACTIVE_TITLE })).toHaveCount(0);
   } finally {
     await context.close();
   }

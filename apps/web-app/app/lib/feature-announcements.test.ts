@@ -24,10 +24,11 @@ describe("featureAnnouncementRouteScope", () => {
     });
   });
 
-  it("excludes Search, Setup, create/edit/detail, Settings, and other routes", () => {
+  it("excludes Search, Setup, create/edit/detail, Settings, Connections, and other routes", () => {
     const excluded = [
       "/search",
       "/settings",
+      "/connections",
       "/whats-new",
       "/feedback",
       "/onboarding",
@@ -101,7 +102,7 @@ describe("selectActiveCatalogEntry", () => {
   it("gives the slot only to the newest entry with no older fallback", () => {
     expect(selectActiveCatalogEntry([])).toBeNull();
     expect(selectActiveCatalogEntry([{ id: "older" }, { id: "newer" }])).toEqual({ id: "newer" });
-    expect(activeFeatureAnnouncement()?.id).toBe("duplicate-transaction");
+    expect(activeFeatureAnnouncement()?.id).toBe("mcp-connections");
   });
 });
 
@@ -110,6 +111,9 @@ describe("featureAnnouncementFocusFromState", () => {
     expect(
       featureAnnouncementFocusFromState({ featureAnnouncementFocus: "duplicate-transaction" }),
     ).toBe("duplicate-transaction");
+    expect(featureAnnouncementFocusFromState({ featureAnnouncementFocus: "mcp-connections" })).toBe(
+      "mcp-connections",
+    );
     expect(featureAnnouncementFocusFromState({ featureAnnouncementFocus: "nope" })).toBeNull();
     expect(featureAnnouncementFocusFromState(null)).toBeNull();
   });

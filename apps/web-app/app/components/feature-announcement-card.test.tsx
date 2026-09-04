@@ -29,6 +29,8 @@ vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).con
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
 const acknowledge = vi.fn().mockResolvedValue(undefined);
+const ACTIVE_TITLE = /Connect PocketCircle to your AI assistant/i;
+const ACTIVE_ID = "mcp-connections" as const;
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -52,7 +54,6 @@ afterEach(() => {
 function renderCard(opts: {
   path: string;
   user?: ReturnType<typeof makeCurrentUserView>;
-  source?: { circleRef: string; transactionRef: string } | null | "omit";
   circles?: ReturnType<typeof makeCircleView>[];
 }) {
   const user = opts.user ?? makeCurrentUserView({ createdAt: 1 });
@@ -60,14 +61,6 @@ function renderCard(opts: {
     currentUser: user,
     acknowledgeFeatureAnnouncement: acknowledge,
     circles: opts.circles ?? [makeCircleView({ ref: "trip-abc", name: "Trip" })],
-    ...(opts.source === "omit"
-      ? {}
-      : {
-          featureAnnouncementSource:
-            opts.source === undefined
-              ? { circleRef: "trip-abc", transactionRef: "shop-xyz" }
-              : opts.source,
-        }),
   });
   return renderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />, {
     initialEntries: [opts.path],
@@ -75,30 +68,17 @@ function renderCard(opts: {
 }
 
 describe("FeatureAnnouncementCard", () => {
-  it("renders on allowed routes when eligible with a source", async () => {
+  it("renders on allowed routes when eligible without a Transaction source", async () => {
     renderCard({ path: "/?currency=USD&range=3" });
-    expect(await screen.findByRole("region", { name: /Duplicate a transaction/i })).toBeVisible();
-    const cta = screen.getByRole("link", { name: "Try Duplicate" });
-    expect(cta).toHaveAttribute(
-      "href",
-      "/circles/trip-abc/transactions/shop-xyz?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3",
-    );
+    expect(await screen.findByRole("region", { name: ACTIVE_TITLE })).toBeVisible();
+    const cta = screen.getByRole("link", { name: "Open Connections" });
+    expect(cta).toHaveAttribute("href", "/connections?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3");
     expect(
-      screen
-        .getAllByRole("status")
-        .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
+      screen.getAllByRole("status").some((node) => ACTIVE_TITLE.test(node.textContent ?? "")),
     ).toBe(true);
   });
 
-  it("renders nothing while loading, with no source, for new Users, or when acknowledged", () => {
-    const { unmount: loading } = renderCard({ path: "/", source: "omit" });
-    expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    loading();
-
-    const { unmount: noSource } = renderCard({ path: "/", source: null });
-    expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    noSource();
-
+  it("renders nothing for new Users or when acknowledged", () => {
     const cutoff = Date.parse(activeFeatureAnnouncement()?.eligibleBefore ?? "Invalid Date");
     const { unmount: newUser } = renderCard({
       path: "/",
@@ -111,26 +91,28 @@ describe("FeatureAnnouncementCard", () => {
       path: "/",
       user: makeCurrentUserView({
         createdAt: 1,
-        acknowledgedFeatureAnnouncementIds: ["duplicate-transaction"],
+        acknowledgedFeatureAnnouncementIds: [ACTIVE_ID],
       }),
     });
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
     acknowledged();
   });
 
-  it("does not show on excluded routes", () => {
+  it("does not show on excluded routes including Connections", () => {
     renderCard({ path: "/settings" });
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    renderCard({ path: "/connections" });
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
   it("never steals focus, exposes a labelled region and accessible close, and ignores Escape", async () => {
     const u = userEvent.setup();
     renderCard({ path: "/" });
-    const region = await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    const region = await screen.findByRole("region", { name: ACTIVE_TITLE });
     expect(document.activeElement).not.toBe(region);
     expect(within(region).getByRole("button", { name: "Close" })).toBeVisible();
     await u.keyboard("{Escape}");
-    expect(screen.getByRole("region", { name: /Duplicate a transaction/i })).toBeVisible();
+    expect(screen.getByRole("region", { name: ACTIVE_TITLE })).toBeVisible();
   });
 
   it("optimistically hides on close; mutation failure rolls back and shows the exact toast", async () => {
@@ -138,35 +120,34 @@ describe("FeatureAnnouncementCard", () => {
     const pending = deferredValue<void>();
     acknowledge.mockImplementation(() => pending.promise);
     renderCard({ path: "/" });
-    await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    await screen.findByRole("region", { name: ACTIVE_TITLE });
     await u.click(screen.getByRole("button", { name: "Close" }));
-    expect(acknowledge).toHaveBeenCalledWith({ announcementId: "duplicate-transaction" });
+    expect(acknowledge).toHaveBeenCalledWith({ announcementId: ACTIVE_ID });
     await waitFor(() => {
       expect(screen.queryByRole("region")).not.toBeInTheDocument();
     });
     pending.reject(new Error("network"));
     expect(await screen.findByText("Couldn't save that preference.")).toBeVisible();
     await waitFor(() => {
-      expect(screen.getByRole("region", { name: /Duplicate a transaction/i })).toBeVisible();
+      expect(screen.getByRole("region", { name: ACTIVE_TITLE })).toBeVisible();
     });
     expect(screen.getByTestId("feature-announcement-ack")).toHaveAttribute("data-result", "failed");
   });
 
   it("records one impression per tab session after genuine visibility", async () => {
     const first = renderCard({ path: "/" });
-    await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    await screen.findByRole("region", { name: ACTIVE_TITLE });
     await waitFor(() => {
       expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
-        announcement: "duplicate-transaction",
+        announcement: ACTIVE_ID,
       });
     });
-    expect(sessionStorage.getItem(impressionStorageKey("duplicate-transaction"))).toBe("1");
+    expect(sessionStorage.getItem(impressionStorageKey(ACTIVE_ID))).toBe("1");
     first.unmount();
 
     posthogSdk.capture.mockClear();
-    // Remount on another route — models a route change in the same tab session.
     const second = renderCard({ path: "/circles/trip-abc/transactions" });
-    await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    await screen.findByRole("region", { name: ACTIVE_TITLE });
     expect(posthogSdk.capture).not.toHaveBeenCalledWith(
       "feature_announcement_impression",
       expect.anything(),
@@ -174,9 +155,8 @@ describe("FeatureAnnouncementCard", () => {
     second.unmount();
 
     posthogSdk.capture.mockClear();
-    // Remount after unmount with the same sessionStorage — models a same-tab reload.
     renderCard({ path: "/" });
-    await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    await screen.findByRole("region", { name: ACTIVE_TITLE });
     expect(posthogSdk.capture).not.toHaveBeenCalledWith(
       "feature_announcement_impression",
       expect.anything(),
@@ -185,7 +165,7 @@ describe("FeatureAnnouncementCard", () => {
 
   it("keeps stacking below snackbars/dialogs and clears the Circle mobile nav", async () => {
     renderCard({ path: "/circles/trip-abc/transactions" });
-    const region = await screen.findByRole("region", { name: /Duplicate a transaction/i });
+    const region = await screen.findByRole("region", { name: ACTIVE_TITLE });
     expect(region.className).toContain("z-20");
     expect(region.className).toContain("bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)]");
   });
@@ -193,8 +173,12 @@ describe("FeatureAnnouncementCard", () => {
   it("delays the live announcement and impression while the PWA install modal covers the card", async () => {
     const u = userEvent.setup();
     setNavigatorInstallProps();
-    // Start without a source so the card is absent while the PWA modal opens.
-    const view = renderCard({ path: "/", source: "omit" });
+    // Start ineligible so the card is absent while the PWA modal opens.
+    const cutoff = Date.parse(activeFeatureAnnouncement()?.eligibleBefore ?? "Invalid Date");
+    const view = renderCard({
+      path: "/",
+      user: makeCurrentUserView({ createdAt: cutoff, analyticsEnabled: true }),
+    });
     dispatchBeforeInstallPrompt();
     const dialog = await screen.findByRole("dialog", { name: "Install PocketCircle" });
     expect(posthogSdk.capture).not.toHaveBeenCalledWith(
@@ -202,16 +186,15 @@ describe("FeatureAnnouncementCard", () => {
       expect.anything(),
     );
 
-    // Source becomes available under the covering modal — card mounts, no live announce.
+    // Become eligible under the covering modal — card mounts, no live announce.
     configureConvex({
-      currentUser: makeCurrentUserView({ createdAt: 1 }),
+      currentUser: makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }),
       acknowledgeFeatureAnnouncement: acknowledge,
       circles: [makeCircleView({ ref: "trip-abc", name: "Trip" })],
-      featureAnnouncementSource: { circleRef: "trip-abc", transactionRef: "shop-xyz" },
     });
     view.rerenderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />);
     const region = await screen.findByRole("region", {
-      name: /Duplicate a transaction/i,
+      name: ACTIVE_TITLE,
       hidden: true,
     });
     expect(region).toBeInTheDocument();
@@ -230,32 +213,33 @@ describe("FeatureAnnouncementCard", () => {
     });
     await waitFor(() => {
       expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
-        announcement: "duplicate-transaction",
+        announcement: ACTIVE_ID,
       });
     });
     expect(
-      screen
-        .getAllByRole("status")
-        .some((node) => /Duplicate a transaction/i.test(node.textContent ?? "")),
+      screen.getAllByRole("status").some((node) => ACTIVE_TITLE.test(node.textContent ?? "")),
     ).toBe(true);
   });
 
   it("delays live announcement while the Chromium native install prompt is pending", async () => {
     const u = userEvent.setup();
     setNavigatorInstallProps();
-    const view = renderCard({ path: "/", source: "omit" });
+    const cutoff = Date.parse(activeFeatureAnnouncement()?.eligibleBefore ?? "Invalid Date");
+    const view = renderCard({
+      path: "/",
+      user: makeCurrentUserView({ createdAt: cutoff, analyticsEnabled: true }),
+    });
     const { resolveOutcome } = dispatchBeforeInstallPrompt("accepted");
     const dialog = await screen.findByRole("dialog", { name: "Install PocketCircle" });
 
     configureConvex({
-      currentUser: makeCurrentUserView({ createdAt: 1 }),
+      currentUser: makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }),
       acknowledgeFeatureAnnouncement: acknowledge,
       circles: [makeCircleView({ ref: "trip-abc", name: "Trip" })],
-      featureAnnouncementSource: { circleRef: "trip-abc", transactionRef: "shop-xyz" },
     });
     view.rerenderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />);
     await screen.findByRole("heading", {
-      name: "Duplicate a transaction",
+      name: "Connect PocketCircle to your AI assistant",
       hidden: true,
     });
 
@@ -273,7 +257,7 @@ describe("FeatureAnnouncementCard", () => {
     resolveOutcome();
     await waitFor(() => {
       expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
-        announcement: "duplicate-transaction",
+        announcement: ACTIVE_ID,
       });
     });
   });
@@ -285,8 +269,11 @@ describe("FeatureAnnouncementCard", () => {
       platform: "iPhone",
       maxTouchPoints: 5,
     });
-    // Omit source until the promo covers the app — same arbitration shape as Chromium BIP.
-    const view = renderCard({ path: "/", source: "omit" });
+    const cutoff = Date.parse(activeFeatureAnnouncement()?.eligibleBefore ?? "Invalid Date");
+    const view = renderCard({
+      path: "/",
+      user: makeCurrentUserView({ createdAt: cutoff, analyticsEnabled: true }),
+    });
     const promo = await screen.findByRole("dialog", { name: "Install PocketCircle" });
     expect(posthogSdk.capture).not.toHaveBeenCalledWith(
       "feature_announcement_impression",
@@ -294,15 +281,14 @@ describe("FeatureAnnouncementCard", () => {
     );
 
     configureConvex({
-      currentUser: makeCurrentUserView({ createdAt: 1 }),
+      currentUser: makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }),
       acknowledgeFeatureAnnouncement: acknowledge,
       circles: [makeCircleView({ ref: "trip-abc", name: "Trip" })],
-      featureAnnouncementSource: { circleRef: "trip-abc", transactionRef: "shop-xyz" },
     });
     view.rerenderRoutes(<Route path="*" element={<FeatureAnnouncementCard />} />);
     expect(
       await screen.findByRole("heading", {
-        name: "Duplicate a transaction",
+        name: "Connect PocketCircle to your AI assistant",
         hidden: true,
       }),
     ).toBeInTheDocument();
@@ -327,7 +313,7 @@ describe("FeatureAnnouncementCard", () => {
     });
     await waitFor(() => {
       expect(posthogSdk.capture).toHaveBeenCalledWith("feature_announcement_impression", {
-        announcement: "duplicate-transaction",
+        announcement: ACTIVE_ID,
       });
     });
   });

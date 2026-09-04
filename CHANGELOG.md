@@ -7,6 +7,11 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Existing Users may see a Feature Announcement for connecting an AI assistant
+  via MCP, with a shortcut to Connections.
+
 ## [v0.4.1] - 2026-09-04
 
 ### Fixed
