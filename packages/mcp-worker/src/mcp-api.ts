@@ -979,28 +979,41 @@ function payloadTooLargeResponse(started: number) {
 }
 
 export function createMcpApiHandler(env: Env) {
-  const allowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
+  const staticAllowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
   if (issuerHost) {
-    allowedHostnames.add(issuerHost);
+    staticAllowedHostnames.add(issuerHost);
   }
   const resourceHost = hostnameOf(env.MCP_RESOURCE_URI);
   if (resourceHost) {
-    allowedHostnames.add(resourceHost);
+    staticAllowedHostnames.add(resourceHost);
   }
 
-  const allowedOriginHostnames = new Set(allowedHostnames);
-  allowedOriginHostnames.add("pocketcircle.app");
   const appOriginHost = hostnameOf(env.APP_ORIGIN);
-  if (appOriginHost) {
-    allowedOriginHostnames.add(appOriginHost);
+
+  function mcpHandlerFor(requestHostname: string) {
+    const allowedHostnames = new Set(staticAllowedHostnames);
+    // workers.dev is the documented rollback/debug host (`workers_dev: true`); the
+    // agents MCP helper also auto-allows the request hostname when no allowlist is
+    // set — keep that behavior while retaining the custom-domain allowlist.
+    if (requestHostname.endsWith(".workers.dev")) {
+      allowedHostnames.add(requestHostname);
+    }
+
+    const allowedOriginHostnames = new Set(allowedHostnames);
+    allowedOriginHostnames.add("pocketcircle.app");
+    if (appOriginHost) {
+      allowedOriginHostnames.add(appOriginHost);
+    }
+
+    return createMcpHandler((mcpContext) => buildMcpServer(env, mcpContext.requestInfo), {
+      legacy: "reject",
+      allowedHostnames: Array.from(allowedHostnames),
+      allowedOriginHostnames: Array.from(allowedOriginHostnames),
+    });
   }
 
-  const mcpHandler = createMcpHandler((mcpContext) => buildMcpServer(env, mcpContext.requestInfo), {
-    legacy: "reject",
-    allowedHostnames: Array.from(allowedHostnames),
-    allowedOriginHostnames: Array.from(allowedOriginHostnames),
-  });
+  const handlerByHost = new Map<string, ReturnType<typeof mcpHandlerFor>>();
 
   return {
     fetch: async (request: Request, envArg: Env, ctx: ExecutionContext) => {
@@ -1080,6 +1093,13 @@ export function createMcpApiHandler(env: Env) {
             );
           }
         }
+      }
+
+      const requestHostname = new URL(request.url).hostname;
+      let mcpHandler = handlerByHost.get(requestHostname);
+      if (!mcpHandler) {
+        mcpHandler = mcpHandlerFor(requestHostname);
+        handlerByHost.set(requestHostname, mcpHandler);
       }
 
       const response = await mcpHandler(request, envArg, ctx);

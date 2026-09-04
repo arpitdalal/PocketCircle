@@ -191,6 +191,27 @@ describe("MCP Worker OAuth discovery", () => {
     const untrustedHost = await handler.fetch(new Request("https://evil.example/mcp"), env, ctx);
     expect(untrustedHost.status).toBe(403);
   });
+
+  it("accepts the workers.dev Host for MCP (rollback/debug route)", async () => {
+    const handler = createMcpApiHandler(env);
+    const ctx = createExecutionContext();
+    const host = "pocketcircle-mcp-worker.example.workers.dev";
+    const response = await handler.fetch(
+      new Request(`https://${host}/mcp`, {
+        method: "POST",
+        headers: {
+          host,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      }),
+      env,
+      ctx,
+    );
+    // Host allowlist must not 403 (auth may still fail closed without a bearer).
+    expect(response.status).not.toBe(403);
+  });
 });
 
 describe("static OAuth client provisioning", () => {

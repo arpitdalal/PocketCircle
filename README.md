@@ -83,9 +83,9 @@ MCP (optional but required for Connections / consent locally):
 
 ```sh
 MCP_WORKER_HMAC_SECRET="$(openssl rand -base64 32)"
-# Prints MCP_WORKER_SIGNING_PRIVATE_JWK=... and MCP_WORKER_VERIFYING_JWKS=...
-node scripts/generate-mcp-worker-key.mjs
-# Paste those two lines into your shell (or export them), then:
+MCP_KEY_OUTPUT="$(node scripts/generate-mcp-worker-key.mjs)"
+MCP_WORKER_SIGNING_PRIVATE_JWK="$(printf '%s\n' "$MCP_KEY_OUTPUT" | sed -n '1s/^[^=]*=//p')"
+MCP_WORKER_VERIFYING_JWKS="$(printf '%s\n' "$MCP_KEY_OUTPUT" | sed -n '2s/^[^=]*=//p')"
 pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
 pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
 ```
