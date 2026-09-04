@@ -7,17 +7,20 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.3] - 2026-09-04
+
 ### Added
 
-- Cursor and similar assistants can connect with only the MCP server URL from
+- More AI assistants can connect with only the MCP server URL from
   Connections — no separate Client ID setup.
+- Connections shows a copyable mcp.json example.
 
 ## [v0.4.2] - 2026-09-04
 
 ### Added
 
-- A tip points you to Connections so you can connect an AI assistant (for
-  example Claude or Cursor), copy the MCP server URL, and manage access.
+- A tip points you to Connections so you can connect an AI assistant, copy the
+  MCP server URL, and manage access.
 
 ## [v0.4.1] - 2026-09-04
 
@@ -33,10 +36,9 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 - New Transaction and New Category now include Save & new so you can save one
   entry and keep the form open for another.
 - Keyboard users can skip to main content from the authenticated app shell.
-- PocketCircle now works with AI assistants that support remote MCP (for
-  example Claude, Cursor, etc). After you approve Circles and permissions in the
-  browser, the assistant can review spending and record or update transactions
-  and categories in those Circles.
+- PocketCircle now works with AI assistants that support remote MCP. After you
+  approve Circles and permissions in the browser, the assistant can review
+  spending and record or update transactions and categories in those Circles.
 - The account menu now includes Connections for the MCP server URL, connected
   assistants, and revoking access.
 

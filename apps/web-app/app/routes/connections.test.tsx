@@ -44,10 +44,14 @@ describe("Connections", () => {
 
     expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
     expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
-    expect(screen.getByText(/Paste this URL into Claude, Cursor/i)).toBeVisible();
+    expect(screen.getByText(/Paste this URL into your AI assistant/i)).toBeVisible();
     expect(screen.getByText(/No Client ID is required/i)).toBeVisible();
     expect(screen.getByText(/Add a remote MCP server and paste the URL above/i)).toBeVisible();
+    expect(screen.getByText(/Open your AI assistant's MCP or Connectors settings/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Copy MCP server URL" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Copy mcp.json example" })).toBeEnabled();
+    expect(screen.getByText(/"url": "https:\/\/mcp\.pocketcircle\.app\/mcp"/)).toBeVisible();
+    expect(screen.getByText(/URL only — leave Client ID and secrets empty/i)).toBeVisible();
     expect(screen.getByText(/Never paste API keys or tokens into chat to connect/i)).toBeVisible();
   });
 

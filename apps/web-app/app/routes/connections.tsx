@@ -305,24 +305,39 @@ function ConnectionLists({
   );
 }
 
+function cursorMcpJsonExample(serverUrl: string) {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        pocketcircle: {
+          url: serverUrl,
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
 function ConnectAssistantPanel() {
   const serverUrl = mcpServerUrl();
   const urlFieldId = useId();
   const { show } = useSnackbar();
-  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyBusy, setCopyBusy] = useState<"url" | "json" | null>(null);
+  const mcpJsonExample = serverUrl ? cursorMcpJsonExample(serverUrl) : undefined;
 
-  async function copyUrl() {
-    if (!serverUrl || copyBusy) {
+  async function copyText(kind: "url" | "json", text: string, successMessage: string) {
+    if (copyBusy !== null) {
       return;
     }
-    setCopyBusy(true);
+    setCopyBusy(kind);
     try {
-      await navigator.clipboard.writeText(serverUrl);
-      show("MCP server URL copied.");
+      await navigator.clipboard.writeText(text);
+      show(successMessage);
     } catch {
-      show("Couldn't copy. Select the URL and copy it manually.");
+      show("Couldn't copy. Select the text and copy it manually.");
     } finally {
-      setCopyBusy(false);
+      setCopyBusy(null);
     }
   }
 
@@ -336,39 +351,65 @@ function ConnectAssistantPanel() {
           Connect an assistant
         </h2>
         <p className="text-sm leading-6 text-muted-foreground">
-          Paste this URL into Claude, Cursor, or another MCP client. No Client ID is required — you
-          can connect more than one.
+          Paste this URL into your AI assistant. No Client ID is required — you can connect more
+          than one.
         </p>
       </div>
 
-      {serverUrl ? (
-        <Field>
-          <FieldLabel htmlFor={urlFieldId}>MCP server URL</FieldLabel>
-          <InputGroup className="mt-1.5">
-            <InputGroupInput
-              id={urlFieldId}
-              readOnly
-              value={serverUrl}
-              aria-label="MCP server URL"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
+      {serverUrl && mcpJsonExample ? (
+        <>
+          <Field>
+            <FieldLabel htmlFor={urlFieldId}>MCP server URL</FieldLabel>
+            <InputGroup className="mt-1.5">
+              <InputGroupInput
+                id={urlFieldId}
+                readOnly
+                value={serverUrl}
+                aria-label="MCP server URL"
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  type="button"
+                  size="sm"
+                  disabled={copyBusy !== null}
+                  aria-label="Copy MCP server URL"
+                  onClick={() => void copyText("url", serverUrl, "MCP server URL copied.")}
+                >
+                  {copyBusy === "url" ? "Copying…" : "Copy"}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              This address is public. Access starts only after you approve the client and selected
+              Circles.
+            </p>
+          </Field>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">
+                Example (<span className="font-mono text-xs font-normal">mcp.json</span>)
+              </p>
+              <Button
                 type="button"
+                variant="outline"
                 size="sm"
-                disabled={copyBusy}
-                aria-label="Copy MCP server URL"
-                onClick={() => void copyUrl()}
+                disabled={copyBusy !== null}
+                aria-label="Copy mcp.json example"
+                onClick={() => void copyText("json", mcpJsonExample, "mcp.json example copied.")}
               >
-                {copyBusy ? "Copying…" : "Copy"}
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            This address is public. Access starts only after you approve the client and selected
-            Circles.
-          </p>
-        </Field>
+                {copyBusy === "json" ? "Copying…" : "Copy"}
+              </Button>
+            </div>
+            <pre className="overflow-x-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-foreground">
+              {mcpJsonExample}
+            </pre>
+            <p className="text-xs leading-5 text-muted-foreground">
+              URL only — leave Client ID and secrets empty if the client shows those fields.
+            </p>
+          </div>
+        </>
       ) : (
         <div
           role="alert"
@@ -380,7 +421,7 @@ function ConnectAssistantPanel() {
       )}
 
       <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
-        <li>Open your assistant&apos;s MCP or Connectors settings.</li>
+        <li>Open your AI assistant&apos;s MCP or Connectors settings.</li>
         <li>Add a remote MCP server and paste the URL above.</li>
         <li>When PocketCircle opens, sign in with Google if needed.</li>
         <li>Choose Circles and permissions, then Allow.</li>
