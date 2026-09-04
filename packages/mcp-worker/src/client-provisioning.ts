@@ -1,6 +1,7 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { MCP_PROVISIONING_MAX_BODY_BYTES, readBoundedJson } from "./bounded-body.js";
+import { MCP_DCR_MAX_REDIRECT_URIS } from "./client-registration-policy.js";
 import type { Env } from "./env.js";
 
 const PROVISIONING_PATH = "/admin/oauth/clients";
@@ -19,7 +20,10 @@ const clientInputSchema = z
   .object({
     clientName: z.string().trim().min(1).max(200),
     clientUri: z.url().max(2_048).refine(safeMetadataUrl).optional(),
-    redirectUris: z.array(z.url().max(2_048).refine(safeRedirectUri)).min(1).max(20),
+    redirectUris: z
+      .array(z.url().max(2_048).refine(safeRedirectUri))
+      .min(1)
+      .max(MCP_DCR_MAX_REDIRECT_URIS),
   })
   .strict()
   .transform((input) => ({

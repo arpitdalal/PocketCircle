@@ -2,6 +2,7 @@ import { defaultHandler } from "./authorize.js";
 import {
   assertClonedBodyWithinLimit,
   MCP_JSON_MAX_BODY_BYTES,
+  MCP_PROVISIONING_MAX_BODY_BYTES,
   MCP_TOKEN_MAX_BODY_BYTES,
 } from "./bounded-body.js";
 import { type Env, withWorkersOauthKv } from "./env.js";
@@ -161,6 +162,36 @@ export default {
         }
       }
       return response;
+    }
+
+    // DCR burns Free KV writes — bind body + IP gate before provider/KV work (#354).
+    if (url.pathname === "/oauth/register" && request.method === "POST") {
+      if (!(await assertClonedBodyWithinLimit(request, MCP_PROVISIONING_MAX_BODY_BYTES))) {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_client_metadata",
+            error_description: "payload too large",
+          }),
+          {
+            status: 413,
+            headers: { "Content-Type": "application/json", "cache-control": "no-store" },
+          },
+        );
+      }
+      const withinIp = await assertWithinRateLimit(
+        env,
+        "client_registration",
+        unauthenticatedIpRateLimitMaterial({ className: "client_registration", ip }),
+      );
+      if (!withinIp.ok) {
+        mcpLog({
+          event: "client_registration",
+          outcome: "rate_limited",
+          status: 429,
+          toolClass: "client_registration",
+        });
+        return oauthRateLimitedResponse();
+      }
     }
 
     const response = await provider.fetch(request, oauthEnv, ctx);

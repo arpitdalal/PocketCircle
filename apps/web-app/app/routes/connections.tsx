@@ -336,7 +336,8 @@ function ConnectAssistantPanel() {
           Connect an assistant
         </h2>
         <p className="text-sm leading-6 text-muted-foreground">
-          Paste this URL into Claude, Cursor, or another MCP client. You can connect more than one.
+          Paste this URL into Claude, Cursor, or another MCP client. No Client ID is required — you
+          can connect more than one.
         </p>
       </div>
 

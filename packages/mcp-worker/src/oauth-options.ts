@@ -9,6 +9,7 @@ import {
   MCP_SCOPES,
 } from "@pocketcircle/domain";
 import { z } from "zod";
+import { evaluateClientRegistrationPolicy } from "./client-registration-policy.js";
 import { activateGrant, validateGrant } from "./convex-bridge.js";
 import { type Env, type OAuthEnv, withWorkersOauthKv } from "./env.js";
 import { createMcpApiHandler } from "./mcp-api.js";
@@ -62,7 +63,11 @@ export function oauthProviderOptions(
     defaultHandler,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
-    // No clientRegistrationEndpoint — DCR stays disabled (#318).
+    // Rate-limited DCR for Cursor-class clients that lack CIMD (#354).
+    // CIMD remains preferred; admin createClient is unaffected by DCR TTL.
+    clientRegistrationEndpoint: "/oauth/register",
+    clientRegistrationCallback: ({ clientMetadata }) =>
+      evaluateClientRegistrationPolicy(clientMetadata),
     clientIdMetadataDocumentEnabled: true,
     allowImplicitFlow: false,
     allowPlainPKCE: false,

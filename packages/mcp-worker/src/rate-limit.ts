@@ -3,7 +3,12 @@ import type { Env } from "./env.js";
 
 export type McpToolClass = "read" | "write" | "destructive";
 
-export type McpRateLimitClass = "authorization" | "token" | "failed_auth" | McpToolClass;
+export type McpRateLimitClass =
+  | "authorization"
+  | "token"
+  | "failed_auth"
+  | "client_registration"
+  | McpToolClass;
 
 /** Ordinary mutating tools — tighter than reads, looser than archives. */
 export const ORDINARY_WRITE_TOOL_NAMES = new Set([
@@ -94,6 +99,8 @@ function limiterFor(env: Env, className: McpRateLimitClass) {
       return env.MCP_TOKEN_RATE_LIMITER;
     case "failed_auth":
       return env.MCP_FAILED_AUTH_RATE_LIMITER;
+    case "client_registration":
+      return env.MCP_DCR_RATE_LIMITER;
     case "read":
       return env.MCP_READ_RATE_LIMITER;
     case "write":

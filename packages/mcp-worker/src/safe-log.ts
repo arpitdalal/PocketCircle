@@ -1,3 +1,5 @@
+import type { McpRateLimitClass } from "./rate-limit.js";
+
 /**
  * Operational logging for the MCP Worker (#331).
  * Never logs tokens, codes, assertions, amounts, titles, notes, circle names, or emails.
@@ -34,7 +36,7 @@ export type McpLogFields = {
   event: string;
   outcome?: "ok" | "error" | "rate_limited" | "rejected";
   status?: number;
-  toolClass?: "read" | "write" | "destructive" | "authorization" | "token" | "failed_auth";
+  toolClass?: McpRateLimitClass;
   durationMs?: number;
   errorCode?: string;
 };

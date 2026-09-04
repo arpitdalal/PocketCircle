@@ -7,6 +7,10 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Cursor and similar assistants can connect with only the MCP server URL from
+  Connections — no separate Client ID setup.
 
 ## [v0.4.2] - 2026-09-04
 

@@ -3,7 +3,6 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, localPlainDate, openPersonalCircleFromHome, test } from "./fixtures.js";
 
 const WORKER_ORIGIN = process.env.MCP_E2E_WORKER_ORIGIN;
-const PROVISIONING_TOKEN = process.env.MCP_E2E_CLIENT_PROVISIONING_TOKEN;
 const APP_ORIGIN = "http://127.0.0.1:5173";
 const REDIRECT_URI = `${APP_ORIGIN}/mcp/authorize`;
 
@@ -37,17 +36,19 @@ function mcpStructuredContent(body: unknown) {
   return structured;
 }
 
-async function provisionMcpClient(request: APIRequestContext, clientName: string) {
-  const provision = await request.post(`${WORKER_ORIGIN}/admin/oauth/clients`, {
-    headers: { authorization: `Bearer ${PROVISIONING_TOKEN}` },
+async function registerMcpClientViaDcr(request: APIRequestContext, clientName: string) {
+  const registered = await request.post(`${WORKER_ORIGIN}/oauth/register`, {
     data: {
-      clientName,
-      redirectUris: [REDIRECT_URI],
+      client_name: clientName,
+      redirect_uris: [REDIRECT_URI],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
     },
   });
-  expect([200, 201]).toContain(provision.status());
-  const provisioned: unknown = await provision.json();
-  return requiredString(provisioned, "clientId");
+  expect(registered.status()).toBe(201);
+  const body: unknown = await registered.json();
+  return requiredString(body, "client_id");
 }
 
 async function authorizeMcpClient(
@@ -145,17 +146,14 @@ function createMcpPoster(request: APIRequestContext, accessToken: string) {
 }
 
 test.describe("local MCP OAuth", () => {
-  test.skip(
-    !WORKER_ORIGIN || !PROVISIONING_TOKEN,
-    "Run through scripts/e2e-local.sh to boot the real local MCP Worker",
-  );
+  test.skip(!WORKER_ORIGIN, "Run through scripts/e2e-local.sh to boot the real local MCP Worker");
 
   /** Real browser + Convex + Wrangler KV/DO. Only Google login uses ADR 0019 test auth. */
   test("a signed-in member authorizes a public MCP client and exchanges the code", async ({
     page,
     request,
   }) => {
-    if (!WORKER_ORIGIN || !PROVISIONING_TOKEN) {
+    if (!WORKER_ORIGIN) {
       throw new Error("Missing local MCP E2E configuration");
     }
 
@@ -163,8 +161,13 @@ test.describe("local MCP OAuth", () => {
       `${WORKER_ORIGIN}/.well-known/oauth-authorization-server`,
     );
     expect(metadataRes.status()).toBe(200);
+    const metadata: unknown = await metadataRes.json();
+    expect(metadata).toMatchObject({
+      registration_endpoint: `${WORKER_ORIGIN}/oauth/register`,
+      client_id_metadata_document_supported: true,
+    });
 
-    const clientId = await provisionMcpClient(request, "PocketCircle local E2E client");
+    const clientId = await registerMcpClientViaDcr(request, "PocketCircle local E2E client");
 
     const authorized = await authorizeMcpClient(page, request, {
       clientId,
@@ -290,7 +293,7 @@ test.describe("local MCP OAuth", () => {
     page,
     request,
   }) => {
-    if (!WORKER_ORIGIN || !PROVISIONING_TOKEN) {
+    if (!WORKER_ORIGIN) {
       throw new Error("Missing local MCP E2E configuration");
     }
 
@@ -299,7 +302,7 @@ test.describe("local MCP OAuth", () => {
     const txnTitle = `E2E MCP Coffee ${Date.now()}`;
     await openPersonalCircleFromHome(page);
 
-    const clientId = await provisionMcpClient(request, "PocketCircle local MCP write client");
+    const clientId = await registerMcpClientViaDcr(request, "PocketCircle local MCP write client");
     const authorized = await authorizeMcpClient(page, request, {
       clientId,
       scope: "pocketcircle:read pocketcircle:write",

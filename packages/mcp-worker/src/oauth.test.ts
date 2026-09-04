@@ -53,11 +53,15 @@ const PKCE = {
   code_challenge_method: "S256",
 } as const;
 
-async function startAuthorize(state: string, scope = "pocketcircle:read") {
+async function startAuthorize(
+  state: string,
+  scope = "pocketcircle:read",
+  authorizeClientId = clientId,
+) {
   const start = await SELF.fetch(
     authorizeUrl({
       response_type: "code",
-      client_id: clientId,
+      client_id: authorizeClientId,
       redirect_uri: REDIRECT_URI,
       scope,
       state,
@@ -90,6 +94,49 @@ async function startAuthorize(state: string, scope = "pocketcircle:read") {
   const payload = await verifyMcpHandoff(body.handoff, HMAC_SECRET);
   expect(payload?.handoffId).toBe(handoffId);
   return { handoffId: handoffId ?? "", handoff: body.handoff, payload };
+}
+
+function dcrRegistrationBody(options: { clientName: string; redirectUris: string[] }) {
+  return {
+    client_name: options.clientName,
+    redirect_uris: options.redirectUris,
+    token_endpoint_auth_method: "none",
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+  };
+}
+
+function dcrClientId(body: unknown) {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("client_id" in body) ||
+    typeof body.client_id !== "string"
+  ) {
+    throw new Error("missing DCR client_id");
+  }
+  return body.client_id;
+}
+
+async function registerDcrClient(options: {
+  clientName: string;
+  redirectUris: string[];
+  ip?: string;
+}) {
+  const headers = new Headers({ "content-type": "application/json" });
+  if (options.ip) {
+    headers.set("cf-connecting-ip", options.ip);
+  }
+  return SELF.fetch("https://mcp.pocketcircle.app/oauth/register", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(
+      dcrRegistrationBody({
+        clientName: options.clientName,
+        redirectUris: options.redirectUris,
+      }),
+    ),
+  });
 }
 
 function stubConvexFetch(handler: (path: string, body: unknown) => Response | Promise<Response>) {
@@ -142,9 +189,9 @@ describe("MCP Worker OAuth discovery", () => {
       issuer: "https://mcp.pocketcircle.app",
       authorization_endpoint: "https://mcp.pocketcircle.app/authorize",
       token_endpoint: "https://mcp.pocketcircle.app/token",
+      registration_endpoint: "https://mcp.pocketcircle.app/oauth/register",
+      client_id_metadata_document_supported: true,
     });
-    // DCR must stay disabled — no registration_endpoint in metadata.
-    expect(asBody).not.toHaveProperty("registration_endpoint");
   });
 
   it("advertises the reachable Worker origin when the custom domain is not the request host", async () => {
@@ -162,16 +209,154 @@ describe("MCP Worker OAuth discovery", () => {
       issuer: origin,
       authorization_endpoint: `${origin}/authorize`,
       token_endpoint: `${origin}/token`,
+      registration_endpoint: `${origin}/oauth/register`,
+      client_id_metadata_document_supported: true,
     });
   });
 
-  it("does not expose a DCR registration route", async () => {
-    const response = await SELF.fetch("https://mcp.pocketcircle.app/oauth/register", {
+  it("registers a public Cursor-like client via DCR", async () => {
+    const redirectUris = [
+      "http://localhost:8787/callback",
+      "https://www.cursor.com/agents/mcp/oauth/callback",
+    ];
+    const response = await registerDcrClient({
+      clientName: "Cursor",
+      redirectUris,
+    });
+    expect(response.status).toBe(201);
+    const body: unknown = await response.json();
+    expect(body).toMatchObject({
+      token_endpoint_auth_method: "none",
+      redirect_uris: redirectUris,
+    });
+    const registeredId = dcrClientId(body);
+    expect(registeredId.length).toBeGreaterThan(0);
+    expect(body).not.toHaveProperty("client_secret");
+  });
+
+  it("rejects dangerous DCR redirect schemes and non-loopback http", async () => {
+    const dangerous = await SELF.fetch("https://mcp.pocketcircle.app/oauth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({
+        client_name: "evil",
+        redirect_uris: ["javascript:alert(1)"],
+        token_endpoint_auth_method: "none",
+      }),
     });
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(dangerous.status).toBe(400);
+    expect(await dangerous.json()).toMatchObject({ error: "invalid_client_metadata" });
+
+    const nonLoopback = await SELF.fetch("https://mcp.pocketcircle.app/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "evil-http",
+        redirect_uris: ["http://evil.example/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    expect(nonLoopback.status).toBe(400);
+    expect(await nonLoopback.json()).toMatchObject({ error: "invalid_client_metadata" });
+  });
+
+  it("rate-limits DCR registrations per IP", async () => {
+    const ip = "198.51.100.54";
+    for (let i = 0; i < 20; i++) {
+      const res = await registerDcrClient({
+        clientName: `dcr-client-${i}`,
+        redirectUris: [`https://dcr-client.example/cb/${i}`],
+        ip,
+      });
+      expect(res.status).toBe(201);
+    }
+    const throttled = await registerDcrClient({
+      clientName: "dcr-client-20",
+      redirectUris: ["https://dcr-client.example/cb/20"],
+      ip,
+    });
+    expect(throttled.status).toBe(429);
+    expect(await throttled.json()).toEqual({
+      error: "temporarily_unavailable",
+      error_description: "rate limited",
+    });
+  });
+
+  it("completes authorize → consent → token for a DCR-registered public client", async () => {
+    const registered = await registerDcrClient({
+      clientName: "DCR Authorize Client",
+      redirectUris: [REDIRECT_URI],
+    });
+    expect(registered.status).toBe(201);
+    const dcrId = dcrClientId(await registered.json());
+
+    const { handoffId } = await startAuthorize("dcr-authorize", "pocketcircle:read", dcrId);
+    const principalId = "dcr-principal-1";
+    const grantId = "dcr-grant-1";
+
+    stubConvexFetch((endpoint) => {
+      if (endpoint === "/mcp/redeem-approval") {
+        return Response.json({
+          ok: true,
+          value: {
+            grantId,
+            principalId,
+            clientId: dcrId,
+            redirectUri: REDIRECT_URI,
+            resource: RESOURCE,
+            scopes: ["pocketcircle:read"],
+            allowedCircleIds: ["circle_1"],
+            handoffId,
+          },
+        });
+      }
+      if (endpoint === "/mcp/activate-grant") {
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const complete = await browserFetch("https://mcp.pocketcircle.app/authorize/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: "approval-token", handoffId }),
+    });
+    expect(complete.status).toBe(200);
+    const completed: unknown = await complete.json();
+    if (
+      typeof completed !== "object" ||
+      completed === null ||
+      !("redirectTo" in completed) ||
+      typeof completed.redirectTo !== "string"
+    ) {
+      throw new Error("missing authorization redirect");
+    }
+    const code = new URL(completed.redirectTo).searchParams.get("code") ?? "";
+
+    const tokenResponse = await SELF.fetch("https://mcp.pocketcircle.app/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: dcrId,
+        code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        resource: RESOURCE,
+      }),
+    });
+    expect(tokenResponse.status).toBe(200);
+    const tokenJson: unknown = await tokenResponse.json();
+    expect(tokenJson).toMatchObject({ token_type: "bearer" });
+    if (
+      typeof tokenJson !== "object" ||
+      tokenJson === null ||
+      !("access_token" in tokenJson) ||
+      typeof tokenJson.access_token !== "string"
+    ) {
+      throw new Error("missing access token");
+    }
+    expect(tokenJson.access_token.length).toBeGreaterThan(0);
   });
 
   it("rejects untrusted origin and host headers on MCP handler", async () => {
