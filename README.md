@@ -76,14 +76,26 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 
 MCP (optional but required for Connections / consent locally):
 
-1. Uncomment and set in root `.env.local` (see `.env.example`):
+1. Set in root `.env.local` (see `.env.example`):
    `VITE_MCP_WORKER_ORIGIN=http://127.0.0.1:8787`
-2. `cp packages/mcp-worker/.dev.vars.example packages/mcp-worker/.dev.vars` and fill
-   `MCP_WORKER_HMAC_SECRET` / `MCP_WORKER_SIGNING_PRIVATE_JWK` to match the Convex
-   deployment. Set `CONVEX_SITE_URL` to the same value as root `VITE_CONVEX_SITE_URL`
-   (your cloud `*.convex.site`). Use `http://127.0.0.1:3211` only with the
-   self-hosted Docker backend. Keep `APP_ORIGIN` on the same port as Vite
-   (`localhost` and `127.0.0.1` are interchangeable for Worker CORS).
+2. Generate shared Worker↔Convex secrets and install the Convex-side verifiers
+   on the cloud dev deployment (root `.env.local` is not read by Convex):
+
+```sh
+MCP_WORKER_HMAC_SECRET="$(openssl rand -base64 32)"
+# Prints MCP_WORKER_SIGNING_PRIVATE_JWK=... and MCP_WORKER_VERIFYING_JWKS=...
+node scripts/generate-mcp-worker-key.mjs
+# Paste those two lines into your shell (or export them), then:
+pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
+pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
+```
+
+3. `cp packages/mcp-worker/.dev.vars.example packages/mcp-worker/.dev.vars` and set
+   `MCP_WORKER_HMAC_SECRET` / `MCP_WORKER_SIGNING_PRIVATE_JWK` to those same values
+   (private JWK stays Worker-only). Set `CONVEX_SITE_URL` to the same value as root
+   `VITE_CONVEX_SITE_URL` (your cloud `*.convex.site`). Use `http://127.0.0.1:3211`
+   only with the self-hosted Docker backend. Keep `APP_ORIGIN` on the same port as
+   Vite (`localhost` and `127.0.0.1` are interchangeable for Worker CORS).
 
 ```sh
 pnpm dev
