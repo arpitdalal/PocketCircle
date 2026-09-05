@@ -1,26 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
+vi.mock("./env.js", async (importOriginal) =>
+  (await import("~/test/sentry-mock.js")).envModuleWithSentryDsn(importOriginal),
+);
+
+import {
+  flushReportAppErrorForTests,
+  resetSentryBoundary,
+  sentrySdk,
+} from "~/test/sentry-boundary.js";
 import { handleUnavailableRefLink, handleUnparseableRefLink } from "./ref-link-failure.js";
 import { redactRefForTelemetry } from "./refs.js";
 
-// Mock the true boundary (`@sentry/react`) and let the real `reportAppError` +
-// scrubbing run, so this exercises the actual reporting seam rather than a faked
-// one (CLAUDE.md: mock only third-party boundaries).
-const captureMessage = vi.hoisted(() => vi.fn());
-vi.mock("@sentry/react", () => ({ captureMessage }));
-
 let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
-  // `reportAppError` console.warns in dev; silence it so the suite stays quiet.
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await resetSentryBoundary();
   warnSpy.mockRestore();
-  vi.clearAllMocks();
 });
 
 describe("ref-link-failure", () => {
-  it("reports an unparseable ref and marks consumed without a snackbar by default", () => {
+  it("reports an unparseable ref and marks consumed without a snackbar by default", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -31,14 +35,15 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
-    expect(captureMessage).toHaveBeenCalledWith("Unparseable categoryRef in URL", {
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.captureMessage).toHaveBeenCalledWith("Unparseable categoryRef in URL", {
       extra: { rawRef: redactRefForTelemetry("bad-ref") },
     });
     expect(showUnavailable).not.toHaveBeenCalled();
     expect(onConsumed).toHaveBeenCalledOnce();
   });
 
-  it("reports and shows unavailable when alsoShowUnavailable is set", () => {
+  it("reports and shows unavailable when alsoShowUnavailable is set", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -51,12 +56,13 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
-    expect(captureMessage).toHaveBeenCalledOnce();
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.captureMessage).toHaveBeenCalledOnce();
     expect(showUnavailable).toHaveBeenCalledWith("circle");
     expect(onConsumed).toHaveBeenCalledOnce();
   });
 
-  it("fires the unavailable snackbar for a missing target", () => {
+  it("fires the unavailable snackbar for a missing target", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -65,8 +71,9 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
+    await flushReportAppErrorForTests();
     expect(showUnavailable).toHaveBeenCalledWith("link");
     expect(onConsumed).toHaveBeenCalledOnce();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 });

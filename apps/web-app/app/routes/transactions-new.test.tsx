@@ -128,8 +128,8 @@ async function fillAndSubmit(
   await user.click(within(form).getByRole("button", { name: "Save" }));
 }
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
   createTransaction = vi.fn();
 });
 

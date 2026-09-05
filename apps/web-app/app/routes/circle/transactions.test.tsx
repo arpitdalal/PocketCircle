@@ -17,9 +17,12 @@ import {
   type TransactionFilterOptions,
 } from "~/lib/data.js";
 import {
+  assertFilterOptionsLiveForUrlFilters,
+  assertFilterOptionsSkippedUntilPanelOpens,
   assertFilterPanelDiscardsDraftOnClose,
   configureConvex,
   convexReactMock,
+  FILTER_OPTIONS_URL_ID_PARAMS,
   FILTER_PANEL_CLOSE_MEDIUMS,
   flushIntersectionObserverStub,
   installIntersectionObserverStub,
@@ -47,8 +50,8 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 import CircleTransactions from "./transactions.js";
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 const REF = "trip-c1";
@@ -145,6 +148,25 @@ afterEach(() => {
 });
 
 describe("CircleTransactions", () => {
+  it("skips ledger filter-options until the filter panel opens", async () => {
+    setup();
+    await assertFilterOptionsSkippedUntilPanelOpens(api.search.getLedgerFilterOptions);
+  });
+
+  it.each(FILTER_OPTIONS_URL_ID_PARAMS)(
+    "subscribes ledger filter-options when URL already has %s ids",
+    async (param) => {
+      const id =
+        param === "categories"
+          ? testId<Category["id"]>("cat-grocery")
+          : testId<Member["id"]>("mem-you");
+      setup({
+        initialEntries: [`/circles/${REF}/transactions?month=2026-05&${param}=${id}`],
+      });
+      await assertFilterOptionsLiveForUrlFilters(api.search.getLedgerFilterOptions);
+    },
+  );
+
   it("normalizes the bare route to month + default ledger filter params", async () => {
     const { location } = setup({ initialEntries: [`/circles/${REF}/transactions`] });
     await waitFor(() =>

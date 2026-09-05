@@ -187,14 +187,20 @@ export function useTransactionSearch(
   return { ...data, isLoading: false } satisfies TransactionSearchResult;
 }
 
+/**
+ * Ledger / Search filter pickers. Pass `enabled: false` while the panel is closed
+ * and no Category/Member ids are applied, so the heavy options query stays off the
+ * always-on path (RPT-8). Keep enabled when URL ids need scrubbing against options.
+ */
 export function useLedgerFilterOptions(
   circleId: Circle["id"],
   month: PlainMonth,
   type: FilterType,
+  enabled = true,
 ): TransactionFilterOptions | null | undefined {
   const queried = useQuery(
     api.search.getLedgerFilterOptions,
-    MOCKS ? "skip" : { circleId, month, type },
+    MOCKS || !enabled ? "skip" : { circleId, month, type },
   );
   return MOCKS ? { categories: MOCK_CATEGORIES, members: MOCK_MEMBERS } : queried;
 }
@@ -202,12 +208,30 @@ export function useLedgerFilterOptions(
 export function useTransactionSearchOptions(
   circleId: Circle["id"],
   type: FilterType,
+  enabled = true,
 ): TransactionFilterOptions | null | undefined {
   const queried = useQuery(
     api.search.getTransactionSearchOptions,
-    MOCKS ? "skip" : { circleId, type },
+    MOCKS || !enabled ? "skip" : { circleId, type },
   );
   return MOCKS ? { categories: MOCK_CATEGORIES, members: MOCK_MEMBERS } : queried;
+}
+
+/** True when filter options must subscribe (panel open or URL has id filters). */
+export function filterOptionsQueryEnabled(
+  panelOpen: boolean,
+  filters: {
+    categories: readonly string[];
+    recordedBy: readonly string[];
+    paidBy: readonly string[];
+  },
+) {
+  return (
+    panelOpen ||
+    filters.categories.length > 0 ||
+    filters.recordedBy.length > 0 ||
+    filters.paidBy.length > 0
+  );
 }
 
 function mockExportRows(

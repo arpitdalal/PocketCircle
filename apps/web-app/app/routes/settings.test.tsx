@@ -48,9 +48,9 @@ function renderSettings() {
   );
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
-  primeAnalyticsForTests();
+  await primeAnalyticsForTests();
   auth.deleteUser.mockReset();
 });
 
@@ -249,7 +249,7 @@ describe("Settings product-analytics preference", () => {
 
   it("does not keep capturing after a failed opt-out when the session later reports disabled", async () => {
     const currentUser = makeCurrentUserView({ analyticsEnabled: true });
-    primeAnalyticsForTests(currentUser);
+    await primeAnalyticsForTests(currentUser);
     const setAnalyticsEnabled = vi.fn().mockRejectedValue(new Error("network"));
     configureConvex({
       currentUser,
@@ -263,7 +263,7 @@ describe("Settings product-analytics preference", () => {
       await screen.findByText("Couldn't update your privacy preference. Please try again."),
     ).toBeInTheDocument();
 
-    initAnalytics({ id: currentUser.id, analyticsEnabled: false });
+    await initAnalytics({ id: currentUser.id, analyticsEnabled: false });
     track("feedback_submitted", { type: "bug" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });

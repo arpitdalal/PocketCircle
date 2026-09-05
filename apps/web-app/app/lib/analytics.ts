@@ -1,5 +1,3 @@
-import posthog, { type CaptureResult } from "posthog-js";
-
 import {
   type AnalyticsEvent,
   type AnalyticsEventMap,
@@ -9,6 +7,9 @@ import {
 } from "./analytics-events.js";
 import { posthogHost, posthogKey } from "./env.js";
 import type { SessionUser } from "./session.js";
+
+type PostHogClient = typeof import("posthog-js")["default"];
+type CaptureResult = import("posthog-js").CaptureResult;
 
 const isBrowser = typeof window !== "undefined";
 
@@ -31,10 +32,30 @@ const POSTHOG_URL_PROPERTY_KEYS = [
   "$title",
 ] as const;
 
+let posthog: PostHogClient | null = null;
 let clientInitialized = false;
 let captureEnabled = false;
 let initializedForUserId: string | null = null;
+/** Last User id passed to initAnalytics — used to restart after a failed opt-out race. */
+let lastAnalyticsUserId: string | null = null;
 let pendingEnabled: boolean | null = null;
+let loadPromise: Promise<PostHogClient | null> | null = null;
+/** Bumped to invalidate in-flight initAnalytics work after await loadPostHog. */
+let initEpoch = 0;
+/** Test-only gate so races during PostHog chunk load can be asserted. */
+let postHogLoadHold: Promise<void> | null = null;
+
+function invalidatePendingInits() {
+  initEpoch += 1;
+}
+
+/** If capture should be on but isn't (stale init aborted mid-load), start a fresh init. */
+function restartInitIfCaptureStillOff() {
+  if (captureEnabled || !lastAnalyticsUserId) {
+    return;
+  }
+  void initAnalytics({ id: lastAnalyticsUserId, analyticsEnabled: true });
+}
 
 /** Keys the previous localStorage persistence and consent APIs left behind. */
 export function retiredPostHogStorageKeys(keys: readonly string[], token: string) {
@@ -116,9 +137,30 @@ function scrubOutgoingCapture(event: CaptureResult | null) {
   };
 }
 
+async function loadPostHog() {
+  if (postHogLoadHold) {
+    await postHogLoadHold;
+  }
+  if (posthog) {
+    return posthog;
+  }
+  if (!loadPromise) {
+    loadPromise = import("posthog-js")
+      .then((mod) => {
+        posthog = mod.default;
+        return posthog;
+      })
+      .catch(() => {
+        loadPromise = null;
+        return null;
+      });
+  }
+  return loadPromise;
+}
+
 function stopCaptureAndResetIdentity() {
   captureEnabled = false;
-  if (clientInitialized) {
+  if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     posthog.reset(true);
   }
@@ -129,7 +171,7 @@ function applyCaptureEnabled(enabled: boolean) {
     stopCaptureAndResetIdentity();
     return;
   }
-  if (clientInitialized) {
+  if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     captureEnabled = true;
   }
@@ -152,12 +194,18 @@ export function buildPostHogInitOptions() {
   };
 }
 
-export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">) {
+/**
+ * Init PostHog only when analytics are enabled. Dynamic-imports `posthog-js` so
+ * the SDK stays off the protected-shell chunk until a ready, opted-in User (RPT-8 /
+ * ADR 0013).
+ */
+export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">) {
   const key = posthogKey();
   if (!key || !isBrowser) {
     return;
   }
 
+  lastAnalyticsUserId = user.id;
   clearRetiredPostHogBrowserStorage();
 
   if (initializedForUserId !== null && initializedForUserId !== user.id) {
@@ -172,14 +220,29 @@ export function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEnabled">
   const enabled = pendingEnabled ?? user.analyticsEnabled;
 
   if (!enabled) {
+    invalidatePendingInits();
+    stopCaptureAndResetIdentity();
+    initializedForUserId = user.id;
+    return;
+  }
+
+  const epoch = ++initEpoch;
+  const client = await loadPostHog();
+  if (epoch !== initEpoch || !client) {
+    return;
+  }
+
+  // Preference may have flipped while the chunk loaded (setAnalyticsEnabled /
+  // teardown bump initEpoch; pendingEnabled false also blocks).
+  if (pendingEnabled === false) {
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
     return;
   }
 
   if (!clientInitialized) {
-    posthog.init(key, buildPostHogInitOptions());
-    posthog.stopSessionRecording();
+    client.init(key, buildPostHogInitOptions());
+    client.stopSessionRecording();
     clientInitialized = true;
   }
 
@@ -192,7 +255,13 @@ export function setAnalyticsEnabled(enabled: boolean) {
     return;
   }
   pendingEnabled = enabled;
+  if (!enabled) {
+    invalidatePendingInits();
+  }
   applyCaptureEnabled(enabled);
+  if (enabled) {
+    restartInitIfCaptureStillOff();
+  }
 }
 
 /** Restore capture from the persisted preference without keeping the optimistic override. */
@@ -202,21 +271,26 @@ export function revertPendingAnalyticsEnabled(enabled: boolean) {
   }
   pendingEnabled = null;
   applyCaptureEnabled(enabled);
+  if (enabled) {
+    restartInitIfCaptureStillOff();
+  }
 }
 
 export function teardownAnalytics() {
   if (!posthogKey() || !isBrowser) {
     return;
   }
+  invalidatePendingInits();
   stopCaptureAndResetIdentity();
   clientInitialized = false;
   initializedForUserId = null;
+  lastAnalyticsUserId = null;
   pendingEnabled = null;
   clearRetiredPostHogBrowserStorage();
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {
-  if (!posthogKey() || !isBrowser || !clientInitialized || !captureEnabled) {
+  if (!posthogKey() || !isBrowser || !clientInitialized || !captureEnabled || !posthog) {
     return;
   }
   if (!isAnalyticsEvent(event)) {
@@ -240,5 +314,15 @@ export function resetAnalyticsStateForTests() {
   clientInitialized = false;
   captureEnabled = false;
   initializedForUserId = null;
+  lastAnalyticsUserId = null;
   pendingEnabled = null;
+  posthog = null;
+  loadPromise = null;
+  initEpoch = 0;
+  postHogLoadHold = null;
+}
+
+/** Test-only: pause loadPostHog until `hold` settles (consent/teardown race coverage). */
+export function holdPostHogLoadForTests(hold: Promise<void> | null) {
+  postHogLoadHold = hold;
 }

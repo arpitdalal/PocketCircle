@@ -32,14 +32,14 @@ const acknowledge = vi.fn().mockResolvedValue(undefined);
 const ACTIVE_TITLE = /Connect PocketCircle to your AI assistant/i;
 const ACTIVE_ID = "mcp-connections" as const;
 
-beforeEach(() => {
+beforeEach(async () => {
   sessionStorage.clear();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();
   installMatchMediaFake(false);
   acknowledge.mockReset();
   acknowledge.mockResolvedValue(undefined);
-  primeAnalyticsForTests(makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }));
+  await primeAnalyticsForTests(makeCurrentUserView({ createdAt: 1, analyticsEnabled: true }));
   posthogSdk.capture.mockClear();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
 });
