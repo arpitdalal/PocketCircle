@@ -72,23 +72,23 @@ describe("buildPostHogInitOptions", () => {
 });
 
 describe("initAnalytics", () => {
-  it("no-ops when the PostHog key is missing", () => {
+  it("no-ops when the PostHog key is missing", async () => {
     stubPosthogEnvForTests("");
-    initAnalytics(readyUser);
+    await initAnalytics(readyUser);
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("does not initialize when analytics are disabled", () => {
-    initAnalytics({ ...readyUser, analyticsEnabled: false });
+  it("does not initialize when analytics are disabled", async () => {
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("wipes leftover PostHog browser storage even when analytics stay disabled", () => {
+  it("wipes leftover PostHog browser storage even when analytics stay disabled", async () => {
     window.localStorage.setItem("ph_phc_test_posthog", "{}");
     window.localStorage.setItem("__ph_opt_in_out_phc_test", "1");
     window.localStorage.setItem("unrelated", "keep");
 
-    initAnalytics({ ...readyUser, analyticsEnabled: false });
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
 
     expect(window.localStorage.getItem("ph_phc_test_posthog")).toBeNull();
     expect(window.localStorage.getItem("__ph_opt_in_out_phc_test")).toBeNull();
@@ -96,9 +96,9 @@ describe("initAnalytics", () => {
     expect(posthogSdk.init).not.toHaveBeenCalled();
   });
 
-  it("initializes once with session recording disabled and without persisted consent APIs", () => {
-    initAnalytics(readyUser);
-    initAnalytics(readyUser);
+  it("initializes once with session recording disabled and without persisted consent APIs", async () => {
+    await initAnalytics(readyUser);
+    await initAnalytics(readyUser);
 
     expect(posthogSdk.init).toHaveBeenCalledOnce();
     expect(posthogSdk.init).toHaveBeenCalledWith("phc_test", buildPostHogInitOptions());
@@ -107,9 +107,9 @@ describe("initAnalytics", () => {
     expect(posthogSdk.stopSessionRecording).toHaveBeenCalled();
   });
 
-  it("resets PostHog identity when the authenticated user changes", () => {
-    initAnalytics(readyUser);
-    initAnalytics({ ...readyUser, id: "user-2" });
+  it("resets PostHog identity when the authenticated user changes", async () => {
+    await initAnalytics(readyUser);
+    await initAnalytics({ ...readyUser, id: "user-2" });
 
     expect(posthogSdk.reset).toHaveBeenCalledWith(true);
     expect(posthogSdk.init).toHaveBeenCalledOnce();
@@ -117,9 +117,9 @@ describe("initAnalytics", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
   });
 
-  it("stops capture when the same user disables analytics", () => {
-    initAnalytics(readyUser);
-    initAnalytics({ ...readyUser, analyticsEnabled: false });
+  it("stops capture when the same user disables analytics", async () => {
+    await initAnalytics(readyUser);
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
     track("feedback_submitted", { type: "bug" });
 
     expect(posthogSdk.reset).toHaveBeenCalledWith(true);
@@ -129,7 +129,7 @@ describe("initAnalytics", () => {
 });
 
 describe("retiredPostHogStorageKeys", () => {
-  it("selects the retired localStorage persistence record and consent flag for this project", () => {
+  it("selects the retired localStorage persistence record and consent flag for this project", async () => {
     expect(
       retiredPostHogStorageKeys(
         [
@@ -152,21 +152,21 @@ describe("retiredPostHogStorageKeys", () => {
 });
 
 describe("teardownAnalytics", () => {
-  it("clears in-memory identity so a later user does not reuse the previous session", () => {
-    initAnalytics(readyUser);
+  it("clears in-memory identity so a later user does not reuse the previous session", async () => {
+    await initAnalytics(readyUser);
     teardownAnalytics();
     track("feedback_submitted", { type: "bug" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
 
-    initAnalytics({ ...readyUser, id: "user-2" });
+    await initAnalytics({ ...readyUser, id: "user-2" });
     expect(posthogSdk.reset).toHaveBeenCalledWith(true);
     expect(posthogSdk.init).toHaveBeenCalledTimes(2);
   });
 });
 
 describe("setAnalyticsEnabled", () => {
-  it("stops capture, resets in-memory state, and ignores later track calls", () => {
-    initAnalytics(readyUser);
+  it("stops capture, resets in-memory state, and ignores later track calls", async () => {
+    await initAnalytics(readyUser);
 
     setAnalyticsEnabled(false);
     track("feedback_submitted", { type: "bug" });
@@ -177,8 +177,8 @@ describe("setAnalyticsEnabled", () => {
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("opts back in without requiring a reload or writing PostHog consent", () => {
-    initAnalytics(readyUser);
+  it("opts back in without requiring a reload or writing PostHog consent", async () => {
+    await initAnalytics(readyUser);
     setAnalyticsEnabled(false);
 
     setAnalyticsEnabled(true);
@@ -188,20 +188,20 @@ describe("setAnalyticsEnabled", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "feature" });
   });
 
-  it("keeps a local opt-out when the session still reports analytics enabled", () => {
-    initAnalytics(readyUser);
+  it("keeps a local opt-out when the session still reports analytics enabled", async () => {
+    await initAnalytics(readyUser);
     setAnalyticsEnabled(false);
-    initAnalytics(readyUser);
+    await initAnalytics(readyUser);
     track("feedback_submitted", { type: "bug" });
 
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("clears a failed-toggle override so a later session opt-out can take effect", () => {
-    initAnalytics(readyUser);
+  it("clears a failed-toggle override so a later session opt-out can take effect", async () => {
+    await initAnalytics(readyUser);
     setAnalyticsEnabled(false);
     revertPendingAnalyticsEnabled(true);
-    initAnalytics({ ...readyUser, analyticsEnabled: false });
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
     track("feedback_submitted", { type: "bug" });
 
     expect(posthogSdk.capture).not.toHaveBeenCalled();
@@ -209,8 +209,8 @@ describe("setAnalyticsEnabled", () => {
 });
 
 describe("outgoing capture scrubbing", () => {
-  it("drops automatic URL fields and person-profile payloads from allowlisted events", () => {
-    initAnalytics(readyUser);
+  it("drops automatic URL fields and person-profile payloads from allowlisted events", async () => {
+    await initAnalytics(readyUser);
 
     expect(
       beforeSend({
@@ -237,8 +237,8 @@ describe("outgoing capture scrubbing", () => {
     });
   });
 
-  it("drops SDK events that are not on the product allowlist", () => {
-    initAnalytics(readyUser);
+  it("drops SDK events that are not on the product allowlist", async () => {
+    await initAnalytics(readyUser);
 
     expect(
       beforeSend({
@@ -249,7 +249,7 @@ describe("outgoing capture scrubbing", () => {
     ).toBeNull();
   });
 
-  it("drops events until capture is enabled after init", () => {
+  it("drops events until capture is enabled after init", async () => {
     expect(
       beforeSend({
         uuid: "evt-3",
@@ -258,7 +258,7 @@ describe("outgoing capture scrubbing", () => {
       }),
     ).toBeNull();
 
-    initAnalytics(readyUser);
+    await initAnalytics(readyUser);
     setAnalyticsEnabled(false);
     expect(
       beforeSend({
@@ -271,33 +271,33 @@ describe("outgoing capture scrubbing", () => {
 });
 
 describe("track", () => {
-  it("no-ops before init", () => {
+  it("no-ops before init", async () => {
     track("circle_created", { currency: "USD" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("drops unknown events", () => {
-    initAnalytics(readyUser);
+  it("drops unknown events", async () => {
+    await initAnalytics(readyUser);
     // @ts-expect-error intentional malformed event name for contract test
     track("not_a_real_event", { currency: "USD" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("strips unknown prop keys but still captures allowed props", () => {
-    initAnalytics(readyUser);
+  it("strips unknown prop keys but still captures allowed props", async () => {
+    await initAnalytics(readyUser);
     track("circle_created", { currency: "USD", ...{ title: "secret" } });
     expect(posthogSdk.capture).toHaveBeenCalledWith("circle_created", { currency: "USD" });
   });
 
-  it("rejects unsupported currency codes", () => {
-    initAnalytics(readyUser);
+  it("rejects unsupported currency codes", async () => {
+    await initAnalytics(readyUser);
     // @ts-expect-error intentional unsupported currency for runtime guard test
     track("circle_created", { currency: "XYZ" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("never forwards forbidden keys", () => {
-    initAnalytics(readyUser);
+  it("never forwards forbidden keys", async () => {
+    await initAnalytics(readyUser);
 
     for (const forbidden of FORBIDDEN_ANALYTICS_PROP_KEYS) {
       const props = sanitizeAnalyticsProps("transaction_search_submitted", {
@@ -346,14 +346,14 @@ describe("track", () => {
     });
   });
 
-  it("captures whitelisted circle_created props", () => {
-    initAnalytics(readyUser);
+  it("captures whitelisted circle_created props", async () => {
+    await initAnalytics(readyUser);
     track("circle_created", { currency: "EUR" });
     expect(posthogSdk.capture).toHaveBeenCalledWith("circle_created", { currency: "EUR" });
   });
 
-  it("captures save_and_new_clicked only with the exact entity/surface matrix", () => {
-    initAnalytics(readyUser);
+  it("captures save_and_new_clicked only with the exact entity/surface matrix", async () => {
+    await initAnalytics(readyUser);
 
     const transactionGlobal = { entity: "transaction", surface: "global" } as const;
     const categoryScoped = { entity: "category", surface: "circle_scoped" } as const;
@@ -365,8 +365,8 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenLastCalledWith("save_and_new_clicked", transactionGlobal);
   });
 
-  it("rejects invalid save_and_new_clicked payloads", () => {
-    initAnalytics(readyUser);
+  it("rejects invalid save_and_new_clicked payloads", async () => {
+    await initAnalytics(readyUser);
 
     expect(
       sanitizeAnalyticsProps("save_and_new_clicked", {
@@ -415,8 +415,8 @@ describe("track", () => {
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("captures transaction_added only with the full coarse payload incl. surface and method", () => {
-    initAnalytics(readyUser);
+  it("captures transaction_added only with the full coarse payload incl. surface and method", async () => {
+    await initAnalytics(readyUser);
 
     const circleScopedManual = {
       type: "expense",
@@ -441,8 +441,8 @@ describe("track", () => {
     expect(sanitizeAnalyticsProps("transaction_added", globalDuplicate)).toEqual(globalDuplicate);
   });
 
-  it("drops transaction_added with an unknown surface or method", () => {
-    initAnalytics(readyUser);
+  it("drops transaction_added with an unknown surface or method", async () => {
+    await initAnalytics(readyUser);
 
     track("transaction_added", {
       type: "expense",
@@ -463,7 +463,7 @@ describe("track", () => {
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
-  it("drops transaction_added missing required surface or method, and strips financial content", () => {
+  it("drops transaction_added missing required surface or method, and strips financial content", async () => {
     const coarse = { type: "expense", paidBySelf: true, categoryCount: 1 } as const;
 
     expect(
@@ -496,8 +496,8 @@ describe("track", () => {
     });
   });
 
-  it("captures activation skip with completedCount 0–3 and empty completion payload", () => {
-    initAnalytics(readyUser);
+  it("captures activation skip with completedCount 0–3 and empty completion payload", async () => {
+    await initAnalytics(readyUser);
 
     expect(sanitizeAnalyticsProps("activation_checklist_skipped", { completedCount: 0 })).toEqual({
       completedCount: 0,
@@ -538,8 +538,8 @@ describe("track", () => {
     expect(posthogSdk.capture).toHaveBeenCalledWith("activation_checklist_completed", {});
   });
 
-  it("captures whats_new_opened with allowlisted latestVersion only", () => {
-    initAnalytics(readyUser);
+  it("captures whats_new_opened with allowlisted latestVersion only", async () => {
+    await initAnalytics(readyUser);
 
     expect(sanitizeAnalyticsProps("whats_new_opened", { latestVersion: "v0.2.0" })).toEqual({
       latestVersion: "v0.2.0",
@@ -560,8 +560,8 @@ describe("track", () => {
     });
   });
 
-  it("captures feature announcement events with allowlisted announcement only", () => {
-    initAnalytics(readyUser);
+  it("captures feature announcement events with allowlisted announcement only", async () => {
+    await initAnalytics(readyUser);
 
     for (const event of [
       "feature_announcement_impression",
@@ -588,8 +588,8 @@ describe("track", () => {
     }
   });
 
-  it("does not throw when PostHog capture rejects", () => {
-    initAnalytics(readyUser);
+  it("does not throw when PostHog capture rejects", async () => {
+    await initAnalytics(readyUser);
     posthogSdk.capture.mockImplementation(() => {
       throw new Error("posthog down");
     });
@@ -599,7 +599,7 @@ describe("track", () => {
 });
 
 describe("analytics independence", () => {
-  it("never reads analyticsEnabled in sentry wiring", () => {
+  it("never reads analyticsEnabled in sentry wiring", async () => {
     const sentrySource = readFileSync(join(import.meta.dirname, "sentry.ts"), "utf8");
     const reportErrorSource = readFileSync(join(import.meta.dirname, "report-error.ts"), "utf8");
 
@@ -607,5 +607,11 @@ describe("analytics independence", () => {
     expect(reportErrorSource).not.toMatch(/analyticsEnabled/);
     expect(sentrySource).not.toMatch(/posthog/i);
     expect(reportErrorSource).not.toMatch(/posthog/i);
+  });
+
+  it("does not statically import posthog-js (keeps SDK off the protected shell chunk)", () => {
+    const analyticsSource = readFileSync(join(import.meta.dirname, "analytics.ts"), "utf8");
+    expect(analyticsSource).not.toMatch(/^import .* from ["']posthog-js["']/m);
+    expect(analyticsSource).toMatch(/import\(["']posthog-js["']\)/);
   });
 });

@@ -33,9 +33,9 @@ function renderFeedback(initialEntries = ["/feedback"]) {
   );
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
-  primeAnalyticsForTests();
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {

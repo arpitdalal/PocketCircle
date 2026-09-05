@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleUnavailableRefLink, handleUnparseableRefLink } from "./ref-link-failure.js";
 import { redactRefForTelemetry } from "./refs.js";
+import { flushReportAppErrorForTests } from "./report-error.js";
 
 // Mock the true boundary (`@sentry/react`) and let the real `reportAppError` +
 // scrubbing run, so this exercises the actual reporting seam rather than a faked
@@ -14,13 +15,14 @@ beforeEach(() => {
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await flushReportAppErrorForTests();
   warnSpy.mockRestore();
   vi.clearAllMocks();
 });
 
 describe("ref-link-failure", () => {
-  it("reports an unparseable ref and marks consumed without a snackbar by default", () => {
+  it("reports an unparseable ref and marks consumed without a snackbar by default", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -31,6 +33,7 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
+    await flushReportAppErrorForTests();
     expect(captureMessage).toHaveBeenCalledWith("Unparseable categoryRef in URL", {
       extra: { rawRef: redactRefForTelemetry("bad-ref") },
     });
@@ -38,7 +41,7 @@ describe("ref-link-failure", () => {
     expect(onConsumed).toHaveBeenCalledOnce();
   });
 
-  it("reports and shows unavailable when alsoShowUnavailable is set", () => {
+  it("reports and shows unavailable when alsoShowUnavailable is set", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -51,12 +54,13 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
+    await flushReportAppErrorForTests();
     expect(captureMessage).toHaveBeenCalledOnce();
     expect(showUnavailable).toHaveBeenCalledWith("circle");
     expect(onConsumed).toHaveBeenCalledOnce();
   });
 
-  it("fires the unavailable snackbar for a missing target", () => {
+  it("fires the unavailable snackbar for a missing target", async () => {
     const showUnavailable = vi.fn();
     const onConsumed = vi.fn();
 
@@ -65,6 +69,7 @@ describe("ref-link-failure", () => {
       onConsumed,
     });
 
+    await flushReportAppErrorForTests();
     expect(showUnavailable).toHaveBeenCalledWith("link");
     expect(onConsumed).toHaveBeenCalledOnce();
     expect(captureMessage).not.toHaveBeenCalled();

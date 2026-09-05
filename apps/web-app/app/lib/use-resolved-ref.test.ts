@@ -1,5 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { flushReportAppErrorForTests } from "./report-error.js";
 import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 // The primitive owns navigation, the current location, the snackbar, and error
@@ -47,7 +48,8 @@ function resolve(overrides: Partial<ResolvedRefOptions<TestRef>>) {
   return renderHook(() => useResolvedRef(options)).result.current;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await flushReportAppErrorForTests();
   warnSpy.mockRestore();
   vi.clearAllMocks();
   location.pathname = "/circles/home-c1";
@@ -72,17 +74,19 @@ describe("useResolvedRef", () => {
     expect(captureMessage).not.toHaveBeenCalled();
   });
 
-  it("falls back and reports when the ref is unparseable (an app-emitted bad link)", () => {
+  it("falls back and reports when the ref is unparseable (an app-emitted bad link)", async () => {
     resolve({ parsed: false, value: undefined, fallback: "/safe" });
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
+    await flushReportAppErrorForTests();
     expect(captureMessage).toHaveBeenCalledOnce();
   });
 
-  it("falls back silently when the target is inaccessible (no report — permission outcome)", () => {
+  it("falls back silently when the target is inaccessible (no report — permission outcome)", async () => {
     resolve({ parsed: true, value: null, fallback: "/safe" });
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
+    await flushReportAppErrorForTests();
     expect(captureMessage).not.toHaveBeenCalled();
   });
 

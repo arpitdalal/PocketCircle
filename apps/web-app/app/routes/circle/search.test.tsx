@@ -101,8 +101,8 @@ function makeSearchOptions(opts: { extraMembers?: Member[] } = {}): TransactionF
   };
 }
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {

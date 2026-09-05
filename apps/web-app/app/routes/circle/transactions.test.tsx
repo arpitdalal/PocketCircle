@@ -47,8 +47,8 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 import CircleTransactions from "./transactions.js";
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 const REF = "trip-c1";
