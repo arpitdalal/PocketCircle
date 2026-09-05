@@ -11,15 +11,12 @@ const env = vi.hoisted(() => {
 
 vi.mock("./env.js", () => env);
 
-import { sentrySdk } from "~/test/sentry-mock.js";
+import { resetSentryBoundary, sentrySdk } from "~/test/sentry-boundary.js";
 import { flushReportAppErrorForTests, reportAppError } from "./report-error.js";
-import { resetSentryReadyForTests } from "./sentry.js";
 
 afterEach(async () => {
-  await flushReportAppErrorForTests();
-  vi.clearAllMocks();
   env.SENTRY_DSN = undefined;
-  resetSentryReadyForTests();
+  await resetSentryBoundary();
 });
 
 describe("reportAppError", () => {

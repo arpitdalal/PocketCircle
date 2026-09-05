@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sentrySdk } from "~/test/sentry-mock.js";
-import { handleUnavailableRefLink, handleUnparseableRefLink } from "./ref-link-failure.js";
-import { redactRefForTelemetry } from "./refs.js";
-import { flushReportAppErrorForTests } from "./report-error.js";
-import { resetSentryReadyForTests } from "./sentry.js";
 
 vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
-vi.mock("./env.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./env.js")>();
-  return { ...actual, SENTRY_DSN: "https://example@sentry.io/1" };
-});
+vi.mock("./env.js", async (importOriginal) =>
+  (await import("~/test/sentry-mock.js")).envModuleWithSentryDsn(importOriginal),
+);
+
+import {
+  flushReportAppErrorForTests,
+  resetSentryBoundary,
+  sentrySdk,
+} from "~/test/sentry-boundary.js";
+import { handleUnavailableRefLink, handleUnparseableRefLink } from "./ref-link-failure.js";
+import { redactRefForTelemetry } from "./refs.js";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -17,10 +19,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await flushReportAppErrorForTests();
+  await resetSentryBoundary();
   warnSpy.mockRestore();
-  vi.clearAllMocks();
-  resetSentryReadyForTests();
 });
 
 describe("ref-link-failure", () => {

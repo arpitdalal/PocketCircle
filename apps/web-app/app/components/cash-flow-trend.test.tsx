@@ -45,6 +45,12 @@ vi.mock("recharts", async (importOriginal) => {
 const series = CASH_FLOW_TREND_TEST_SERIES;
 const media = createMatchMediaFakeController();
 
+async function awaitChartReady(container: HTMLElement) {
+  await waitFor(() => {
+    expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
+  });
+}
+
 describe("CashFlowTrend", () => {
   beforeEach(() => {
     rechartsGate.reset();
@@ -89,9 +95,7 @@ describe("CashFlowTrend", () => {
     expect(container.querySelector('[data-chart-shell="fallback"]')).toBeInTheDocument();
     expect(container.querySelector(".recharts-responsive-container")).not.toBeInTheDocument();
     rechartsGate.release();
-    await waitFor(() => {
-      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-    });
+    await awaitChartReady(container);
     expect(container.querySelector('[data-chart-shell="fallback"]')).not.toBeInTheDocument();
   });
 
@@ -100,9 +104,7 @@ describe("CashFlowTrend", () => {
     const { container } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    await waitFor(() => {
-      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-    });
+    await awaitChartReady(container);
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
   });
 
@@ -111,9 +113,7 @@ describe("CashFlowTrend", () => {
     const { container, rerender } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    await waitFor(() => {
-      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-    });
+    await awaitChartReady(container);
     rerender(
       <CashFlowTrend
         currency="USD"
@@ -132,9 +132,7 @@ describe("CashFlowTrend", () => {
     const { container, rerender } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    await waitFor(() => {
-      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-    });
+    await awaitChartReady(container);
     rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" pending />);
     expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
     rerender(
@@ -155,9 +153,7 @@ describe("CashFlowTrend", () => {
     const { container, rerender } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    await waitFor(() => {
-      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-    });
+    await awaitChartReady(container);
     rerender(<CashFlowTrend currency="USD" series={series} scopeKey="range:3" pending />);
     rerender(
       <CashFlowTrend

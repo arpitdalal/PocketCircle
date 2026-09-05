@@ -22,14 +22,15 @@ vi.mock("./snackbar.js", () => ({
   useSnackbar: () => ({ show: vi.fn(), showUnavailable }),
 }));
 vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
-vi.mock("./env.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./env.js")>();
-  return { ...actual, SENTRY_DSN: "https://example@sentry.io/1" };
-});
+vi.mock("./env.js", async (importOriginal) =>
+  (await import("~/test/sentry-mock.js")).envModuleWithSentryDsn(importOriginal),
+);
 
-import { sentrySdk } from "~/test/sentry-mock.js";
-import { flushReportAppErrorForTests } from "./report-error.js";
-import { resetSentryReadyForTests } from "./sentry.js";
+import {
+  flushReportAppErrorForTests,
+  resetSentryBoundary,
+  sentrySdk,
+} from "~/test/sentry-boundary.js";
 import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -55,10 +56,8 @@ function resolve(overrides: Partial<ResolvedRefOptions<TestRef>>) {
 }
 
 afterEach(async () => {
-  await flushReportAppErrorForTests();
+  await resetSentryBoundary();
   warnSpy.mockRestore();
-  vi.clearAllMocks();
-  resetSentryReadyForTests();
   location.pathname = "/circles/home-c1";
   location.search = "";
   location.hash = "";
