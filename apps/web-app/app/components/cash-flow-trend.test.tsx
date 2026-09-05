@@ -5,7 +5,8 @@ import { createMatchMediaFakeController } from "~/test/match-media.js";
 import { CashFlowTrend } from "./cash-flow-trend.js";
 import { CASH_FLOW_TREND_TEST_SERIES } from "./cash-flow-trend-test-series.js";
 
-const chartGate = vi.hoisted(() => {
+/** Vendor-boundary gate: Suspense fallback without mocking our chart module (ADR 0006). */
+const rechartsGate = vi.hoisted(() => {
   let release!: () => void;
   let ready = new Promise<void>((resolve) => {
     release = resolve;
@@ -29,13 +30,14 @@ const chartGate = vi.hoisted(() => {
   };
 });
 
-vi.mock("./cash-flow-trend-chart.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./cash-flow-trend-chart.js")>();
+vi.mock("recharts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("recharts")>();
+  type ContainerProps = ComponentProps<typeof actual.ResponsiveContainer>;
   return {
-    CASH_FLOW_CHART_SHELL_CLASSNAME: actual.CASH_FLOW_CHART_SHELL_CLASSNAME,
-    CashFlowTrendChart: (props: ComponentProps<typeof actual.CashFlowTrendChart>) => {
-      chartGate.wait();
-      return createElement(actual.CashFlowTrendChart, props);
+    ...actual,
+    ResponsiveContainer: (props: ContainerProps) => {
+      rechartsGate.wait();
+      return createElement(actual.ResponsiveContainer, props);
     },
   };
 });
@@ -45,15 +47,16 @@ const media = createMatchMediaFakeController();
 
 describe("CashFlowTrend", () => {
   beforeEach(() => {
-    chartGate.reset();
-    chartGate.release();
+    rechartsGate.reset();
+    rechartsGate.release();
   });
 
   afterEach(() => {
-    chartGate.release();
+    rechartsGate.release();
   });
 
   it("renders the sr-only data table with correct structure without waiting on Recharts", () => {
+    rechartsGate.reset();
     render(<CashFlowTrend currency="USD" series={series} scopeKey="range:6" />);
 
     expect(screen.getByRole("table")).toBeInTheDocument();
@@ -63,6 +66,7 @@ describe("CashFlowTrend", () => {
     expect(screen.getByRole("columnheader", { name: "Net" })).toBeInTheDocument();
     const rows = screen.getAllByRole("row");
     expect(rows).toHaveLength(3);
+    expect(document.querySelector('[data-chart-shell="fallback"]')).toBeInTheDocument();
   });
 
   it("uses the provided caption for the table", () => {
@@ -78,13 +82,13 @@ describe("CashFlowTrend", () => {
   });
 
   it("shows an aria-hidden chart shell while the Recharts chunk loads", async () => {
-    chartGate.reset();
+    rechartsGate.reset();
     const { container } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
     expect(container.querySelector('[data-chart-shell="fallback"]')).toBeInTheDocument();
     expect(container.querySelector(".recharts-responsive-container")).not.toBeInTheDocument();
-    chartGate.release();
+    rechartsGate.release();
     await waitFor(() => {
       expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
     });

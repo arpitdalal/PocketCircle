@@ -8,7 +8,7 @@ import {
   useScopeChangeMotion,
 } from "~/lib/motion.js";
 import type { CashFlowSeriesEntry } from "./cash-flow-trend-chart.js";
-import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-chart.js";
+import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-shell.js";
 
 export type { CashFlowSeriesEntry };
 

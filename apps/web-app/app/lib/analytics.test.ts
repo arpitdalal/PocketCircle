@@ -30,6 +30,15 @@ const readyUser = {
   analyticsEnabled: true,
 };
 
+function holdPostHogLoad() {
+  let release = () => {};
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  holdPostHogLoadForTests(hold);
+  return () => release();
+}
+
 function beforeSend(event: CaptureResult) {
   const { before_send } = buildPostHogInitOptions();
   if (typeof before_send !== "function") {
@@ -165,11 +174,7 @@ describe("teardownAnalytics", () => {
   });
 
   it("does not enable capture when teardown runs while PostHog is still loading", async () => {
-    let releaseHold: () => void = () => {};
-    const hold = new Promise<void>((resolve) => {
-      releaseHold = resolve;
-    });
-    holdPostHogLoadForTests(hold);
+    const releaseHold = holdPostHogLoad();
 
     const pending = initAnalytics(readyUser);
     teardownAnalytics();
@@ -196,11 +201,7 @@ describe("setAnalyticsEnabled", () => {
   });
 
   it("does not enable capture when consent flips off while PostHog is still loading", async () => {
-    let releaseHold: () => void = () => {};
-    const hold = new Promise<void>((resolve) => {
-      releaseHold = resolve;
-    });
-    holdPostHogLoadForTests(hold);
+    const releaseHold = holdPostHogLoad();
 
     const pending = initAnalytics(readyUser);
     setAnalyticsEnabled(false);

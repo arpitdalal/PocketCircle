@@ -33,6 +33,10 @@ export { makeTransactionDetailView, makeTransactionView } from "./convex/transac
 export { makeCurrentUserView } from "./convex/users.js";
 export { deferredMutationFn, deferredValue } from "./deferred.js";
 export {
+  assertFilterOptionsLiveForUrlFilters,
+  assertFilterOptionsSkippedUntilPanelOpens,
+} from "./filter-options-subscription-contract.js";
+export {
   assertFilterPanelDiscardsDraftOnClose,
   FILTER_PANEL_CLOSE_MEDIUMS,
   type FilterPanelCloseMedium,

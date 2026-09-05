@@ -13,6 +13,7 @@ import {
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { SCOPE_CHART_ANIMATION_MS } from "~/lib/motion.js";
+import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-shell.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -20,10 +21,6 @@ export interface CashFlowSeriesEntry {
   expenseMinor: number;
   netMinor: number;
 }
-
-/** Shared shell chrome for Suspense fallback + Recharts container (size must match). */
-export const CASH_FLOW_CHART_SHELL_CLASSNAME =
-  "h-72 rounded-xl border border-border bg-card p-3 shadow-sm";
 
 /** Recharts visual for CashFlowTrend — separate chunk so Home/Dashboard entry stays light (RPT-8). */
 export function CashFlowTrendChart({
