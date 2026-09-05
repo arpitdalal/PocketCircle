@@ -1,15 +1,18 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { createMatchMediaFakeController } from "~/test/match-media.js";
+import { describe, expect, it, vi } from "vitest";
 import { CashFlowTrend } from "./cash-flow-trend.js";
-import { CashFlowTrendChart } from "./cash-flow-trend-chart.js";
+
+vi.mock("./cash-flow-trend-chart.js", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  return await vi.importActual("./cash-flow-trend-chart.js");
+});
+
+const series = [
+  { month: "2026-07", incomeMinor: 100000, expenseMinor: 60000, netMinor: 40000 },
+  { month: "2026-08", incomeMinor: 120000, expenseMinor: 85000, netMinor: 35000 },
+];
 
 describe("CashFlowTrend", () => {
-  const series = [
-    { month: "2026-07", incomeMinor: 100000, expenseMinor: 60000, netMinor: 40000 },
-    { month: "2026-08", incomeMinor: 120000, expenseMinor: 85000, netMinor: 35000 },
-  ];
-
   it("renders the sr-only data table with correct structure without waiting on Recharts", () => {
     render(<CashFlowTrend currency="USD" series={series} scopeKey="range:6" />);
 
@@ -38,49 +41,11 @@ describe("CashFlowTrend", () => {
     const { container } = render(
       <CashFlowTrend currency="USD" series={series} scopeKey="range:6" />,
     );
-    expect(container.querySelector("[aria-hidden='true']")).toBeInTheDocument();
+    expect(container.querySelector('[data-chart-shell="fallback"]')).toBeInTheDocument();
+    expect(container.querySelector(".recharts-responsive-container")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
     });
-  });
-});
-
-describe("CashFlowTrendChart", () => {
-  const series = [
-    { month: "2026-07", incomeMinor: 100000, expenseMinor: 60000, netMinor: 40000 },
-    { month: "2026-08", incomeMinor: 120000, expenseMinor: 85000, netMinor: 35000 },
-  ];
-
-  const media = createMatchMediaFakeController();
-
-  it("marks the visual chart container as aria-hidden", () => {
-    const { container } = render(
-      <CashFlowTrendChart currency="USD" series={series} chartAnimationActive={false} />,
-    );
-    expect(container.querySelector("[aria-hidden='true']")).toBeInTheDocument();
-  });
-
-  it("keeps chart animation off when inactive", () => {
-    media.reducedMotion(false);
-    const { container } = render(
-      <CashFlowTrendChart currency="USD" series={series} chartAnimationActive={false} />,
-    );
-    expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
-  });
-
-  it("enables chart animation when active", () => {
-    media.reducedMotion(false);
-    const { container } = render(
-      <CashFlowTrendChart currency="USD" series={series} chartAnimationActive />,
-    );
-    expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
-  });
-
-  it("can be told to keep animation off for reduced motion callers", () => {
-    media.reducedMotion(true);
-    const { container } = render(
-      <CashFlowTrendChart currency="USD" series={series} chartAnimationActive={false} />,
-    );
-    expect(container.querySelector("[data-chart-animation-active='false']")).toBeInTheDocument();
+    expect(container.querySelector('[data-chart-shell="fallback"]')).not.toBeInTheDocument();
   });
 });

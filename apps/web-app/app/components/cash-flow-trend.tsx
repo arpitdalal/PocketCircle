@@ -20,6 +20,7 @@ function ChartShellFallback() {
   return (
     <div
       aria-hidden="true"
+      data-chart-shell="fallback"
       data-chart-animation-active="false"
       className="h-72 rounded-xl border border-border bg-card p-3 shadow-sm"
     />

@@ -23,7 +23,11 @@ async function boot() {
       </StrictMode>,
     );
   });
-  void import("./lib/sentry.js").then(({ initSentry }) => void initSentry());
+  void import("./lib/sentry.js")
+    .then(({ initSentry }) => initSentry())
+    .catch((error) => {
+      console.error("Sentry initialization failed", error);
+    });
 }
 
 void boot();

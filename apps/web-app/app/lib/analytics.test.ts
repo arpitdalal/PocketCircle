@@ -12,6 +12,7 @@ import {
 } from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
+  holdPostHogLoadForTests,
   initAnalytics,
   retiredPostHogStorageKeys,
   revertPendingAnalyticsEnabled,
@@ -162,6 +163,23 @@ describe("teardownAnalytics", () => {
     expect(posthogSdk.reset).toHaveBeenCalledWith(true);
     expect(posthogSdk.init).toHaveBeenCalledTimes(2);
   });
+
+  it("does not enable capture when teardown runs while PostHog is still loading", async () => {
+    let releaseHold: () => void = () => {};
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    holdPostHogLoadForTests(hold);
+
+    const pending = initAnalytics(readyUser);
+    teardownAnalytics();
+    releaseHold();
+    await pending;
+
+    expect(posthogSdk.init).not.toHaveBeenCalled();
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
 });
 
 describe("setAnalyticsEnabled", () => {
@@ -174,6 +192,23 @@ describe("setAnalyticsEnabled", () => {
     expect(posthogSdk.opt_out_capturing).not.toHaveBeenCalled();
     expect(posthogSdk.stopSessionRecording).toHaveBeenCalled();
     expect(posthogSdk.reset).toHaveBeenCalledWith(true);
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not enable capture when consent flips off while PostHog is still loading", async () => {
+    let releaseHold: () => void = () => {};
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    holdPostHogLoadForTests(hold);
+
+    const pending = initAnalytics(readyUser);
+    setAnalyticsEnabled(false);
+    releaseHold();
+    await pending;
+
+    expect(posthogSdk.init).not.toHaveBeenCalled();
+    track("feedback_submitted", { type: "bug" });
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 

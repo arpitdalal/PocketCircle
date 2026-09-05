@@ -38,6 +38,14 @@ let captureEnabled = false;
 let initializedForUserId: string | null = null;
 let pendingEnabled: boolean | null = null;
 let loadPromise: Promise<PostHogClient | null> | null = null;
+/** Bumped to invalidate in-flight initAnalytics work after await loadPostHog. */
+let initEpoch = 0;
+/** Test-only gate so races during PostHog chunk load can be asserted. */
+let postHogLoadHold: Promise<void> | null = null;
+
+function invalidatePendingInits() {
+  initEpoch += 1;
+}
 
 /** Keys the previous localStorage persistence and consent APIs left behind. */
 export function retiredPostHogStorageKeys(keys: readonly string[], token: string) {
@@ -120,6 +128,9 @@ function scrubOutgoingCapture(event: CaptureResult | null) {
 }
 
 async function loadPostHog() {
+  if (postHogLoadHold) {
+    await postHogLoadHold;
+  }
   if (posthog) {
     return posthog;
   }
@@ -198,18 +209,21 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
   const enabled = pendingEnabled ?? user.analyticsEnabled;
 
   if (!enabled) {
+    invalidatePendingInits();
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
     return;
   }
 
+  const epoch = ++initEpoch;
   const client = await loadPostHog();
-  if (!client) {
+  if (epoch !== initEpoch || !client) {
     return;
   }
 
-  // Preference / identity may have changed while the chunk loaded.
-  if (pendingEnabled === false || (pendingEnabled === null && !user.analyticsEnabled)) {
+  // Preference may have flipped while the chunk loaded (setAnalyticsEnabled /
+  // teardown bump initEpoch; pendingEnabled false also blocks).
+  if (pendingEnabled === false) {
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
     return;
@@ -230,6 +244,9 @@ export function setAnalyticsEnabled(enabled: boolean) {
     return;
   }
   pendingEnabled = enabled;
+  if (!enabled) {
+    invalidatePendingInits();
+  }
   applyCaptureEnabled(enabled);
 }
 
@@ -246,6 +263,7 @@ export function teardownAnalytics() {
   if (!posthogKey() || !isBrowser) {
     return;
   }
+  invalidatePendingInits();
   stopCaptureAndResetIdentity();
   clientInitialized = false;
   initializedForUserId = null;
@@ -281,4 +299,11 @@ export function resetAnalyticsStateForTests() {
   pendingEnabled = null;
   posthog = null;
   loadPromise = null;
+  initEpoch = 0;
+  postHogLoadHold = null;
+}
+
+/** Test-only: pause loadPostHog until `hold` settles (consent/teardown race coverage). */
+export function holdPostHogLoadForTests(hold: Promise<void> | null) {
+  postHogLoadHold = hold;
 }

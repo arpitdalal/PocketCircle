@@ -17,13 +17,15 @@ let pendingCapture: Promise<void> = Promise.resolve();
  * Dynamic-imports `@sentry/react` so reporting paths do not force the SDK onto
  * the critical entry chunk (RPT-8).
  */
-export function reportAppError(message: string, context?: Record<string, unknown>): void {
+export function reportAppError(message: string, context?: Record<string, unknown>) {
   if (import.meta.env.DEV) {
     console.warn(`[app] ${message}`, context ?? {});
   }
-  pendingCapture = import("@sentry/react").then((Sentry) => {
-    Sentry.captureMessage(message, { extra: scrubAppErrorExtra(context) });
-  });
+  pendingCapture = import("@sentry/react")
+    .then((Sentry) => {
+      Sentry.captureMessage(message, { extra: scrubAppErrorExtra(context) });
+    })
+    .catch(() => undefined);
   void pendingCapture;
 }
 
