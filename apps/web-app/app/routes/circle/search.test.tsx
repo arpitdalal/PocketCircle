@@ -1,7 +1,6 @@
 import { api } from "@pocketcircle/convex";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { getFunctionName } from "convex/server";
 import { Route, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as csv from "~/lib/csv.js";
@@ -12,7 +11,6 @@ import {
   assertFilterPanelDiscardsDraftOnClose,
   type ConvexState,
   configureConvex,
-  convexReactMock,
   FILTER_PANEL_CLOSE_MEDIUMS,
   makeCategoryView,
   makeCircleView,
