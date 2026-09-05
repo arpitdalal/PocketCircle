@@ -22,6 +22,7 @@ import {
   assertFilterPanelDiscardsDraftOnClose,
   configureConvex,
   convexReactMock,
+  FILTER_OPTIONS_URL_ID_PARAMS,
   FILTER_PANEL_CLOSE_MEDIUMS,
   flushIntersectionObserverStub,
   installIntersectionObserverStub,
@@ -152,13 +153,19 @@ describe("CircleTransactions", () => {
     await assertFilterOptionsSkippedUntilPanelOpens(api.search.getLedgerFilterOptions);
   });
 
-  it("subscribes ledger filter-options when URL already has category ids", async () => {
-    const categoryId = testId<Category["id"]>("cat-grocery");
-    setup({
-      initialEntries: [`/circles/${REF}/transactions?month=2026-05&categories=${categoryId}`],
-    });
-    await assertFilterOptionsLiveForUrlFilters(api.search.getLedgerFilterOptions);
-  });
+  it.each(FILTER_OPTIONS_URL_ID_PARAMS)(
+    "subscribes ledger filter-options when URL already has %s ids",
+    async (param) => {
+      const id =
+        param === "categories"
+          ? testId<Category["id"]>("cat-grocery")
+          : testId<Member["id"]>("mem-you");
+      setup({
+        initialEntries: [`/circles/${REF}/transactions?month=2026-05&${param}=${id}`],
+      });
+      await assertFilterOptionsLiveForUrlFilters(api.search.getLedgerFilterOptions);
+    },
+  );
 
   it("normalizes the bare route to month + default ledger filter params", async () => {
     const { location } = setup({ initialEntries: [`/circles/${REF}/transactions`] });

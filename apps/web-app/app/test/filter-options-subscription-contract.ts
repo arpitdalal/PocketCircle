@@ -25,7 +25,8 @@ export async function assertFilterOptionsSkippedUntilPanelOpens(
   });
 }
 
-/** RPT-8: URL already carrying filter ids is explicit intent — subscribe immediately. */
+/** URL id params that enable filter-options while the panel stays closed (scrub path). */
+export const FILTER_OPTIONS_URL_ID_PARAMS = ["categories", "recordedBy", "paidBy"] as const;
 export async function assertFilterOptionsLiveForUrlFilters(
   optionsQuery: Parameters<typeof getFunctionName>[0],
 ) {

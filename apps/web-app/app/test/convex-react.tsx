@@ -35,6 +35,7 @@ export { deferredMutationFn, deferredValue } from "./deferred.js";
 export {
   assertFilterOptionsLiveForUrlFilters,
   assertFilterOptionsSkippedUntilPanelOpens,
+  FILTER_OPTIONS_URL_ID_PARAMS,
 } from "./filter-options-subscription-contract.js";
 export {
   assertFilterPanelDiscardsDraftOnClose,

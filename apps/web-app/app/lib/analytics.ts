@@ -36,6 +36,8 @@ let posthog: PostHogClient | null = null;
 let clientInitialized = false;
 let captureEnabled = false;
 let initializedForUserId: string | null = null;
+/** Last User id passed to initAnalytics — used to restart after a failed opt-out race. */
+let lastAnalyticsUserId: string | null = null;
 let pendingEnabled: boolean | null = null;
 let loadPromise: Promise<PostHogClient | null> | null = null;
 /** Bumped to invalidate in-flight initAnalytics work after await loadPostHog. */
@@ -45,6 +47,14 @@ let postHogLoadHold: Promise<void> | null = null;
 
 function invalidatePendingInits() {
   initEpoch += 1;
+}
+
+/** If capture should be on but isn't (stale init aborted mid-load), start a fresh init. */
+function restartInitIfCaptureStillOff() {
+  if (captureEnabled || !lastAnalyticsUserId) {
+    return;
+  }
+  void initAnalytics({ id: lastAnalyticsUserId, analyticsEnabled: true });
 }
 
 /** Keys the previous localStorage persistence and consent APIs left behind. */
@@ -195,6 +205,7 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
     return;
   }
 
+  lastAnalyticsUserId = user.id;
   clearRetiredPostHogBrowserStorage();
 
   if (initializedForUserId !== null && initializedForUserId !== user.id) {
@@ -248,6 +259,9 @@ export function setAnalyticsEnabled(enabled: boolean) {
     invalidatePendingInits();
   }
   applyCaptureEnabled(enabled);
+  if (enabled) {
+    restartInitIfCaptureStillOff();
+  }
 }
 
 /** Restore capture from the persisted preference without keeping the optimistic override. */
@@ -257,6 +271,9 @@ export function revertPendingAnalyticsEnabled(enabled: boolean) {
   }
   pendingEnabled = null;
   applyCaptureEnabled(enabled);
+  if (enabled) {
+    restartInitIfCaptureStillOff();
+  }
 }
 
 export function teardownAnalytics() {
@@ -267,6 +284,7 @@ export function teardownAnalytics() {
   stopCaptureAndResetIdentity();
   clientInitialized = false;
   initializedForUserId = null;
+  lastAnalyticsUserId = null;
   pendingEnabled = null;
   clearRetiredPostHogBrowserStorage();
 }
@@ -296,6 +314,7 @@ export function resetAnalyticsStateForTests() {
   clientInitialized = false;
   captureEnabled = false;
   initializedForUserId = null;
+  lastAnalyticsUserId = null;
   pendingEnabled = null;
   posthog = null;
   loadPromise = null;

@@ -213,6 +213,22 @@ describe("setAnalyticsEnabled", () => {
     expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
+  it("restarts init when a failed opt-out reverts while PostHog is still loading", async () => {
+    const releaseHold = holdPostHogLoad();
+
+    const pending = initAnalytics(readyUser);
+    setAnalyticsEnabled(false);
+    revertPendingAnalyticsEnabled(true);
+    releaseHold();
+    await pending;
+
+    await vi.waitFor(() => {
+      expect(posthogSdk.init).toHaveBeenCalled();
+    });
+    track("feedback_submitted", { type: "bug" });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("feedback_submitted", { type: "bug" });
+  });
+
   it("opts back in without requiring a reload or writing PostHog consent", async () => {
     await initAnalytics(readyUser);
     setAnalyticsEnabled(false);

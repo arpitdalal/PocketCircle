@@ -11,6 +11,7 @@ import {
   assertFilterPanelDiscardsDraftOnClose,
   type ConvexState,
   configureConvex,
+  FILTER_OPTIONS_URL_ID_PARAMS,
   FILTER_PANEL_CLOSE_MEDIUMS,
   makeCategoryView,
   makeCircleView,
@@ -119,13 +120,20 @@ describe("CircleSearch", () => {
     await assertFilterOptionsSkippedUntilPanelOpens(api.search.getTransactionSearchOptions);
   });
 
-  it("subscribes search filter-options when URL already has category ids", async () => {
-    const categoryId = testId<Category["id"]>("cat-grocery");
-    setup({
-      initialEntries: [`/circles/${REF}/search?categories=${categoryId}`],
-    });
-    await assertFilterOptionsLiveForUrlFilters(api.search.getTransactionSearchOptions);
-  });
+  it.each(FILTER_OPTIONS_URL_ID_PARAMS)(
+    "subscribes search filter-options when URL already has %s ids",
+    async (param) => {
+      const id =
+        param === "categories"
+          ? testId<Category["id"]>("cat-grocery")
+          : testId<Member["id"]>("mem-you");
+      setup({
+        initialEntries: [`/circles/${REF}/search?${param}=${id}`],
+      });
+      await assertFilterOptionsLiveForUrlFilters(api.search.getTransactionSearchOptions);
+    },
+  );
+
   it("normalizes bare search to default filters and shows default results", async () => {
     const { location } = setup({
       searchTransactions: [makeTransactionView({ title: "Weekly shop" })],
