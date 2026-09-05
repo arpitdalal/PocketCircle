@@ -54,6 +54,7 @@ beforeEach(async () => {
 const REF = "trip-c1";
 const NOW_MONTH = currentMonth(new Date());
 const FILTER_LEDGER = getFunctionName(api.search.filterLedgerTransactions);
+const LEDGER_FILTER_OPTIONS = getFunctionName(api.search.getLedgerFilterOptions);
 /** Matches `assertWritable` in `packages/convex/convex/guard.ts` — realistic prod rejection. */
 const ARCHIVED_CIRCLE_ERROR = new ConvexError(mutationErrorData(MUTATION_ERRORS.circleArchived));
 
@@ -145,6 +146,36 @@ afterEach(() => {
 });
 
 describe("CircleTransactions", () => {
+  it("skips ledger filter-options until the filter panel opens", async () => {
+    setup();
+    const optionCalls = () =>
+      convexReactMock.useQuery.mock.calls.filter(
+        ([fn]) => getFunctionName(fn) === LEDGER_FILTER_OPTIONS,
+      );
+    await waitFor(() => expect(optionCalls().length).toBeGreaterThan(0));
+    expect(optionCalls().every(([, args]) => args === "skip")).toBe(true);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    await screen.findByRole("dialog", { name: "Filters" });
+    await waitFor(() => {
+      expect(optionCalls().some(([, args]) => args !== "skip")).toBe(true);
+    });
+  });
+
+  it("subscribes ledger filter-options when URL already has category ids", async () => {
+    const categoryId = testId<Category["id"]>("cat-grocery");
+    setup({
+      initialEntries: [`/circles/${REF}/transactions?month=2026-05&categories=${categoryId}`],
+    });
+    await waitFor(() => {
+      const live = convexReactMock.useQuery.mock.calls.filter(
+        ([fn, args]) => getFunctionName(fn) === LEDGER_FILTER_OPTIONS && args !== "skip",
+      );
+      expect(live.length).toBeGreaterThan(0);
+    });
+  });
+
   it("normalizes the bare route to month + default ledger filter params", async () => {
     const { location } = setup({ initialEntries: [`/circles/${REF}/transactions`] });
     await waitFor(() =>

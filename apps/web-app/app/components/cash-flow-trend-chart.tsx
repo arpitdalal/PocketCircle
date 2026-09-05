@@ -21,6 +21,10 @@ export interface CashFlowSeriesEntry {
   netMinor: number;
 }
 
+/** Shared shell chrome for Suspense fallback + Recharts container (size must match). */
+export const CASH_FLOW_CHART_SHELL_CLASSNAME =
+  "h-72 rounded-xl border border-border bg-card p-3 shadow-sm";
+
 /** Recharts visual for CashFlowTrend — separate chunk so Home/Dashboard entry stays light (RPT-8). */
 export function CashFlowTrendChart({
   currency,
@@ -46,7 +50,7 @@ export function CashFlowTrendChart({
     <div
       aria-hidden="true"
       data-chart-animation-active={String(chartAnimationActive)}
-      className="h-72 rounded-xl border border-border bg-card p-3 shadow-sm"
+      className={CASH_FLOW_CHART_SHELL_CLASSNAME}
     >
       <ResponsiveContainer
         width="100%"

@@ -1,7 +1,5 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flushReportAppErrorForTests } from "./report-error.js";
-import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 // The primitive owns navigation, the current location, the snackbar, and error
 // reporting. We stub the genuine boundaries — `react-router`'s context hooks and
@@ -11,12 +9,16 @@ import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 // boundary (`@sentry/react`) and let the real `reportAppError` run, so a report
 // is observed via `captureMessage` (CLAUDE.md: mock only third-party boundaries).
 // `location` is mutable so each test sets the URL it canonicalizes.
-const { navigate, showUnavailable, location, captureMessage } = vi.hoisted(() => ({
-  navigate: vi.fn(),
-  showUnavailable: vi.fn(),
-  location: { pathname: "/circles/home-c1", search: "", hash: "" },
-  captureMessage: vi.fn(),
-}));
+const { navigate, showUnavailable, location, captureMessage, init, replayIntegration } = vi.hoisted(
+  () => ({
+    navigate: vi.fn(),
+    showUnavailable: vi.fn(),
+    location: { pathname: "/circles/home-c1", search: "", hash: "" },
+    captureMessage: vi.fn(),
+    init: vi.fn(),
+    replayIntegration: vi.fn(() => ({ name: "Replay" })),
+  }),
+);
 vi.mock("react-router", () => ({
   useNavigate: () => navigate,
   useLocation: () => location,
@@ -24,7 +26,15 @@ vi.mock("react-router", () => ({
 vi.mock("./snackbar.js", () => ({
   useSnackbar: () => ({ show: vi.fn(), showUnavailable }),
 }));
-vi.mock("@sentry/react", () => ({ captureMessage }));
+vi.mock("@sentry/react", () => ({ captureMessage, init, replayIntegration }));
+vi.mock("./env.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./env.js")>();
+  return { ...actual, SENTRY_DSN: "https://example@sentry.io/1" };
+});
+
+import { flushReportAppErrorForTests } from "./report-error.js";
+import { resetSentryReadyForTests } from "./sentry.js";
+import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -52,6 +62,7 @@ afterEach(async () => {
   await flushReportAppErrorForTests();
   warnSpy.mockRestore();
   vi.clearAllMocks();
+  resetSentryReadyForTests();
   location.pathname = "/circles/home-c1";
   location.search = "";
   location.hash = "";

@@ -17,15 +17,33 @@ export function buildSentryInitOptions(dsn: string, Sentry: SentryReact) {
   };
 }
 
+let readyPromise: Promise<SentryReact | null> | null = null;
+
 /**
- * Client-only Sentry bootstrap. Dynamic-imports `@sentry/react` so the SDK stays
- * off the critical entry chunk (RPT-8). No-ops when `VITE_SENTRY_DSN` is unset.
- * Call after hydrate; earliest boot errors before this resolves are not captured.
+ * Single Sentry load+init seam for boot and `reportAppError` (RPT-8 / ADR 0012).
+ * Returns the SDK after init when DSN is set; null when unset or load/init fails.
+ * Earliest errors before the first caller starts this promise are not captured.
  */
-export async function initSentry() {
-  if (!SENTRY_DSN) {
-    return;
+export function ensureSentryReady() {
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      if (!SENTRY_DSN) {
+        return null;
+      }
+      const Sentry = await import("@sentry/react");
+      Sentry.init(buildSentryInitOptions(SENTRY_DSN, Sentry));
+      return Sentry;
+    })().catch(() => null);
   }
-  const Sentry = await import("@sentry/react");
-  Sentry.init(buildSentryInitOptions(SENTRY_DSN, Sentry));
+  return readyPromise;
+}
+
+/** Client-only Sentry bootstrap — alias of `ensureSentryReady` for the entry boot path. */
+export async function initSentry() {
+  await ensureSentryReady();
+}
+
+/** Test-only: clear the shared ready promise so DSN stubs can re-run init. */
+export function resetSentryReadyForTests() {
+  readyPromise = null;
 }

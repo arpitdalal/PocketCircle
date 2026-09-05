@@ -20,11 +20,12 @@ const env = vi.hoisted(() => {
 vi.mock("./env.js", () => env);
 
 import * as SentryReact from "@sentry/react";
-import { buildSentryInitOptions, initSentry } from "./sentry.js";
+import { buildSentryInitOptions, initSentry, resetSentryReadyForTests } from "./sentry.js";
 
 afterEach(() => {
   vi.clearAllMocks();
   env.SENTRY_DSN = undefined;
+  resetSentryReadyForTests();
 });
 
 describe("buildSentryInitOptions", () => {

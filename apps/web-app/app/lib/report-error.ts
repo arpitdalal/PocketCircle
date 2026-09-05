@@ -1,3 +1,4 @@
+import { ensureSentryReady } from "./sentry.js";
 import { scrubAppErrorExtra } from "./sentry-scrub.js";
 
 let pendingCapture: Promise<void> = Promise.resolve();
@@ -14,15 +15,18 @@ let pendingCapture: Promise<void> = Promise.resolve();
  * to `context` — Sentry extras are scrubbed before send, but callers should still
  * avoid attaching financial fields.
  *
- * Dynamic-imports `@sentry/react` so reporting paths do not force the SDK onto
- * the critical entry chunk (RPT-8).
+ * Goes through `ensureSentryReady` so capture runs only after the same deferred
+ * init entry uses (RPT-8), not against an uninitialized SDK import.
  */
 export function reportAppError(message: string, context?: Record<string, unknown>) {
   if (import.meta.env.DEV) {
     console.warn(`[app] ${message}`, context ?? {});
   }
-  pendingCapture = import("@sentry/react")
+  pendingCapture = ensureSentryReady()
     .then((Sentry) => {
+      if (!Sentry) {
+        return;
+      }
       Sentry.captureMessage(message, { extra: scrubAppErrorExtra(context) });
     })
     .catch(() => undefined);

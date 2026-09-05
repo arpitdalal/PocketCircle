@@ -8,6 +8,7 @@ import {
   useScopeChangeMotion,
 } from "~/lib/motion.js";
 import type { CashFlowSeriesEntry } from "./cash-flow-trend-chart.js";
+import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-chart.js";
 
 export type { CashFlowSeriesEntry };
 
@@ -22,7 +23,7 @@ function ChartShellFallback() {
       aria-hidden="true"
       data-chart-shell="fallback"
       data-chart-animation-active="false"
-      className="h-72 rounded-xl border border-border bg-card p-3 shadow-sm"
+      className={CASH_FLOW_CHART_SHELL_CLASSNAME}
     />
   );
 }

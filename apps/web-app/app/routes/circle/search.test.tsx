@@ -1,5 +1,7 @@
+import { api } from "@pocketcircle/convex";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { getFunctionName } from "convex/server";
 import { Route, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as csv from "~/lib/csv.js";
@@ -8,6 +10,7 @@ import {
   assertFilterPanelDiscardsDraftOnClose,
   type ConvexState,
   configureConvex,
+  convexReactMock,
   FILTER_PANEL_CLOSE_MEDIUMS,
   makeCategoryView,
   makeCircleView,
@@ -33,6 +36,7 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 import CircleSearch from "./search.js";
 
 const REF = "trip-c1";
+const SEARCH_FILTER_OPTIONS = getFunctionName(api.search.getTransactionSearchOptions);
 
 /** Walks the real history stack so tests can assert debounced search uses replace. */
 function GoBack() {
@@ -111,6 +115,35 @@ afterEach(() => {
 });
 
 describe("CircleSearch", () => {
+  it("skips search filter-options until the filter panel opens", async () => {
+    setup();
+    const optionCalls = () =>
+      convexReactMock.useQuery.mock.calls.filter(
+        ([fn]) => getFunctionName(fn) === SEARCH_FILTER_OPTIONS,
+      );
+    await waitFor(() => expect(optionCalls().length).toBeGreaterThan(0));
+    expect(optionCalls().every(([, args]) => args === "skip")).toBe(true);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    await screen.findByRole("dialog", { name: "Filters" });
+    await waitFor(() => {
+      expect(optionCalls().some(([, args]) => args !== "skip")).toBe(true);
+    });
+  });
+
+  it("subscribes search filter-options when URL already has category ids", async () => {
+    const categoryId = testId<Category["id"]>("cat-grocery");
+    setup({
+      initialEntries: [`/circles/${REF}/search?categories=${categoryId}`],
+    });
+    await waitFor(() => {
+      const live = convexReactMock.useQuery.mock.calls.filter(
+        ([fn, args]) => getFunctionName(fn) === SEARCH_FILTER_OPTIONS && args !== "skip",
+      );
+      expect(live.length).toBeGreaterThan(0);
+    });
+  });
   it("normalizes bare search to default filters and shows default results", async () => {
     const { location } = setup({
       searchTransactions: [makeTransactionView({ title: "Weekly shop" })],
