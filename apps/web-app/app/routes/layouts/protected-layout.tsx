@@ -67,7 +67,7 @@ export default function ProtectedLayout() {
       teardownAnalytics();
       return;
     }
-    initAnalytics({ id: analyticsUserId, analyticsEnabled });
+    void initAnalytics({ id: analyticsUserId, analyticsEnabled });
   }, [analyticsUserId, analyticsEnabled]);
 
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { api } from "@pocketcircle/convex";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, useNavigate } from "react-router";
@@ -5,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as csv from "~/lib/csv.js";
 import type { Category, Circle, Member, TransactionFilterOptions } from "~/lib/data.js";
 import {
+  assertFilterOptionsLiveForUrlFilters,
+  assertFilterOptionsSkippedUntilPanelOpens,
   assertFilterPanelDiscardsDraftOnClose,
   type ConvexState,
   configureConvex,
+  FILTER_OPTIONS_URL_ID_PARAMS,
   FILTER_PANEL_CLOSE_MEDIUMS,
   makeCategoryView,
   makeCircleView,
@@ -101,8 +105,8 @@ function makeSearchOptions(opts: { extraMembers?: Member[] } = {}): TransactionF
   };
 }
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {
@@ -111,6 +115,25 @@ afterEach(() => {
 });
 
 describe("CircleSearch", () => {
+  it("skips search filter-options until the filter panel opens", async () => {
+    setup();
+    await assertFilterOptionsSkippedUntilPanelOpens(api.search.getTransactionSearchOptions);
+  });
+
+  it.each(FILTER_OPTIONS_URL_ID_PARAMS)(
+    "subscribes search filter-options when URL already has %s ids",
+    async (param) => {
+      const id =
+        param === "categories"
+          ? testId<Category["id"]>("cat-grocery")
+          : testId<Member["id"]>("mem-you");
+      setup({
+        initialEntries: [`/circles/${REF}/search?${param}=${id}`],
+      });
+      await assertFilterOptionsLiveForUrlFilters(api.search.getTransactionSearchOptions);
+    },
+  );
+
   it("normalizes bare search to default filters and shows default results", async () => {
     const { location } = setup({
       searchTransactions: [makeTransactionView({ title: "Weekly shop" })],

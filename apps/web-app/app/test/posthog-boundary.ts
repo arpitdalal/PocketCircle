@@ -23,9 +23,9 @@ export function stubPosthogEnvForTests(key = TEST_POSTHOG_KEY) {
 }
 
 /** Prime the real analytics seam for route/component tests that call track without the shell layout. */
-export function primeAnalyticsForTests(user: SessionUser = defaultAnalyticsUser) {
+export async function primeAnalyticsForTests(user: SessionUser = defaultAnalyticsUser) {
   stubPosthogEnvForTests();
-  initAnalytics(user);
+  await initAnalytics(user);
 }
 
 export function resetPostHogBoundary() {

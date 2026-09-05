@@ -142,8 +142,8 @@ function renderEdit(transaction: Partial<Transaction>, opts: RenderFormOpts = {}
   );
 }
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {

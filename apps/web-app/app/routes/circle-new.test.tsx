@@ -23,8 +23,8 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 import CreateCircle from "./circle-new.js";
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {

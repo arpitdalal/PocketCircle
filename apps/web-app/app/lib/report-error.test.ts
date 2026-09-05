@@ -1,35 +1,59 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const captureMessage = vi.hoisted(() => vi.fn());
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
 
-vi.mock("@sentry/react", () => ({
-  captureMessage,
-}));
+const env = vi.hoisted(() => {
+  const mock: { SENTRY_DSN: string | undefined } = { SENTRY_DSN: undefined };
+  return mock;
+});
 
-import { reportAppError } from "./report-error.js";
+vi.mock("./env.js", () => env);
 
-afterEach(() => {
-  vi.clearAllMocks();
+import { resetSentryBoundary, sentrySdk } from "~/test/sentry-boundary.js";
+import { flushReportAppErrorForTests, reportAppError } from "./report-error.js";
+
+afterEach(async () => {
+  env.SENTRY_DSN = undefined;
+  await resetSentryBoundary();
 });
 
 describe("reportAppError", () => {
-  it("forwards scrubbed context to Sentry.captureMessage", () => {
+  it("inits Sentry then forwards scrubbed context to captureMessage", async () => {
+    env.SENTRY_DSN = "https://example@sentry.io/1";
+
     reportAppError("Unparseable ref in URL", { rawRef: "grocery-shopping-bad!" });
 
-    expect(captureMessage).toHaveBeenCalledWith("Unparseable ref in URL", {
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.init).toHaveBeenCalledOnce();
+    expect(sentrySdk.captureMessage).toHaveBeenCalledWith("Unparseable ref in URL", {
       extra: { rawRef: "[unparseable-ref]" },
     });
   });
 
-  it("redacts title-bearing refs and drops financial fields before capture", () => {
+  it("redacts title-bearing refs and drops financial fields before capture", async () => {
+    env.SENTRY_DSN = "https://example@sentry.io/1";
+
     reportAppError("Unparseable ref in URL", {
       rawRef: "weekly-shop-t1abc",
       title: "Weekly shop",
       amountMinorUnits: 500,
     });
 
-    const [, options] = captureMessage.mock.calls[0] ?? [];
+    await flushReportAppErrorForTests();
+    const [, options] = sentrySdk.captureMessage.mock.calls[0] ?? [];
     expect(options).toEqual({ extra: { rawRef: "t1abc" } });
+  });
+
+  it("no-ops capture when DSN is unset", async () => {
+    env.SENTRY_DSN = undefined;
+
+    reportAppError("Unparseable ref in URL", { rawRef: "x" });
+
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.init).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("console.warns in dev so local signal is unchanged", () => {
@@ -44,5 +68,11 @@ describe("reportAppError", () => {
     }
 
     warn.mockRestore();
+  });
+
+  it("does not statically import @sentry/react", () => {
+    const source = readFileSync(join(import.meta.dirname, "report-error.ts"), "utf8");
+    expect(source).not.toMatch(/^import .* from ["']@sentry\/react["']/m);
+    expect(source).toMatch(/ensureSentryReady/);
   });
 });

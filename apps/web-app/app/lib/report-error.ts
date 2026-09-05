@@ -1,5 +1,7 @@
-import * as Sentry from "@sentry/react";
+import { ensureSentryReady } from "./sentry.js";
 import { scrubAppErrorExtra } from "./sentry-scrub.js";
+
+let pendingCapture: Promise<void> = Promise.resolve();
 
 /**
  * The single seam for reporting an application-level problem — something the app
@@ -12,10 +14,26 @@ import { scrubAppErrorExtra } from "./sentry-scrub.js";
  * unparseable in-app link. Never attach financial content (titles, notes, amounts)
  * to `context` — Sentry extras are scrubbed before send, but callers should still
  * avoid attaching financial fields.
+ *
+ * Goes through `ensureSentryReady` so capture runs only after the same deferred
+ * init entry uses (RPT-8), not against an uninitialized SDK import.
  */
-export function reportAppError(message: string, context?: Record<string, unknown>): void {
+export function reportAppError(message: string, context?: Record<string, unknown>) {
   if (import.meta.env.DEV) {
     console.warn(`[app] ${message}`, context ?? {});
   }
-  Sentry.captureMessage(message, { extra: scrubAppErrorExtra(context) });
+  pendingCapture = ensureSentryReady()
+    .then((Sentry) => {
+      if (!Sentry) {
+        return;
+      }
+      Sentry.captureMessage(message, { extra: scrubAppErrorExtra(context) });
+    })
+    .catch(() => undefined);
+  void pendingCapture;
+}
+
+/** Drain in-flight Sentry captures so tests don't leak across cases (RPT-8). */
+export async function flushReportAppErrorForTests() {
+  await pendingCapture;
 }

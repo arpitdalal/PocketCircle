@@ -1,6 +1,5 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 // The primitive owns navigation, the current location, the snackbar, and error
 // reporting. We stub the genuine boundaries — `react-router`'s context hooks and
@@ -10,11 +9,10 @@ import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 // boundary (`@sentry/react`) and let the real `reportAppError` run, so a report
 // is observed via `captureMessage` (CLAUDE.md: mock only third-party boundaries).
 // `location` is mutable so each test sets the URL it canonicalizes.
-const { navigate, showUnavailable, location, captureMessage } = vi.hoisted(() => ({
+const { navigate, showUnavailable, location } = vi.hoisted(() => ({
   navigate: vi.fn(),
   showUnavailable: vi.fn(),
   location: { pathname: "/circles/home-c1", search: "", hash: "" },
-  captureMessage: vi.fn(),
 }));
 vi.mock("react-router", () => ({
   useNavigate: () => navigate,
@@ -23,7 +21,17 @@ vi.mock("react-router", () => ({
 vi.mock("./snackbar.js", () => ({
   useSnackbar: () => ({ show: vi.fn(), showUnavailable }),
 }));
-vi.mock("@sentry/react", () => ({ captureMessage }));
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
+vi.mock("./env.js", async (importOriginal) =>
+  (await import("~/test/sentry-mock.js")).envModuleWithSentryDsn(importOriginal),
+);
+
+import {
+  flushReportAppErrorForTests,
+  resetSentryBoundary,
+  sentrySdk,
+} from "~/test/sentry-boundary.js";
+import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -47,9 +55,9 @@ function resolve(overrides: Partial<ResolvedRefOptions<TestRef>>) {
   return renderHook(() => useResolvedRef(options)).result.current;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await resetSentryBoundary();
   warnSpy.mockRestore();
-  vi.clearAllMocks();
   location.pathname = "/circles/home-c1";
   location.search = "";
   location.hash = "";
@@ -61,7 +69,7 @@ describe("useResolvedRef", () => {
     expect(result).toEqual({ status: "pending" });
     expect(navigate).not.toHaveBeenCalled();
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("is ready when the value resolves on its canonical ref, with no navigation", () => {
@@ -69,21 +77,23 @@ describe("useResolvedRef", () => {
     const result = resolve({ value });
     expect(result).toEqual({ status: "ready", value });
     expect(navigate).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
-  it("falls back and reports when the ref is unparseable (an app-emitted bad link)", () => {
+  it("falls back and reports when the ref is unparseable (an app-emitted bad link)", async () => {
     resolve({ parsed: false, value: undefined, fallback: "/safe" });
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
-    expect(captureMessage).toHaveBeenCalledOnce();
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.captureMessage).toHaveBeenCalledOnce();
   });
 
-  it("falls back silently when the target is inaccessible (no report — permission outcome)", () => {
+  it("falls back silently when the target is inaccessible (no report — permission outcome)", async () => {
     resolve({ parsed: true, value: null, fallback: "/safe" });
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
-    expect(captureMessage).not.toHaveBeenCalled();
+    await flushReportAppErrorForTests();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("fires the default 'link' unavailable message when no target is given", () => {
@@ -102,7 +112,7 @@ describe("useResolvedRef", () => {
     resolve({ rawRef: "c1", value }); // bare id ⇒ stale vs canonical "home-c1"
     expect(navigate).toHaveBeenCalledWith("/circles/home-c1", { replace: true });
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("preserves the child route segment when canonicalizing a stale ref", () => {
@@ -165,7 +175,7 @@ describe("useResolvedRef — disabled (inert)", () => {
     expect(result).toEqual({ status: "pending" });
     expect(navigate).not.toHaveBeenCalled();
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("is pending with no fallback for a null (inaccessible) value when disabled", () => {

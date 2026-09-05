@@ -76,8 +76,8 @@ function requirePressedPaletteColor() {
   return color;
 }
 
-beforeEach(() => {
-  primeAnalyticsForTests();
+beforeEach(async () => {
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {

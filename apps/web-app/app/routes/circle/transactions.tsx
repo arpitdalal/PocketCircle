@@ -20,6 +20,7 @@ import { track } from "~/lib/analytics.js";
 import { ledgerFilterAnalyticsProps } from "~/lib/analytics-props.js";
 import { circlePath } from "~/lib/circle-path.js";
 import {
+  filterOptionsQueryEnabled,
   useLedgerFilterOptions,
   useLedgerTransactionFilter,
   useMonthlySummary,
@@ -66,6 +67,7 @@ export default function CircleTransactions() {
     circle.id,
     filters.month,
     panelOpen ? draft.type : filters.type,
+    filterOptionsQueryEnabled(panelOpen, filters),
   );
   const summaryView = useMonthlySummary(circle.id, filters.month);
   const summary = summaryView.summary;

@@ -14,6 +14,7 @@ import { track } from "~/lib/analytics.js";
 import { exportAnalyticsProps, searchFilterAnalyticsProps } from "~/lib/analytics-props.js";
 import { buildTransactionExportCsv, downloadCsv } from "~/lib/csv.js";
 import {
+  filterOptionsQueryEnabled,
   TRANSACTIONS_PAGE_SIZE,
   useExportTransactions,
   useTransactionSearch,
@@ -46,7 +47,11 @@ export default function CircleSearch() {
     draft,
     setDraft,
   } = useFilterPanelDraft(filters);
-  const options = useTransactionSearchOptions(circle.id, panelOpen ? draft.type : filters.type);
+  const options = useTransactionSearchOptions(
+    circle.id,
+    panelOpen ? draft.type : filters.type,
+    filterOptionsQueryEnabled(panelOpen, filters),
+  );
   const results = useTransactionSearch(circle.id, toSearchQuery(filters), {
     page: filters.page,
     pageSize: TRANSACTIONS_PAGE_SIZE,

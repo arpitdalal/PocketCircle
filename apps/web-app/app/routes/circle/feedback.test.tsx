@@ -54,9 +54,9 @@ function setup(opts: { url?: string } = {}) {
   return { ...view, circle, submitFeedback };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
-  primeAnalyticsForTests();
+  await primeAnalyticsForTests();
 });
 
 afterEach(() => {
