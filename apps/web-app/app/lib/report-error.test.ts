@@ -2,17 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const sentrySdk = vi.hoisted(() => ({
-  init: vi.fn(),
-  captureMessage: vi.fn(),
-  replayIntegration: vi.fn(() => ({ name: "Replay" })),
-}));
-
-vi.mock("@sentry/react", () => ({
-  init: sentrySdk.init,
-  captureMessage: sentrySdk.captureMessage,
-  replayIntegration: sentrySdk.replayIntegration,
-}));
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
 
 const env = vi.hoisted(() => {
   const mock: { SENTRY_DSN: string | undefined } = { SENTRY_DSN: undefined };
@@ -21,6 +11,7 @@ const env = vi.hoisted(() => {
 
 vi.mock("./env.js", () => env);
 
+import { sentrySdk } from "~/test/sentry-mock.js";
 import { flushReportAppErrorForTests, reportAppError } from "./report-error.js";
 import { resetSentryReadyForTests } from "./sentry.js";
 

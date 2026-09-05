@@ -9,16 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // boundary (`@sentry/react`) and let the real `reportAppError` run, so a report
 // is observed via `captureMessage` (CLAUDE.md: mock only third-party boundaries).
 // `location` is mutable so each test sets the URL it canonicalizes.
-const { navigate, showUnavailable, location, captureMessage, init, replayIntegration } = vi.hoisted(
-  () => ({
-    navigate: vi.fn(),
-    showUnavailable: vi.fn(),
-    location: { pathname: "/circles/home-c1", search: "", hash: "" },
-    captureMessage: vi.fn(),
-    init: vi.fn(),
-    replayIntegration: vi.fn(() => ({ name: "Replay" })),
-  }),
-);
+const { navigate, showUnavailable, location } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  showUnavailable: vi.fn(),
+  location: { pathname: "/circles/home-c1", search: "", hash: "" },
+}));
 vi.mock("react-router", () => ({
   useNavigate: () => navigate,
   useLocation: () => location,
@@ -26,12 +21,13 @@ vi.mock("react-router", () => ({
 vi.mock("./snackbar.js", () => ({
   useSnackbar: () => ({ show: vi.fn(), showUnavailable }),
 }));
-vi.mock("@sentry/react", () => ({ captureMessage, init, replayIntegration }));
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
 vi.mock("./env.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./env.js")>();
   return { ...actual, SENTRY_DSN: "https://example@sentry.io/1" };
 });
 
+import { sentrySdk } from "~/test/sentry-mock.js";
 import { flushReportAppErrorForTests } from "./report-error.js";
 import { resetSentryReadyForTests } from "./sentry.js";
 import { type ResolvedRefOptions, useResolvedRef } from "./use-resolved-ref.js";
@@ -74,7 +70,7 @@ describe("useResolvedRef", () => {
     expect(result).toEqual({ status: "pending" });
     expect(navigate).not.toHaveBeenCalled();
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("is ready when the value resolves on its canonical ref, with no navigation", () => {
@@ -82,7 +78,7 @@ describe("useResolvedRef", () => {
     const result = resolve({ value });
     expect(result).toEqual({ status: "ready", value });
     expect(navigate).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("falls back and reports when the ref is unparseable (an app-emitted bad link)", async () => {
@@ -90,7 +86,7 @@ describe("useResolvedRef", () => {
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
     await flushReportAppErrorForTests();
-    expect(captureMessage).toHaveBeenCalledOnce();
+    expect(sentrySdk.captureMessage).toHaveBeenCalledOnce();
   });
 
   it("falls back silently when the target is inaccessible (no report — permission outcome)", async () => {
@@ -98,7 +94,7 @@ describe("useResolvedRef", () => {
     expect(showUnavailable).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/safe", { replace: true });
     await flushReportAppErrorForTests();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("fires the default 'link' unavailable message when no target is given", () => {
@@ -117,7 +113,7 @@ describe("useResolvedRef", () => {
     resolve({ rawRef: "c1", value }); // bare id ⇒ stale vs canonical "home-c1"
     expect(navigate).toHaveBeenCalledWith("/circles/home-c1", { replace: true });
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("preserves the child route segment when canonicalizing a stale ref", () => {
@@ -180,7 +176,7 @@ describe("useResolvedRef — disabled (inert)", () => {
     expect(result).toEqual({ status: "pending" });
     expect(navigate).not.toHaveBeenCalled();
     expect(showUnavailable).not.toHaveBeenCalled();
-    expect(captureMessage).not.toHaveBeenCalled();
+    expect(sentrySdk.captureMessage).not.toHaveBeenCalled();
   });
 
   it("is pending with no fallback for a null (inaccessible) value when disabled", () => {

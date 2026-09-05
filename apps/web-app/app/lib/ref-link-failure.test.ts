@@ -1,15 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sentrySdk } from "~/test/sentry-mock.js";
 import { handleUnavailableRefLink, handleUnparseableRefLink } from "./ref-link-failure.js";
 import { redactRefForTelemetry } from "./refs.js";
 import { flushReportAppErrorForTests } from "./report-error.js";
 import { resetSentryReadyForTests } from "./sentry.js";
 
-const sentrySdk = vi.hoisted(() => ({
-  init: vi.fn(),
-  captureMessage: vi.fn(),
-  replayIntegration: vi.fn(() => ({ name: "Replay" })),
-}));
-vi.mock("@sentry/react", () => sentrySdk);
+vi.mock("@sentry/react", async () => (await import("~/test/sentry-mock.js")).sentryModuleMock);
 vi.mock("./env.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./env.js")>();
   return { ...actual, SENTRY_DSN: "https://example@sentry.io/1" };
