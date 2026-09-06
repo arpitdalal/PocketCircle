@@ -258,7 +258,8 @@ export function useSearchContinuationProbes(
 ) {
   const probeKey = searchProbeQueryKey(circleId, filters, pages, pageSize);
   const [queries, setQueries] = useState(() => EMPTY_SEARCH_PROBES);
-  const [prevProbeKey, setPrevProbeKey] = useState(() => probeKey);
+  // Sentinel so the first render with a nonempty key still builds probes (deep-link ?page=N).
+  const [prevProbeKey, setPrevProbeKey] = useState<string | null>(() => null);
   if (probeKey !== prevProbeKey) {
     setPrevProbeKey(probeKey);
     if (!probeKey) {

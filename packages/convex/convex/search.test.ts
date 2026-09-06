@@ -505,7 +505,7 @@ describe("searchTransactions", () => {
     expect(reversedAmount.transactions).toEqual([]);
   });
 
-  it("paginates sparse text matches across an unscoped date window", async () => {
+  it("paginates sparse text matches and rejects forged continuation fingerprints", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));
     mockCurrentUser.mockResolvedValue(f.owner);
@@ -520,12 +520,11 @@ describe("searchTransactions", () => {
       });
     });
 
+    // No date/amount/category post-filters ⇒ indexed search path (relevance order).
     const first = await t.query(api.search.searchTransactions, {
       circleId: f.circleId,
       type: "all",
       status: "all",
-      dateFrom: "2026-06-01",
-      dateTo: "2026-06-30",
       query: "global",
       ...searchTransactionPage(1, 5),
     });
@@ -541,8 +540,6 @@ describe("searchTransactions", () => {
       circleId: f.circleId,
       type: "all",
       status: "all",
-      dateFrom: "2026-06-01",
-      dateTo: "2026-06-30",
       query: "global",
       ...searchTransactionPage(2, 5),
       cursor: first.continueCursor,
@@ -559,8 +556,6 @@ describe("searchTransactions", () => {
       circleId: f.circleId,
       type: "all",
       status: "all",
-      dateFrom: "2026-06-01",
-      dateTo: "2026-06-30",
       query: "global",
       ...searchTransactionPage(2, 5),
       cursor: JSON.stringify(forged),
@@ -570,6 +565,48 @@ describe("searchTransactions", () => {
     );
     expect(rejected.continueCursor).toBe("");
     expect(second.continueCursor.length).toBeGreaterThan(0);
+  });
+
+  it("fills text-search pages when post-index date filters would sparsify search.paginate", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await t.run(async (ctx) => {
+      await seedSparseSearchRows(ctx, f, {
+        needle: "windowed",
+        count: 24,
+      });
+    });
+
+    const first = await t.query(api.search.searchTransactions, {
+      circleId: f.circleId,
+      type: "all",
+      status: "all",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-30",
+      query: "windowed",
+      ...searchTransactionPage(1, 5),
+    });
+    expect(first.transactions).toHaveLength(5);
+    expect(first.transactions.every((txn) => txn.title.includes("windowed"))).toBe(true);
+    expect(first.continueCursor.length).toBeGreaterThan(0);
+
+    const second = await t.query(api.search.searchTransactions, {
+      circleId: f.circleId,
+      type: "all",
+      status: "all",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-30",
+      query: "windowed",
+      ...searchTransactionPage(2, 5),
+      cursor: first.continueCursor,
+    });
+    expect(second.transactions).toHaveLength(5);
+    const titles = new Set([
+      ...first.transactions.map((txn) => txn.title),
+      ...second.transactions.map((txn) => txn.title),
+    ]);
+    expect(titles.size).toBe(10);
   });
 
   it("continues stream search from opaque cursor without rescanning totals", async () => {

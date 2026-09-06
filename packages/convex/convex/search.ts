@@ -799,9 +799,28 @@ export async function searchTransactionsOffsetPage(
   const viewCaches = newViewCaches();
   const searchCaches = newSearchCaches();
   if (args.filters.queryText) {
+    // Search-index `.filter()` + one `.paginate` can return a short page while more matches
+    // remain (RPT-7 forbids a fill loop). Stream multi-paginate can fill; text match moves to
+    // matchesFilters (date order, not relevance) when those post-filters are present.
+    if (indexedSearchHasPostFilters(args)) {
+      return await searchTransactionsStreamPage(ctx, args, viewCaches, searchCaches);
+    }
     return await searchTransactionsIndexedPage(ctx, args, viewCaches);
   }
   return await searchTransactionsStreamPage(ctx, args, viewCaches, searchCaches);
+}
+
+/** Post-search `.filter()` predicates that make a single search.paginate return sparse pages. */
+function indexedSearchHasPostFilters(args: SearchOffsetPageArgs) {
+  return (
+    args.start !== undefined ||
+    args.endExclusive !== undefined ||
+    args.filters.amountMin !== undefined ||
+    args.filters.amountMax !== undefined ||
+    args.filters.categoryIds.size > 0 ||
+    args.paidByMemberIds.size > 1 ||
+    args.recordedByMemberIds.size > 1
+  );
 }
 
 export function normalizeCommonFilters(
