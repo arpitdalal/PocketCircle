@@ -12,8 +12,7 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - The signed-out homepage, Privacy Policy, and Terms now show their text in the
-  first page load, so Google and other crawlers can read them without running
-  the app.
+  first page load.
 
 ## [v0.4.5] - 2026-09-06
 
