@@ -39,6 +39,23 @@ export function authRuntimeConfig(siteUrlValue: string | undefined) {
   return { siteUrl, verbose };
 }
 
+/**
+ * Browsers treat `localhost` and `127.0.0.1` as different origins. Vite may open
+ * either host; trust the twin so local Google sign-in CORS matches SITE_URL.
+ */
+export function loopbackTwinOrigin(siteUrl: string) {
+  const url = new URL(siteUrl);
+  if (url.hostname === "127.0.0.1") {
+    url.hostname = "localhost";
+    return url.origin;
+  }
+  if (url.hostname === "localhost") {
+    url.hostname = "127.0.0.1";
+    return url.origin;
+  }
+  return undefined;
+}
+
 export function authComponentConfig(siteUrlValue: string | undefined) {
   return {
     authFunctions,
@@ -104,6 +121,7 @@ const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   const authRuntime = authRuntimeConfig(process.env.SITE_URL);
+  const loopbackTwin = loopbackTwinOrigin(authRuntime.siteUrl);
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -140,8 +158,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    // crossDomain adds this exact siteUrl to Better Auth's trusted origins. Passing
-    // a second trustedOrigins copy here would duplicate it after plugin initialization.
+    // crossDomain adds siteUrl to trustedOrigins. Add only the loopback twin here
+    // so localhost and 127.0.0.1 both work in local dev without duplicating siteUrl.
+    ...(loopbackTwin ? { trustedOrigins: [loopbackTwin] } : {}),
     plugins: [convex({ authConfig }), crossDomain({ siteUrl: authRuntime.siteUrl })],
   });
 };

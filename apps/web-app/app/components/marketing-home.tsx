@@ -1,11 +1,10 @@
-import { Link } from "react-router";
-import { buttonVariants } from "~/components/ui/button-variants.js";
-import { cn } from "~/lib/utils.js";
+import { GoogleSignInPanel } from "~/components/google-sign-in-panel.js";
 
 /**
  * Temporary signed-out homepage at `/` for Google OAuth branding checks and
  * first-time visitors. Not the long-term marketing site; keep copy short and
  * factual so the consent-screen homepage URL is not a login-only shell.
+ * Continues with Google in one click (same controls as `/signin`).
  */
 export function MarketingHome() {
   return (
@@ -26,28 +25,7 @@ export function MarketingHome() {
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-4">
-          <Link to="/signin" className={cn(buttonVariants({ size: "lg" }), "min-w-48")}>
-            Sign in
-          </Link>
-          <p className="text-xs text-muted-foreground">
-            By continuing you agree to our{" "}
-            <Link
-              to="/terms"
-              className="underline underline-offset-2 transition-colors hover:text-foreground"
-            >
-              Terms
-            </Link>{" "}
-            and{" "}
-            <Link
-              to="/privacy"
-              className="underline underline-offset-2 transition-colors hover:text-foreground"
-            >
-              Privacy Policy
-            </Link>
-            .
-          </p>
-        </div>
+        <GoogleSignInPanel buttonClassName="min-w-48" />
       </main>
     </div>
   );
