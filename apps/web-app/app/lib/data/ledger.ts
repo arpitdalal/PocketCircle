@@ -1,7 +1,7 @@
 import { api } from "@pocketcircle/convex";
 import type { PlainMonth, TransactionType } from "@pocketcircle/domain";
 import { formatMoneyAmount, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useQueries, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 // The stream-pagination variant of usePaginatedQuery. Queries that paginate a
 // convex-helpers STREAM (Category Filter, Ledger Filter) have no journal to pin page
@@ -189,6 +189,55 @@ export function useTransactionSearch(
     } satisfies TransactionSearchResult;
   }
   return { ...data, isLoading: false } satisfies TransactionSearchResult;
+}
+
+/**
+ * Keep every predecessor Search page reactive so a mid-list insert/reorder that
+ * changes an earlier continueCursor can invalidate deeper resumes (RPT-8 PR4).
+ */
+export function useSearchContinuationProbes(
+  circleId: Circle["id"],
+  filters: TransactionSearchFilters,
+  pages: Array<{ page: number; cursor: string | null }>,
+  pageSize = TRANSACTIONS_PAGE_SIZE,
+) {
+  const queries: Record<
+    string,
+    { query: typeof api.search.searchTransactions; args: Record<string, unknown> } | "skip"
+  > = {};
+  if (!MOCKS) {
+    for (const entry of pages) {
+      queries[`p${entry.page}`] = {
+        query: api.search.searchTransactions,
+        args: {
+          circleId,
+          ...filters,
+          page: entry.page,
+          pageSize,
+          cursor: entry.cursor,
+        },
+      };
+    }
+  }
+  const results = useQueries(queries);
+  const continueByPage = new Map<number, string | undefined>();
+  for (const entry of pages) {
+    if (MOCKS) {
+      // Tests drive continuation via the active page query; skip probe invalidation.
+      continueByPage.set(entry.page, undefined);
+      continue;
+    }
+    const raw = results[`p${entry.page}`];
+    if (raw === undefined || raw instanceof Error) {
+      continueByPage.set(entry.page, undefined);
+      continue;
+    }
+    continueByPage.set(
+      entry.page,
+      "continueCursor" in raw && typeof raw.continueCursor === "string" ? raw.continueCursor : "",
+    );
+  }
+  return continueByPage;
 }
 
 /**

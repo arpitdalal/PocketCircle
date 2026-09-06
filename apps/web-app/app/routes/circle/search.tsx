@@ -17,6 +17,7 @@ import {
   filterOptionsQueryEnabled,
   TRANSACTIONS_PAGE_SIZE,
   useExportTransactions,
+  useSearchContinuationProbes,
   useTransactionSearch,
   useTransactionSearchOptions,
 } from "~/lib/data.js";
@@ -74,25 +75,48 @@ export default function CircleSearch() {
     pageSize: TRANSACTIONS_PAGE_SIZE,
     cursor: pageCursor,
   });
-  // Keep page 1 reactive while deep-paging so earlier-page inserts/deletes invalidate
-  // stale continuations (same args as page 1 ⇒ Convex dedupes when already on page 1).
-  const page1Boundary = useTransactionSearch(circle.id, searchFilters, {
-    page: 1,
-    pageSize: TRANSACTIONS_PAGE_SIZE,
-    cursor: null,
-  });
+  // Keep every predecessor page reactive so mid-list inserts/reorders that change an
+  // earlier continueCursor invalidate deeper resumes (not only the page-1 boundary).
+  const probePages: Array<{ page: number; cursor: string | null }> = [];
+  for (let page = 1; page < filters.page; page += 1) {
+    if (page === 1) {
+      probePages.push({ page: 1, cursor: null });
+      continue;
+    }
+    if (!activeCursors.byPage.has(page)) {
+      break;
+    }
+    probePages.push({ page, cursor: activeCursors.byPage.get(page) ?? null });
+  }
+  const probeContinueByPage = useSearchContinuationProbes(
+    circle.id,
+    searchFilters,
+    probePages,
+    TRANSACTIONS_PAGE_SIZE,
+  );
   let boundaryInvalidated = false;
-  if (!page1Boundary.isLoading && filters.page > 1) {
-    const livePage2 = page1Boundary.continueCursor;
-    const cachedPage2 = activeCursors.byPage.get(2) ?? "";
-    if (livePage2 !== cachedPage2) {
-      boundaryInvalidated = true;
-      const byPage = new Map<number, string | null>([[1, null]]);
-      if (livePage2) {
-        byPage.set(2, livePage2);
+  if (filters.page > 1) {
+    for (const { page } of probePages) {
+      const liveNext = probeContinueByPage.get(page);
+      if (liveNext === undefined) {
+        break;
       }
-      activeCursors = { key: activeCursors.key, byPage };
-      setCursors(activeCursors);
+      const cachedNext = activeCursors.byPage.get(page + 1) ?? "";
+      if (liveNext !== cachedNext) {
+        boundaryInvalidated = true;
+        const byPage = new Map<number, string | null>([[1, null]]);
+        for (const [cachedPage, cachedCursor] of activeCursors.byPage) {
+          if (cachedPage > 1 && cachedPage <= page) {
+            byPage.set(cachedPage, cachedCursor);
+          }
+        }
+        if (liveNext) {
+          byPage.set(page + 1, liveNext);
+        }
+        activeCursors = { key: activeCursors.key, byPage };
+        setCursors(activeCursors);
+        break;
+      }
     }
   }
   if (!results.isLoading && !boundaryInvalidated) {
