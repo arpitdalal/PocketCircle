@@ -7,6 +7,7 @@ import {
 } from "~/components/circle-mobile-bottom-nav.js";
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
+import { MarketingHome } from "~/components/marketing-home.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
@@ -81,6 +82,11 @@ export default function ProtectedLayout() {
     return <Splash />;
   }
   if (session.state === "unauthenticated") {
+    // `/` stays public so Google branding (and visitors) see product purpose
+    // instead of a login-only redirect. Other protected paths still require sign-in.
+    if (location.pathname === "/") {
+      return <MarketingHome />;
+    }
     return <Navigate to={signinRedirect} replace />;
   }
   if (session.state === "bootstrap") {

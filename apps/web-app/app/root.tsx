@@ -16,6 +16,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <title>PocketCircle</title>
+        <meta
+          name="description"
+          content="PocketCircle helps you track spending together in shared Circles. Record expenses and income, organize Categories, and review totals with others."
+        />
         <link rel="icon" href="/favicon.ico" sizes="48x48" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />

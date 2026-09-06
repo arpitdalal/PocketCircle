@@ -5,7 +5,7 @@ import { MOCKS } from "./env.js";
 /**
  * The four-state auth model the protected layout gates on (ADR 0017):
  *  - loading: auth is still resolving → show splash
- *  - unauthenticated: no Google session → redirect to /signin
+ *  - unauthenticated: no Google session → marketing homepage at `/`, else /signin
  *  - bootstrap: Google session exists but no PocketCircle User yet → bootstrap splash
  *  - ready: bootstrapped User → render the app shell (may still need product Onboarding)
  */

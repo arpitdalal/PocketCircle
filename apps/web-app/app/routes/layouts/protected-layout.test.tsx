@@ -602,3 +602,47 @@ describe("ProtectedLayout last-used Google email", () => {
     expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
   });
 });
+
+describe("ProtectedLayout unauthenticated homepage", () => {
+  it("shows the marketing homepage at / instead of redirecting to sign-in", async () => {
+    configureConvex();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ index: true, Component: () => <h2>App home</h2> }],
+        },
+        { path: "/signin", Component: () => <h2>Sign in page</h2> },
+      ],
+      ["/"],
+    );
+
+    expect(await screen.findByRole("heading", { name: "PocketCircle" })).toBeInTheDocument();
+    expect(screen.getByText(/track spending together in shared Circles/i)).toBeInTheDocument();
+    expect(screen.queryByText("App home")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sign in page")).not.toBeInTheDocument();
+  });
+
+  it("still redirects other protected paths to sign-in", async () => {
+    configureConvex();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ path: "settings", Component: () => <h2>Settings stub</h2> }],
+        },
+        { path: "/signin", Component: () => <h2>Sign in page</h2> },
+      ],
+      ["/settings"],
+    );
+
+    expect(await screen.findByText("Sign in page")).toBeInTheDocument();
+    expect(screen.queryByText("Settings stub")).not.toBeInTheDocument();
+  });
+});
