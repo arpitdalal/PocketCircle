@@ -13,6 +13,7 @@ import type { Value } from "convex/values";
 // queries that call ctx.db's own .paginate(). Transaction Search (#97) uses numbered
 // pages and `useQuery` instead.
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
+import { useState } from "react";
 import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
@@ -193,6 +194,8 @@ export function useTransactionSearch(
   return { ...data, isLoading: false } satisfies TransactionSearchResult;
 }
 
+const EMPTY_SEARCH_PROBES: RequestForQueries = {};
+
 function toSearchProbeArgs(
   args: {
     circleId: Circle["id"];
@@ -208,6 +211,8 @@ function toSearchProbeArgs(
     cursor: args.cursor,
     type: args.type,
     status: args.status,
+    // Probes only need continueCursor; skip transaction views + full total scans.
+    boundaryOnly: true,
   };
   if (args.query !== undefined) out.query = args.query;
   if (args.categoryIds !== undefined) out.categoryIds = args.categoryIds;
@@ -222,9 +227,28 @@ function toSearchProbeArgs(
   return out;
 }
 
+function searchProbeQueryKey(
+  circleId: Circle["id"],
+  filters: TransactionSearchFilters,
+  pages: Array<{ page: number; cursor: string | null }>,
+  pageSize: number,
+) {
+  if (MOCKS || pages.length === 0) {
+    return "";
+  }
+  return [
+    circleId,
+    String(pageSize),
+    JSON.stringify(filters),
+    pages.map((page) => `${page.page}:${page.cursor ?? ""}`).join(","),
+  ].join("|");
+}
+
 /**
  * Keep every predecessor Search page reactive so a mid-list insert/reorder that
  * changes an earlier continueCursor can invalidate deeper resumes (RPT-8 PR4).
+ * `useQueries` must see a stable RequestForQueries identity across renders —
+ * a fresh `{}` each time re-subscribes forever (infinite re-render).
  */
 export function useSearchContinuationProbes(
   circleId: Circle["id"],
@@ -232,22 +256,31 @@ export function useSearchContinuationProbes(
   pages: Array<{ page: number; cursor: string | null }>,
   pageSize = TRANSACTIONS_PAGE_SIZE,
 ) {
-  let queries: RequestForQueries = {};
-  if (!MOCKS) {
-    for (const entry of pages) {
-      queries = {
-        ...queries,
-        [`p${entry.page}`]: {
-          query: api.search.searchTransactions,
-          args: toSearchProbeArgs({
-            circleId,
-            ...filters,
-            page: entry.page,
-            pageSize,
-            cursor: entry.cursor,
-          }),
-        },
-      };
+  const probeKey = searchProbeQueryKey(circleId, filters, pages, pageSize);
+  const [queries, setQueries] = useState(() => EMPTY_SEARCH_PROBES);
+  const [prevProbeKey, setPrevProbeKey] = useState(() => probeKey);
+  if (probeKey !== prevProbeKey) {
+    setPrevProbeKey(probeKey);
+    if (!probeKey) {
+      setQueries(EMPTY_SEARCH_PROBES);
+    } else {
+      let next: RequestForQueries = {};
+      for (const entry of pages) {
+        next = {
+          ...next,
+          [`p${entry.page}`]: {
+            query: api.search.searchTransactions,
+            args: toSearchProbeArgs({
+              circleId,
+              ...filters,
+              page: entry.page,
+              pageSize,
+              cursor: entry.cursor,
+            }),
+          },
+        };
+      }
+      setQueries(next);
     }
   }
   const results = useQueries(queries);

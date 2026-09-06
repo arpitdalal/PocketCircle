@@ -512,6 +512,10 @@ describe("searchTransactions", () => {
     await t.run(async (ctx) => {
       await seedSparseSearchRows(ctx, f, {
         needle: "global",
+        // Enough matches for page 2 (pageSize 5) to still have a next page — so an
+        // accepted resume returns a non-empty continueCursor while a forged-fp cold
+        // start still returns "".
+        count: 24,
         row: (index) => (index % 3 === 0 ? { status: "archived" } : {}),
       });
     });
@@ -527,7 +531,7 @@ describe("searchTransactions", () => {
     });
     expect(first.transactions).toHaveLength(5);
     expect(first.transactions.every((txn) => txn.title.includes("global"))).toBe(true);
-    expect(first.totalCount).toBe(6);
+    expect(first.totalCount).toBe(12);
     expect(first.totalCountCapped).toBe(false);
     expect(first.continueCursor.length).toBeGreaterThan(0);
     expect(JSON.parse(first.continueCursor).c).toEqual(expect.any(String));
@@ -543,10 +547,11 @@ describe("searchTransactions", () => {
       ...searchTransactionPage(2, 5),
       cursor: first.continueCursor,
     });
-    expect(second.transactions.map((txn) => txn.title).sort()).toEqual(["global 10"]);
-    expect(second.totalCount).toBe(6);
+    expect(second.transactions).toHaveLength(5);
+    expect(second.transactions.every((txn) => txn.title.includes("global"))).toBe(true);
+    expect(second.totalCount).toBe(12);
     expect(second.totalCountCapped).toBe(false);
-    expect(second.continueCursor).toBe("");
+    expect(second.continueCursor.length).toBeGreaterThan(0);
 
     const forged = JSON.parse(first.continueCursor);
     forged.fp = "other-query";
@@ -560,8 +565,11 @@ describe("searchTransactions", () => {
       ...searchTransactionPage(2, 5),
       cursor: JSON.stringify(forged),
     });
-    expect(rejected.transactions.map((txn) => txn.title).sort()).toEqual(["global 10"]);
+    expect(rejected.transactions.map((txn) => txn.title).sort()).toEqual(
+      second.transactions.map((txn) => txn.title).sort(),
+    );
     expect(rejected.continueCursor).toBe("");
+    expect(second.continueCursor.length).toBeGreaterThan(0);
   });
 
   it("continues stream search from opaque cursor without rescanning totals", async () => {

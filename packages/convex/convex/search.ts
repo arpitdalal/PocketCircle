@@ -511,6 +511,8 @@ type SearchOffsetPageArgs = Omit<
   pageSize: number;
   /** Opaque {@link encodeSearchContinuation} token from a prior page; omit on cold start. */
   cursor?: string;
+  /** Skip transaction views; probes only need continueCursor + totals. */
+  boundaryOnly?: boolean;
 };
 
 async function transactionViewsFromSearchDocs(
@@ -519,7 +521,11 @@ async function transactionViewsFromSearchDocs(
   viewCaches: ReturnType<typeof newViewCaches>,
   viewerMemberId: Id<"members">,
   viewerIsOwner: boolean,
+  boundaryOnly?: boolean,
 ) {
+  if (boundaryOnly) {
+    return [];
+  }
   const txns = await asyncMapChunked(searchDocs, DEFAULT_READ_CONCURRENCY, (searchDoc) =>
     ctx.db.get(searchDoc.transactionId),
   );
@@ -572,6 +578,7 @@ async function searchTransactionsIndexedPage(
         viewCaches,
         args.viewerMemberId,
         args.viewerIsOwner,
+        args.boundaryOnly,
       ),
       pageNumber: page,
       pageSize,
@@ -600,6 +607,7 @@ async function searchTransactionsIndexedPage(
         viewCaches,
         args.viewerMemberId,
         args.viewerIsOwner,
+        args.boundaryOnly,
       ),
       pageNumber: page,
       pageSize,
@@ -629,6 +637,7 @@ async function searchTransactionsIndexedPage(
       viewCaches,
       args.viewerMemberId,
       args.viewerIsOwner,
+      args.boundaryOnly,
     ),
     pageNumber: page,
     pageSize,
@@ -683,11 +692,13 @@ async function searchTransactionsStreamPage(
       resumeTotalCountCapped: resume.tcc,
     });
     return {
-      transactions: await Promise.all(
-        result.page.map((txn) =>
-          toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
-        ),
-      ),
+      transactions: args.boundaryOnly
+        ? []
+        : await Promise.all(
+            result.page.map((txn) =>
+              toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
+            ),
+          ),
       pageNumber: page,
       pageSize,
       totalCount,
@@ -748,11 +759,13 @@ async function searchTransactionsStreamPage(
     !countDone && collected >= takeLimit,
   );
   return {
-    transactions: await Promise.all(
-      targetPage.map((txn) =>
-        toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
-      ),
-    ),
+    transactions: args.boundaryOnly
+      ? []
+      : await Promise.all(
+          targetPage.map((txn) =>
+            toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
+          ),
+        ),
     pageNumber: page,
     pageSize,
     totalCount,
@@ -855,6 +868,8 @@ export const searchTransactions = query({
     pageSize: v.optional(v.number()),
     /** Opaque continuation from a prior `continueCursor`; omit/null on cold start. */
     cursor: v.optional(v.union(v.string(), v.null())),
+    /** Skip transaction views (continuation probes). */
+    boundaryOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const pageSize = clampSearchPageSize(args.pageSize);
@@ -909,6 +924,7 @@ export const searchTransactions = query({
       page,
       pageSize,
       cursor: args.cursor ?? undefined,
+      boundaryOnly: args.boundaryOnly,
       filters: {
         type: filters.type,
         categoryIds: filters.categoryIds.ids,
