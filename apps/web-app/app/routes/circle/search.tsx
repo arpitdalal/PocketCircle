@@ -17,6 +17,7 @@ import {
   filterOptionsQueryEnabled,
   TRANSACTIONS_PAGE_SIZE,
   useExportTransactions,
+  useSearchContinuationProbes,
   useTransactionSearch,
   useTransactionSearchOptions,
 } from "~/lib/data.js";
@@ -74,60 +75,48 @@ export default function CircleSearch() {
     pageSize: TRANSACTIONS_PAGE_SIZE,
     cursor: pageCursor,
   });
-  // Keep page 1 and the immediate predecessor reactive. Page-1 catches early-boundary
-  // drift; the predecessor catches a page-(N-1)→N reorder while on page N (stale page-N
-  // cursor). Same args as the active page ⇒ Convex dedupes when page≤2.
-  const predecessorPage = Math.max(1, filters.page - 1);
-  const hasPredecessorCursor = predecessorPage <= 1 || activeCursors.byPage.has(predecessorPage);
-  const page1Boundary = useTransactionSearch(circle.id, searchFilters, {
-    page: 1,
-    pageSize: TRANSACTIONS_PAGE_SIZE,
-    cursor: null,
-  });
-  const predecessorBoundary = useTransactionSearch(circle.id, searchFilters, {
-    page: hasPredecessorCursor ? predecessorPage : 1,
-    pageSize: TRANSACTIONS_PAGE_SIZE,
-    cursor:
-      predecessorPage <= 1 || !hasPredecessorCursor
-        ? null
-        : (activeCursors.byPage.get(predecessorPage) ?? null),
-  });
-  let boundaryInvalidated = false;
-  if (!page1Boundary.isLoading && filters.page > 1) {
-    const livePage2 = page1Boundary.continueCursor;
-    const cachedPage2 = activeCursors.byPage.get(2) ?? "";
-    if (livePage2 !== cachedPage2) {
-      boundaryInvalidated = true;
-      const byPage = new Map<number, string | null>([[1, null]]);
-      if (livePage2) {
-        byPage.set(2, livePage2);
-      }
-      activeCursors = { key: activeCursors.key, byPage };
-      setCursors(activeCursors);
+  // Keep every predecessor page reactive and invalidate from the earliest diverging
+  // continueCursor (page-2→3 shifts while on page 4+ are invisible to a page-3-only probe).
+  const probePages: Array<{ page: number; cursor: string | null }> = [];
+  for (let page = 1; page < filters.page; page += 1) {
+    if (page === 1) {
+      probePages.push({ page: 1, cursor: null });
+      continue;
     }
+    if (!activeCursors.byPage.has(page)) {
+      break;
+    }
+    probePages.push({ page, cursor: activeCursors.byPage.get(page) ?? null });
   }
-  if (
-    !boundaryInvalidated &&
-    !predecessorBoundary.isLoading &&
-    filters.page > 2 &&
-    hasPredecessorCursor &&
-    activeCursors.byPage.has(filters.page)
-  ) {
-    const liveCurrent = predecessorBoundary.continueCursor;
-    const cachedCurrent = activeCursors.byPage.get(filters.page) ?? "";
-    if (liveCurrent !== cachedCurrent) {
-      boundaryInvalidated = true;
-      const byPage = new Map<number, string | null>([[1, null]]);
-      for (const [cachedPage, cachedCursor] of activeCursors.byPage) {
-        if (cachedPage > 1 && cachedPage < filters.page) {
-          byPage.set(cachedPage, cachedCursor);
+  const probeContinueByPage = useSearchContinuationProbes(
+    circle.id,
+    searchFilters,
+    probePages,
+    TRANSACTIONS_PAGE_SIZE,
+  );
+  let boundaryInvalidated = false;
+  if (filters.page > 1) {
+    for (const { page } of probePages) {
+      const liveNext = probeContinueByPage.get(page);
+      if (liveNext === undefined) {
+        break;
+      }
+      const cachedNext = activeCursors.byPage.get(page + 1) ?? "";
+      if (liveNext !== cachedNext) {
+        boundaryInvalidated = true;
+        const byPage = new Map<number, string | null>([[1, null]]);
+        for (const [cachedPage, cachedCursor] of activeCursors.byPage) {
+          if (cachedPage > 1 && cachedPage <= page) {
+            byPage.set(cachedPage, cachedCursor);
+          }
         }
+        if (liveNext) {
+          byPage.set(page + 1, liveNext);
+        }
+        activeCursors = { key: activeCursors.key, byPage };
+        setCursors(activeCursors);
+        break;
       }
-      if (liveCurrent) {
-        byPage.set(filters.page, liveCurrent);
-      }
-      activeCursors = { key: activeCursors.key, byPage };
-      setCursors(activeCursors);
     }
   }
   if (!results.isLoading && !boundaryInvalidated) {
