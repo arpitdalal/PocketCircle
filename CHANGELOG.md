@@ -7,6 +7,21 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.4] - 2026-09-06
+
+### Added
+
+- The signed-out homepage now briefly explains what PocketCircle does.
+
+### Changed
+
+- The app starts faster.
+- Home, Circle Dashboard, and Ledger totals stay snappy on Circles with a lot
+  of history.
+- Circle Category analytics and month filter discovery are faster for busy
+  Circles.
+- Search pages through large result sets more efficiently.
+
 ## [v0.4.3] - 2026-09-04
 
 ### Added
