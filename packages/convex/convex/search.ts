@@ -449,6 +449,29 @@ function encodeSearchPageContinue(args: {
   });
 }
 
+/** When a resumed page is exhausted or overruns the token's totals, refresh count for the UI. */
+function totalsAfterResumedPage(args: {
+  page: number;
+  pageSize: number;
+  pageLength: number;
+  isDone: boolean;
+  resumeTotalCount: number;
+  resumeTotalCountCapped: boolean;
+}) {
+  const prefix = (args.page - 1) * args.pageSize;
+  if (args.isDone) {
+    return { totalCount: prefix + args.pageLength, totalCountCapped: false };
+  }
+  const minWithMore = prefix + args.pageLength + 1;
+  if (args.resumeTotalCount >= minWithMore) {
+    return {
+      totalCount: args.resumeTotalCount,
+      totalCountCapped: args.resumeTotalCountCapped,
+    };
+  }
+  return { totalCount: minWithMore, totalCountCapped: true };
+}
+
 type SearchOffsetPageArgs = Omit<
   Parameters<typeof collectTransactionViews>[1],
   "paginationOpts"
@@ -502,6 +525,14 @@ async function searchTransactionsIndexedPage(
       numItems: pageSize,
       cursor: resume.c,
     });
+    const { totalCount, totalCountCapped } = totalsAfterResumedPage({
+      page,
+      pageSize,
+      pageLength: result.page.length,
+      isDone: result.isDone,
+      resumeTotalCount: resume.tc,
+      resumeTotalCountCapped: resume.tcc,
+    });
     return {
       transactions: await transactionViewsFromSearchDocs(
         ctx,
@@ -512,11 +543,11 @@ async function searchTransactionsIndexedPage(
       ),
       pageNumber: page,
       pageSize,
-      totalCount: resume.tc,
-      totalCountCapped: resume.tcc,
+      totalCount,
+      totalCountCapped,
       continueCursor: encodeSearchPageContinue({
-        totalCount: resume.tc,
-        totalCountCapped: resume.tcc,
+        totalCount,
+        totalCountCapped,
         isDone: result.isDone,
         engineCursor: result.continueCursor,
       }),
@@ -609,6 +640,14 @@ async function searchTransactionsStreamPage(
   const resume = args.cursor ? decodeSearchContinuation(args.cursor) : null;
   if (resume) {
     const result = await source.paginate({ numItems: pageSize, cursor: resume.c });
+    const { totalCount, totalCountCapped } = totalsAfterResumedPage({
+      page,
+      pageSize,
+      pageLength: result.page.length,
+      isDone: result.isDone,
+      resumeTotalCount: resume.tc,
+      resumeTotalCountCapped: resume.tcc,
+    });
     return {
       transactions: await Promise.all(
         result.page.map((txn) =>
@@ -617,11 +656,11 @@ async function searchTransactionsStreamPage(
       ),
       pageNumber: page,
       pageSize,
-      totalCount: resume.tc,
-      totalCountCapped: resume.tcc,
+      totalCount,
+      totalCountCapped,
       continueCursor: encodeSearchPageContinue({
-        totalCount: resume.tc,
-        totalCountCapped: resume.tcc,
+        totalCount,
+        totalCountCapped,
         isDone: result.isDone,
         engineCursor: result.continueCursor,
       }),

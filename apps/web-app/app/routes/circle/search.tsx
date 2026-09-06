@@ -72,11 +72,22 @@ export default function CircleSearch() {
     pageSize: TRANSACTIONS_PAGE_SIZE,
     cursor: pageCursor,
   });
-  if (!results.isLoading && results.continueCursor) {
+  if (!results.isLoading) {
     const nextPage = filters.page + 1;
-    if (activeCursors.byPage.get(nextPage) !== results.continueCursor) {
+    const nextToken = results.continueCursor;
+    const prevToken = activeCursors.byPage.get(nextPage) ?? "";
+    if (nextToken !== prevToken) {
       const byPage = new Map(activeCursors.byPage);
-      byPage.set(nextPage, results.continueCursor);
+      if (nextToken) {
+        byPage.set(nextPage, nextToken);
+      } else {
+        byPage.delete(nextPage);
+      }
+      for (const page of [...byPage.keys()]) {
+        if (page > nextPage) {
+          byPage.delete(page);
+        }
+      }
       setCursors({ key: activeCursors.key, byPage });
     }
   }
