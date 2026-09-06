@@ -1,19 +1,14 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server.js";
-import { applyMonthTotalsContribution, monthTotalsContributionFrom } from "./monthTotals.js";
+import { recomputeCircleMonthTotals, recomputeMemberMonthTotals } from "./monthTotals.js";
 
 /**
- * Paginated backfill of Circle-month + Paid-By-month totals from active Transactions
- * (RPT-8 PR2).
+ * Paginated rebuild of Circle-month + Paid-By-month totals (RPT-8 PR2).
  *
- * Phases (cursor encodes which):
- * 1. `clear:circle` — page-delete `circleMonthTotals`
- * 2. `clear:member` — page-delete `memberMonthTotals`
- * 3. `scan:` + Convex paginate cursor — re-apply contributions from Transactions
- *
- * Start with `cursor: null`. Re-runnable: a fresh null cursor clears then rebuilds.
- * Run while writes are quiet (or re-run once after deploy traffic settles) so live
- * create/edit during the scan cannot double-count against a cleared then rebuilt set.
+ * For each Transaction page, absolute-recomputes every touched (circle, month) and
+ * (circle, Paid By, month) from the active month set — no clear phase, no delta
+ * apply — so concurrent create/edit/archive/restore cannot double-count.
+ * Re-runnable from `cursor: null`.
  */
 export const backfillMonthTotalsPage = internalMutation({
   args: {
@@ -22,43 +17,47 @@ export const backfillMonthTotalsPage = internalMutation({
   },
   handler: async (ctx, args) => {
     const pageSize = args.pageSize ?? 100;
-    const cursor = args.cursor ?? "clear:circle";
-
-    if (cursor === "clear:circle") {
-      const rows = await ctx.db.query("circleMonthTotals").take(pageSize);
-      for (const row of rows) {
-        await ctx.db.delete(row._id);
-      }
-      if (rows.length === pageSize) {
-        return { continueCursor: "clear:circle", isDone: false, processed: rows.length };
-      }
-      return { continueCursor: "clear:member", isDone: false, processed: rows.length };
+    if (!Number.isInteger(pageSize) || pageSize < 1) {
+      throw new Error("pageSize must be a positive integer");
     }
 
-    if (cursor === "clear:member") {
-      const rows = await ctx.db.query("memberMonthTotals").take(pageSize);
-      for (const row of rows) {
-        await ctx.db.delete(row._id);
-      }
-      if (rows.length === pageSize) {
-        return { continueCursor: "clear:member", isDone: false, processed: rows.length };
-      }
-      return { continueCursor: "scan:", isDone: false, processed: rows.length };
-    }
-
-    const scanCursor = cursor.startsWith("scan:") ? cursor.slice("scan:".length) || null : cursor;
     const page = await ctx.db.query("transactions").paginate({
       numItems: pageSize,
-      cursor: scanCursor,
+      cursor: args.cursor,
     });
-    for (const txn of page.page) {
-      const contribution = monthTotalsContributionFrom(txn);
-      if (contribution) {
-        await applyMonthTotalsContribution(ctx, contribution);
+
+    const circleMonths = new Map<
+      string,
+      { circleId: (typeof page.page)[number]["circleId"]; month: string }
+    >();
+    const memberMonths = new Map<
+      string,
+      {
+        circleId: (typeof page.page)[number]["circleId"];
+        paidByMemberId: (typeof page.page)[number]["paidByMemberId"];
+        month: string;
       }
+    >();
+    for (const txn of page.page) {
+      circleMonths.set(`${txn.circleId}:${txn.month}`, {
+        circleId: txn.circleId,
+        month: txn.month,
+      });
+      memberMonths.set(`${txn.circleId}:${txn.paidByMemberId}:${txn.month}`, {
+        circleId: txn.circleId,
+        paidByMemberId: txn.paidByMemberId,
+        month: txn.month,
+      });
     }
+    for (const key of circleMonths.values()) {
+      await recomputeCircleMonthTotals(ctx, key.circleId, key.month);
+    }
+    for (const key of memberMonths.values()) {
+      await recomputeMemberMonthTotals(ctx, key.circleId, key.paidByMemberId, key.month);
+    }
+
     return {
-      continueCursor: page.isDone ? null : `scan:${page.continueCursor}`,
+      continueCursor: page.isDone ? null : page.continueCursor,
       isDone: page.isDone,
       processed: page.page.length,
     };

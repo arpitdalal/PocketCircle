@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
-import { sumMonthTotals } from "./monthActivity.js";
+import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
 
 const ZERO_TOTALS = { incomeMinor: 0, expenseMinor: 0, netMinor: 0 } as const;
@@ -166,6 +166,79 @@ export async function replaceMonthTotalsContribution(
   }
 }
 
+async function upsertMonthTotalsRow(
+  ctx: Pick<MutationCtx, "db">,
+  existing: { _id: Id<"circleMonthTotals"> | Id<"memberMonthTotals"> } | null,
+  totals: { incomeMinor: number; expenseMinor: number },
+  insert: () => Promise<unknown>,
+) {
+  if (totals.incomeMinor === 0 && totals.expenseMinor === 0) {
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+    return;
+  }
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      incomeMinor: totals.incomeMinor,
+      expenseMinor: totals.expenseMinor,
+    });
+    return;
+  }
+  await insert();
+}
+
+/**
+ * Absolute rebuild of one Circle-month row from the active month set (backfill /
+ * repair). Concurrent-safe vs delta writes: last write wins with truth from collect.
+ */
+export async function recomputeCircleMonthTotals(
+  ctx: OperationReader & Pick<MutationCtx, "db">,
+  circleId: Id<"circles">,
+  month: string,
+) {
+  const totals = sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month));
+  const existing = await ctx.db
+    .query("circleMonthTotals")
+    .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
+    .unique();
+  await upsertMonthTotalsRow(ctx, existing, totals, () =>
+    ctx.db.insert("circleMonthTotals", {
+      circleId,
+      month,
+      incomeMinor: totals.incomeMinor,
+      expenseMinor: totals.expenseMinor,
+    }),
+  );
+}
+
+/** Absolute rebuild of one Paid-By Member-month row from the active month set. */
+export async function recomputeMemberMonthTotals(
+  ctx: OperationReader & Pick<MutationCtx, "db">,
+  circleId: Id<"circles">,
+  paidByMemberId: Id<"members">,
+  month: string,
+) {
+  const totals = sumMonthTotals(
+    await collectMonthActiveTransactions(ctx, circleId, month, paidByMemberId),
+  );
+  const existing = await ctx.db
+    .query("memberMonthTotals")
+    .withIndex("by_circle_member_month", (q) =>
+      q.eq("circleId", circleId).eq("paidByMemberId", paidByMemberId).eq("month", month),
+    )
+    .unique();
+  await upsertMonthTotalsRow(ctx, existing, totals, () =>
+    ctx.db.insert("memberMonthTotals", {
+      circleId,
+      paidByMemberId,
+      month,
+      incomeMinor: totals.incomeMinor,
+      expenseMinor: totals.expenseMinor,
+    }),
+  );
+}
+
 function toMonthTotals(row: { incomeMinor: number; expenseMinor: number } | null) {
   if (!row) {
     return { ...ZERO_TOTALS };
@@ -177,7 +250,11 @@ function toMonthTotals(row: { incomeMinor: number; expenseMinor: number } | null
   };
 }
 
-/** Circle-wide active Income/Expense/Net for one month (Dashboard, Ledger, comparison). */
+/**
+ * Circle-wide active Income/Expense/Net for one month (Dashboard, Ledger, comparison).
+ * Falls back to the month collect + {@link sumMonthTotals} when no maintained row
+ * exists yet (pre-backfill / empty), so reports stay correct before rebuild finishes.
+ */
 export async function readCircleMonthTotals(
   ctx: OperationReader,
   circleId: Id<"circles">,
@@ -187,10 +264,16 @@ export async function readCircleMonthTotals(
     .query("circleMonthTotals")
     .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
     .unique();
-  return toMonthTotals(row);
+  if (row) {
+    return toMonthTotals(row);
+  }
+  return sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month));
 }
 
-/** Paid-By-scoped active Income/Expense/Net for one Circle-month (Home Summary attribution). */
+/**
+ * Paid-By-scoped active Income/Expense/Net for one Circle-month (Home Summary).
+ * Same missing-row collect fallback as {@link readCircleMonthTotals}.
+ */
 export async function readMemberMonthTotals(
   ctx: OperationReader,
   circleId: Id<"circles">,
@@ -203,7 +286,10 @@ export async function readMemberMonthTotals(
       q.eq("circleId", circleId).eq("paidByMemberId", paidByMemberId).eq("month", month),
     )
     .unique();
-  return toMonthTotals(row);
+  if (row) {
+    return toMonthTotals(row);
+  }
+  return sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month, paidByMemberId));
 }
 
 /**
