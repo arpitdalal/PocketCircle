@@ -347,6 +347,34 @@ describe("CircleSearch", () => {
     expect(page2?.cursor).toEqual(expect.stringMatching(/"c":"mock:25"/));
   });
 
+  it("drops search cursors when the circle id changes while mounted", async () => {
+    const user = userEvent.setup();
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      makeTransactionView({ ref: `t-${index}`, title: `Row ${index}` }),
+    );
+    const seen: Array<Record<string, unknown>> = [];
+    const circleA = makeCircleView({ id: testId("circle-a"), ref: REF });
+    const { rerender } = setup({
+      circle: circleA,
+      initialEntries: [`/circles/${REF}/search?type=all&status=all`],
+      searchTransactions: (args) => {
+        seen.push(args);
+        return rows;
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Page 2" }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeInTheDocument());
+    expect(seen.some((args) => args.page === 2 && typeof args.cursor === "string")).toBe(true);
+
+    seen.length = 0;
+    rerender(makeCircleView({ id: testId("circle-b"), ref: REF }));
+    await waitFor(() => {
+      expect(seen.some((args) => args.page === 2 && args.cursor == null)).toBe(true);
+    });
+  });
+
   it("keeps pagination mounted and focused while the next page loads", async () => {
     const user = userEvent.setup();
     const rows = Array.from({ length: 30 }, (_, index) =>

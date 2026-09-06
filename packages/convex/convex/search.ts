@@ -9,6 +9,7 @@ import {
   isValidPlainMonth,
   MAX_AMOUNT_MINOR,
   normalizeSearchText,
+  searchContinuationFingerprint,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
   transactionSearchText,
@@ -432,7 +433,25 @@ async function collectSearchTransactionViews(
   };
 }
 
+function searchPageFingerprint(args: SearchOffsetPageArgs) {
+  return searchContinuationFingerprint({
+    circleId: args.circleId,
+    status: args.status,
+    paidByMemberIds: args.paidByMemberIds,
+    recordedByMemberIds: args.recordedByMemberIds,
+    start: args.start,
+    endExclusive: args.endExclusive,
+    type: args.filters.type,
+    categoryIds: args.filters.categoryIds,
+    amountMin: args.filters.amountMin,
+    amountMax: args.filters.amountMax,
+    queryText: args.filters.queryText,
+    pageSize: args.pageSize,
+  });
+}
+
 function encodeSearchPageContinue(args: {
+  fingerprint: string;
   totalCount: number;
   totalCountCapped: boolean;
   isDone: boolean;
@@ -446,7 +465,19 @@ function encodeSearchPageContinue(args: {
     c: args.engineCursor,
     tc: args.totalCount,
     tcc: args.totalCountCapped,
+    fp: args.fingerprint,
   });
+}
+
+function decodeSearchPageResume(args: SearchOffsetPageArgs) {
+  if (!args.cursor) {
+    return null;
+  }
+  const resume = decodeSearchContinuation(args.cursor);
+  if (!resume || resume.fp !== searchPageFingerprint(args)) {
+    return null;
+  }
+  return resume;
 }
 
 /** When a resumed page is exhausted or overruns the token's totals, refresh count for the UI. */
@@ -511,7 +542,8 @@ async function searchTransactionsIndexedPage(
 ) {
   const { page, pageSize } = args;
   const takeLimit = indexedSearchOffsetTakeLimit(pageSize);
-  const resume = args.cursor ? decodeSearchContinuation(args.cursor) : null;
+  const fingerprint = searchPageFingerprint(args);
+  const resume = decodeSearchPageResume(args);
 
   // Totals: `.take` on a fresh search query (not a second `.paginate` — RPT-7). Page body uses
   // one `.paginate` so later pages can continue from a real search-index cursor.
@@ -546,6 +578,7 @@ async function searchTransactionsIndexedPage(
       totalCount,
       totalCountCapped,
       continueCursor: encodeSearchPageContinue({
+        fingerprint,
         totalCount,
         totalCountCapped,
         isDone: result.isDone,
@@ -573,6 +606,7 @@ async function searchTransactionsIndexedPage(
       totalCount,
       totalCountCapped,
       continueCursor: encodeSearchPageContinue({
+        fingerprint,
         totalCount,
         totalCountCapped,
         isDone: result.isDone,
@@ -637,7 +671,7 @@ async function searchTransactionsStreamPage(
     ),
   );
 
-  const resume = args.cursor ? decodeSearchContinuation(args.cursor) : null;
+  const resume = decodeSearchPageResume(args);
   if (resume) {
     const result = await source.paginate({ numItems: pageSize, cursor: resume.c });
     const { totalCount, totalCountCapped } = totalsAfterResumedPage({
@@ -659,6 +693,7 @@ async function searchTransactionsStreamPage(
       totalCount,
       totalCountCapped,
       continueCursor: encodeSearchPageContinue({
+        fingerprint: searchPageFingerprint(args),
         totalCount,
         totalCountCapped,
         isDone: result.isDone,
@@ -723,6 +758,7 @@ async function searchTransactionsStreamPage(
     totalCount,
     totalCountCapped,
     continueCursor: encodeSearchPageContinue({
+      fingerprint: searchPageFingerprint(args),
       totalCount,
       totalCountCapped,
       isDone: pageIsDone,

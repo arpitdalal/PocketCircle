@@ -53,26 +53,49 @@ export default function CircleSearch() {
     filterOptionsQueryEnabled(panelOpen, filters),
   );
   // Resume Convex/search cursors across numbered URL pages (RPT-8 PR4) without putting
-  // tokens in the URL. Reset when filters change; cold-start when jumping to an unvisited page.
-  const filterKey = canonicalSearchParams({ ...filters, page: 1 }).toString();
+  // tokens in the URL. Scope includes circle.id so a mounted route switch cannot reuse
+  // another Circle's continuation. Cold-start when jumping to an unvisited page.
+  const scopeKey = `${circle.id}:${canonicalSearchParams({ ...filters, page: 1 }).toString()}`;
   const [cursors, setCursors] = useState({
-    key: filterKey,
+    key: scopeKey,
     byPage: new Map<number, string | null>([[1, null]]),
   });
   let activeCursors = cursors;
-  if (cursors.key !== filterKey) {
-    activeCursors = { key: filterKey, byPage: new Map([[1, null]]) };
+  if (cursors.key !== scopeKey) {
+    activeCursors = { key: scopeKey, byPage: new Map([[1, null]]) };
     setCursors(activeCursors);
   }
   const pageCursor = activeCursors.byPage.has(filters.page)
     ? activeCursors.byPage.get(filters.page)
     : undefined;
-  const results = useTransactionSearch(circle.id, toSearchQuery(filters), {
+  const searchFilters = toSearchQuery(filters);
+  const results = useTransactionSearch(circle.id, searchFilters, {
     page: filters.page,
     pageSize: TRANSACTIONS_PAGE_SIZE,
     cursor: pageCursor,
   });
-  if (!results.isLoading) {
+  // Keep page 1 reactive while deep-paging so earlier-page inserts/deletes invalidate
+  // stale continuations (same args as page 1 ⇒ Convex dedupes when already on page 1).
+  const page1Boundary = useTransactionSearch(circle.id, searchFilters, {
+    page: 1,
+    pageSize: TRANSACTIONS_PAGE_SIZE,
+    cursor: null,
+  });
+  let boundaryInvalidated = false;
+  if (!page1Boundary.isLoading && filters.page > 1) {
+    const livePage2 = page1Boundary.continueCursor;
+    const cachedPage2 = activeCursors.byPage.get(2) ?? "";
+    if (livePage2 !== cachedPage2) {
+      boundaryInvalidated = true;
+      const byPage = new Map<number, string | null>([[1, null]]);
+      if (livePage2) {
+        byPage.set(2, livePage2);
+      }
+      activeCursors = { key: activeCursors.key, byPage };
+      setCursors(activeCursors);
+    }
+  }
+  if (!results.isLoading && !boundaryInvalidated) {
     const nextPage = filters.page + 1;
     const nextToken = results.continueCursor;
     const prevToken = activeCursors.byPage.get(nextPage) ?? "";
@@ -100,17 +123,28 @@ export default function CircleSearch() {
   // page is in flight (useQuery returns undefined on arg change) — unmounting it would
   // drop keyboard focus from the just-clicked page button and announce nothing. Adjust
   // during render guarded by a primitive compare so it converges (no effect/flash).
-  const [lastPaging, setLastPaging] = useState({ totalPages: 0, totalCountCapped: false });
-  if (!results.isLoading) {
+  const [lastPaging, setLastPaging] = useState({
+    key: scopeKey,
+    totalPages: 0,
+    totalCountCapped: false,
+  });
+  if (lastPaging.key !== scopeKey) {
+    setLastPaging({ key: scopeKey, totalPages: 0, totalCountCapped: false });
+  } else if (!results.isLoading) {
     const totalPages = searchResultTotalPages(results.totalCount, results.pageSize);
     if (
       totalPages !== lastPaging.totalPages ||
       results.totalCountCapped !== lastPaging.totalCountCapped
     ) {
-      setLastPaging({ totalPages, totalCountCapped: results.totalCountCapped });
+      setLastPaging({
+        key: scopeKey,
+        totalPages,
+        totalCountCapped: results.totalCountCapped,
+      });
     }
   }
-  const { totalPages, totalCountCapped } = lastPaging;
+  const { totalPages, totalCountCapped } =
+    lastPaging.key === scopeKey ? lastPaging : { totalPages: 0, totalCountCapped: false };
 
   useEffect(() => {
     const next = canonicalSearchParams(filters);

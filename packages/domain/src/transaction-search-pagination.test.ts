@@ -5,6 +5,7 @@ import {
   decodeSearchContinuation,
   encodeSearchContinuation,
   indexedSearchOffsetTakeLimit,
+  searchContinuationFingerprint,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
   searchResultTotalPages,
@@ -67,17 +68,51 @@ describe("transaction search pagination", () => {
       c: "engine-cursor",
       tc: 40,
       tcc: false,
+      fp: "filters-v1",
     });
     expect(decodeSearchContinuation(withCursor)).toEqual({
       v: 1,
       c: "engine-cursor",
       tc: 40,
       tcc: false,
+      fp: "filters-v1",
     });
     expect(decodeSearchContinuation("not-json")).toBeNull();
     expect(decodeSearchContinuation(JSON.stringify({ v: 1, tc: 1, tcc: false }))).toBeNull();
     expect(
-      decodeSearchContinuation(JSON.stringify({ v: 1, skip: 25, tc: 1001, tcc: true })),
+      decodeSearchContinuation(
+        JSON.stringify({ v: 1, c: "x", tc: 1, tcc: false /* missing fp */ }),
+      ),
     ).toBeNull();
+  });
+
+  it("fingerprints query-defining search args stably", () => {
+    const left = searchContinuationFingerprint({
+      circleId: "c1",
+      paidByMemberIds: ["b", "a"],
+      recordedByMemberIds: [],
+      categoryIds: ["y", "x"],
+      queryText: "rent",
+      pageSize: 25,
+    });
+    const right = searchContinuationFingerprint({
+      circleId: "c1",
+      paidByMemberIds: ["a", "b"],
+      recordedByMemberIds: [],
+      categoryIds: ["x", "y"],
+      queryText: "rent",
+      pageSize: 25,
+    });
+    expect(left).toBe(right);
+    expect(
+      searchContinuationFingerprint({
+        circleId: "c2",
+        paidByMemberIds: ["a", "b"],
+        recordedByMemberIds: [],
+        categoryIds: ["x", "y"],
+        queryText: "rent",
+        pageSize: 25,
+      }),
+    ).not.toBe(left);
   });
 });

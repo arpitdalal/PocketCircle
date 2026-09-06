@@ -135,6 +135,7 @@ export function ledgerDouble(state: LedgerState): EntityDouble {
                   c: `mock:${String(nextStart)}`,
                   tc: totalCount,
                   tcc: searchTotalCountCapped,
+                  fp: typeof args.circleId === "string" ? args.circleId : "mock",
                 })
               : "",
         };

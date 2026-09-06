@@ -531,6 +531,7 @@ describe("searchTransactions", () => {
     expect(first.totalCountCapped).toBe(false);
     expect(first.continueCursor.length).toBeGreaterThan(0);
     expect(JSON.parse(first.continueCursor).c).toEqual(expect.any(String));
+    expect(JSON.parse(first.continueCursor).fp).toEqual(expect.any(String));
 
     const second = await t.query(api.search.searchTransactions, {
       circleId: f.circleId,
@@ -546,6 +547,21 @@ describe("searchTransactions", () => {
     expect(second.totalCount).toBe(6);
     expect(second.totalCountCapped).toBe(false);
     expect(second.continueCursor).toBe("");
+
+    const forged = JSON.parse(first.continueCursor);
+    forged.fp = "other-query";
+    const rejected = await t.query(api.search.searchTransactions, {
+      circleId: f.circleId,
+      type: "all",
+      status: "all",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-30",
+      query: "global",
+      ...searchTransactionPage(2, 5),
+      cursor: JSON.stringify(forged),
+    });
+    expect(rejected.transactions.map((txn) => txn.title).sort()).toEqual(["global 10"]);
+    expect(rejected.continueCursor).toBe("");
   });
 
   it("continues stream search from opaque cursor without rescanning totals", async () => {
