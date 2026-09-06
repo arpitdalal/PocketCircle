@@ -869,6 +869,33 @@ describe("setPersonalCircleNameAutoSync", () => {
   });
 });
 
+describe("Circle view isOwner", () => {
+  it("exposes isOwner from membership without a separate members list", async () => {
+    const t = convexTest(schema, modules);
+    const { owner, circleId, member } = await t.run(async (ctx) => {
+      const seeded = await seedCircle(ctx, { setupCompletedAt: Date.now() });
+      const member = await addMember(ctx, seeded.circleId, "maya@example.com", "Maya Member");
+      return { ...seeded, member };
+    });
+
+    mockCurrentUser.mockResolvedValue(owner);
+    const ownerView = await t.query(api.circles.getCircle, { circleId });
+    expect(ownerView?.isOwner).toBe(true);
+
+    mockCurrentUser.mockResolvedValue(member.user);
+    const memberView = await t.query(api.circles.getCircle, { circleId });
+    expect(memberView?.isOwner).toBe(false);
+
+    mockCurrentUser.mockResolvedValue(owner);
+    const listed = await t.query(api.circles.listMyCircles, {});
+    expect(listed.find((circle) => circle.id === circleId)?.isOwner).toBe(true);
+
+    mockCurrentUser.mockResolvedValue(member.user);
+    const listedAsMember = await t.query(api.circles.listMyCircles, {});
+    expect(listedAsMember.find((circle) => circle.id === circleId)?.isOwner).toBe(false);
+  });
+});
+
 describe("renameCircle — archived circle", () => {
   it("rejects an archived circle", async () => {
     const t = convexTest(schema, modules);

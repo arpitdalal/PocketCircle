@@ -6,7 +6,6 @@ import { CircleMobileBottomNav } from "~/components/circle-mobile-bottom-nav.js"
 import { PageSkeleton } from "~/components/skeleton.js";
 import { Splash } from "~/components/splash.js";
 import { circleNavItems } from "~/lib/circle-nav.js";
-import { useMembers } from "~/lib/data.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { coversCircleNavigation, usePendingRouteSkeleton } from "~/lib/route-skeleton.js";
 import { type Circle, useResolvedCircle } from "~/lib/use-resolved-circle.js";
@@ -68,9 +67,7 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
   const origin = useReturnToOrigin();
   const setupPath = href("/circles/:circleRef/setup", { circleRef: circle.ref });
   const tabs = circleNavItems(circle.ref);
-  const members = useMembers(circle.id);
-  const showSettings =
-    members !== undefined && members?.find((member) => member.isSelf)?.role === "owner";
+  const showSettings = circle.isOwner;
   const settingsPath = href("/circles/:circleRef/settings", { circleRef: circle.ref });
   const feedbackPath = href("/circles/:circleRef/feedback", { circleRef: circle.ref });
   const onFeedback = location.pathname === feedbackPath;

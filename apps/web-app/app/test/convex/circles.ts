@@ -77,6 +77,7 @@ export function makeCircleView(over: Partial<Circle> = {}): Circle {
     setupComplete: true,
     currencyLocked: false,
     nameCustomized: false,
+    isOwner: true,
     ...over,
   };
 }

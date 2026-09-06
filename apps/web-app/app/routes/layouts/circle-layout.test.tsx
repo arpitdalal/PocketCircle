@@ -247,8 +247,7 @@ function chromeRoutes() {
 describe("CircleLayout chrome Feedback", () => {
   it("renders Feedback for an Owner and keeps Settings owner-only", async () => {
     configureConvex({
-      circle: makeCircleView(),
-      members: [makeMemberView({ role: "owner", isSelf: true })],
+      circle: makeCircleView({ isOwner: true }),
     });
     renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
 
@@ -261,8 +260,7 @@ describe("CircleLayout chrome Feedback", () => {
 
   it("renders Feedback for a non-Owner Member without Settings", async () => {
     configureConvex({
-      circle: makeCircleView(),
-      members: [makeMemberView({ role: "member", isSelf: true })],
+      circle: makeCircleView({ isOwner: false }),
     });
     renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
 
@@ -274,8 +272,7 @@ describe("CircleLayout chrome Feedback", () => {
 
   it("renders Feedback for an Archived Circle", async () => {
     configureConvex({
-      circle: makeCircleView({ status: "archived" }),
-      members: [makeMemberView({ role: "member", isSelf: true })],
+      circle: makeCircleView({ status: "archived", isOwner: false }),
     });
     renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
 
@@ -286,8 +283,7 @@ describe("CircleLayout chrome Feedback", () => {
 
   it("links to the Circle Feedback path carrying the exact Circle origin", async () => {
     configureConvex({
-      circle: makeCircleView(),
-      members: [makeMemberView({ role: "member", isSelf: true })],
+      circle: makeCircleView({ isOwner: false }),
     });
     renderRouteStub(chromeRoutes(), ["/circles/trip-c1/transactions"]);
 
@@ -300,8 +296,7 @@ describe("CircleLayout chrome Feedback", () => {
 
   it("hides the Feedback chrome action on the Feedback route", async () => {
     configureConvex({
-      circle: makeCircleView(),
-      members: [makeMemberView({ role: "owner", isSelf: true })],
+      circle: makeCircleView({ isOwner: true }),
     });
     renderRouteStub(chromeRoutes(), ["/circles/trip-c1/feedback"]);
 
