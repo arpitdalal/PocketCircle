@@ -7,6 +7,12 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.5] - 2026-09-06
+
+### Added
+
+- The signed-out homepage now includes Continue with Google.
+
 ## [v0.4.4] - 2026-09-06
 
 ### Added
