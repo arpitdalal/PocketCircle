@@ -552,8 +552,16 @@ async function searchTransactionsIndexedPage(
   const resume = decodeSearchPageResume(args);
 
   // Totals: `.take` on a fresh search query (not a second `.paginate` — RPT-7). Page body uses
-  // one `.paginate` so later pages can continue from a real search-index cursor.
-  async function indexedTotalCount() {
+  // one `.paginate` so later pages can continue from a real search-index cursor. Cold deep has
+  // no page-body paginate, so totals may use `.paginate` and preserve `!isDone` for sparse filters.
+  async function indexedTotalCount(opts?: { allowPaginate: boolean }) {
+    if (opts?.allowPaginate) {
+      const result = await buildIndexedSearchSource(ctx, args).paginate({
+        numItems: takeLimit,
+        cursor: null,
+      });
+      return searchOffsetTotalCount(result.page.length, takeLimit, !result.isDone);
+    }
     const matched = await buildIndexedSearchSource(ctx, args).take(takeLimit);
     return searchOffsetTotalCount(matched.length, takeLimit);
   }
@@ -599,7 +607,11 @@ async function searchTransactionsIndexedPage(
       numItems: pageSize,
       cursor: null,
     });
-    const { totalCount, totalCountCapped } = await indexedTotalCount();
+    // Exhausted first page ⇒ exact total without a second read. Otherwise `.take` (not a
+    // second `.paginate`) for the capped ceiling — RPT-7.
+    const { totalCount, totalCountCapped } = result.isDone
+      ? { totalCount: result.page.length, totalCountCapped: false }
+      : await indexedTotalCount();
     return {
       transactions: await transactionViewsFromSearchDocs(
         ctx,
@@ -629,7 +641,7 @@ async function searchTransactionsIndexedPage(
     Math.min(takeLimit, page * pageSize),
   );
   const docSlice = prefix.slice((page - 1) * pageSize, page * pageSize);
-  const { totalCount, totalCountCapped } = await indexedTotalCount();
+  const { totalCount, totalCountCapped } = await indexedTotalCount({ allowPaginate: true });
   return {
     transactions: await transactionViewsFromSearchDocs(
       ctx,
