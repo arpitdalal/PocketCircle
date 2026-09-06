@@ -2,8 +2,8 @@ import { GoogleSignInPanel } from "~/components/google-sign-in-panel.js";
 
 /**
  * Temporary signed-out homepage at `/` for Google OAuth branding checks and
- * first-time visitors. Not the long-term marketing site; keep copy short and
- * factual so the consent-screen homepage URL is not a login-only shell.
+ * first-time visitors. Also used as root `HydrateFallback` so SPA `index.html`
+ * includes purpose + Privacy links for crawlers that do not run JS.
  * Continues with Google in one click (same controls as `/signin`).
  */
 export function MarketingHome() {

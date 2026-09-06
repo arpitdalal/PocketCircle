@@ -1,7 +1,7 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { Route } from "./+types/root.js";
 import stylesheet from "./app.css?url";
-import { Splash } from "./components/splash.js";
+import { MarketingHome } from "./components/marketing-home.js";
 import { AppProviders } from "./providers.js";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -46,8 +46,14 @@ export default function App() {
   );
 }
 
+/**
+ * Baked into SPA `index.html` at build time. Google branding crawlers (no JS)
+ * must see PocketCircle, purpose copy, and Privacy/Terms links here. Same UI as
+ * signed-out `/` after hydrate. Deep-link fallbacks briefly show this shell
+ * then client-route (same flash pattern as the old Splash shell).
+ */
 export function HydrateFallback() {
-  return <Splash label="Starting PocketCircle…" />;
+  return <MarketingHome />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

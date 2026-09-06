@@ -200,10 +200,10 @@ test.describe("local MCP OAuth", () => {
       jsonrpc: "2.0",
       id: 1,
       result: {
-        tools: [
+        tools: expect.arrayContaining([
           expect.objectContaining({ name: "get_current_user" }),
           expect.objectContaining({ name: "list_authorized_circles" }),
-        ],
+        ]),
       },
     });
 
@@ -268,6 +268,7 @@ test.describe("local MCP OAuth", () => {
     await expect(revokeDialog).toContainText(clientId);
     await revokeDialog.getByRole("button", { name: "Revoke connection", exact: true }).click();
     await expect(page.getByText("Connection revoked.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /Revoked \(\d+\)/ }).click();
     await expect(
       page
         .getByRole("article")

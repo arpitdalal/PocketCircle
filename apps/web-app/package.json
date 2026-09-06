@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "react-router dev",
     "dev:mocks": "cross-env VITE_MOCKS=true react-router dev",
-    "build": "react-router build",
+    "build": "react-router build && node ./scripts/assert-branding-html.mjs",
     "preview": "vite preview",
     "typecheck": "react-router typegen && tsc --noEmit",
     "test": "vitest run",

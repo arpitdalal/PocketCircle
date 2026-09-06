@@ -2,6 +2,8 @@
   "name": "pocketcircle",
   "compatibility_date": "2026-08-11",
   "workers_dev": true,
+  // Assets-only (no `main`): static files on the Workers free tier; SPA deep
+  // links fall back to `/index.html` without billable Worker invocations.
   "routes": [
     {
       "pattern": "pocketcircle.app",
