@@ -521,6 +521,7 @@ export default defineSchema({
     expenseMinor: v.number(),
   })
     .index("by_circle_member_month", ["circleId", "paidByMemberId", "month"])
+    .index("by_circle_month", ["circleId", "month"])
     .index("by_circle", ["circleId"]),
 
   notifications: defineTable({

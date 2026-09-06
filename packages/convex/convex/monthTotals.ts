@@ -357,12 +357,9 @@ export async function recomputeCircleMonthWithMembers(
 
   const existingMembers = await ctx.db
     .query("memberMonthTotals")
-    .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+    .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
     .collect();
   for (const row of existingMembers) {
-    if (row.month !== month) {
-      continue;
-    }
     if (!byMember.has(row.paidByMemberId)) {
       await ctx.db.delete(row._id);
     }
