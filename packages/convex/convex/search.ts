@@ -541,6 +541,31 @@ async function transactionViewsFromSearchDocs(
   return transactions;
 }
 
+/** Post-search `.filter()` predicates — one search.paginate can return a short page. */
+function indexedSearchHasPostFilters(args: SearchOffsetPageArgs) {
+  return (
+    args.start !== undefined ||
+    args.endExclusive !== undefined ||
+    args.filters.amountMin !== undefined ||
+    args.filters.amountMax !== undefined ||
+    args.filters.categoryIds.size > 0 ||
+    args.paidByMemberIds.size > 1 ||
+    args.recordedByMemberIds.size > 1
+  );
+}
+
+function takeOffsetCursor(offset: number) {
+  return `take:${offset}`;
+}
+
+function parseTakeOffsetCursor(cursor: string) {
+  if (!cursor.startsWith("take:")) {
+    return undefined;
+  }
+  const offset = Number(cursor.slice("take:".length));
+  return Number.isFinite(offset) && offset >= 0 ? offset : undefined;
+}
+
 async function searchTransactionsIndexedPage(
   ctx: OperationReader,
   args: SearchOffsetPageArgs,
@@ -550,6 +575,51 @@ async function searchTransactionsIndexedPage(
   const takeLimit = indexedSearchOffsetTakeLimit(pageSize);
   const fingerprint = searchPageFingerprint(args);
   const resume = decodeSearchPageResume(args);
+  const resumeTakeOffset = resume ? parseTakeOffsetCursor(resume.c) : undefined;
+
+  // Post-filters: `.take` fills through sparse matches (RPT-7 forbids a paginate fill loop).
+  // Continuation is an offset into that take, not a search-engine cursor.
+  if (indexedSearchHasPostFilters(args) || resumeTakeOffset !== undefined) {
+    const offset =
+      resumeTakeOffset !== undefined ? resumeTakeOffset : Math.max(0, (page - 1) * pageSize);
+    // boundaryOnly only needs this page (+1 to know if more); full takeLimit is for totals.
+    const fetchLimit = args.boundaryOnly ? Math.min(takeLimit, offset + pageSize + 1) : takeLimit;
+    const matched = await buildIndexedSearchSource(ctx, args).take(fetchLimit);
+    const { totalCount, totalCountCapped } = args.boundaryOnly
+      ? resume
+        ? { totalCount: resume.tc, totalCountCapped: resume.tcc }
+        : matched.length > offset + pageSize || matched.length >= takeLimit
+          ? { totalCount: takeLimit, totalCountCapped: true }
+          : { totalCount: matched.length, totalCountCapped: false }
+      : searchOffsetTotalCount(matched.length, takeLimit);
+    const docSlice = matched.slice(offset, offset + pageSize);
+    const nextOffset = offset + docSlice.length;
+    const hasMore = nextOffset < matched.length || matched.length >= takeLimit;
+    return {
+      transactions: await transactionViewsFromSearchDocs(
+        ctx,
+        docSlice,
+        viewCaches,
+        args.viewerMemberId,
+        args.viewerIsOwner,
+        args.boundaryOnly,
+      ),
+      pageNumber: page,
+      pageSize,
+      totalCount,
+      totalCountCapped,
+      continueCursor:
+        hasMore && docSlice.length > 0
+          ? encodeSearchPageContinue({
+              fingerprint,
+              totalCount,
+              totalCountCapped,
+              isDone: false,
+              engineCursor: takeOffsetCursor(nextOffset),
+            })
+          : "",
+    };
+  }
 
   // Totals: `.take` on a fresh search query (not a second `.paginate` — RPT-7). Page body uses
   // one `.paginate` so later pages can continue from a real search-index cursor. Cold deep has
@@ -607,11 +677,12 @@ async function searchTransactionsIndexedPage(
       numItems: pageSize,
       cursor: null,
     });
-    // Exhausted first page ⇒ exact total without a second read. Otherwise `.take` (not a
-    // second `.paginate`) for the capped ceiling — RPT-7.
+    // boundaryOnly / exhausted page: skip the up-to-ceiling total scan.
     const { totalCount, totalCountCapped } = result.isDone
       ? { totalCount: result.page.length, totalCountCapped: false }
-      : await indexedTotalCount();
+      : args.boundaryOnly
+        ? { totalCount: takeLimit, totalCountCapped: true }
+        : await indexedTotalCount();
     return {
       transactions: await transactionViewsFromSearchDocs(
         ctx,
@@ -641,7 +712,9 @@ async function searchTransactionsIndexedPage(
     Math.min(takeLimit, page * pageSize),
   );
   const docSlice = prefix.slice((page - 1) * pageSize, page * pageSize);
-  const { totalCount, totalCountCapped } = await indexedTotalCount({ allowPaginate: true });
+  const { totalCount, totalCountCapped } = args.boundaryOnly
+    ? searchOffsetTotalCount(prefix.length, Math.min(takeLimit, page * pageSize))
+    : await indexedTotalCount({ allowPaginate: true });
   return {
     transactions: await transactionViewsFromSearchDocs(
       ctx,
@@ -754,22 +827,24 @@ async function searchTransactionsStreamPage(
 
   let countDone = pageIsDone;
   let countCursor = pageContinueCursor;
-  while (!countDone && collected < takeLimit) {
-    const need = takeLimit - collected;
-    const more = await source.paginate({
-      numItems: Math.min(need, pageSize * 4),
-      cursor: countCursor,
-    });
-    collected += more.page.length;
-    countDone = more.isDone;
-    countCursor = more.continueCursor;
+  if (!args.boundaryOnly) {
+    while (!countDone && collected < takeLimit) {
+      const need = takeLimit - collected;
+      const more = await source.paginate({
+        numItems: Math.min(need, pageSize * 4),
+        cursor: countCursor,
+      });
+      collected += more.page.length;
+      countDone = more.isDone;
+      countCursor = more.continueCursor;
+    }
   }
 
-  const { totalCount, totalCountCapped } = searchOffsetTotalCount(
-    collected,
-    takeLimit,
-    !countDone && collected >= takeLimit,
-  );
+  const { totalCount, totalCountCapped } = args.boundaryOnly
+    ? pageIsDone
+      ? { totalCount: collected, totalCountCapped: false }
+      : { totalCount: takeLimit, totalCountCapped: true }
+    : searchOffsetTotalCount(collected, takeLimit, !countDone && collected >= takeLimit);
   return {
     transactions: args.boundaryOnly
       ? []
@@ -799,28 +874,9 @@ export async function searchTransactionsOffsetPage(
   const viewCaches = newViewCaches();
   const searchCaches = newSearchCaches();
   if (args.filters.queryText) {
-    // Search-index `.filter()` + one `.paginate` can return a short page while more matches
-    // remain (RPT-7 forbids a fill loop). Stream multi-paginate can fill; text match moves to
-    // matchesFilters (date order, not relevance) when those post-filters are present.
-    if (indexedSearchHasPostFilters(args)) {
-      return await searchTransactionsStreamPage(ctx, args, viewCaches, searchCaches);
-    }
     return await searchTransactionsIndexedPage(ctx, args, viewCaches);
   }
   return await searchTransactionsStreamPage(ctx, args, viewCaches, searchCaches);
-}
-
-/** Post-search `.filter()` predicates that make a single search.paginate return sparse pages. */
-function indexedSearchHasPostFilters(args: SearchOffsetPageArgs) {
-  return (
-    args.start !== undefined ||
-    args.endExclusive !== undefined ||
-    args.filters.amountMin !== undefined ||
-    args.filters.amountMax !== undefined ||
-    args.filters.categoryIds.size > 0 ||
-    args.paidByMemberIds.size > 1 ||
-    args.recordedByMemberIds.size > 1
-  );
 }
 
 export function normalizeCommonFilters(

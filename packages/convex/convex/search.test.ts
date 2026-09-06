@@ -567,7 +567,7 @@ describe("searchTransactions", () => {
     expect(second.continueCursor.length).toBeGreaterThan(0);
   });
 
-  it("fills text-search pages when post-index date filters would sparsify search.paginate", async () => {
+  it("fills text-search pages with post-index date filters via take offsets", async () => {
     const t = convexTest(schema, modules);
     const f = await t.run((ctx) => seedFixture(ctx));
     mockCurrentUser.mockResolvedValue(f.owner);
@@ -590,6 +590,7 @@ describe("searchTransactions", () => {
     expect(first.transactions).toHaveLength(5);
     expect(first.transactions.every((txn) => txn.title.includes("windowed"))).toBe(true);
     expect(first.continueCursor.length).toBeGreaterThan(0);
+    expect(JSON.parse(first.continueCursor).c).toMatch(/^take:/);
 
     const second = await t.query(api.search.searchTransactions, {
       circleId: f.circleId,
