@@ -641,14 +641,18 @@ async function searchTransactionsIndexedPage(
       numItems: pageSize,
       cursor: resume.c,
     });
-    const { totalCount, totalCountCapped } = totalsAfterResumedPage({
-      page,
-      pageSize,
-      pageLength: result.page.length,
-      isDone: result.isDone,
-      resumeTotalCount: resume.tc,
-      resumeTotalCountCapped: resume.tcc,
-    });
+    // Active resumes re-count so inserts beyond this page update pagination; probes keep
+    // the cheap token totals (boundaryOnly).
+    const { totalCount, totalCountCapped } = args.boundaryOnly
+      ? totalsAfterResumedPage({
+          page,
+          pageSize,
+          pageLength: result.page.length,
+          isDone: result.isDone,
+          resumeTotalCount: resume.tc,
+          resumeTotalCountCapped: resume.tcc,
+        })
+      : await indexedTotalCount();
     return {
       transactions: await transactionViewsFromSearchDocs(
         ctx,
@@ -768,14 +772,38 @@ async function searchTransactionsStreamPage(
   const resume = decodeSearchPageResume(args);
   if (resume) {
     const result = await source.paginate({ numItems: pageSize, cursor: resume.c });
-    const { totalCount, totalCountCapped } = totalsAfterResumedPage({
-      page,
-      pageSize,
-      pageLength: result.page.length,
-      isDone: result.isDone,
-      resumeTotalCount: resume.tc,
-      resumeTotalCountCapped: resume.tcc,
-    });
+    let totalCount: number;
+    let totalCountCapped: boolean;
+    if (args.boundaryOnly) {
+      ({ totalCount, totalCountCapped } = totalsAfterResumedPage({
+        page,
+        pageSize,
+        pageLength: result.page.length,
+        isDone: result.isDone,
+        resumeTotalCount: resume.tc,
+        resumeTotalCountCapped: resume.tcc,
+      }));
+    } else {
+      // Recount from this page forward so inserts beyond the resume still bump totals.
+      let collected = (page - 1) * pageSize + result.page.length;
+      let countDone = result.isDone;
+      let countCursor = result.continueCursor;
+      while (!countDone && collected < takeLimit) {
+        const need = takeLimit - collected;
+        const more = await source.paginate({
+          numItems: Math.min(need, pageSize * 4),
+          cursor: countCursor,
+        });
+        collected += more.page.length;
+        countDone = more.isDone;
+        countCursor = more.continueCursor;
+      }
+      ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
+        collected,
+        takeLimit,
+        !countDone && collected >= takeLimit,
+      ));
+    }
     return {
       transactions: args.boundaryOnly
         ? []

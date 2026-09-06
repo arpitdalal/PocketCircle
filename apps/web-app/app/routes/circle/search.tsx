@@ -132,7 +132,16 @@ export default function CircleSearch() {
     const prevToken = activeCursors.byPage.get(nextPage) ?? "";
     if (nextToken !== prevToken) {
       const byPage = new Map(activeCursors.byPage);
-      if (nextToken) {
+      // Cache next only when the chain through the active page is contiguous — a cold
+      // deep-link page N must not seed N+1 while 2..N are missing (probes would stop early).
+      let contiguous = true;
+      for (let page = 1; page <= filters.page; page += 1) {
+        if (!activeCursors.byPage.has(page)) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (nextToken && contiguous) {
         byPage.set(nextPage, nextToken);
       } else {
         byPage.delete(nextPage);
