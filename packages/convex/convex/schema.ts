@@ -256,6 +256,7 @@ export default defineSchema({
     .index("by_transaction", ["transactionId"])
     .index("by_circle", ["circleId"])
     .index("by_category", ["categoryId"])
+    .index("by_circle_transactionDate", ["circleId", "transactionDate"])
     .index("by_category_recent", [
       "categoryId",
       "transactionDate",

@@ -4,13 +4,14 @@ import type { OperationReader } from "./operationReader.js";
 
 /**
  * Circle month activity — the shared definition of which active Transactions belong
- * in one Circle-month (RPT-1/RPT-3; Category analytics still collects this set).
- * Totals for Ledger / Dashboard / Home Summary / comparison are write-maintained in
- * `monthTotals.ts` (RPT-8 PR2) using {@link sumMonthTotals} as the reducer SSoT.
- * Recent feeds use index-backed takes in `monthTotals.ts`.
+ * in one Circle-month (RPT-1/RPT-3). Category analytics joins this set to a single
+ * month-scoped `transactionCategories` scan (RPT-8 PR3). Totals for Ledger /
+ * Dashboard / Home Summary / comparison are write-maintained in `monthTotals.ts`
+ * (RPT-8 PR2) using {@link sumMonthTotals} as the reducer SSoT. Recent feeds use
+ * index-backed takes in `monthTotals.ts`.
  *
  * This module performs NO access checks — reached only after the caller authorized
- * the Circle — and reads only `transactions`.
+ * the Circle — and reads only `transactions` / `transactionCategories`.
  */
 
 /**
@@ -38,8 +39,9 @@ export function monthDateRange(month: string): { start: string; endExclusive: st
  * the source rather than scanning the whole month and filtering in memory (README
  * §4). Either way the range is a single month. Totals for Ledger / Dashboard /
  * Home Summary / comparison read write-maintained month docs (`monthTotals.ts`);
- * this collect remains for Category analytics and any caller that still needs the
- * full active set. Recent feeds use `collectRecentMonthActiveTransactions` instead.
+ * this collect remains for Category analytics (joined to month link scans) and any
+ * caller that still needs the full active set. Recent feeds use
+ * `collectRecentMonthActiveTransactions` instead.
  */
 export async function collectMonthActiveTransactions(
   ctx: OperationReader,
@@ -69,6 +71,30 @@ export async function collectMonthActiveTransactions(
         .eq("status", "active")
         .gte("date", range.start)
         .lt("date", range.endExclusive),
+    )
+    .collect();
+}
+
+/**
+ * One month's Transaction↔Category links for a Circle — index-backed date range on
+ * `transactionDate` (synced with the Transaction's date). Used by Category analytics
+ * and Ledger Filter option discovery instead of per-Transaction link collects (RPT-8 PR3).
+ * Includes links on archived Transactions; callers that want active-only must join
+ * against {@link collectMonthActiveTransactions}.
+ */
+export async function collectMonthTransactionCategoryLinks(
+  ctx: OperationReader,
+  circleId: Id<"circles">,
+  month: string,
+) {
+  const range = monthDateRange(month);
+  return await ctx.db
+    .query("transactionCategories")
+    .withIndex("by_circle_transactionDate", (q) =>
+      q
+        .eq("circleId", circleId)
+        .gte("transactionDate", range.start)
+        .lt("transactionDate", range.endExclusive),
     )
     .collect();
 }
