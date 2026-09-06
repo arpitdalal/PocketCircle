@@ -208,8 +208,12 @@ describe("getCircleForUser — missing ≡ inaccessible", () => {
       const adaView = await getCircleForUser(ctx, sharedId, ada.owner);
       expect(adaView?.id).toBe(sharedId);
       expect(adaView?.name).toBe("Shared Trip");
+      expect(adaView?.isOwner).toBe(true);
 
-      expect(await getCircleForUser(ctx, sharedId, grace.owner)).toEqual(adaView);
+      expect(await getCircleForUser(ctx, sharedId, grace.owner)).toEqual({
+        ...adaView,
+        isOwner: false,
+      });
       expect(await getCircleForUser(ctx, ada.personalCircleId, grace.owner)).toBeNull();
       expect(await getCircleForUser(ctx, "not-a-circle", ada.owner)).toBeNull();
       expect(await getCircleForUser(ctx, String(grace.personalCircleId), ada.owner)).toBeNull();
