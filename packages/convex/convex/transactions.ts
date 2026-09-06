@@ -33,6 +33,7 @@ import {
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember, resolveMemberIdentity } from "./memberIdentity.js";
 import { monthDateRange } from "./monthActivity.js";
+import { monthTotalsContributionFrom, replaceMonthTotalsContribution } from "./monthTotals.js";
 import { notifyPaidBySet, notifyTransactionLifecycleChange } from "./notify.js";
 import type { OperationReader } from "./operationReader.js";
 import { syncTransactionSearchDocument } from "./transactionSearchDocuments.js";
@@ -710,6 +711,7 @@ export async function performUpdateTransaction(
     return txn._id;
   }
 
+  const beforeContribution = monthTotalsContributionFrom(txn);
   patch.updatedAt = Date.now();
   await ctx.db.patch(txn._id, patch);
   const updatedTransaction = await ctx.db.get(txn._id);
@@ -734,6 +736,11 @@ export async function performUpdateTransaction(
   await syncTransactionSearchDocument(ctx, updatedTransaction, {
     categoryIds: categoriesChanged ? newCategories.map((category) => category._id) : oldCategoryIds,
   });
+  await replaceMonthTotalsContribution(
+    ctx,
+    beforeContribution,
+    monthTotalsContributionFrom(updatedTransaction),
+  );
 
   await recordEvent(ctx, {
     entity: transactionEntity(txn._id, txn.circleId),
@@ -833,6 +840,7 @@ export async function performCreateTransaction(
   await syncTransactionSearchDocument(ctx, createdTransaction, {
     categoryIds: categories.map((category) => category._id),
   });
+  await replaceMonthTotalsContribution(ctx, null, monthTotalsContributionFrom(createdTransaction));
 
   if (!access.circle.currencyLocked) {
     await ctx.db.patch(access.circle._id, { currencyLocked: true });
@@ -989,12 +997,14 @@ export const updateTransaction = mutation({
  */
 export async function performArchiveTransaction(ctx: MutationCtx, access: AuthorizedTransaction) {
   const txn = access.transaction;
+  const beforeContribution = monthTotalsContributionFrom(txn);
   await ctx.db.patch(txn._id, { status: "archived", archivedAt: Date.now() });
   const archivedTransaction = await ctx.db.get(txn._id);
   if (!archivedTransaction) {
     throw new Error("Transaction not found");
   }
   await syncTransactionSearchDocument(ctx, archivedTransaction);
+  await replaceMonthTotalsContribution(ctx, beforeContribution, null);
 
   await recordEvent(ctx, {
     entity: transactionEntity(txn._id, txn.circleId),
@@ -1080,6 +1090,7 @@ export async function performRestoreTransaction(ctx: MutationCtx, access: Author
     throw new Error("Transaction not found");
   }
   await syncTransactionSearchDocument(ctx, restoredTransaction);
+  await replaceMonthTotalsContribution(ctx, null, monthTotalsContributionFrom(restoredTransaction));
 
   await recordEvent(ctx, {
     entity: transactionEntity(txn._id, txn.circleId),

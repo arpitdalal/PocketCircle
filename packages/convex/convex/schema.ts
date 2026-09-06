@@ -197,6 +197,15 @@ export default defineSchema({
     // Paid By on any active Transaction?" with a single `.first()` lookup. Also serves
     // Search's Paid By facet (RPT-2).
     .index("by_circle_paidby_status_date", ["circleId", "paidByMemberId", "status", "date"])
+    // Newest active Transactions in one month by record time (Dashboard / Home recent).
+    .index("by_circle_status_month_createdAt", ["circleId", "status", "month", "createdAt"])
+    .index("by_circle_paidby_status_month_createdAt", [
+      "circleId",
+      "paidByMemberId",
+      "status",
+      "month",
+      "createdAt",
+    ])
     // Search's Recorded By facet needs the same bounded date/status access pattern
     // as Paid By, but keyed by creator membership instead.
     .index("by_circle_recordedby_status_date", [
@@ -491,6 +500,27 @@ export default defineSchema({
     excludedAt: v.number(),
   })
     .index("by_user_circle", ["userId", "circleId"])
+    .index("by_circle", ["circleId"]),
+
+  // Write-maintained Circle-month Income/Expense (RPT-8 PR2). Active Transactions only.
+  circleMonthTotals: defineTable({
+    circleId: v.id("circles"),
+    month: v.string(),
+    incomeMinor: v.number(),
+    expenseMinor: v.number(),
+  })
+    .index("by_circle_month", ["circleId", "month"])
+    .index("by_circle", ["circleId"]),
+
+  // Write-maintained Paid-By Member-month Income/Expense for Home Summary (ADR 0031).
+  memberMonthTotals: defineTable({
+    circleId: v.id("circles"),
+    paidByMemberId: v.id("members"),
+    month: v.string(),
+    incomeMinor: v.number(),
+    expenseMinor: v.number(),
+  })
+    .index("by_circle_member_month", ["circleId", "paidByMemberId", "month"])
     .index("by_circle", ["circleId"]),
 
   notifications: defineTable({

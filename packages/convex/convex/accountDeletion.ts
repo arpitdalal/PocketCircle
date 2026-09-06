@@ -55,6 +55,8 @@ const CIRCLE_PHASES = [
   "transactionCategories",
   "transactionSearchDocuments",
   "transactions",
+  "circleMonthTotals",
+  "memberMonthTotals",
   "categories",
   "invitations",
   "invitationEmailEvents",
@@ -599,6 +601,22 @@ async function deleteCirclePhaseBatch(
           .withIndex("by_circle", (q) => q.eq("circleId", circleId))
           .take(ACCOUNT_DELETION_BATCH_SIZE),
       );
+    case "circleMonthTotals":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("circleMonthTotals")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
+    case "memberMonthTotals":
+      return await deleteDocs(
+        ctx,
+        await ctx.db
+          .query("memberMonthTotals")
+          .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+          .take(ACCOUNT_DELETION_BATCH_SIZE),
+      );
     case "categories":
       return await deleteDocs(
         ctx,
@@ -665,6 +683,8 @@ async function deleteDocs(
       | Id<"transactionCategories">
       | Id<"transactionSearchDocuments">
       | Id<"transactions">
+      | Id<"circleMonthTotals">
+      | Id<"memberMonthTotals">
       | Id<"categories">
       | Id<"invitations">
       | Id<"invitationEmailEvents">

@@ -25,14 +25,13 @@ const transactionType = v.union(v.literal("expense"), v.literal("income"));
  * passes the User's local current month so the Dashboard reads as "this month" for
  * them. An explicit malformed month throws, mirroring the Ledger.
  *
- * Totals and recent come from one `collect` of the bounded month set (see
- * {@link collectMonthActiveTransactions}); recent is that set ordered by record time
- * (`createdAt` desc, `_creationTime` desc tiebreak) and capped at
- * {@link RECENT_TRANSACTIONS_LIMIT}, then resolved to full Transaction views (Paid
- * By / Categories memoized per query to avoid N+1). Recent is intentionally
- * record-time order — what was most recently ENTERED — distinct from the Ledger's
- * Transaction-Date order, so a backfilled old Transaction still shows as recent
- * activity.
+ * Totals come from write-maintained Circle-month docs (RPT-8 PR2). Recent is an
+ * index-backed take of the month's active Transactions by record time
+ * (`by_circle_status_month_createdAt`), capped at {@link RECENT_TRANSACTIONS_LIMIT},
+ * then resolved to full Transaction views (Paid By / Categories memoized per query
+ * to avoid N+1). Recent is intentionally record-time order — what was most recently
+ * ENTERED — distinct from the Ledger's Transaction-Date order, so a backfilled old
+ * Transaction still shows as recent activity.
  *
  * Anti-enumeration (ADR 0016): an inaccessible or missing Circle returns `null`,
  * indistinguishable from each other.
@@ -71,11 +70,9 @@ export const getDashboard = query({
  * passes the User's local current month, mirroring `getDashboard`. An explicit
  * malformed month throws, mirroring the Ledger.
  *
- * Each month is read through {@link collectMonthActiveTransactions} — the shared
- * bounded, index-backed Circle-month read (README §4) — and reduced by
- * {@link sumMonthTotals}, so the comparison can never disagree with the Ledger or
- * the Dashboard about what a month contains. At most 12 single-month indexed range
- * reads, fetched in parallel.
+ * Each month's totals come from write-maintained Circle-month docs (RPT-8 PR2 /
+ * {@link readCircleMonthTotals}), so comparison stays O(range) aggregate reads and
+ * cannot disagree with Ledger / Dashboard about what a month contains.
  *
  * Anti-enumeration (ADR 0016): an inaccessible or missing Circle returns `null`,
  * indistinguishable from each other.

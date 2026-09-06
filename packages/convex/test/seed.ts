@@ -5,7 +5,18 @@ import { accountDeletionBlockerFields } from "../convex/accountDeletionBlockers.
 import { circleSetupFields } from "../convex/circleSetup.js";
 import { generateInvitationToken, hashInvitationToken } from "../convex/invitationToken.js";
 import { createUserWithPersonalCircle, type NewUserProfile } from "../convex/model.js";
+import {
+  applyMonthTotalsContribution,
+  monthTotalsContributionFrom,
+} from "../convex/monthTotals.js";
 import { syncTransactionSearchDocument } from "../convex/transactionSearchDocuments.js";
+
+async function syncSeedMonthTotals(ctx: MutationCtx, txn: Doc<"transactions">) {
+  const contribution = monthTotalsContributionFrom(txn);
+  if (contribution) {
+    await applyMonthTotalsContribution(ctx, contribution);
+  }
+}
 
 /**
  * Shared convex-test seeding (CLAUDE.md: one helper, not copy-pasted scaffolding
@@ -386,6 +397,7 @@ export async function seedTransaction(
   await syncTransactionSearchDocument(ctx, txn, {
     categoryIds: opts.categoryIds ?? [f.groceriesId],
   });
+  await syncSeedMonthTotals(ctx, txn);
   return transactionId;
 }
 
@@ -427,6 +439,10 @@ export async function seedTransactionsBulk(
       if (txn) {
         await syncTransactionSearchDocument(ctx, txn, { categoryIds: [f.groceriesId] });
       }
+    }
+    const txn = await ctx.db.get(transactionId);
+    if (txn) {
+      await syncSeedMonthTotals(ctx, txn);
     }
   }
 }

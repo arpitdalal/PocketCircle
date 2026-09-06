@@ -19,13 +19,9 @@ import { monthlyLedgerSummaryForAccess } from "./operations.js";
  * expensive full-month view resolution on every page. `data.ts`'s `useMonthlyLedger`
  * recombines the two into the slice's `{ transactions, totals, currency }` surface.
  *
- * Scalability (README §4): the list paginates at the source; these totals are an
- * AGGREGATE over the bounded, indexed month range (`by_circle_status_date` ranged to
- * one month, active only) — the sanctioned aggregate-over-a-bounded-range read, not
- * a whole-table scan. It reads only `type` + `amountMinorUnits` per row (no Category
- * / Member resolution), so the per-row cost is minimal. A maintained running
- * aggregate (e.g. @convex-dev/aggregate) is the next-level optimization if a single
- * month's volume ever warrants it; deferred for v1.
+ * Scalability (README §4): the list paginates at the source; these totals read
+ * write-maintained Circle-month docs (`circleMonthTotals`, RPT-8 PR2) so cost stays
+ * O(1) per month rather than collecting every active Transaction.
  *
  * Anti-enumeration (ADR 0016): an inaccessible or missing Circle returns `null`,
  * indistinguishable from each other — nothing about the Circle's existence leaks.

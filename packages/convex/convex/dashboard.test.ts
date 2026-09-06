@@ -353,7 +353,7 @@ describe("getDashboard — isolation & access (ADR 0016)", () => {
     });
     expect(before?.totals.expenseMinor).toBe(1_000);
 
-    await t.run((ctx) => ctx.db.patch(txnId, { status: "archived" }));
+    await t.mutation(api.transactions.archiveTransaction, { transactionId: txnId });
 
     const after = await t.query(api.dashboard.getDashboard, {
       circleId: f.circleId,
@@ -638,7 +638,7 @@ describe("getMonthlyComparison — isolation & access (ADR 0016)", () => {
     });
     expect(before?.series[0]?.expenseMinor).toBe(1_000);
 
-    await t.run((ctx) => ctx.db.patch(txnId, { status: "archived" }));
+    await t.mutation(api.transactions.archiveTransaction, { transactionId: txnId });
 
     const after = await t.query(api.dashboard.getMonthlyComparison, {
       circleId: f.circleId,
