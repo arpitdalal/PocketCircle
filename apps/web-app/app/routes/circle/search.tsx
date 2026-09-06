@@ -1,6 +1,6 @@
 import { searchResultTotalPages, toPlainDate } from "@pocketcircle/domain";
 import { Download, SlidersHorizontal } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
@@ -55,15 +55,17 @@ export default function CircleSearch() {
   // Resume Convex/search cursors across numbered URL pages (RPT-8 PR4) without putting
   // tokens in the URL. Reset when filters change; cold-start when jumping to an unvisited page.
   const filterKey = canonicalSearchParams({ ...filters, page: 1 }).toString();
-  const cursorsRef = useRef({
+  const [cursors, setCursors] = useState({
     key: filterKey,
     byPage: new Map<number, string | null>([[1, null]]),
   });
-  if (cursorsRef.current.key !== filterKey) {
-    cursorsRef.current = { key: filterKey, byPage: new Map([[1, null]]) };
+  let activeCursors = cursors;
+  if (cursors.key !== filterKey) {
+    activeCursors = { key: filterKey, byPage: new Map([[1, null]]) };
+    setCursors(activeCursors);
   }
-  const pageCursor = cursorsRef.current.byPage.has(filters.page)
-    ? cursorsRef.current.byPage.get(filters.page)
+  const pageCursor = activeCursors.byPage.has(filters.page)
+    ? activeCursors.byPage.get(filters.page)
     : undefined;
   const results = useTransactionSearch(circle.id, toSearchQuery(filters), {
     page: filters.page,
@@ -71,7 +73,12 @@ export default function CircleSearch() {
     cursor: pageCursor,
   });
   if (!results.isLoading && results.continueCursor) {
-    cursorsRef.current.byPage.set(filters.page + 1, results.continueCursor);
+    const nextPage = filters.page + 1;
+    if (activeCursors.byPage.get(nextPage) !== results.continueCursor) {
+      const byPage = new Map(activeCursors.byPage);
+      byPage.set(nextPage, results.continueCursor);
+      setCursors({ key: activeCursors.key, byPage });
+    }
   }
   const filterCount = activeFilterCount(filters);
   const exportTransactions = useExportTransactions(circle.id);
