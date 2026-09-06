@@ -3,22 +3,14 @@ import type { Doc, Id } from "./_generated/dataModel.js";
 import type { OperationReader } from "./operationReader.js";
 
 /**
- * Circle month activity — the single home of "what one Circle-month contains" and
- * the reporting reduction derived from it (RPT-1/RPT-3, and the upcoming Search and
- * Category-analytics surfaces). The Monthly Ledger, the Dashboard, Home Summary,
- * and every future month-scoped report read the SAME active Transaction set for a
- * Circle-month and reduce it to the SAME Income/Expense/Net totals. Concentrating
- * the month-range,
- * the active-only filter, and the totals math HERE means those surfaces can never
- * drift — one cannot start counting archived Transactions, range the month
- * differently, or sum totals another way while another does it right.
+ * Circle month activity — the shared definition of which active Transactions belong
+ * in one Circle-month (RPT-1/RPT-3; Category analytics still collects this set).
+ * Totals for Ledger / Dashboard / Home Summary / comparison are write-maintained in
+ * `monthTotals.ts` (RPT-8 PR2) using {@link sumMonthTotals} as the reducer SSoT.
+ * Recent feeds use index-backed takes in `monthTotals.ts`.
  *
- * The Convex queries (`ledger.getMonthlyLedger`, `dashboard.getDashboard`,
- * `homeSummary.getHomeSummary`) stay thin
- * adapters: they resolve Circle access (guard.ts, ADR 0015), then read and reduce
- * through this module. This module performs NO access checks — it is reached only
- * after the caller has authorized the Circle — and reads only the `transactions`
- * table, so it stays a low-level leaf with no dependency on the query/view layer.
+ * This module performs NO access checks — reached only after the caller authorized
+ * the Circle — and reads only `transactions`.
  */
 
 /**
@@ -44,9 +36,10 @@ export function monthDateRange(month: string): { start: string; endExclusive: st
  * `by_circle_status_date` to `[month, next-month)` active-only, and an optional Paid
  * By filter ranges `by_circle_paidby_status_date` so ONE Member's month is read at
  * the source rather than scanning the whole month and filtering in memory (README
- * §4). Either way the range is a single month, the sanctioned bounded-aggregate
- * read; a maintained running aggregate (@convex-dev/aggregate) is the next-level
- * optimization if a single month's volume ever warrants it, deferred for v1.
+ * §4). Either way the range is a single month. Totals for Ledger / Dashboard /
+ * Home Summary / comparison read write-maintained month docs (`monthTotals.ts`);
+ * this collect remains for Category analytics and any caller that still needs the
+ * full active set. Recent feeds use `collectRecentMonthActiveTransactions` instead.
  */
 export async function collectMonthActiveTransactions(
   ctx: OperationReader,

@@ -14,7 +14,7 @@ import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
 import { requireCurrentUser } from "./auth.js";
 import { getActiveMembership } from "./guard.js";
 import { getPersonalCircleForOwner } from "./model.js";
-import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
+import { collectRecentMonthActiveTransactions, readMemberMonthTotals } from "./monthTotals.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
 
 /**
@@ -22,12 +22,6 @@ import { newViewCaches, toTransactionView } from "./transactions.js";
  * RECENT_TRANSACTIONS_LIMIT for consistency.
  */
 const HOME_RECENT_LIMIT = 5;
-
-function newestTransactions(txns: Doc<"transactions">[], limit: number) {
-  return [...txns]
-    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
-    .slice(0, limit);
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,17 +124,21 @@ export const getHomeSummary = query({
       crossProduct,
       DEFAULT_READ_CONCURRENCY,
       async (cell) => {
-        const txns = await collectMonthActiveTransactions(
-          ctx,
-          cell.circle._id,
-          cell.month,
-          cell.circle.membershipId,
-        );
+        const [totals, txns] = await Promise.all([
+          readMemberMonthTotals(ctx, cell.circle._id, cell.circle.membershipId, cell.month),
+          collectRecentMonthActiveTransactions(
+            ctx,
+            cell.circle._id,
+            cell.month,
+            HOME_RECENT_LIMIT,
+            cell.circle.membershipId,
+          ),
+        ]);
         return {
           circle: cell.circle,
           month: cell.month,
-          totals: sumMonthTotals(txns),
-          txns: newestTransactions(txns, HOME_RECENT_LIMIT),
+          totals,
+          txns,
         };
       },
     );

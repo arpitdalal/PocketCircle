@@ -56,7 +56,8 @@ import { circleEntity, paginateEntityHistory, transactionEntity } from "./histor
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { toMemberView } from "./memberViews.js";
-import { collectMonthActiveTransactions, monthDateRange, sumMonthTotals } from "./monthActivity.js";
+import { collectMonthActiveTransactions, monthDateRange } from "./monthActivity.js";
+import { collectRecentMonthActiveTransactions, readCircleMonthTotals } from "./monthTotals.js";
 import type { OperationReader } from "./operationReader.js";
 import {
   collectTransactionViews,
@@ -88,9 +89,8 @@ export async function monthlyLedgerSummaryForAccess(
   access: AuthorizedCircle,
   month: string,
 ) {
-  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
   return {
-    totals: sumMonthTotals(monthTxns),
+    totals: await readCircleMonthTotals(ctx, access.circle._id, month),
     currency: access.circle.currency,
   };
 }
@@ -112,10 +112,13 @@ export async function dashboardForAccess(
   access: AuthorizedCircle,
   month: string,
 ) {
-  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
-  const recentDocs = [...monthTxns]
-    .sort((a, b) => b.createdAt - a.createdAt || b._creationTime - a._creationTime)
-    .slice(0, RECENT_TRANSACTIONS_LIMIT);
+  const totals = await readCircleMonthTotals(ctx, access.circle._id, month);
+  const recentDocs = await collectRecentMonthActiveTransactions(
+    ctx,
+    access.circle._id,
+    month,
+    RECENT_TRANSACTIONS_LIMIT,
+  );
   const caches = newViewCaches();
   const recent = await Promise.all(
     recentDocs.map((txn) =>
@@ -123,7 +126,7 @@ export async function dashboardForAccess(
     ),
   );
   return {
-    totals: sumMonthTotals(monthTxns),
+    totals,
     recent,
     currency: access.circle.currency,
     month,
@@ -138,8 +141,8 @@ export async function monthlyComparisonForAccess(
 ) {
   const series = await Promise.all(
     comparisonWindowMonths(endMonth, rangeMonths).map(async (month) => {
-      const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
-      return { month, ...sumMonthTotals(monthTxns) };
+      const totals = await readCircleMonthTotals(ctx, access.circle._id, month);
+      return { month, ...totals };
     }),
   );
   return { series, currency: access.circle.currency };
