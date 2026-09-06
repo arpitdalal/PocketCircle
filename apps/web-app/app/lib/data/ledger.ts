@@ -1,8 +1,10 @@
 import { api } from "@pocketcircle/convex";
 import type { PlainMonth, TransactionType } from "@pocketcircle/domain";
 import { formatMoneyAmount, money, toCurrencyCode } from "@pocketcircle/domain";
-import { useConvex, useQuery } from "convex/react";
+import type { RequestForQueries } from "convex/react";
+import { useConvex, useQueries, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import type { Value } from "convex/values";
 // The stream-pagination variant of usePaginatedQuery. Queries that paginate a
 // convex-helpers STREAM (Category Filter, Ledger Filter) have no journal to pin page
 // bounds, so the reactive client must pass `endCursor` back itself or pages develop
@@ -11,6 +13,7 @@ import type { FunctionReturnType } from "convex/server";
 // queries that call ctx.db's own .paginate(). Transaction Search (#97) uses numbered
 // pages and `useQuery` instead.
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
+import { useState } from "react";
 import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
@@ -147,10 +150,11 @@ export function useLedgerTransactionFilter(
 export function useTransactionSearch(
   circleId: Circle["id"],
   filters: TransactionSearchFilters,
-  opts?: { page?: number; pageSize?: number },
+  opts?: { page?: number; pageSize?: number; cursor?: string | null },
 ) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? TRANSACTIONS_PAGE_SIZE;
+  const cursor = opts?.cursor;
   const data = useQuery(
     api.search.searchTransactions,
     MOCKS
@@ -160,6 +164,7 @@ export function useTransactionSearch(
           ...filters,
           page,
           pageSize,
+          ...(cursor !== undefined ? { cursor } : {}),
         },
   );
   if (MOCKS) {
@@ -171,6 +176,7 @@ export function useTransactionSearch(
       pageSize,
       totalCount: all.length,
       totalCountCapped: false,
+      continueCursor: "",
       isLoading: false,
     } satisfies TransactionSearchResult;
   }
@@ -181,10 +187,122 @@ export function useTransactionSearch(
       pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      continueCursor: "",
       isLoading: true,
     } satisfies TransactionSearchResult;
   }
   return { ...data, isLoading: false } satisfies TransactionSearchResult;
+}
+
+const EMPTY_SEARCH_PROBES: RequestForQueries = {};
+
+function toSearchProbeArgs(
+  args: {
+    circleId: Circle["id"];
+    page: number;
+    pageSize: number;
+    cursor: string | null;
+  } & TransactionSearchFilters,
+) {
+  const out: Record<string, Value> = {
+    circleId: args.circleId,
+    page: args.page,
+    pageSize: args.pageSize,
+    cursor: args.cursor,
+    type: args.type,
+    status: args.status,
+    // Probes only need continueCursor; skip transaction views + full total scans.
+    boundaryOnly: true,
+  };
+  if (args.query !== undefined) out.query = args.query;
+  if (args.categoryIds !== undefined) out.categoryIds = args.categoryIds;
+  if (args.recordedByMemberIds !== undefined) {
+    out.recordedByMemberIds = args.recordedByMemberIds;
+  }
+  if (args.paidByMemberIds !== undefined) out.paidByMemberIds = args.paidByMemberIds;
+  if (args.dateFrom !== undefined) out.dateFrom = args.dateFrom;
+  if (args.dateTo !== undefined) out.dateTo = args.dateTo;
+  if (args.amountMin !== undefined) out.amountMin = args.amountMin;
+  if (args.amountMax !== undefined) out.amountMax = args.amountMax;
+  return out;
+}
+
+function searchProbeQueryKey(
+  circleId: Circle["id"],
+  filters: TransactionSearchFilters,
+  pages: Array<{ page: number; cursor: string | null }>,
+  pageSize: number,
+) {
+  if (MOCKS || pages.length === 0) {
+    return "";
+  }
+  return [
+    circleId,
+    String(pageSize),
+    JSON.stringify(filters),
+    pages.map((page) => `${page.page}:${page.cursor ?? ""}`).join(","),
+  ].join("|");
+}
+
+/**
+ * Keep every predecessor Search page reactive so a mid-list insert/reorder that
+ * changes an earlier continueCursor can invalidate deeper resumes (RPT-8 PR4).
+ * `useQueries` must see a stable RequestForQueries identity across renders —
+ * a fresh `{}` each time re-subscribes forever (infinite re-render).
+ */
+export function useSearchContinuationProbes(
+  circleId: Circle["id"],
+  filters: TransactionSearchFilters,
+  pages: Array<{ page: number; cursor: string | null }>,
+  pageSize = TRANSACTIONS_PAGE_SIZE,
+) {
+  const probeKey = searchProbeQueryKey(circleId, filters, pages, pageSize);
+  const [queries, setQueries] = useState(() => EMPTY_SEARCH_PROBES);
+  // Sentinel so the first render with a nonempty key still builds probes (deep-link ?page=N).
+  const [prevProbeKey, setPrevProbeKey] = useState<string | null>(() => null);
+  if (probeKey !== prevProbeKey) {
+    setPrevProbeKey(probeKey);
+    if (!probeKey) {
+      setQueries(EMPTY_SEARCH_PROBES);
+    } else {
+      let next: RequestForQueries = {};
+      for (const entry of pages) {
+        next = {
+          ...next,
+          [`p${entry.page}`]: {
+            query: api.search.searchTransactions,
+            args: toSearchProbeArgs({
+              circleId,
+              ...filters,
+              page: entry.page,
+              pageSize,
+              cursor: entry.cursor,
+            }),
+          },
+        };
+      }
+      setQueries(next);
+    }
+  }
+  const results = useQueries(queries);
+  const continueByPage = new Map<number, string | undefined>();
+  for (const entry of pages) {
+    if (MOCKS) {
+      // Tests drive continuation via the active page query; skip probe invalidation.
+      continueByPage.set(entry.page, undefined);
+      continue;
+    }
+    const raw = results[`p${entry.page}`];
+    if (raw === undefined || raw instanceof Error) {
+      continueByPage.set(entry.page, undefined);
+      continue;
+    }
+    continueByPage.set(
+      entry.page,
+      "continueCursor" in raw && typeof raw.continueCursor === "string" ? raw.continueCursor : "",
+    );
+  }
+  return continueByPage;
 }
 
 /**

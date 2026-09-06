@@ -2,11 +2,14 @@ import {
   clampSearchPage,
   clampSearchPageSize,
   currentMonth,
+  decodeSearchContinuation,
+  encodeSearchContinuation,
   indexedSearchOffsetTakeLimit,
   isValidPlainDate,
   isValidPlainMonth,
   MAX_AMOUNT_MINOR,
   normalizeSearchText,
+  searchContinuationFingerprint,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
   transactionSearchText,
@@ -430,51 +433,317 @@ async function collectSearchTransactionViews(
   };
 }
 
-export async function searchTransactionsOffsetPage(
-  ctx: OperationReader,
-  args: Omit<Parameters<typeof collectTransactionViews>[1], "paginationOpts"> & {
-    page: number;
-    pageSize: number;
-  },
-) {
-  const viewCaches = newViewCaches();
-  const searchCaches = newSearchCaches();
-  const { page, pageSize } = args;
-  const takeLimit = searchOffsetTakeLimit(pageSize);
+function searchPageFingerprint(args: SearchOffsetPageArgs) {
+  return searchContinuationFingerprint({
+    circleId: args.circleId,
+    status: args.status,
+    paidByMemberIds: args.paidByMemberIds,
+    recordedByMemberIds: args.recordedByMemberIds,
+    start: args.start,
+    endExclusive: args.endExclusive,
+    type: args.filters.type,
+    categoryIds: args.filters.categoryIds,
+    amountMin: args.filters.amountMin,
+    amountMax: args.filters.amountMax,
+    queryText: args.filters.queryText,
+    pageSize: args.pageSize,
+  });
+}
 
-  if (args.filters.queryText) {
-    const source = buildIndexedSearchSource(ctx, args);
-    const indexedTakeLimit = indexedSearchOffsetTakeLimit(pageSize);
-    const result = await source.paginate({ numItems: indexedTakeLimit, cursor: null });
-    const allDocs = result.page;
-    const docSlice = allDocs.slice((page - 1) * pageSize, page * pageSize);
-    // Batch raw transaction loads; map to views serially so shared viewCaches stay coherent.
-    const txns = await asyncMapChunked(docSlice, DEFAULT_READ_CONCURRENCY, (searchDoc) =>
-      ctx.db.get(searchDoc.transactionId),
-    );
-    const transactions = [];
-    for (let index = 0; index < docSlice.length; index++) {
-      const txn = txns[index];
-      if (txn) {
-        transactions.push(
-          await toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
-        );
-      }
-    }
-    const { totalCount, totalCountCapped } = searchOffsetTotalCount(
-      allDocs.length,
-      indexedTakeLimit,
-      !result.isDone,
-    );
+function encodeSearchPageContinue(args: {
+  fingerprint: string;
+  totalCount: number;
+  totalCountCapped: boolean;
+  isDone: boolean;
+  engineCursor?: string;
+}) {
+  if (args.isDone || args.engineCursor === undefined || args.engineCursor === "") {
+    return "";
+  }
+  return encodeSearchContinuation({
+    v: 1,
+    c: args.engineCursor,
+    tc: args.totalCount,
+    tcc: args.totalCountCapped,
+    fp: args.fingerprint,
+  });
+}
+
+function decodeSearchPageResume(args: SearchOffsetPageArgs) {
+  if (!args.cursor) {
+    return null;
+  }
+  const resume = decodeSearchContinuation(args.cursor);
+  if (!resume || resume.fp !== searchPageFingerprint(args)) {
+    return null;
+  }
+  return resume;
+}
+
+/** When a resumed page is exhausted or overruns the token's totals, refresh count for the UI. */
+function totalsAfterResumedPage(args: {
+  page: number;
+  pageSize: number;
+  pageLength: number;
+  isDone: boolean;
+  resumeTotalCount: number;
+  resumeTotalCountCapped: boolean;
+}) {
+  const prefix = (args.page - 1) * args.pageSize;
+  if (args.isDone) {
+    return { totalCount: prefix + args.pageLength, totalCountCapped: false };
+  }
+  const minWithMore = prefix + args.pageLength + 1;
+  if (args.resumeTotalCount >= minWithMore) {
     return {
-      transactions,
+      totalCount: args.resumeTotalCount,
+      totalCountCapped: args.resumeTotalCountCapped,
+    };
+  }
+  return { totalCount: minWithMore, totalCountCapped: true };
+}
+
+type SearchOffsetPageArgs = Omit<
+  Parameters<typeof collectTransactionViews>[1],
+  "paginationOpts"
+> & {
+  page: number;
+  pageSize: number;
+  /** Opaque {@link encodeSearchContinuation} token from a prior page; omit on cold start. */
+  cursor?: string;
+  /** Skip transaction views; probes only need continueCursor + totals. */
+  boundaryOnly?: boolean;
+};
+
+async function transactionViewsFromSearchDocs(
+  ctx: OperationReader,
+  searchDocs: { transactionId: Id<"transactions"> }[],
+  viewCaches: ReturnType<typeof newViewCaches>,
+  viewerMemberId: Id<"members">,
+  viewerIsOwner: boolean,
+  boundaryOnly?: boolean,
+) {
+  if (boundaryOnly) {
+    return [];
+  }
+  const txns = await asyncMapChunked(searchDocs, DEFAULT_READ_CONCURRENCY, (searchDoc) =>
+    ctx.db.get(searchDoc.transactionId),
+  );
+  const transactions = [];
+  for (let index = 0; index < searchDocs.length; index++) {
+    const txn = txns[index];
+    if (txn) {
+      transactions.push(
+        await toTransactionView(ctx, txn, viewCaches, viewerMemberId, viewerIsOwner),
+      );
+    }
+  }
+  return transactions;
+}
+
+/** Post-search `.filter()` predicates — one search.paginate can return a short page. */
+function indexedSearchHasPostFilters(args: SearchOffsetPageArgs) {
+  return (
+    args.start !== undefined ||
+    args.endExclusive !== undefined ||
+    args.filters.amountMin !== undefined ||
+    args.filters.amountMax !== undefined ||
+    args.filters.categoryIds.size > 0 ||
+    args.paidByMemberIds.size > 1 ||
+    args.recordedByMemberIds.size > 1
+  );
+}
+
+function takeOffsetCursor(offset: number) {
+  return `take:${offset}`;
+}
+
+function parseTakeOffsetCursor(cursor: string) {
+  if (!cursor.startsWith("take:")) {
+    return undefined;
+  }
+  const offset = Number(cursor.slice("take:".length));
+  return Number.isFinite(offset) && offset >= 0 ? offset : undefined;
+}
+
+async function searchTransactionsIndexedPage(
+  ctx: OperationReader,
+  args: SearchOffsetPageArgs,
+  viewCaches: ReturnType<typeof newViewCaches>,
+) {
+  const { page, pageSize } = args;
+  const takeLimit = indexedSearchOffsetTakeLimit(pageSize);
+  const fingerprint = searchPageFingerprint(args);
+  const resume = decodeSearchPageResume(args);
+  const resumeTakeOffset = resume ? parseTakeOffsetCursor(resume.c) : undefined;
+
+  // Post-filters: `.take` fills through sparse matches (RPT-7 forbids a paginate fill loop).
+  // Continuation is an offset into that take, not a search-engine cursor.
+  if (indexedSearchHasPostFilters(args) || resumeTakeOffset !== undefined) {
+    const offset =
+      resumeTakeOffset !== undefined ? resumeTakeOffset : Math.max(0, (page - 1) * pageSize);
+    // boundaryOnly only needs this page (+1 to know if more); full takeLimit is for totals.
+    const fetchLimit = args.boundaryOnly ? Math.min(takeLimit, offset + pageSize + 1) : takeLimit;
+    const matched = await buildIndexedSearchSource(ctx, args).take(fetchLimit);
+    const { totalCount, totalCountCapped } = args.boundaryOnly
+      ? resume
+        ? { totalCount: resume.tc, totalCountCapped: resume.tcc }
+        : matched.length > offset + pageSize || matched.length >= takeLimit
+          ? { totalCount: takeLimit, totalCountCapped: true }
+          : { totalCount: matched.length, totalCountCapped: false }
+      : searchOffsetTotalCount(matched.length, takeLimit);
+    const docSlice = matched.slice(offset, offset + pageSize);
+    const nextOffset = offset + docSlice.length;
+    const hasMore = nextOffset < matched.length || matched.length >= takeLimit;
+    return {
+      transactions: await transactionViewsFromSearchDocs(
+        ctx,
+        docSlice,
+        viewCaches,
+        args.viewerMemberId,
+        args.viewerIsOwner,
+        args.boundaryOnly,
+      ),
       pageNumber: page,
       pageSize,
       totalCount,
       totalCountCapped,
+      continueCursor:
+        hasMore && docSlice.length > 0
+          ? encodeSearchPageContinue({
+              fingerprint,
+              totalCount,
+              totalCountCapped,
+              isDone: false,
+              engineCursor: takeOffsetCursor(nextOffset),
+            })
+          : "",
     };
   }
 
+  // Totals: `.take` on a fresh search query (not a second `.paginate` — RPT-7). Page body uses
+  // one `.paginate` so later pages can continue from a real search-index cursor. Cold deep has
+  // no page-body paginate, so totals may use `.paginate` and preserve `!isDone` for sparse filters.
+  async function indexedTotalCount(opts?: { allowPaginate: boolean }) {
+    if (opts?.allowPaginate) {
+      const result = await buildIndexedSearchSource(ctx, args).paginate({
+        numItems: takeLimit,
+        cursor: null,
+      });
+      return searchOffsetTotalCount(result.page.length, takeLimit, !result.isDone);
+    }
+    const matched = await buildIndexedSearchSource(ctx, args).take(takeLimit);
+    return searchOffsetTotalCount(matched.length, takeLimit);
+  }
+
+  if (resume) {
+    const result = await buildIndexedSearchSource(ctx, args).paginate({
+      numItems: pageSize,
+      cursor: resume.c,
+    });
+    // Active resumes re-count so inserts beyond this page update pagination; probes keep
+    // the cheap token totals (boundaryOnly).
+    const { totalCount, totalCountCapped } = args.boundaryOnly
+      ? totalsAfterResumedPage({
+          page,
+          pageSize,
+          pageLength: result.page.length,
+          isDone: result.isDone,
+          resumeTotalCount: resume.tc,
+          resumeTotalCountCapped: resume.tcc,
+        })
+      : await indexedTotalCount();
+    return {
+      transactions: await transactionViewsFromSearchDocs(
+        ctx,
+        result.page,
+        viewCaches,
+        args.viewerMemberId,
+        args.viewerIsOwner,
+        args.boundaryOnly,
+      ),
+      pageNumber: page,
+      pageSize,
+      totalCount,
+      totalCountCapped,
+      continueCursor: encodeSearchPageContinue({
+        fingerprint,
+        totalCount,
+        totalCountCapped,
+        isDone: result.isDone,
+        engineCursor: result.continueCursor,
+      }),
+    };
+  }
+
+  if (page === 1) {
+    const result = await buildIndexedSearchSource(ctx, args).paginate({
+      numItems: pageSize,
+      cursor: null,
+    });
+    // boundaryOnly / exhausted page: skip the up-to-ceiling total scan.
+    const { totalCount, totalCountCapped } = result.isDone
+      ? { totalCount: result.page.length, totalCountCapped: false }
+      : args.boundaryOnly
+        ? { totalCount: takeLimit, totalCountCapped: true }
+        : await indexedTotalCount();
+    return {
+      transactions: await transactionViewsFromSearchDocs(
+        ctx,
+        result.page,
+        viewCaches,
+        args.viewerMemberId,
+        args.viewerIsOwner,
+        args.boundaryOnly,
+      ),
+      pageNumber: page,
+      pageSize,
+      totalCount,
+      totalCountCapped,
+      continueCursor: encodeSearchPageContinue({
+        fingerprint,
+        totalCount,
+        totalCountCapped,
+        isDone: result.isDone,
+        engineCursor: result.continueCursor,
+      }),
+    };
+  }
+
+  // Cold deep page (no stored token): one `.take` of the needed prefix — not a full max-page scan
+  // when the requested page sits earlier. No engine cursor to emit; client resumes after page 1.
+  const prefix = await buildIndexedSearchSource(ctx, args).take(
+    Math.min(takeLimit, page * pageSize),
+  );
+  const docSlice = prefix.slice((page - 1) * pageSize, page * pageSize);
+  const { totalCount, totalCountCapped } = args.boundaryOnly
+    ? searchOffsetTotalCount(prefix.length, Math.min(takeLimit, page * pageSize))
+    : await indexedTotalCount({ allowPaginate: true });
+  return {
+    transactions: await transactionViewsFromSearchDocs(
+      ctx,
+      docSlice,
+      viewCaches,
+      args.viewerMemberId,
+      args.viewerIsOwner,
+      args.boundaryOnly,
+    ),
+    pageNumber: page,
+    pageSize,
+    totalCount,
+    totalCountCapped,
+    continueCursor: "",
+  };
+}
+
+async function searchTransactionsStreamPage(
+  ctx: OperationReader,
+  args: SearchOffsetPageArgs,
+  viewCaches: ReturnType<typeof newViewCaches>,
+  searchCaches: ReturnType<typeof newSearchCaches>,
+) {
+  const { page, pageSize } = args;
+  const takeLimit = searchOffsetTakeLimit(pageSize);
   const source = streamByWindow(ctx, {
     circleId: args.circleId,
     status: args.status,
@@ -500,22 +769,142 @@ export async function searchTransactionsOffsetPage(
     ),
   );
 
-  const matched = await source.take(takeLimit);
-  const { totalCount, totalCountCapped } = searchOffsetTotalCount(matched.length, takeLimit);
-  const pageDocs = matched.slice((page - 1) * pageSize, page * pageSize);
-  const transactions = await Promise.all(
-    pageDocs.map((txn) =>
-      toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
-    ),
-  );
+  const resume = decodeSearchPageResume(args);
+  if (resume) {
+    const result = await source.paginate({ numItems: pageSize, cursor: resume.c });
+    let totalCount: number;
+    let totalCountCapped: boolean;
+    if (args.boundaryOnly) {
+      ({ totalCount, totalCountCapped } = totalsAfterResumedPage({
+        page,
+        pageSize,
+        pageLength: result.page.length,
+        isDone: result.isDone,
+        resumeTotalCount: resume.tc,
+        resumeTotalCountCapped: resume.tcc,
+      }));
+    } else {
+      // Recount from this page forward so inserts beyond the resume still bump totals.
+      let collected = (page - 1) * pageSize + result.page.length;
+      let countDone = result.isDone;
+      let countCursor = result.continueCursor;
+      while (!countDone && collected < takeLimit) {
+        const need = takeLimit - collected;
+        const more = await source.paginate({
+          numItems: Math.min(need, pageSize * 4),
+          cursor: countCursor,
+        });
+        collected += more.page.length;
+        countDone = more.isDone;
+        countCursor = more.continueCursor;
+      }
+      ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
+        collected,
+        takeLimit,
+        !countDone && collected >= takeLimit,
+      ));
+    }
+    return {
+      transactions: args.boundaryOnly
+        ? []
+        : await Promise.all(
+            result.page.map((txn) =>
+              toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
+            ),
+          ),
+      pageNumber: page,
+      pageSize,
+      totalCount,
+      totalCountCapped,
+      continueCursor: encodeSearchPageContinue({
+        fingerprint: searchPageFingerprint(args),
+        totalCount,
+        totalCountCapped,
+        isDone: result.isDone,
+        engineCursor: result.continueCursor,
+      }),
+    };
+  }
 
+  // Stream `.paginate` walks IndexKeys via iterWithKeys (not native db.paginate), so multiple
+  // calls in one query are safe — unlike indexed search (RPT-7).
+  let cursor: string | null = null;
+  let targetPage: Doc<"transactions">[] = [];
+  let pageContinueCursor = "";
+  let pageIsDone = true;
+  let collected = 0;
+
+  for (let pageNumber = 1; pageNumber <= page; pageNumber += 1) {
+    const result = await source.paginate({ numItems: pageSize, cursor });
+    collected += result.page.length;
+    cursor = result.continueCursor;
+    if (pageNumber === page) {
+      targetPage = result.page;
+      pageContinueCursor = result.continueCursor;
+      pageIsDone = result.isDone;
+    }
+    if (result.isDone) {
+      if (pageNumber < page) {
+        targetPage = [];
+        pageContinueCursor = "";
+        pageIsDone = true;
+      }
+      break;
+    }
+  }
+
+  let countDone = pageIsDone;
+  let countCursor = pageContinueCursor;
+  if (!args.boundaryOnly) {
+    while (!countDone && collected < takeLimit) {
+      const need = takeLimit - collected;
+      const more = await source.paginate({
+        numItems: Math.min(need, pageSize * 4),
+        cursor: countCursor,
+      });
+      collected += more.page.length;
+      countDone = more.isDone;
+      countCursor = more.continueCursor;
+    }
+  }
+
+  const { totalCount, totalCountCapped } = args.boundaryOnly
+    ? pageIsDone
+      ? { totalCount: collected, totalCountCapped: false }
+      : { totalCount: takeLimit, totalCountCapped: true }
+    : searchOffsetTotalCount(collected, takeLimit, !countDone && collected >= takeLimit);
   return {
-    transactions,
+    transactions: args.boundaryOnly
+      ? []
+      : await Promise.all(
+          targetPage.map((txn) =>
+            toTransactionView(ctx, txn, viewCaches, args.viewerMemberId, args.viewerIsOwner),
+          ),
+        ),
     pageNumber: page,
     pageSize,
     totalCount,
     totalCountCapped,
+    continueCursor: encodeSearchPageContinue({
+      fingerprint: searchPageFingerprint(args),
+      totalCount,
+      totalCountCapped,
+      isDone: pageIsDone,
+      engineCursor: pageContinueCursor,
+    }),
   };
+}
+
+export async function searchTransactionsOffsetPage(
+  ctx: OperationReader,
+  args: SearchOffsetPageArgs,
+) {
+  const viewCaches = newViewCaches();
+  const searchCaches = newSearchCaches();
+  if (args.filters.queryText) {
+    return await searchTransactionsIndexedPage(ctx, args, viewCaches);
+  }
+  return await searchTransactionsStreamPage(ctx, args, viewCaches, searchCaches);
 }
 
 export function normalizeCommonFilters(
@@ -592,6 +981,10 @@ export const searchTransactions = query({
     amountMax: v.optional(v.number()),
     page: v.number(),
     pageSize: v.optional(v.number()),
+    /** Opaque continuation from a prior `continueCursor`; omit/null on cold start. */
+    cursor: v.optional(v.union(v.string(), v.null())),
+    /** Skip transaction views (continuation probes). */
+    boundaryOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const pageSize = clampSearchPageSize(args.pageSize);
@@ -603,6 +996,7 @@ export const searchTransactions = query({
       pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      continueCursor: "",
     });
 
     const access = await resolveCircleAccess(ctx, args.circleId);
@@ -644,6 +1038,8 @@ export const searchTransactions = query({
       endExclusive: window.endExclusive,
       page,
       pageSize,
+      cursor: args.cursor ?? undefined,
+      boundaryOnly: args.boundaryOnly,
       filters: {
         type: filters.type,
         categoryIds: filters.categoryIds.ids,

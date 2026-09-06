@@ -1,4 +1,9 @@
-import { searchResultTotalPages, toPlainDate } from "@pocketcircle/domain";
+import {
+  decodeSearchContinuation,
+  searchContinuationBoundaryKey,
+  searchResultTotalPages,
+  toPlainDate,
+} from "@pocketcircle/domain";
 import { Download, SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -17,6 +22,7 @@ import {
   filterOptionsQueryEnabled,
   TRANSACTIONS_PAGE_SIZE,
   useExportTransactions,
+  useSearchContinuationProbes,
   useTransactionSearch,
   useTransactionSearchOptions,
 } from "~/lib/data.js";
@@ -52,10 +58,112 @@ export default function CircleSearch() {
     panelOpen ? draft.type : filters.type,
     filterOptionsQueryEnabled(panelOpen, filters),
   );
-  const results = useTransactionSearch(circle.id, toSearchQuery(filters), {
+  // Resume Convex/search cursors across numbered URL pages (RPT-8 PR4) without putting
+  // tokens in the URL. Scope includes circle.id so a mounted route switch cannot reuse
+  // another Circle's continuation. Cold-start when jumping to an unvisited page.
+  const scopeKey = `${circle.id}:${canonicalSearchParams({ ...filters, page: 1 }).toString()}`;
+  const [cursors, setCursors] = useState({
+    key: scopeKey,
+    byPage: new Map<number, string | null>([[1, null]]),
+  });
+  let activeCursors = cursors;
+  if (cursors.key !== scopeKey) {
+    activeCursors = { key: scopeKey, byPage: new Map([[1, null]]) };
+    setCursors(activeCursors);
+  }
+  const pageCursor = activeCursors.byPage.has(filters.page)
+    ? activeCursors.byPage.get(filters.page)
+    : undefined;
+  const searchFilters = toSearchQuery(filters);
+  const results = useTransactionSearch(circle.id, searchFilters, {
     page: filters.page,
     pageSize: TRANSACTIONS_PAGE_SIZE,
+    cursor: pageCursor,
   });
+  // take:N continuations are numeric offsets into a re-taken prefix — they do not move when
+  // rows mutate, so predecessor probes only burn reads (up to ~page×pageSize each). Skip them.
+  const takeOffsetSearch = [...activeCursors.byPage.values()].some((token) => {
+    if (!token) return false;
+    const decoded = decodeSearchContinuation(token);
+    return decoded !== null && decoded.c.startsWith("take:");
+  });
+  // Keep every predecessor page reactive and invalidate from the earliest diverging
+  // continueCursor (page-2→3 shifts while on page 4+ are invisible to a page-3-only probe).
+  const probePages: Array<{ page: number; cursor: string | null }> = [];
+  if (!takeOffsetSearch) {
+    for (let page = 1; page < filters.page; page += 1) {
+      if (page === 1) {
+        probePages.push({ page: 1, cursor: null });
+        continue;
+      }
+      if (!activeCursors.byPage.has(page)) {
+        break;
+      }
+      probePages.push({ page, cursor: activeCursors.byPage.get(page) ?? null });
+    }
+  }
+  const probeContinueByPage = useSearchContinuationProbes(
+    circle.id,
+    searchFilters,
+    probePages,
+    TRANSACTIONS_PAGE_SIZE,
+  );
+  let boundaryInvalidated = false;
+  if (filters.page > 1) {
+    for (const { page } of probePages) {
+      const liveNext = probeContinueByPage.get(page);
+      if (liveNext === undefined) {
+        break;
+      }
+      const cachedNext = activeCursors.byPage.get(page + 1) ?? "";
+      // Only when a next-page token exists: empty cache is normal (not yet visited). Compare
+      // fp+c only so boundaryOnly probe totals cannot clobber or thrash real cursors.
+      if (
+        cachedNext &&
+        searchContinuationBoundaryKey(liveNext) !== searchContinuationBoundaryKey(cachedNext)
+      ) {
+        boundaryInvalidated = true;
+        const byPage = new Map<number, string | null>([[1, null]]);
+        for (const [cachedPage, cachedCursor] of activeCursors.byPage) {
+          if (cachedPage > 1 && cachedPage <= page) {
+            byPage.set(cachedPage, cachedCursor);
+          }
+        }
+        // Do not install probe continueCursor — it may carry boundaryOnly totals.
+        activeCursors = { key: activeCursors.key, byPage };
+        setCursors(activeCursors);
+        break;
+      }
+    }
+  }
+  if (!results.isLoading && !boundaryInvalidated) {
+    const nextPage = filters.page + 1;
+    const nextToken = results.continueCursor;
+    const prevToken = activeCursors.byPage.get(nextPage) ?? "";
+    if (nextToken !== prevToken) {
+      const byPage = new Map(activeCursors.byPage);
+      // Cache next only when the chain through the active page is contiguous — a cold
+      // deep-link page N must not seed N+1 while 2..N are missing (probes would stop early).
+      let contiguous = true;
+      for (let page = 1; page <= filters.page; page += 1) {
+        if (!activeCursors.byPage.has(page)) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (nextToken && contiguous) {
+        byPage.set(nextPage, nextToken);
+      } else {
+        byPage.delete(nextPage);
+      }
+      for (const page of [...byPage.keys()]) {
+        if (page > nextPage) {
+          byPage.delete(page);
+        }
+      }
+      setCursors({ key: activeCursors.key, byPage });
+    }
+  }
   const filterCount = activeFilterCount(filters);
   const exportTransactions = useExportTransactions(circle.id);
   const { show } = useSnackbar();
@@ -65,17 +173,28 @@ export default function CircleSearch() {
   // page is in flight (useQuery returns undefined on arg change) — unmounting it would
   // drop keyboard focus from the just-clicked page button and announce nothing. Adjust
   // during render guarded by a primitive compare so it converges (no effect/flash).
-  const [lastPaging, setLastPaging] = useState({ totalPages: 0, totalCountCapped: false });
-  if (!results.isLoading) {
+  const [lastPaging, setLastPaging] = useState({
+    key: scopeKey,
+    totalPages: 0,
+    totalCountCapped: false,
+  });
+  if (lastPaging.key !== scopeKey) {
+    setLastPaging({ key: scopeKey, totalPages: 0, totalCountCapped: false });
+  } else if (!results.isLoading) {
     const totalPages = searchResultTotalPages(results.totalCount, results.pageSize);
     if (
       totalPages !== lastPaging.totalPages ||
       results.totalCountCapped !== lastPaging.totalCountCapped
     ) {
-      setLastPaging({ totalPages, totalCountCapped: results.totalCountCapped });
+      setLastPaging({
+        key: scopeKey,
+        totalPages,
+        totalCountCapped: results.totalCountCapped,
+      });
     }
   }
-  const { totalPages, totalCountCapped } = lastPaging;
+  const { totalPages, totalCountCapped } =
+    lastPaging.key === scopeKey ? lastPaging : { totalPages: 0, totalCountCapped: false };
 
   useEffect(() => {
     const next = canonicalSearchParams(filters);

@@ -88,6 +88,7 @@ function mergeEntityDoubles(state: ConvexState) {
  */
 export const convexReactMock = {
   useQuery: vi.fn(),
+  useQueries: vi.fn(),
   useMutation: vi.fn(),
   usePaginatedQuery: vi.fn(),
   useConvex: vi.fn(),
@@ -183,6 +184,35 @@ export function configureConvex(state: ConvexState = {}) {
       }
       queryResultCache.set(key, next);
       return next;
+    },
+  );
+
+  convexReactMock.useQueries.mockImplementation(
+    (
+      queries: Record<
+        string,
+        { query: FunctionReference<"query">; args: Record<string, unknown> } | "skip"
+      >,
+    ) => {
+      useSyncExternalStore(
+        (onStoreChange) => {
+          queryListeners.add(onStoreChange);
+          return () => {
+            queryListeners.delete(onStoreChange);
+          };
+        },
+        () => queryEpoch,
+        () => 0,
+      );
+      const out: Record<string, unknown> = {};
+      for (const [key, spec] of Object.entries(queries)) {
+        if (spec === "skip") {
+          out[key] = undefined;
+          continue;
+        }
+        out[key] = readQuery(getFunctionName(spec.query), spec.args);
+      }
+      return out;
     },
   );
 

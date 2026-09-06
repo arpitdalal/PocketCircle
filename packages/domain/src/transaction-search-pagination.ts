@@ -1,9 +1,75 @@
+import { z } from "zod";
+
 /**
  * Transaction search (circle /search route) uses numbered pages in the URL (#97).
  * Convex caps how far we scan/count so reads stay bounded — keep these aligned with
  * `packages/convex/convex/search.ts`.
  */
 export const TRANSACTION_SEARCH_MAX_PAGE = 40;
+
+/**
+ * Opaque Search page continuation (RPT-8 PR4). Carries totals so later pages need not
+ * rescan for `totalCount`, the engine cursor (`c`), and a fingerprint (`fp`) of the
+ * query-defining args so a token is never resumed against a different search.
+ */
+const searchContinuationSchema = z.object({
+  v: z.literal(1),
+  c: z.string().min(1),
+  tc: z.number().int().nonnegative(),
+  tcc: z.boolean(),
+  fp: z.string().min(1),
+});
+
+export type SearchContinuation = z.infer<typeof searchContinuationSchema>;
+
+export function encodeSearchContinuation(value: SearchContinuation) {
+  return JSON.stringify(searchContinuationSchema.parse(value));
+}
+
+export function decodeSearchContinuation(raw: string) {
+  try {
+    return searchContinuationSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** Compare engine boundary only — ignore tc/tcc so boundaryOnly probes cannot clobber real totals. */
+export function searchContinuationBoundaryKey(raw: string) {
+  const decoded = decodeSearchContinuation(raw);
+  return decoded ? `${decoded.fp}\0${decoded.c}` : raw;
+}
+
+/** Stable fingerprint of the args that define a Search result set (not the page number). */
+export function searchContinuationFingerprint(input: {
+  circleId: string;
+  status?: string;
+  paidByMemberIds: Iterable<string>;
+  recordedByMemberIds: Iterable<string>;
+  start?: string;
+  endExclusive?: string;
+  type?: string;
+  categoryIds: Iterable<string>;
+  amountMin?: number;
+  amountMax?: number;
+  queryText: string;
+  pageSize: number;
+}) {
+  return JSON.stringify({
+    circleId: input.circleId,
+    status: input.status ?? null,
+    paidBy: [...input.paidByMemberIds].sort(),
+    recordedBy: [...input.recordedByMemberIds].sort(),
+    start: input.start ?? null,
+    endExclusive: input.endExclusive ?? null,
+    type: input.type ?? null,
+    categoryIds: [...input.categoryIds].sort(),
+    amountMin: input.amountMin ?? null,
+    amountMax: input.amountMax ?? null,
+    queryText: input.queryText,
+    pageSize: input.pageSize,
+  });
+}
 
 /** Default page size for search and ledger transaction lists (Convex + client). */
 export const TRANSACTION_LIST_PAGE_SIZE = 25;
