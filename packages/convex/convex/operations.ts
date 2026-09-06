@@ -369,7 +369,7 @@ export function toMcpCurrentUserView(user: Doc<"users">) {
 }
 
 /** A Circle plus its canonical ref, shaped for the client. */
-export function toCircleView(circle: Doc<"circles">) {
+export function toCircleView(circle: Doc<"circles">, isOwner: boolean) {
   return {
     id: circle._id,
     ref: buildRef(circle.name, circle._id),
@@ -383,6 +383,7 @@ export function toCircleView(circle: Doc<"circles">) {
     setupComplete: circle.setupCompletedAt !== null,
     currencyLocked: circle.currencyLocked,
     nameCustomized: circle.personalNameCustomizedAt !== undefined,
+    isOwner,
   };
 }
 
@@ -796,7 +797,7 @@ export async function listActiveMembershipsWithCirclesForUser(
  */
 export async function listMyCirclesForUser(ctx: OperationReader, user: Doc<"users">) {
   const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
-  return entries.map((entry) => toCircleView(entry.circle));
+  return entries.map((entry) => toCircleView(entry.circle, entry.membership.role === "owner"));
 }
 
 /**
@@ -835,7 +836,7 @@ export async function getCircleForUser(ctx: OperationReader, circleId: string, u
     return null;
   }
   const access = await resolveCircleAccessForUser(ctx, id, user);
-  return access ? toCircleView(access.circle) : null;
+  return access ? toCircleView(access.circle, access.isOwner) : null;
 }
 
 function toMcpMemberAttributionView(member: { displayName: string; image?: string }) {

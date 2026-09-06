@@ -51,6 +51,7 @@ export const MOCK_CIRCLES: Circle[] = [
     setupComplete: true,
     currencyLocked: false,
     nameCustomized: false,
+    isOwner: true,
   },
 ];
 
@@ -391,6 +392,7 @@ export function mockCircle(id: string): Circle {
     setupComplete: true,
     currencyLocked: false,
     nameCustomized: false,
+    isOwner: true,
   };
 }
 
