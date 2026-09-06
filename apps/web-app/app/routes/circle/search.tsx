@@ -1,4 +1,5 @@
 import {
+  decodeSearchContinuation,
   searchContinuationBoundaryKey,
   searchResultTotalPages,
   toPlainDate,
@@ -79,18 +80,27 @@ export default function CircleSearch() {
     pageSize: TRANSACTIONS_PAGE_SIZE,
     cursor: pageCursor,
   });
+  // take:N continuations are numeric offsets into a re-taken prefix — they do not move when
+  // rows mutate, so predecessor probes only burn reads (up to ~page×pageSize each). Skip them.
+  const takeOffsetSearch = [...activeCursors.byPage.values()].some((token) => {
+    if (!token) return false;
+    const decoded = decodeSearchContinuation(token);
+    return decoded !== null && decoded.c.startsWith("take:");
+  });
   // Keep every predecessor page reactive and invalidate from the earliest diverging
   // continueCursor (page-2→3 shifts while on page 4+ are invisible to a page-3-only probe).
   const probePages: Array<{ page: number; cursor: string | null }> = [];
-  for (let page = 1; page < filters.page; page += 1) {
-    if (page === 1) {
-      probePages.push({ page: 1, cursor: null });
-      continue;
+  if (!takeOffsetSearch) {
+    for (let page = 1; page < filters.page; page += 1) {
+      if (page === 1) {
+        probePages.push({ page: 1, cursor: null });
+        continue;
+      }
+      if (!activeCursors.byPage.has(page)) {
+        break;
+      }
+      probePages.push({ page, cursor: activeCursors.byPage.get(page) ?? null });
     }
-    if (!activeCursors.byPage.has(page)) {
-      break;
-    }
-    probePages.push({ page, cursor: activeCursors.byPage.get(page) ?? null });
   }
   const probeContinueByPage = useSearchContinuationProbes(
     circle.id,
