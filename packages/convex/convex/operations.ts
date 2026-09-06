@@ -56,7 +56,11 @@ import { circleEntity, paginateEntityHistory, transactionEntity } from "./histor
 import { newActorCache, toHistoryEventView } from "./historyView.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { toMemberView } from "./memberViews.js";
-import { collectMonthActiveTransactions, monthDateRange } from "./monthActivity.js";
+import {
+  collectMonthActiveTransactions,
+  collectMonthTransactionCategoryLinks,
+  monthDateRange,
+} from "./monthActivity.js";
 import { collectRecentMonthActiveTransactions, readCircleMonthTotals } from "./monthTotals.js";
 import type { OperationReader } from "./operationReader.js";
 import {
@@ -167,23 +171,21 @@ export async function categoryAnalyticsForAccess(
 ) {
   const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
   const scopedTxns = type ? monthTxns.filter((txn) => txn.type === type) : monthTxns;
+  const scopedById = new Map(scopedTxns.map((txn) => [txn._id, txn]));
 
-  const linkLoads = await asyncMapChunked(scopedTxns, DEFAULT_READ_CONCURRENCY, async (txn) => ({
-    txn,
-    links: await ctx.db
-      .query("transactionCategories")
-      .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
-      .collect(),
-  }));
+  // One month-scoped link scan (RPT-8 PR3) — not one `by_transaction` collect per row.
+  const monthLinks = await collectMonthTransactionCategoryLinks(ctx, access.circle._id, month);
 
   const accum = new Map<Id<"categories">, { taggedTotalMinor: number; txnCount: number }>();
-  for (const { txn, links } of linkLoads) {
-    for (const link of links) {
-      const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
-      existing.taggedTotalMinor += txn.amountMinorUnits;
-      existing.txnCount += 1;
-      accum.set(link.categoryId, existing);
+  for (const link of monthLinks) {
+    const txn = scopedById.get(link.transactionId);
+    if (!txn) {
+      continue;
     }
+    const existing = accum.get(link.categoryId) ?? { taggedTotalMinor: 0, txnCount: 0 };
+    existing.taggedTotalMinor += txn.amountMinorUnits;
+    existing.txnCount += 1;
+    accum.set(link.categoryId, existing);
   }
 
   const categoryIds = [...accum.keys()];

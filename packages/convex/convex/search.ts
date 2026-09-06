@@ -18,10 +18,9 @@ import { stream } from "convex-helpers/server/stream";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { query } from "./_generated/server.js";
 import { asyncMapChunked, DEFAULT_READ_CONCURRENCY } from "./asyncBatch.js";
-import { toCategoryView } from "./categories.js";
 import { resolveCircleAccess } from "./guard.js";
-import { toMemberView } from "./memberViews.js";
-import { monthDateRange } from "./monthActivity.js";
+import { resolveMemberIdentity } from "./memberIdentity.js";
+import { collectMonthTransactionCategoryLinks, monthDateRange } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
 import schema from "./schema.js";
 import { newViewCaches, toTransactionView } from "./transactions.js";
@@ -666,6 +665,28 @@ function orderCategories(a: Doc<"categories">, b: Doc<"categories">) {
   return a.name.localeCompare(b.name);
 }
 
+/** Slim Category picker row — id/name/type/color/status only (RPT-8 PR3). */
+function toFilterCategoryOption(category: Doc<"categories">) {
+  return {
+    id: category._id,
+    name: category.name,
+    type: category.type,
+    color: category.color,
+    status: category.status,
+  };
+}
+
+/** Slim Member picker row — id/displayName/status (+ image) only (RPT-8 PR3). */
+async function toFilterMemberOption(ctx: OperationReader, member: Doc<"members">) {
+  const identity = await resolveMemberIdentity(ctx, member);
+  return {
+    id: member._id,
+    displayName: identity.displayName,
+    image: identity.image,
+    status: identity.status,
+  };
+}
+
 export const getLedgerFilterOptions = query({
   args: {
     circleId: v.id("circles"),
@@ -679,27 +700,27 @@ export const getLedgerFilterOptions = query({
     }
     const month = isValidPlainMonth(args.month) ? args.month : currentMonth(new Date());
     const type = selectedType(args.type);
+    // Status-blind month collect: options include Historical Members / Archived
+    // Categories still tagged on archived Transactions in the month (product match).
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_circle_and_month", (q) => q.eq("circleId", args.circleId).eq("month", month))
       .collect();
 
     const memberIds = new Set<Id<"members">>();
-    const categoryIds = new Set<Id<"categories">>();
     for (const txn of transactions) {
       memberIds.add(txn.recordedByMemberId);
       memberIds.add(txn.paidByMemberId);
     }
 
-    const typeFilteredTxns = type ? transactions.filter((txn) => txn.type === type) : transactions;
-    const linkLoads = await asyncMapChunked(typeFilteredTxns, DEFAULT_READ_CONCURRENCY, (txn) =>
-      ctx.db
-        .query("transactionCategories")
-        .withIndex("by_transaction", (q) => q.eq("transactionId", txn._id))
-        .collect(),
+    const typeFilteredIds = new Set(
+      (type ? transactions.filter((txn) => txn.type === type) : transactions).map((txn) => txn._id),
     );
-    for (const links of linkLoads) {
-      for (const link of links) {
+    // One month-scoped link scan instead of per-Transaction `by_transaction` collects.
+    const monthLinks = await collectMonthTransactionCategoryLinks(ctx, args.circleId, month);
+    const categoryIds = new Set<Id<"categories">>();
+    for (const link of monthLinks) {
+      if (typeFilteredIds.has(link.transactionId)) {
         categoryIds.add(link.categoryId);
       }
     }
@@ -723,14 +744,9 @@ export const getLedgerFilterOptions = query({
     const memberDocs = loadedMembers.filter((member): member is Doc<"members"> => member != null);
     memberDocs.sort(orderMembers);
 
-    const viewer = { userId: access.user._id, isOwner: access.isOwner };
     return {
-      categories: await Promise.all(
-        categoryDocs.map((category) => toCategoryView(ctx, category, viewer)),
-      ),
-      members: await Promise.all(
-        memberDocs.map((member) => toMemberView(ctx, member, access.membership._id)),
-      ),
+      categories: categoryDocs.map(toFilterCategoryOption),
+      members: await Promise.all(memberDocs.map((member) => toFilterMemberOption(ctx, member))),
     };
   },
 });
@@ -765,14 +781,9 @@ export const getTransactionSearchOptions = query({
       .collect();
     members.sort(orderMembers);
 
-    const viewer = { userId: access.user._id, isOwner: access.isOwner };
     return {
-      categories: await Promise.all(
-        categories.map((category) => toCategoryView(ctx, category, viewer)),
-      ),
-      members: await Promise.all(
-        members.map((member) => toMemberView(ctx, member, access.membership._id)),
-      ),
+      categories: categories.map(toFilterCategoryOption),
+      members: await Promise.all(members.map((member) => toFilterMemberOption(ctx, member))),
     };
   },
 });
