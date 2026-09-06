@@ -34,6 +34,12 @@ export function decodeSearchContinuation(raw: string) {
   }
 }
 
+/** Compare engine boundary only — ignore tc/tcc so boundaryOnly probes cannot clobber real totals. */
+export function searchContinuationBoundaryKey(raw: string) {
+  const decoded = decodeSearchContinuation(raw);
+  return decoded ? `${decoded.fp}\0${decoded.c}` : raw;
+}
+
 /** Stable fingerprint of the args that define a Search result set (not the page number). */
 export function searchContinuationFingerprint(input: {
   circleId: string;

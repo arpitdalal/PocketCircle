@@ -1,4 +1,8 @@
-import { searchResultTotalPages, toPlainDate } from "@pocketcircle/domain";
+import {
+  searchContinuationBoundaryKey,
+  searchResultTotalPages,
+  toPlainDate,
+} from "@pocketcircle/domain";
 import { Download, SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -102,7 +106,12 @@ export default function CircleSearch() {
         break;
       }
       const cachedNext = activeCursors.byPage.get(page + 1) ?? "";
-      if (liveNext !== cachedNext) {
+      // Only when a next-page token exists: empty cache is normal (not yet visited). Compare
+      // fp+c only so boundaryOnly probe totals cannot clobber or thrash real cursors.
+      if (
+        cachedNext &&
+        searchContinuationBoundaryKey(liveNext) !== searchContinuationBoundaryKey(cachedNext)
+      ) {
         boundaryInvalidated = true;
         const byPage = new Map<number, string | null>([[1, null]]);
         for (const [cachedPage, cachedCursor] of activeCursors.byPage) {
@@ -110,9 +119,7 @@ export default function CircleSearch() {
             byPage.set(cachedPage, cachedCursor);
           }
         }
-        if (liveNext) {
-          byPage.set(page + 1, liveNext);
-        }
+        // Do not install probe continueCursor — it may carry boundaryOnly totals.
         activeCursors = { key: activeCursors.key, byPage };
         setCursors(activeCursors);
         break;

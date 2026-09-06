@@ -5,6 +5,7 @@ import {
   decodeSearchContinuation,
   encodeSearchContinuation,
   indexedSearchOffsetTakeLimit,
+  searchContinuationBoundaryKey,
   searchContinuationFingerprint,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
@@ -77,6 +78,18 @@ describe("transaction search pagination", () => {
       tcc: false,
       fp: "filters-v1",
     });
+    expect(searchContinuationBoundaryKey(withCursor)).toBe("filters-v1\0engine-cursor");
+    expect(
+      searchContinuationBoundaryKey(
+        encodeSearchContinuation({
+          v: 1,
+          c: "engine-cursor",
+          tc: 1001,
+          tcc: true,
+          fp: "filters-v1",
+        }),
+      ),
+    ).toBe(searchContinuationBoundaryKey(withCursor));
     expect(decodeSearchContinuation("not-json")).toBeNull();
     expect(decodeSearchContinuation(JSON.stringify({ v: 1, tc: 1, tcc: false }))).toBeNull();
     expect(
