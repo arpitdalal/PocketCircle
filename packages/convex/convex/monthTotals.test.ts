@@ -157,4 +157,39 @@ describe("month totals maintenance (RPT-8 PR2)", () => {
     });
     expect(summary?.totals.expenseMinor).toBe(1_500);
   });
+
+  it("initializes unbackfilled buckets from source truth on the next write", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    signInAs(f.owner);
+
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 4_000,
+        date: "2026-06-10",
+      });
+      // Simulate deploy over legacy data: Transactions exist, aggregate rows do not.
+      for (const row of await ctx.db.query("circleMonthTotals").collect()) {
+        await ctx.db.delete(row._id);
+      }
+      for (const row of await ctx.db.query("memberMonthTotals").collect()) {
+        await ctx.db.delete(row._id);
+      }
+    });
+
+    await t.mutation(api.transactions.createTransaction, {
+      circleId: f.circleId,
+      type: "expense",
+      title: "After deploy",
+      amountMinorUnits: 1_000,
+      date: "2026-06-12",
+      categoryIds: [f.groceriesId],
+      expectedCurrency: "USD",
+    });
+
+    expect(
+      (await t.query(api.ledger.getMonthlyLedger, { circleId: f.circleId, month: "2026-06" }))
+        ?.totals.expenseMinor,
+    ).toBe(5_000);
+  });
 });

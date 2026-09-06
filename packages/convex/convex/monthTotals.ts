@@ -146,18 +146,103 @@ export async function removeMonthTotalsContribution(
   await applyContribution(ctx, contribution, -1);
 }
 
+async function circleMonthRowExists(
+  ctx: Pick<MutationCtx, "db">,
+  circleId: Id<"circles">,
+  month: string,
+) {
+  return (
+    (await ctx.db
+      .query("circleMonthTotals")
+      .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
+      .unique()) !== null
+  );
+}
+
+async function memberMonthRowExists(
+  ctx: Pick<MutationCtx, "db">,
+  circleId: Id<"circles">,
+  paidByMemberId: Id<"members">,
+  month: string,
+) {
+  return (
+    (await ctx.db
+      .query("memberMonthTotals")
+      .withIndex("by_circle_member_month", (q) =>
+        q.eq("circleId", circleId).eq("paidByMemberId", paidByMemberId).eq("month", month),
+      )
+      .unique()) !== null
+  );
+}
+
 /**
  * Move maintained totals from `before` → `after` (archive/restore/edit). No-ops when
  * both null or when the contribution is unchanged.
+ *
+ * If any touched bucket has no maintained row yet (unbackfilled), absolute-recompute
+ * those buckets from the active month set instead of inserting a lone delta — otherwise
+ * reads would treat the partial row as authoritative and skip the collect fallback.
  */
 export async function replaceMonthTotalsContribution(
-  ctx: Pick<MutationCtx, "db">,
+  ctx: OperationReader & Pick<MutationCtx, "db">,
   before: MonthTotalsContribution | null,
   after: MonthTotalsContribution | null,
 ) {
   if (before && after && sameContribution(before, after)) {
     return;
   }
+
+  const circleBuckets = new Map<string, { circleId: Id<"circles">; month: string }>();
+  const memberBuckets = new Map<
+    string,
+    { circleId: Id<"circles">; paidByMemberId: Id<"members">; month: string }
+  >();
+  for (const contribution of [before, after]) {
+    if (!contribution) {
+      continue;
+    }
+    circleBuckets.set(`${contribution.circleId}:${contribution.month}`, {
+      circleId: contribution.circleId,
+      month: contribution.month,
+    });
+    memberBuckets.set(
+      `${contribution.circleId}:${contribution.paidByMemberId}:${contribution.month}`,
+      {
+        circleId: contribution.circleId,
+        paidByMemberId: contribution.paidByMemberId,
+        month: contribution.month,
+      },
+    );
+  }
+
+  let needsRecompute = false;
+  for (const bucket of circleBuckets.values()) {
+    if (!(await circleMonthRowExists(ctx, bucket.circleId, bucket.month))) {
+      needsRecompute = true;
+      break;
+    }
+  }
+  if (!needsRecompute) {
+    for (const bucket of memberBuckets.values()) {
+      if (
+        !(await memberMonthRowExists(ctx, bucket.circleId, bucket.paidByMemberId, bucket.month))
+      ) {
+        needsRecompute = true;
+        break;
+      }
+    }
+  }
+
+  if (needsRecompute) {
+    for (const bucket of circleBuckets.values()) {
+      await recomputeCircleMonthTotals(ctx, bucket.circleId, bucket.month);
+    }
+    for (const bucket of memberBuckets.values()) {
+      await recomputeMemberMonthTotals(ctx, bucket.circleId, bucket.paidByMemberId, bucket.month);
+    }
+    return;
+  }
+
   if (before) {
     await removeMonthTotalsContribution(ctx, before);
   }
@@ -237,6 +322,70 @@ export async function recomputeMemberMonthTotals(
       expenseMinor: totals.expenseMinor,
     }),
   );
+}
+
+/**
+ * Absolute rebuild of one Circle-month plus every Paid-By Member-month for that
+ * Circle-month (one collect, then group). Used by bounded backfill pages.
+ */
+export async function recomputeCircleMonthWithMembers(
+  ctx: OperationReader & Pick<MutationCtx, "db">,
+  circleId: Id<"circles">,
+  month: string,
+) {
+  const txns = await collectMonthActiveTransactions(ctx, circleId, month);
+  const circleTotals = sumMonthTotals(txns);
+  const circleRow = await ctx.db
+    .query("circleMonthTotals")
+    .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
+    .unique();
+  await upsertMonthTotalsRow(ctx, circleRow, circleTotals, () =>
+    ctx.db.insert("circleMonthTotals", {
+      circleId,
+      month,
+      incomeMinor: circleTotals.incomeMinor,
+      expenseMinor: circleTotals.expenseMinor,
+    }),
+  );
+
+  const byMember = new Map<Id<"members">, typeof txns>();
+  for (const txn of txns) {
+    const list = byMember.get(txn.paidByMemberId) ?? [];
+    list.push(txn);
+    byMember.set(txn.paidByMemberId, list);
+  }
+
+  const existingMembers = await ctx.db
+    .query("memberMonthTotals")
+    .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+    .collect();
+  for (const row of existingMembers) {
+    if (row.month !== month) {
+      continue;
+    }
+    if (!byMember.has(row.paidByMemberId)) {
+      await ctx.db.delete(row._id);
+    }
+  }
+
+  for (const [paidByMemberId, memberTxns] of byMember) {
+    const totals = sumMonthTotals(memberTxns);
+    const existing = await ctx.db
+      .query("memberMonthTotals")
+      .withIndex("by_circle_member_month", (q) =>
+        q.eq("circleId", circleId).eq("paidByMemberId", paidByMemberId).eq("month", month),
+      )
+      .unique();
+    await upsertMonthTotalsRow(ctx, existing, totals, () =>
+      ctx.db.insert("memberMonthTotals", {
+        circleId,
+        paidByMemberId,
+        month,
+        incomeMinor: totals.incomeMinor,
+        expenseMinor: totals.expenseMinor,
+      }),
+    );
+  }
 }
 
 function toMonthTotals(row: { incomeMinor: number; expenseMinor: number } | null) {
