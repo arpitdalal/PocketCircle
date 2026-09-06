@@ -147,10 +147,11 @@ export function useLedgerTransactionFilter(
 export function useTransactionSearch(
   circleId: Circle["id"],
   filters: TransactionSearchFilters,
-  opts?: { page?: number; pageSize?: number },
+  opts?: { page?: number; pageSize?: number; cursor?: string | null },
 ) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? TRANSACTIONS_PAGE_SIZE;
+  const cursor = opts?.cursor;
   const data = useQuery(
     api.search.searchTransactions,
     MOCKS
@@ -160,6 +161,7 @@ export function useTransactionSearch(
           ...filters,
           page,
           pageSize,
+          ...(cursor !== undefined ? { cursor } : {}),
         },
   );
   if (MOCKS) {
@@ -171,6 +173,7 @@ export function useTransactionSearch(
       pageSize,
       totalCount: all.length,
       totalCountCapped: false,
+      continueCursor: "",
       isLoading: false,
     } satisfies TransactionSearchResult;
   }
@@ -181,6 +184,7 @@ export function useTransactionSearch(
       pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      continueCursor: "",
       isLoading: true,
     } satisfies TransactionSearchResult;
   }

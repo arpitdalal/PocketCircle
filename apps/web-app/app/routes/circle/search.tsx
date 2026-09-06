@@ -1,6 +1,6 @@
 import { searchResultTotalPages, toPlainDate } from "@pocketcircle/domain";
 import { Download, SlidersHorizontal } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
@@ -52,10 +52,27 @@ export default function CircleSearch() {
     panelOpen ? draft.type : filters.type,
     filterOptionsQueryEnabled(panelOpen, filters),
   );
+  // Resume Convex/search cursors across numbered URL pages (RPT-8 PR4) without putting
+  // tokens in the URL. Reset when filters change; cold-start when jumping to an unvisited page.
+  const filterKey = canonicalSearchParams({ ...filters, page: 1 }).toString();
+  const cursorsRef = useRef({
+    key: filterKey,
+    byPage: new Map<number, string | null>([[1, null]]),
+  });
+  if (cursorsRef.current.key !== filterKey) {
+    cursorsRef.current = { key: filterKey, byPage: new Map([[1, null]]) };
+  }
+  const pageCursor = cursorsRef.current.byPage.has(filters.page)
+    ? cursorsRef.current.byPage.get(filters.page)
+    : undefined;
   const results = useTransactionSearch(circle.id, toSearchQuery(filters), {
     page: filters.page,
     pageSize: TRANSACTIONS_PAGE_SIZE,
+    cursor: pageCursor,
   });
+  if (!results.isLoading && results.continueCursor) {
+    cursorsRef.current.byPage.set(filters.page + 1, results.continueCursor);
+  }
   const filterCount = activeFilterCount(filters);
   const exportTransactions = useExportTransactions(circle.id);
   const { show } = useSnackbar();

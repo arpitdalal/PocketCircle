@@ -529,6 +529,8 @@ describe("searchTransactions", () => {
     expect(first.transactions.every((txn) => txn.title.includes("global"))).toBe(true);
     expect(first.totalCount).toBe(6);
     expect(first.totalCountCapped).toBe(false);
+    expect(first.continueCursor.length).toBeGreaterThan(0);
+    expect(JSON.parse(first.continueCursor).c).toEqual(expect.any(String));
 
     const second = await t.query(api.search.searchTransactions, {
       circleId: f.circleId,
@@ -538,10 +540,52 @@ describe("searchTransactions", () => {
       dateTo: "2026-06-30",
       query: "global",
       ...searchTransactionPage(2, 5),
+      cursor: first.continueCursor,
     });
     expect(second.transactions.map((txn) => txn.title).sort()).toEqual(["global 10"]);
     expect(second.totalCount).toBe(6);
     expect(second.totalCountCapped).toBe(false);
+    expect(second.continueCursor).toBe("");
+  });
+
+  it("continues stream search from opaque cursor without rescanning totals", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await t.run(async (ctx) => {
+      for (let index = 1; index <= 6; index += 1) {
+        await seedTransaction(ctx, f, {
+          title: `stream ${index}`,
+          date: `2026-06-${index.toString().padStart(2, "0")}`,
+        });
+      }
+    });
+
+    const first = await t.query(api.search.searchTransactions, {
+      circleId: f.circleId,
+      type: "all",
+      status: "active",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-30",
+      ...searchTransactionPage(1, 5),
+    });
+    expect(first.transactions).toHaveLength(5);
+    expect(first.totalCount).toBe(6);
+    expect(first.continueCursor.length).toBeGreaterThan(0);
+
+    const second = await t.query(api.search.searchTransactions, {
+      circleId: f.circleId,
+      type: "all",
+      status: "active",
+      dateFrom: "2026-06-01",
+      dateTo: "2026-06-30",
+      ...searchTransactionPage(2, 5),
+      cursor: first.continueCursor,
+    });
+    expect(second.transactions).toHaveLength(1);
+    expect(second.totalCount).toBe(6);
+    expect(second.totalCountCapped).toBe(false);
+    expect(second.continueCursor).toBe("");
   });
 
   it("marks indexed search capped when scan sentinel row is hit", async () => {

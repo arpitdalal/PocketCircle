@@ -1,9 +1,36 @@
+import { z } from "zod";
+
 /**
  * Transaction search (circle /search route) uses numbered pages in the URL (#97).
  * Convex caps how far we scan/count so reads stay bounded — keep these aligned with
  * `packages/convex/convex/search.ts`.
  */
 export const TRANSACTION_SEARCH_MAX_PAGE = 40;
+
+/**
+ * Opaque Search page continuation (RPT-8 PR4). Carries totals so later pages need not
+ * rescan for `totalCount`, plus the engine cursor (`c`) to continue the stream/search page.
+ */
+const searchContinuationSchema = z.object({
+  v: z.literal(1),
+  c: z.string().min(1),
+  tc: z.number().int().nonnegative(),
+  tcc: z.boolean(),
+});
+
+export type SearchContinuation = z.infer<typeof searchContinuationSchema>;
+
+export function encodeSearchContinuation(value: SearchContinuation) {
+  return JSON.stringify(searchContinuationSchema.parse(value));
+}
+
+export function decodeSearchContinuation(raw: string) {
+  try {
+    return searchContinuationSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
 
 /** Default page size for search and ledger transaction lists (Convex + client). */
 export const TRANSACTION_LIST_PAGE_SIZE = 25;

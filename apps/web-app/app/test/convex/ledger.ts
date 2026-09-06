@@ -2,6 +2,7 @@ import { api } from "@pocketcircle/convex";
 import {
   clampSearchPage,
   clampSearchPageSize,
+  encodeSearchContinuation,
   formatMoneyAmount,
   money,
 } from "@pocketcircle/domain";
@@ -118,12 +119,24 @@ export function ledgerDouble(state: LedgerState): EntityDouble {
           typeof args.pageSize === "number" ? args.pageSize : undefined,
         );
         const start = (page - 1) * pageSize;
+        const slice = rows.slice(start, start + pageSize);
+        const totalCount = rows.length;
+        const nextStart = start + pageSize;
         return {
-          transactions: rows.slice(start, start + pageSize),
+          transactions: slice,
           pageNumber: page,
           pageSize,
-          totalCount: rows.length,
+          totalCount,
           totalCountCapped: searchTotalCountCapped,
+          continueCursor:
+            nextStart < totalCount
+              ? encodeSearchContinuation({
+                  v: 1,
+                  c: `mock:${String(nextStart)}`,
+                  tc: totalCount,
+                  tcc: searchTotalCountCapped,
+                })
+              : "",
         };
       },
       [getFunctionName(api.export.exportTransactions)]: (args) => {

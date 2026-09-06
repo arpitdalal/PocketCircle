@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   clampSearchPage,
   clampSearchPageSize,
+  decodeSearchContinuation,
+  encodeSearchContinuation,
   indexedSearchOffsetTakeLimit,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
@@ -57,5 +59,25 @@ describe("transaction search pagination", () => {
     expect(searchResultTotalPages(25, 25)).toBe(1);
     expect(searchResultTotalPages(26, 25)).toBe(2);
     expect(searchResultTotalPages(searchOffsetTakeLimit(25), 25)).toBe(TRANSACTION_SEARCH_MAX_PAGE);
+  });
+
+  it("round-trips opaque search continuation tokens", () => {
+    const withCursor = encodeSearchContinuation({
+      v: 1,
+      c: "engine-cursor",
+      tc: 40,
+      tcc: false,
+    });
+    expect(decodeSearchContinuation(withCursor)).toEqual({
+      v: 1,
+      c: "engine-cursor",
+      tc: 40,
+      tcc: false,
+    });
+    expect(decodeSearchContinuation("not-json")).toBeNull();
+    expect(decodeSearchContinuation(JSON.stringify({ v: 1, tc: 1, tcc: false }))).toBeNull();
+    expect(
+      decodeSearchContinuation(JSON.stringify({ v: 1, skip: 25, tc: 1001, tcc: true })),
+    ).toBeNull();
   });
 });
