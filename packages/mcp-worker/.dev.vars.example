@@ -18,3 +18,5 @@ MCP_ISSUER=http://127.0.0.1:8788
 MCP_RESOURCE_URI=http://127.0.0.1:8788/mcp
 # Opt-in private-use redirect schemes for DCR (comma-separated). See research note.
 MCP_DCR_ALLOWED_SCHEMES=cursor,vscode
+# Optional: OpenAI plugin portal domain verification token (GET /.well-known/openai-apps-challenge).
+# OPENAI_APPS_CHALLENGE_TOKEN=<token-from-submission-portal>

@@ -8,6 +8,10 @@ import {
 import { type Env, withWorkersOauthKv } from "./env.js";
 import { createOAuthProvider } from "./oauth-options.js";
 import {
+  OPENAI_APPS_CHALLENGE_PATH,
+  openaiAppsChallengeResponse,
+} from "./openai-apps-challenge.js";
+import {
   assertWithinRateLimit,
   clientIpOf,
   isFailedAuthBlocked,
@@ -69,16 +73,22 @@ function payloadTooLargeJson() {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    // Per-request provider so tokenExchangeCallback closes over live `env`
-    // (the callback API has no env arg). Alias POCKET_CIRCLE_OAUTH_KV → OAUTH_KV
-    // for @cloudflare/workers-oauth-provider, which hardcodes that binding name.
     // Rewrite URL when wrangler remapped custom_domain but client dialed loopback.
     // Prefer MCP_ISSUER — local wrangler also rewrites Host to the custom domain.
     const publicOrigin = publicWorkerOrigin(env, request);
     const publicRequest = requestWithPublicOrigin(request, publicOrigin);
+    const url = new URL(publicRequest.url);
+
+    // OpenAI plugin portal domain check — plain token only, before OAuth work.
+    if (url.pathname === OPENAI_APPS_CHALLENGE_PATH && request.method === "GET") {
+      return openaiAppsChallengeResponse(env.OPENAI_APPS_CHALLENGE_TOKEN);
+    }
+
+    // Per-request provider so tokenExchangeCallback closes over live `env`
+    // (the callback API has no env arg). Alias POCKET_CIRCLE_OAUTH_KV → OAUTH_KV
+    // for @cloudflare/workers-oauth-provider, which hardcodes that binding name.
     const oauthEnv = withWorkersOauthKv(env);
     const provider = createOAuthProvider(env, defaultHandler, publicOrigin);
-    const url = new URL(publicRequest.url);
     const ip = clientIpOf(request) ?? "unknown";
 
     // Skip OAuth/KV once failed-auth already throttled this IP.

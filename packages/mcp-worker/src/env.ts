@@ -36,6 +36,8 @@ declare global {
        * https + loopback http always allowed; denylisted schemes never are.
        */
       MCP_DCR_ALLOWED_SCHEMES?: string;
+      /** OpenAI plugin portal domain-verification token (plain text at well-known URL). */
+      OPENAI_APPS_CHALLENGE_TOKEN?: string;
     }
   }
 }
