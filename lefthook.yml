@@ -5,7 +5,13 @@ pre-commit:
     format:
       # Biome does not handle root README / .env.example; `--staged` would pass
       # them and exit 1 ("No files were processed"). Scope to known extensions.
+      # Exclude paths biome.json ignores too — otherwise a Convex `_generated`
+      # (or mock SW) only commit fails the same way.
       glob: "**/*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css,html}"
+      exclude:
+        - "**/_generated/**"
+        - "**/mockServiceWorker.js"
+        - "**/.react-router/**"
       run: pnpm exec biome check --write {staged_files}
       stage_fixed: true
 
