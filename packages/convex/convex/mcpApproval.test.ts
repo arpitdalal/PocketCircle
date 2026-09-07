@@ -19,7 +19,11 @@ import {
 } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createActiveMcpGrant, seedMcpWriteFixture } from "../test/mcp.js";
+import {
+  createActiveMcpGrant,
+  seedMcpPluginEvalFixture,
+  seedMcpWriteFixture,
+} from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import {
@@ -394,6 +398,44 @@ describe("redeemApprovalToken", () => {
     vi.stubEnv("MCP_WORKER_HMAC_SECRET_PREVIOUS", oldSecret);
 
     expect(await redeemApproval(t, token)).toMatchObject({ ok: true });
+  });
+});
+
+describe("MCP plugin evaluation fixtures", () => {
+  it("denies an unapproved Circle and a revoked connection", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedMcpPluginEvalFixture(t);
+
+    const authorized = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_circle",
+      circleRef: fixture.authorizedCircleRef,
+    });
+    expect(authorized).toMatchObject({
+      ok: true,
+      value: { name: "Authorized Trip", currency: "USD" },
+    });
+
+    const denied = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_circle",
+      circleRef: fixture.deniedCircleRef,
+    });
+    expect(denied).toMatchObject({ ok: false, error: "circle_inaccessible" });
+
+    const listed = await executeMcpRead(t, fixture.grant._id, {
+      kind: "list_authorized_circles",
+    });
+    expect(listed).toMatchObject({ ok: true });
+    if (!listed.ok || !("value" in listed)) {
+      throw new Error("expected authorized circle list");
+    }
+    expect(listed.value.circles.map((circle) => circle.name)).toEqual(["Authorized Trip"]);
+
+    await fixture.revokeGrant();
+    const revoked = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_circle",
+      circleRef: fixture.authorizedCircleRef,
+    });
+    expect(revoked).toMatchObject({ ok: false, error: "grant_unavailable" });
   });
 });
 

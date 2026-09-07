@@ -95,3 +95,41 @@ export async function seedMcpWriteFixture(
   });
   return { owner, f, member, grant, memberGrant, circleRef };
 }
+
+/**
+ * Shared plugin-evaluation fixture (#365): one authorized Circle, one owned but
+ * denied Circle (not on the grant), plus helpers to revoke the connection.
+ */
+export async function seedMcpPluginEvalFixture(t: TestCtx) {
+  const owner = await t.run((ctx) =>
+    seedPersonalCircleOwner(ctx, {
+      email: "plugin-eval@example.com",
+      displayName: "Plugin Eval Owner",
+    }),
+  );
+  const authorized = await t.run((ctx) =>
+    seedOwnedFixture(ctx, owner.owner, { name: "Authorized Trip", currency: "USD" }),
+  );
+  const denied = await t.run((ctx) =>
+    seedOwnedFixture(ctx, owner.owner, { name: "Denied Home", currency: "CAD" }),
+  );
+  const grant = await createActiveMcpGrant(t, {
+    userId: owner.userId,
+    circleIds: [authorized.circleId],
+    scopes: ["pocketcircle:read"],
+    clientId: DEFAULT_CLIENT_ID,
+    clientKind: "static",
+    redirectUri: DEFAULT_REDIRECT_URI,
+  });
+  return {
+    owner,
+    authorized,
+    denied,
+    grant,
+    authorizedCircleRef: buildRef("Authorized Trip", authorized.circleId),
+    deniedCircleRef: buildRef("Denied Home", denied.circleId),
+    async revokeGrant() {
+      await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
+    },
+  };
+}

@@ -1,0 +1,38 @@
+{
+  "name": "pocketcircle",
+  "version": "0.1.0",
+  "description": "Browse Circles, Transactions, Categories, Members, histories, and reports through PocketCircle MCP. Write tools remain available when the connection grants write access.",
+  "author": {
+    "name": "Arpit Dalal",
+    "email": "arpitdalalm@gmail.com",
+    "url": "https://pocketcircle.app"
+  },
+  "homepage": "https://pocketcircle.app",
+  "repository": "https://github.com/arpitdalal/PocketCircle",
+  "license": "UNLICENSED",
+  "keywords": ["pocketcircle", "finance", "circles", "transactions", "mcp", "spending"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "PocketCircle",
+    "shortDescription": "Shared Circles spending via MCP",
+    "longDescription": "PocketCircle connects ChatGPT and Codex to your authorized Circles over the hosted MCP server. List Circles, search Transactions, and inspect Categories, Members, histories, and reports. The server also exposes write tools (create/update/archive/restore) when your connection includes write permission — this plugin is not read-only.",
+    "developerName": "Arpit Dalal",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://pocketcircle.app",
+    "privacyPolicyURL": "https://pocketcircle.app/privacy",
+    "termsOfServiceURL": "https://pocketcircle.app/terms",
+    "supportURL": "https://pocketcircle.app/support",
+    "defaultPrompt": [
+      "Which Circles do I have access to, and what currency is each one?",
+      "Summarize my personal spending in PocketCircle for this month — expenses I paid, by Circle, without mixing currencies.",
+      "In PocketCircle, record a $24.50 coffee expense today in my Personal Circle under Food, paid by me."
+    ],
+    "brandColor": "#9470f5",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png",
+    "screenshots": []
+  }
+}

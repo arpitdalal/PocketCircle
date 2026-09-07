@@ -1,0 +1,20 @@
+{
+  "name": "pocketcircle-local",
+  "interface": {
+    "displayName": "PocketCircle local"
+  },
+  "plugins": [
+    {
+      "name": "pocketcircle",
+      "source": {
+        "source": "local",
+        "path": "./plugins/pocketcircle"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

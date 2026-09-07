@@ -129,7 +129,14 @@ pnpm dev:web:mocks -- --host 127.0.0.1
 pnpm test
 pnpm typecheck
 pnpm build
+node plugins/pocketcircle/assert-package.mjs
 ```
+
+## ChatGPT / Codex plugin (local)
+
+Repo marketplace at `.agents/plugins/marketplace.json` → `plugins/pocketcircle`.
+Install/update steps and host notes: [plugins/pocketcircle/README.md](plugins/pocketcircle/README.md).
+Local install is not public directory publication.
 
 ## Production Deployment
 

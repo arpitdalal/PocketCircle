@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pocketcircle": {
+      "type": "http",
+      "url": "https://mcp.pocketcircle.app/mcp"
+    }
+  }
+}

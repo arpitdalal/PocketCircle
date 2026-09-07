@@ -243,7 +243,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: z.object({}),
       outputSchema: mcpCurrentUserViewSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -268,7 +268,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: z.object({}),
       outputSchema: listCirclesOutputSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -293,7 +293,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: circleRefInputSchema,
       outputSchema: mcpCircleViewSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -318,7 +318,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listMembersInputSchema,
       outputSchema: mcpPaginatedMembersSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -350,7 +350,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCircleHistoryInputSchema,
       outputSchema: mcpPaginatedCircleHistorySchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -379,7 +379,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: mcpSearchTransactionsInputSchema,
       outputSchema: mcpSearchTransactionsResultSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -411,7 +411,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: transactionRefInputSchema,
       outputSchema: mcpTransactionDetailSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -440,7 +440,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listTransactionHistoryInputSchema,
       outputSchema: mcpPaginatedTransactionHistorySchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -470,7 +470,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: monthlyLedgerInputSchema,
       outputSchema: mcpMonthlyLedgerSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -500,7 +500,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: dashboardInputSchema,
       outputSchema: mcpDashboardSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -529,7 +529,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: monthlyComparisonInputSchema,
       outputSchema: mcpMonthlyComparisonSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -559,7 +559,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -590,7 +590,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCategoriesInputSchema,
       outputSchema: mcpPaginatedCategoriesSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -620,7 +620,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpCategoryDetailSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -649,7 +649,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpListCategoryTransactionsResultSchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -678,7 +678,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCategoryHistoryInputSchema,
       outputSchema: mcpPaginatedCategoryHistorySchema,
       annotations: {
-        readOnlyHint: false,
+        readOnlyHint: true,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -801,7 +801,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: true,
+        destructiveHint: false,
         idempotentHint: false,
       },
     },
@@ -830,7 +830,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: true,
+        destructiveHint: false,
         idempotentHint: false,
       },
     },
@@ -936,7 +936,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: true,
+        destructiveHint: false,
         idempotentHint: false,
       },
     },

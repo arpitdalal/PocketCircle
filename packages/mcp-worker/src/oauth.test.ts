@@ -1497,7 +1497,7 @@ describe("MCP tools execution", () => {
           expect.objectContaining({
             name: "get_circle",
             annotations: {
-              readOnlyHint: false,
+              readOnlyHint: true,
               openWorldHint: false,
               destructiveHint: false,
               idempotentHint: true,
@@ -1506,7 +1506,7 @@ describe("MCP tools execution", () => {
           expect.objectContaining({
             name: "list_members",
             annotations: {
-              readOnlyHint: false,
+              readOnlyHint: true,
               openWorldHint: false,
               destructiveHint: false,
               idempotentHint: true,
@@ -1515,7 +1515,7 @@ describe("MCP tools execution", () => {
           expect.objectContaining({
             name: "list_circle_history",
             annotations: {
-              readOnlyHint: false,
+              readOnlyHint: true,
               openWorldHint: false,
               destructiveHint: false,
               idempotentHint: true,
@@ -1535,7 +1535,7 @@ describe("MCP tools execution", () => {
             annotations: {
               readOnlyHint: false,
               openWorldHint: false,
-              destructiveHint: true,
+              destructiveHint: false,
               idempotentHint: false,
             },
           }),
@@ -1553,7 +1553,7 @@ describe("MCP tools execution", () => {
             annotations: {
               readOnlyHint: false,
               openWorldHint: false,
-              destructiveHint: true,
+              destructiveHint: false,
               idempotentHint: false,
             },
           }),
