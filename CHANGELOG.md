@@ -7,6 +7,12 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.5.1] - 2026-09-07
+
+### Changed
+
+- AI assistant tools now advertise clearer safety hints for ChatGPT and Codex.
+
 ## [v0.5.0] - 2026-09-06
 
 ### Added
