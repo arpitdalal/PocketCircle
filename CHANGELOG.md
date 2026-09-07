@@ -7,6 +7,13 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-09-06
+
+### Added
+
+- Launch a full landing page.
+- What's new is generally available.
+
 ## [v0.4.7] - 2026-09-06
 
 ### Added
