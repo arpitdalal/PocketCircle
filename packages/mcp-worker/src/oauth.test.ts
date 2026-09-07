@@ -1479,7 +1479,7 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("lists all read tools with read-only annotations", async () => {
+  it("lists tools with explicit submission annotations", async () => {
     const { accessToken } = await obtainAccessToken();
     const res = await sendMcpRequest(accessToken, {
       method: "tools/list",
@@ -1496,31 +1496,66 @@ describe("MCP tools execution", () => {
         tools: expect.arrayContaining([
           expect.objectContaining({
             name: "get_circle",
-            annotations: { readOnlyHint: true, idempotentHint: true },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: false,
+              idempotentHint: true,
+            },
           }),
           expect.objectContaining({
             name: "list_members",
-            annotations: { readOnlyHint: true, idempotentHint: true },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: false,
+              idempotentHint: true,
+            },
           }),
           expect.objectContaining({
             name: "list_circle_history",
-            annotations: { readOnlyHint: true, idempotentHint: true },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: false,
+              idempotentHint: true,
+            },
           }),
           expect.objectContaining({
             name: "archive_transaction",
-            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: true,
+              idempotentHint: false,
+            },
           }),
           expect.objectContaining({
             name: "restore_transaction",
-            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: true,
+              idempotentHint: false,
+            },
           }),
           expect.objectContaining({
             name: "archive_category",
-            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: true,
+              idempotentHint: false,
+            },
           }),
           expect.objectContaining({
             name: "restore_category",
-            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+            annotations: {
+              readOnlyHint: false,
+              openWorldHint: false,
+              destructiveHint: true,
+              idempotentHint: false,
+            },
           }),
         ]),
       },
