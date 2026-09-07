@@ -7,6 +7,12 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.4.7] - 2026-09-06
+
+### Added
+
+- The site now publishes a sitemap.
+
 ## [v0.4.6] - 2026-09-06
 
 ### Fixed
