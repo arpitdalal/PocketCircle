@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+
+# Auth-gated / account surfaces — no useful public HTML; keep out of crawl budget.
+Disallow: /signin
+Disallow: /invite
+Disallow: /delete-account
+Disallow: /home
+Disallow: /onboarding
+Disallow: /settings
+Disallow: /connections
+Disallow: /whats-new
+Disallow: /feedback
+Disallow: /mcp
+Disallow: /transactions
+Disallow: /circles
+Disallow: /dev
+
+Sitemap: https://pocketcircle.app/sitemap.xml
