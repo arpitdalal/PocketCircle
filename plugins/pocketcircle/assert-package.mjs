@@ -42,6 +42,15 @@ assert(existsSync(skillPath), "missing browse-authorized-records skill");
 const manifest = readJson(manifestPath);
 assert(manifest.name === "pocketcircle", "manifest.name must be pocketcircle");
 assert(manifest.interface?.displayName === "PocketCircle", "displayName must be PocketCircle");
+assert(
+  manifest.interface?.shortDescription === "Track shared income & expenses",
+  "shortDescription must match listing subtitle",
+);
+assert(manifest.interface?.category === "Finance", "category must be Finance");
+assert(
+  /authorized Circles/i.test(manifest.interface?.longDescription ?? ""),
+  "longDescription must mention authorized Circles",
+);
 assertRelativeDotPath(manifest.skills, "skills");
 assertRelativeDotPath(manifest.mcpServers, "mcpServers");
 assertRelativeDotPath(manifest.apps, "apps");

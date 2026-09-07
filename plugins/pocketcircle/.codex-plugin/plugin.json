@@ -1,7 +1,7 @@
 {
   "name": "pocketcircle",
-  "version": "0.1.0",
-  "description": "Browse Circles, Transactions, Categories, Members, histories, and reports through PocketCircle MCP. Write tools remain available when the connection grants write access.",
+  "version": "0.1.1",
+  "description": "Track shared income and expenses in authorized Circles. View and manage Transactions and Categories when your connection grants write access — not a read-only product.",
   "author": {
     "name": "Arpit Dalal",
     "email": "arpitdalalm@gmail.com",
@@ -16,10 +16,10 @@
   "apps": "./.app.json",
   "interface": {
     "displayName": "PocketCircle",
-    "shortDescription": "Shared Circles spending via MCP",
-    "longDescription": "PocketCircle connects ChatGPT and Codex to your authorized Circles over the hosted MCP server. List Circles, search Transactions, and inspect Categories, Members, histories, and reports. The server also exposes write tools (create/update/archive/restore) when your connection includes write permission — this plugin is not read-only.",
+    "shortDescription": "Track shared income & expenses",
+    "longDescription": "PocketCircle helps users track personal and shared income and expenses in authorized Circles. View members, transactions, categories, history and monthly reports; create, update, archive and restore transactions and categories within your permissions. Financial records and member identities are returned to ChatGPT. Calls record connection usage, and some changes notify affected members inside PocketCircle. Write tools remain available when the connection grants write access — this plugin is not read-only.",
     "developerName": "Arpit Dalal",
-    "category": "Productivity",
+    "category": "Finance",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://pocketcircle.app",
     "privacyPolicyURL": "https://pocketcircle.app/privacy",
