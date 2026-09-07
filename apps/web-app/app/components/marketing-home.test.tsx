@@ -30,15 +30,40 @@ describe("MarketingHome", () => {
     renderRoutes(<Route path="/" element={<MarketingHome />} />);
 
     expect(screen.getByRole("heading", { name: "PocketCircle" })).toBeInTheDocument();
-    expect(screen.getByText(/track spending together in shared Circles/i)).toBeInTheDocument();
-    expect(screen.queryByText(/assistants/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
-    expect(screen.getByText(/By continuing you agree to our/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
-      "href",
-      "/privacy",
-    );
-    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByText(/one place for the money you share/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/track spending together in shared Circles/i).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/circles for every shared life/i)).toBeInTheDocument();
+    expect(screen.getByText(/AI-native, with you in control/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connect AI assistants over MCP/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Continue with Google" }).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/By continuing you agree to our/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("navigation", { name: "Product" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Legal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Circles" })).toHaveAttribute("href", "#circles");
+    expect(screen.getByRole("link", { name: "AI & MCP" })).toHaveAttribute("href", "#ai");
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
+    expect(screen.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "/whats-new");
+    expect(screen.getByRole("link", { name: "Sitemap" })).toHaveAttribute("href", "/sitemap.xml");
+    expect(
+      screen.getByText(`© ${new Date().getFullYear()} PocketCircle. All rights reserved.`),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Feedback" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Connections" })).not.toBeInTheDocument();
+    const privacyLinks = screen.getAllByRole("link", { name: "Privacy Policy" });
+    expect(privacyLinks.length).toBeGreaterThanOrEqual(1);
+    for (const link of privacyLinks) {
+      expect(link).toHaveAttribute("href", "/privacy");
+    }
+    const termsLinks = screen.getAllByRole("link", { name: "Terms" });
+    expect(termsLinks.length).toBeGreaterThanOrEqual(1);
+    for (const link of termsLinks) {
+      expect(link).toHaveAttribute("href", "/terms");
+    }
   });
 });
 
@@ -49,6 +74,8 @@ describe("MarketingHomeRoute (/home)", () => {
     });
 
     expect(screen.getByRole("heading", { name: "PocketCircle" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Continue with Google" }).length,
+    ).toBeGreaterThanOrEqual(1);
   });
 });

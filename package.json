@@ -14,6 +14,7 @@
     "dev:mcp": "pnpm --filter @pocketcircle/mcp-worker dev",
     "dev:convex": "pnpm --filter @pocketcircle/convex dev",
     "build": "pnpm --filter @pocketcircle/web-app build",
+    "start": "wrangler dev",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check . && pnpm --filter @pocketcircle/web-app lint:react-compiler",
     "validate": "pnpm typecheck && pnpm lint && pnpm test",

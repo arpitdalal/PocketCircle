@@ -9,7 +9,6 @@ Disallow: /home
 Disallow: /onboarding
 Disallow: /settings
 Disallow: /connections
-Disallow: /whats-new
 Disallow: /feedback
 Disallow: /mcp
 Disallow: /transactions

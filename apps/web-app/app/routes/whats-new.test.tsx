@@ -84,11 +84,23 @@ describe("What's new", () => {
     });
   });
 
-  it("does not track while the session is still loading", async () => {
+  it("renders for signed-out visitors and does not track while the session is still loading", async () => {
     configureConvex({ currentUser: undefined });
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
     renderWhatsNew();
 
-    expect(screen.queryByRole("heading", { name: "What's new" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What's new" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(posthogSdk.capture).not.toHaveBeenCalled();
+    });
+  });
+
+  it("renders for unauthenticated visitors without tracking", async () => {
+    configureConvex({ currentUser: undefined });
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    renderWhatsNew();
+
+    expect(screen.getByRole("heading", { name: "What's new" })).toBeInTheDocument();
     await waitFor(() => {
       expect(posthogSdk.capture).not.toHaveBeenCalled();
     });

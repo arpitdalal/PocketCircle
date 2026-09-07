@@ -37,5 +37,6 @@ requireHtml("index.html", [
 
 requireHtml("privacy/index.html", ["Privacy Policy", "Information we collect"]);
 requireHtml("terms/index.html", ["Terms &amp; Conditions"]);
+requireHtml("whats-new/index.html", ["What&#x27;s new"]);
 
-console.log("Branding HTML ok (index + privacy + terms).");
+console.log("Branding HTML ok (index + privacy + terms + whats-new).");

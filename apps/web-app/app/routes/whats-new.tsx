@@ -11,7 +11,7 @@ import { useAppSession } from "~/lib/session.js";
 
 const sections = parseChangelog(changelogSource);
 
-/** Protected What's New archive — formatted CHANGELOG.md, not a launch popup. */
+/** Public What's New archive — formatted CHANGELOG.md, not a launch popup. */
 export default function WhatsNew() {
   const session = useAppSession();
   const latestVersion = sections[0]?.version;
@@ -23,12 +23,8 @@ export default function WhatsNew() {
     track("whats_new_opened", { latestVersion });
   }, [latestVersion, session.state]);
 
-  if (session.state !== "ready") {
-    return null;
-  }
-
   return (
-    <div className="mx-auto max-w-2xl space-y-8">
+    <div className="mx-auto w-full max-w-2xl space-y-8">
       <h1 className="font-display text-2xl font-semibold tracking-tight">What's new</h1>
 
       {sections.length === 0 ? (

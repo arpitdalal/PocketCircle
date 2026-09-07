@@ -30,12 +30,12 @@ test("signing out clears the session and lands signed out", async ({ browser, ba
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
 
-    await expect(page.getByRole("button", { name: /Continue with Google/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(0);
 
     // Session is truly gone, not just a client redirect: revisiting `/` stays signed out.
     await page.goto(`${resolvedBase}/`);
-    await expect(page.getByRole("button", { name: /Continue with Google/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
     await expect(page).toHaveURL((url) => url.pathname === "/");
     await expect(page.getByRole("heading", { name: "PocketCircle" })).toBeVisible();
   } finally {

@@ -20,12 +20,13 @@ export default [
     layout("routes/layouts/public-reading-layout.tsx", [
       route("terms", "routes/terms.tsx"),
       route("privacy", "routes/privacy.tsx"),
+      route("whats-new", "routes/whats-new.tsx"),
     ]),
   ]),
 
   // Always-on marketing homepage preview (no auth gate). Signed-out `/` uses
-  // the same component via ProtectedLayout; this path is for inspecting copy
-  // while signed in. Temporary until a real marketing site replaces both.
+  // the same component via ProtectedLayout; this path is for inspecting the
+  // landing page while signed in.
   route("home", "routes/marketing-home.tsx"),
 
   // Authenticated app. The protected layout shows a splash while auth resolves,
@@ -36,7 +37,6 @@ export default [
     route("onboarding", "routes/onboarding.tsx"),
     route("settings", "routes/settings.tsx"),
     route("connections", "routes/connections.tsx"),
-    route("whats-new", "routes/whats-new.tsx"),
     route("feedback", "routes/feedback.tsx"),
     // MCP client consent (#318). Protected so Google sign-in + onboarding gate
     // apply; `handoffId` is the Worker-stored continuation (signed token is

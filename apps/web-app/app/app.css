@@ -223,4 +223,41 @@
       background-color: transparent;
     }
   }
+
+  /* Marketing homepage: rare first-visit motion only. Global prefers-reduced-motion
+     already collapses these to near-instant via the unlayered reset above. */
+  --animate-marketing-enter: marketing-enter 520ms var(--ease-out-quart) both;
+  --animate-marketing-glow: marketing-glow 8s ease-in-out infinite;
+  --animate-marketing-row-pulse: marketing-row-pulse 3.2s ease-in-out infinite;
+
+  @keyframes marketing-enter {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes marketing-glow {
+    0%,
+    100% {
+      opacity: 0.85;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.06);
+    }
+  }
+  @keyframes marketing-row-pulse {
+    0%,
+    100% {
+      background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+    }
+    50% {
+      background-color: color-mix(in oklab, var(--primary) 16%, transparent);
+    }
+  }
 }
