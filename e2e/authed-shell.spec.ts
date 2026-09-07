@@ -23,5 +23,5 @@ test("an already-signed-in visitor to /signin is redirected into the app", async
   // form; ProtectedLayout then renders the shell for this bootstrapped User.
   await expect(page).toHaveURL((url) => url.pathname === "/");
   await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Continue with Google/ })).toBeHidden();
+  await expect(page.getByRole("button", { name: /Continue with Google/ })).toHaveCount(0);
 });

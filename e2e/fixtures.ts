@@ -468,7 +468,7 @@ async function ensureAppShellReady(page: Page) {
   // `Home` is the signed-in h1 (visible during Home Summary loading). `Your circles`
   // is now a section heading behind getHomeSummary — waiting on it stalls shell-ready.
   const homeHeading = page.getByRole("heading", { name: "Home", exact: true });
-  const continueButton = page.getByRole("button", { name: "Continue" });
+  const continueButton = page.getByRole("button", { name: "Continue", exact: true });
 
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
