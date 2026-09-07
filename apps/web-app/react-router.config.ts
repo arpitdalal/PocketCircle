@@ -14,5 +14,5 @@ import type { Config } from "@react-router/dev/config";
 export default {
   appDirectory: "app",
   ssr: false,
-  prerender: ["/privacy", "/terms", "/whats-new"],
+  prerender: ["/privacy", "/terms", "/support", "/whats-new"],
 } satisfies Config;

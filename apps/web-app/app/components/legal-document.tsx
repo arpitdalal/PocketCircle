@@ -1,4 +1,4 @@
-import { POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
+import { POCKETCIRCLE_LEGAL_EMAIL } from "@pocketcircle/domain";
 import type { ReactNode } from "react";
 import { href, Link } from "react-router";
 
@@ -6,19 +6,23 @@ export function LegalDocument({
   title,
   summary,
   effectiveDate,
+  dateLabel = "Effective",
   children,
 }: {
   title: string;
   summary: string;
-  effectiveDate: string;
+  effectiveDate?: string;
+  dateLabel?: string;
   children: ReactNode;
 }) {
   return (
     <article className="space-y-8 rounded-xl border border-border bg-card/60 p-6 text-sm leading-6 text-muted-foreground shadow-xl backdrop-blur-sm sm:p-8">
       <header className="space-y-3 border-b border-border pb-6">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
-          Effective {effectiveDate}
-        </p>
+        {effectiveDate ? (
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
+            {dateLabel} {effectiveDate}
+          </p>
+        ) : null}
         <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
           {title}
         </h1>
@@ -31,10 +35,10 @@ export function LegalDocument({
         <p>
           Questions? Email{" "}
           <a
-            href={`mailto:${POCKETCIRCLE_SUPPORT_EMAIL}`}
+            href={`mailto:${POCKETCIRCLE_LEGAL_EMAIL}`}
             className="font-medium text-primary underline underline-offset-4"
           >
-            {POCKETCIRCLE_SUPPORT_EMAIL}
+            {POCKETCIRCLE_LEGAL_EMAIL}
           </a>
           .
         </p>

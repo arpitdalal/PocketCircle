@@ -1,12 +1,17 @@
-import { LEGAL_DOCUMENTS, POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
+import {
+  LEGAL_DOCUMENTS,
+  POCKETCIRCLE_LEGAL_EMAIL,
+  POCKETCIRCLE_SUPPORT_EMAIL,
+} from "@pocketcircle/domain";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderWithRouter } from "~/test/convex-react.js";
 import Privacy from "./privacy.js";
+import Support from "./support.js";
 import Terms from "./terms.js";
 
 describe("legal pages", () => {
-  it("publishes substantive beta Terms with the support contact", () => {
+  it("publishes substantive beta Terms with the legal contact", () => {
     renderWithRouter(<Terms />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Terms & Conditions" })).toBeVisible();
@@ -19,17 +24,17 @@ describe("legal pages", () => {
     expect(screen.queryByText(/unsubscribe/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
-    const contact = screen.getByRole("link", { name: POCKETCIRCLE_SUPPORT_EMAIL });
-    expect(contact).toHaveAttribute("href", `mailto:${POCKETCIRCLE_SUPPORT_EMAIL}`);
+    const contact = screen.getByRole("link", { name: POCKETCIRCLE_LEGAL_EMAIL });
+    expect(contact).toHaveAttribute("href", `mailto:${POCKETCIRCLE_LEGAL_EMAIL}`);
   });
 
   it("explains collected data, service providers, analytics, and deletion", () => {
     renderWithRouter(<Privacy />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Privacy Policy" })).toBeVisible();
-    expect(screen.getByText("Effective August 26, 2026")).toBeVisible();
-    expect(LEGAL_DOCUMENTS.privacy.effectiveDate).toBe("August 26, 2026");
-    expect(LEGAL_DOCUMENTS.terms.effectiveDate).toBe("August 26, 2026");
+    expect(screen.getByText("Effective September 7, 2026")).toBeVisible();
+    expect(LEGAL_DOCUMENTS.privacy.effectiveDate).toBe("September 7, 2026");
+    expect(LEGAL_DOCUMENTS.terms.effectiveDate).toBe("September 7, 2026");
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
     const providers = screen
@@ -74,5 +79,44 @@ describe("legal pages", () => {
     expect(screen.queryByText(/off by default for every user/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/After you opt in, PostHog may use local/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Retention and Account Deletion$/ })).toBeVisible();
+  });
+
+  it("publishes support contact, MCP connect steps, and troubleshooting", () => {
+    renderWithRouter(<Support />);
+
+    expect(screen.getByRole("heading", { level: 1, name: "Support" })).toBeVisible();
+    expect(screen.getByText("Updated September 7, 2026")).toBeVisible();
+    expect(screen.getByRole("heading", { name: /Connect an AI assistant$/ })).toBeVisible();
+    expect(screen.getByRole("heading", { name: /Troubleshooting$/ })).toBeVisible();
+    expect(screen.getByText("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByText(/Do not email passwords/i)).toBeVisible();
+    expect(screen.getByText(/does not convert or sum different Currencies/i)).toBeVisible();
+    expect(screen.getByText(/reinstall\/update the PocketCircle package/i)).toBeVisible();
+    expect(screen.getByText(/does not support Settlement/i)).toBeVisible();
+    expect(screen.getByText(/does not publish PocketCircle/i)).toBeVisible();
+
+    const contacts = screen.getAllByRole("link", { name: POCKETCIRCLE_SUPPORT_EMAIL });
+    expect(contacts.length).toBeGreaterThanOrEqual(1);
+    for (const contact of contacts) {
+      expect(contact).toHaveAttribute("href", `mailto:${POCKETCIRCLE_SUPPORT_EMAIL}`);
+    }
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "/privacy",
+    );
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+  });
+
+  it("discloses MCP data handling and individual publisher identity", () => {
+    const { unmount } = renderWithRouter(<Privacy />);
+
+    expect(screen.getByText(/MCP connection information/i)).toBeVisible();
+    expect(screen.getByText(/authorized Circle data to that assistant/i)).toBeVisible();
+    expect(screen.getByText(/application and MCP service/i)).toBeVisible();
+
+    unmount();
+    renderWithRouter(<Terms />);
+    expect(screen.getByText(/operated and published by Arpit Dalal/i)).toBeVisible();
+    expect(screen.getByText(/AI-assistant connections/i)).toBeVisible();
   });
 });

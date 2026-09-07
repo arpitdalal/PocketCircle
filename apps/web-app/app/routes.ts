@@ -20,6 +20,7 @@ export default [
     layout("routes/layouts/public-reading-layout.tsx", [
       route("terms", "routes/terms.tsx"),
       route("privacy", "routes/privacy.tsx"),
+      route("support", "routes/support.tsx"),
       route("whats-new", "routes/whats-new.tsx"),
     ]),
   ]),

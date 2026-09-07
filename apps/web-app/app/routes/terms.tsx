@@ -19,6 +19,11 @@ export default function Terms() {
           You remain responsible for your financial decisions, records, taxes, reporting duties, and
           agreements with other Circle Members.
         </p>
+        <p>
+          PocketCircle is operated and published by Arpit Dalal as an individual maintainer. The
+          PocketCircle name identifies the product, not a separate bank, company, or financial
+          institution.
+        </p>
       </LegalSection>
 
       <LegalSection title="2. Eligibility and your account">
@@ -105,9 +110,10 @@ export default function Terms() {
       <LegalSection title="7. Third-party services">
         <p>
           PocketCircle relies on third-party services for authentication, hosting, database, email,
-          operational monitoring, and optional product analytics. Their availability and processing
-          are governed by their own terms and policies. See the Privacy Policy for the providers
-          currently used and the information processed by them.
+          operational monitoring, optional product analytics, and AI-assistant connections. When you
+          connect an assistant, it can request only the Circles and scopes you approve, subject to
+          PocketCircle authorization and the assistant provider&apos;s own terms and policies. See
+          the Privacy Policy for the providers currently used and the information processed by them.
         </p>
       </LegalSection>
 

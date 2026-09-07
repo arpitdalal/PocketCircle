@@ -348,6 +348,7 @@ const FOOTER_SECTIONS = [
     links: [
       { label: "Sign in", to: "/signin" },
       { label: "What's new", to: "/whats-new" },
+      { label: "Support", to: "/support" },
     ],
   },
   {

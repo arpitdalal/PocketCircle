@@ -48,6 +48,7 @@ describe("MarketingHome", () => {
     expect(screen.getByRole("link", { name: "AI & MCP" })).toHaveAttribute("href", "#ai");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
     expect(screen.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "/whats-new");
+    expect(screen.getByRole("link", { name: "Support" })).toHaveAttribute("href", "/support");
     expect(screen.getByRole("link", { name: "Sitemap" })).toHaveAttribute("href", "/sitemap.xml");
     expect(
       screen.getByText(`© ${new Date().getFullYear()} PocketCircle. All rights reserved.`),

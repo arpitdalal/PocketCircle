@@ -36,6 +36,14 @@ export default function Privacy() {
             timestamps, browser and device details, network information, error diagnostics, and
             coarse feature-usage events when product analytics are enabled.
           </li>
+          <li>
+            <strong className="text-foreground">MCP connection information:</strong> when you
+            connect an AI assistant, PocketCircle processes the client&apos;s display metadata, the
+            OAuth connection, approved scopes, selected Circle identifiers, connection status, and
+            connection timestamps. OAuth access and refresh tokens authenticate requests; they are
+            not shown in Connections or support materials. Assistant requests can return authorized
+            Circle data needed for the selected tool.
+          </li>
         </LegalList>
       </LegalSection>
 
@@ -83,7 +91,7 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-foreground">Cloudflare</strong> to host and deliver the web
-            application;
+            application and MCP service;
           </li>
           <li>
             <strong className="text-foreground">Resend</strong> to deliver service, support, and
@@ -98,6 +106,11 @@ export default function Privacy() {
             onboarding, unless you turn it off in Settings → Privacy.
           </li>
         </LegalList>
+        <p>
+          When you connect an AI assistant, PocketCircle discloses authorized Circle data to that
+          assistant only within the scopes and Circles you approve. The assistant provider&apos;s
+          own terms and privacy policy govern its handling of data it receives.
+        </p>
         <p>
           These providers process information on PocketCircle&apos;s behalf under their own privacy
           terms. Information may be processed outside your province, state, or country and may be
