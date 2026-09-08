@@ -18,6 +18,11 @@ import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFa
  * Required deployment env vars (Convex deployment env, like auth.ts):
  * RESEND_API_KEY, RESEND_FROM_EMAIL
  *
+ * Optional welcome overrides (From must be on a Resend-verified domain):
+ * RESEND_WELCOME_FROM_EMAIL, RESEND_WELCOME_REPLY_TO_EMAIL
+ * e.g. From `Arpit Dalal <arpit.dalal@mail.pocketcircle.app>`,
+ * Reply-To `arpit.dalal@pocketcircle.app` (apex CF forward — no Resend verify).
+ *
  * Feedback (FBK-1) also uses SUPPORT_EMAIL as the recipient address.
  *
  * Optional: EMAIL_DEV_LOG=1 logs subject + body to the Convex console even when
@@ -51,12 +56,16 @@ export async function sendEmail(args: {
   to: string;
   subject: string;
   html: string;
+  /** Override RESEND_FROM_EMAIL for this send (must be on a Resend-verified domain). */
+  from?: string;
+  /** Resend `reply_to`. */
+  replyTo?: string;
   idempotencyKey?: string;
   /** When false, dev logging omits the HTML body (FBK-1 feedback privacy). Default true. */
   logBodyInDev?: boolean;
 }) {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
+  const from = args.from ?? process.env.RESEND_FROM_EMAIL;
   const logBodyInDev = args.logBodyInDev ?? true;
   const devLog = process.env.EMAIL_DEV_LOG === "1" || !key || !from;
   if (devLog) {
@@ -80,7 +89,13 @@ export async function sendEmail(args: {
       // Resend dedupes same-key sends for 24h → safe to retry the whole action.
       ...(args.idempotencyKey ? { "Idempotency-Key": args.idempotencyKey } : {}),
     },
-    body: JSON.stringify({ from, to: args.to, subject: args.subject, html: args.html }),
+    body: JSON.stringify({
+      from,
+      to: args.to,
+      subject: args.subject,
+      html: args.html,
+      ...(args.replyTo ? { reply_to: args.replyTo } : {}),
+    }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -145,6 +160,8 @@ export const sendWelcomeEmail = internalAction({
       displayName: p.displayName,
       appUrl: process.env.SITE_URL ?? "http://127.0.0.1:5173",
     });
+    const welcomeFrom = process.env.RESEND_WELCOME_FROM_EMAIL;
+    const welcomeReplyTo = process.env.RESEND_WELCOME_REPLY_TO_EMAIL;
     const sent = await sendEmailOrReport(
       ctx,
       { kind: "welcome_email_exhausted", entityId: userId },
@@ -153,6 +170,8 @@ export const sendWelcomeEmail = internalAction({
         subject,
         html,
         idempotencyKey: `welcome:${userId}`,
+        ...(welcomeFrom ? { from: welcomeFrom } : {}),
+        ...(welcomeReplyTo ? { replyTo: welcomeReplyTo } : {}),
       },
     );
     if (sent) {

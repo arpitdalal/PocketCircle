@@ -202,6 +202,7 @@ describe("sendWelcomeEmail", () => {
       to: "ada@example.com",
       subject: WELCOME_SUBJECT,
     });
+    expect(resend[0]?.body).not.toHaveProperty("reply_to");
     expect(resend[0]?.headers?.["idempotency-key"]).toBe(`welcome:${userId}`);
     const html = resendBodyHtml(resend[0]?.body);
     expect(html).toContain("Ada Lovelace");
@@ -209,6 +210,27 @@ describe("sendWelcomeEmail", () => {
     expect(html).toContain("Open PocketCircle");
     expect(html).not.toMatch(FINANCIAL_PATTERN);
     expect(await getWelcomeSentAt(t, userId)).toBeTypeOf("number");
+  });
+
+  it("applies welcome From and Reply-To overrides", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    vi.stubEnv("RESEND_FROM_EMAIL", "PocketCircle <no-reply@mail.pocketcircle.test>");
+    vi.stubEnv("RESEND_WELCOME_FROM_EMAIL", "Arpit Dalal <arpit.dalal@mail.pocketcircle.test>");
+    vi.stubEnv("RESEND_WELCOME_REPLY_TO_EMAIL", "arpit.dalal@pocketcircle.test");
+
+    const t = convexTest(schema, modules);
+    const { userId } = await seedOwner(t);
+
+    await t.action(internal.email.sendWelcomeEmail, { userId });
+
+    const resend = capturedRequests.filter((r) => r.vendor === "resend");
+    expect(resend).toHaveLength(1);
+    expect(resend[0]?.body).toMatchObject({
+      from: "Arpit Dalal <arpit.dalal@mail.pocketcircle.test>",
+      reply_to: "arpit.dalal@pocketcircle.test",
+      to: "ada@example.com",
+      subject: WELCOME_SUBJECT,
+    });
   });
 
   it("rejects on non-2xx and does not mark", async () => {
@@ -332,6 +354,24 @@ describe("sendEmail env safety and vendor errors", () => {
     const resend = capturedRequests.filter((r) => r.vendor === "resend");
     expect(resend).toHaveLength(1);
     expect(resend[0]?.headers?.["idempotency-key"]).toBe("welcome:user-123");
+  });
+
+  it("forwards from override and replyTo", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
+
+    await sendEmail({
+      to: "a@b.com",
+      subject: WELCOME_SUBJECT,
+      html: welcomeEmail({ displayName: "Ada", appUrl: "https://app.example.com" }).html,
+      from: "Arpit Dalal <arpit@mail.example.com>",
+      replyTo: "arpit@example.com",
+    });
+
+    expect(capturedRequests.filter((r) => r.vendor === "resend")[0]?.body).toMatchObject({
+      from: "Arpit Dalal <arpit@mail.example.com>",
+      reply_to: "arpit@example.com",
+    });
   });
 });
 
