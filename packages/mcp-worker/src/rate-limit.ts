@@ -26,6 +26,7 @@ export const DESTRUCTIVE_TOOL_NAMES = new Set(["archive_category", "archive_tran
 export const READ_TOOL_NAMES = new Set([
   "get_current_user",
   "list_authorized_circles",
+  "get_home_summary_preferences",
   "get_circle",
   "list_members",
   "list_circle_history",

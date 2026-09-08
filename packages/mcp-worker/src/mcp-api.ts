@@ -23,6 +23,7 @@ import {
   mcpCreateTransactionResultSchema,
   mcpCurrentUserViewSchema,
   mcpDashboardSchema,
+  mcpHomeSummaryPreferencesSchema,
   mcpListCategoriesFiltersSchema,
   mcpListCategoryTransactionsResultSchema,
   mcpMonthlyComparisonSchema,
@@ -281,6 +282,31 @@ export function buildMcpServer(env: Env, request?: Request) {
         ctx.http?.req,
         { kind: "list_authorized_circles" },
         listCirclesOutputSchema,
+      ),
+  );
+
+  server.registerTool(
+    "get_home_summary_preferences",
+    {
+      title: "Get Home Summary Preferences",
+      description:
+        "Get saved Home Summary Circle exclusions for this connection. Only exclusions for currently authorized Circles are returned; this does not reveal other Circles.",
+      inputSchema: z.object({}),
+      outputSchema: mcpHomeSummaryPreferencesSchema,
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (_args, ctx) =>
+      handleToolExecution(
+        env,
+        request,
+        ctx.http?.req,
+        { kind: "get_home_summary_preferences" },
+        mcpHomeSummaryPreferencesSchema,
       ),
   );
 

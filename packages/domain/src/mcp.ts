@@ -147,6 +147,13 @@ export const mcpCircleRefSchema = z
     "Circle ref from list_authorized_circles (stable id string, not the Circle display name).",
   );
 
+/** Home Summary preferences visible to an MCP grant. */
+export const mcpHomeSummaryPreferencesSchema = z.object({
+  excludedCircleRefs: z.array(mcpCircleRefSchema),
+});
+
+export type McpHomeSummaryPreferences = z.infer<typeof mcpHomeSummaryPreferencesSchema>;
+
 function mcpPaginatedSchema<T extends z.ZodType>(itemSchema: T) {
   return z.object({
     page: z.array(itemSchema).max(100),
@@ -494,6 +501,7 @@ const mcpSearchTransactionsOperationSchema = mcpSearchTransactionsCoreSchema
 export const mcpReadOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("get_current_user") }),
   z.object({ kind: z.literal("list_authorized_circles") }),
+  z.object({ kind: z.literal("get_home_summary_preferences") }),
   z.object({ kind: z.literal("get_circle"), circleRef: mcpCircleRefSchema }),
   z.object({
     kind: z.literal("list_members"),

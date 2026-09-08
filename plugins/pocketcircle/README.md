@@ -12,6 +12,7 @@ Local marketplace install is **not** public directory publication and does **not
 | `.app.json` | Registered ChatGPT connection id (`asdk_app_…`) |
 | `.mcp.json` | Remote MCP HTTP URL |
 | `skills/browse-authorized-records/` | Browse/read workflow skill (honest that write tools exist) |
+| `skills/spending-review/` | Personal and Circle spending workflow |
 | `assets/logo.png` | Install-surface logo |
 
 ## Install from this repo marketplace
@@ -64,6 +65,6 @@ Restart ChatGPT / Codex after marketplace or package changes.
 node plugins/pocketcircle/assert-package.mjs
 ```
 
-## Out of scope here
+## Spending review
 
-Spending-summary skills, write-confirmation skills, public submission, and shipping `/support` live in later issues (#366–#371 / #369).
+The spending-review skill separates personal Paid By totals from Circle totals, honors saved Home Summary exclusions, keeps currencies separate, and requires complete cursor pagination before calculating from search results. It reports only the Circles authorized by the current connection.

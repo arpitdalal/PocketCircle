@@ -2,7 +2,13 @@ import { buildRef } from "@pocketcircle/domain";
 import type { convexTest } from "convex-test";
 import type { Id } from "../convex/_generated/dataModel.js";
 import { activateMcpGrant, createPendingMcpGrant } from "../convex/mcpGrant.js";
-import { addMember, seedOwnedFixture, seedPersonalCircleOwner } from "./seed.js";
+import {
+  addMember,
+  seedOwnedFixture,
+  seedPersonalCircleOwner,
+  seedPersonalFixture,
+  seedTransaction,
+} from "./seed.js";
 
 type TestCtx = ReturnType<typeof convexTest>;
 
@@ -131,5 +137,78 @@ export async function seedMcpPluginEvalFixture(t: TestCtx) {
     async revokeGrant() {
       await t.run((ctx) => ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() }));
     },
+  };
+}
+
+/** Shared spending-review fixture (#366): attribution, exclusions, currencies, categories, and archival. */
+export async function seedMcpSpendingReviewFixture(t: TestCtx) {
+  const personal = await t.run((ctx) =>
+    seedPersonalFixture(ctx, {
+      email: "spending-review@example.com",
+      displayName: "Spending Review Owner",
+      currency: "USD",
+    }),
+  );
+  const trip = await t.run((ctx) =>
+    seedOwnedFixture(ctx, personal.owner, { name: "Review Trip", currency: "USD" }),
+  );
+  const archived = await t.run((ctx) =>
+    seedOwnedFixture(ctx, personal.owner, {
+      name: "Archived Review Trip",
+      currency: "CAD",
+      archived: true,
+    }),
+  );
+  const tripMember = await t.run((ctx) =>
+    addMember(ctx, trip.circleId, "review-member@example.com", "Review Member"),
+  );
+
+  await t.run(async (ctx) => {
+    await seedTransaction(ctx, personal, {
+      title: "Personal groceries",
+      amountMinorUnits: 1_000,
+      date: "2026-09-03",
+      categoryIds: [personal.groceriesId, personal.diningId],
+    });
+    await seedTransaction(ctx, trip, {
+      title: "Member paid trip expense",
+      amountMinorUnits: 2_000,
+      date: "2026-09-04",
+      recordedByMemberId: trip.ownerMemberId,
+      paidByMemberId: tripMember.memberId,
+    });
+    await seedTransaction(ctx, trip, {
+      title: "Personal trip expense",
+      amountMinorUnits: 500,
+      date: "2026-09-05",
+      paidByMemberId: trip.ownerMemberId,
+    });
+    await seedTransaction(ctx, trip, {
+      title: "Archived transaction",
+      amountMinorUnits: 900,
+      date: "2026-09-06",
+      status: "archived",
+    });
+    await seedTransaction(ctx, archived, {
+      title: "Archived Circle expense",
+      amountMinorUnits: 800,
+      date: "2026-09-07",
+    });
+  });
+
+  const grant = await createActiveMcpGrant(t, {
+    userId: personal.owner._id,
+    circleIds: [personal.circleId, trip.circleId, archived.circleId],
+    scopes: ["pocketcircle:read"],
+  });
+  return {
+    personal,
+    trip,
+    archived,
+    tripMember,
+    grant,
+    personalCircleRef: buildRef("Spending's Circle", personal.circleId),
+    tripCircleRef: buildRef("Review Trip", trip.circleId),
+    archivedCircleRef: buildRef("Archived Review Trip", archived.circleId),
   };
 }

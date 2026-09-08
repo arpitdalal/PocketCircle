@@ -44,7 +44,7 @@ async function visibleCircles(ctx: QueryCtx | MutationCtx, userId: Id<"users">) 
   return circles.filter((c): c is NonNullable<typeof c> => c !== null);
 }
 
-async function getExcludedCircleIds(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
+export async function getExcludedCircleIds(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
   const exclusions = await ctx.db
     .query("homeSummaryExclusions")
     .withIndex("by_user_circle", (q) => q.eq("userId", userId))

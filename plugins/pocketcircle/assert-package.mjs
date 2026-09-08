@@ -32,12 +32,14 @@ const appPath = join(pluginRoot, ".app.json");
 const mcpPath = join(pluginRoot, ".mcp.json");
 const marketplacePath = join(root, ".agents/plugins/marketplace.json");
 const skillPath = join(pluginRoot, "skills/browse-authorized-records/SKILL.md");
+const spendingSkillPath = join(pluginRoot, "skills/spending-review/SKILL.md");
 
 assert(existsSync(manifestPath), "missing .codex-plugin/plugin.json");
 assert(existsSync(appPath), "missing .app.json");
 assert(existsSync(mcpPath), "missing .mcp.json");
 assert(existsSync(marketplacePath), "missing .agents/plugins/marketplace.json");
 assert(existsSync(skillPath), "missing browse-authorized-records skill");
+assert(existsSync(spendingSkillPath), "missing spending-review skill");
 
 const manifest = readJson(manifestPath);
 assert(manifest.name === "pocketcircle", "manifest.name must be pocketcircle");
@@ -100,12 +102,18 @@ assert(entry.policy?.installation === "AVAILABLE", "marketplace installation pol
 assert(entry.policy?.authentication === "ON_INSTALL", "marketplace authentication policy");
 
 const skill = readFileSync(skillPath, "utf8");
+const spendingSkill = readFileSync(spendingSkillPath, "utf8");
 assert(
   /not claim.*read-only|not read-only|write tools/i.test(skill),
   "skill must stay honest about writes",
 );
 assert(skill.includes("list_authorized_circles"), "skill must mention list_authorized_circles");
 assert(skill.includes("search_transactions"), "skill must mention search_transactions");
+assert(
+  spendingSkill.includes("get_home_summary_preferences"),
+  "spending skill must read preferences",
+);
+assert(spendingSkill.includes("cursor"), "spending skill must require cursor pagination");
 
 if (process.exitCode) {
   console.error("assert-package: failed");

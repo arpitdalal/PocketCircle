@@ -1784,6 +1784,39 @@ describe("MCP tools execution", () => {
     });
   });
 
+  it("calls get_home_summary_preferences and returns the typed result", async () => {
+    const { accessToken, grantId } = await obtainAccessToken();
+
+    stubConvexFetch((endpoint, body) => {
+      if (endpoint === "/mcp/operation") {
+        const opBody = mcpOperationBodySchema.safeParse(body);
+        if (!opBody.success) {
+          return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+        }
+        expect(opBody.data.grantId).toBe(grantId);
+        expect(opBody.data.operation).toEqual({ kind: "get_home_summary_preferences" });
+        return Response.json({
+          ok: true,
+          value: { excludedCircleRefs: ["trip-circle_1"] },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected" }, { status: 500 });
+    });
+
+    const res = await sendMcpRequest(accessToken, {
+      method: "tools/call",
+      params: {
+        name: "get_home_summary_preferences",
+        arguments: {},
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      jsonrpc: "2.0",
+      result: { structuredContent: { excludedCircleRefs: ["trip-circle_1"] } },
+    });
+  });
+
   it("calls create_transaction and returns the created transaction", async () => {
     const { accessToken, grantId } = await obtainAccessToken([
       "pocketcircle:read",

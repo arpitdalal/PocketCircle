@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createActiveMcpGrant,
   seedMcpPluginEvalFixture,
+  seedMcpSpendingReviewFixture,
   seedMcpWriteFixture,
 } from "../test/mcp.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
@@ -406,6 +407,19 @@ describe("MCP plugin evaluation fixtures", () => {
     const t = convexTest(schema, modules);
     const fixture = await seedMcpPluginEvalFixture(t);
 
+    await t.run(async (ctx) => {
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: fixture.owner.userId,
+        circleId: fixture.authorized.circleId,
+        excludedAt: Date.now(),
+      });
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: fixture.owner.userId,
+        circleId: fixture.denied.circleId,
+        excludedAt: Date.now(),
+      });
+    });
+
     const authorized = await executeMcpRead(t, fixture.grant._id, {
       kind: "get_circle",
       circleRef: fixture.authorizedCircleRef,
@@ -430,12 +444,177 @@ describe("MCP plugin evaluation fixtures", () => {
     }
     expect(listed.value.circles.map((circle) => circle.name)).toEqual(["Authorized Trip"]);
 
+    const preferences = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_home_summary_preferences",
+    });
+    expect(preferences).toEqual({
+      ok: true,
+      value: { excludedCircleRefs: [fixture.authorizedCircleRef] },
+    });
+
     await fixture.revokeGrant();
     const revoked = await executeMcpRead(t, fixture.grant._id, {
       kind: "get_circle",
       circleRef: fixture.authorizedCircleRef,
     });
     expect(revoked).toMatchObject({ ok: false, error: "grant_unavailable" });
+  });
+});
+
+describe("MCP spending review reads", () => {
+  it("keeps preferences, attribution, currencies, categories, archives, and cursors scoped", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedMcpSpendingReviewFixture(t);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: fixture.personal.owner._id,
+        circleId: fixture.personal.circleId,
+        excludedAt: Date.now(),
+      });
+    });
+
+    const preferences = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_home_summary_preferences",
+    });
+    expect(preferences).toEqual({
+      ok: true,
+      value: { excludedCircleRefs: [fixture.personalCircleRef] },
+    });
+
+    await t.run(async (ctx) => {
+      const exclusion = await ctx.db
+        .query("homeSummaryExclusions")
+        .withIndex("by_user_circle", (q) =>
+          q.eq("userId", fixture.personal.owner._id).eq("circleId", fixture.personal.circleId),
+        )
+        .unique();
+      if (!exclusion) {
+        throw new Error("expected personal exclusion");
+      }
+      await ctx.db.delete(exclusion._id);
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: fixture.personal.owner._id,
+        circleId: fixture.trip.circleId,
+        excludedAt: Date.now(),
+      });
+    });
+
+    const changedPreferences = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_home_summary_preferences",
+    });
+    expect(changedPreferences).toEqual({
+      ok: true,
+      value: { excludedCircleRefs: [fixture.tripCircleRef] },
+    });
+
+    const personalSearch = await executeMcpRead(t, fixture.grant._id, {
+      kind: "search_transactions",
+      circleRef: fixture.tripCircleRef,
+      filters: {
+        month: "2026-09",
+        status: "active",
+        paidByMemberIds: [fixture.trip.ownerMemberId],
+      },
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(personalSearch).toMatchObject({
+      ok: true,
+      value: { pagination: "cursor", isDone: true },
+    });
+    if (!personalSearch.ok || personalSearch.value.pagination !== "cursor") {
+      throw new Error("expected cursor search result");
+    }
+    expect(personalSearch.value.page).toHaveLength(1);
+    expect(personalSearch.value.page[0]?.amountMinorUnits).toBe(500);
+
+    const circleSearch = await executeMcpRead(t, fixture.grant._id, {
+      kind: "search_transactions",
+      circleRef: fixture.tripCircleRef,
+      filters: { month: "2026-09", status: "active" },
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(circleSearch).toMatchObject({
+      ok: true,
+      value: { pagination: "cursor", isDone: false },
+    });
+    if (!circleSearch.ok || circleSearch.value.pagination !== "cursor") {
+      throw new Error("expected paginated circle search result");
+    }
+    const next = await executeMcpRead(t, fixture.grant._id, {
+      kind: "search_transactions",
+      circleRef: fixture.tripCircleRef,
+      filters: { month: "2026-09", status: "active" },
+      paginationOpts: { numItems: 100, cursor: circleSearch.value.continueCursor },
+    });
+    expect(next).toMatchObject({ ok: true, value: { pagination: "cursor", isDone: true } });
+
+    const recordedBySearch = await executeMcpRead(t, fixture.grant._id, {
+      kind: "search_transactions",
+      circleRef: fixture.tripCircleRef,
+      filters: {
+        month: "2026-09",
+        status: "active",
+        recordedByMemberIds: [fixture.trip.ownerMemberId],
+      },
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(recordedBySearch).toMatchObject({
+      ok: true,
+      value: { pagination: "cursor", page: expect.arrayContaining([expect.any(Object)]) },
+    });
+    if (!recordedBySearch.ok || recordedBySearch.value.pagination !== "cursor") {
+      throw new Error("expected recorded-by search result");
+    }
+    expect(recordedBySearch.value.page.reduce((sum, txn) => sum + txn.amountMinorUnits, 0)).toBe(
+      2_500,
+    );
+
+    const tripLedger = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: fixture.tripCircleRef,
+      month: "2026-09",
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(tripLedger).toMatchObject({
+      ok: true,
+      value: {
+        currency: "USD",
+        totals: { expenseMinor: 2_500 },
+        transactions: { isDone: true, page: expect.any(Array) },
+      },
+    });
+    if (!tripLedger.ok) {
+      throw new Error("expected Circle ledger");
+    }
+    expect(tripLedger.value.transactions.page).toHaveLength(2);
+
+    const archivedCircleLedger = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_monthly_ledger",
+      circleRef: fixture.archivedCircleRef,
+      month: "2026-09",
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(archivedCircleLedger).toMatchObject({
+      ok: true,
+      value: {
+        currency: "CAD",
+        totals: { expenseMinor: 800 },
+        transactions: { isDone: true, page: [expect.objectContaining({ status: "active" })] },
+      },
+    });
+
+    const categories = await executeMcpRead(t, fixture.grant._id, {
+      kind: "get_category_analytics",
+      circleRef: fixture.personalCircleRef,
+      month: "2026-09",
+      type: "expense",
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(categories).toMatchObject({
+      ok: true,
+      value: { nonAdditive: true, currency: "USD" },
+    });
   });
 });
 

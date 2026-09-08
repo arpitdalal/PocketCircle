@@ -54,6 +54,7 @@ import {
 } from "./guard.js";
 import { circleEntity, paginateEntityHistory, transactionEntity } from "./history.js";
 import { newActorCache, toHistoryEventView } from "./historyView.js";
+import { getExcludedCircleIds } from "./homeSummary.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { toMemberView } from "./memberViews.js";
 import {
@@ -824,6 +825,34 @@ export function listAuthorizedCirclesFromMemberships(
   return entries
     .filter((entry) => allowedSet.has(entry.circle._id))
     .map((entry) => toMcpCircleView(entry.circle, entry.membership.role === "owner"));
+}
+
+/**
+ * Read Home Summary exclusions through the same live membership and grant scope
+ * used by the other MCP reads. Exclusions for unapproved or no-longer-visible
+ * Circles never leave Convex.
+ */
+export async function getHomeSummaryPreferencesForGrant(
+  ctx: OperationReader,
+  grant: Doc<"mcpGrants">,
+  user: Doc<"users">,
+) {
+  const allowedCircleIds = new Set(grant.allowedCircleIds);
+  const entries = (await listActiveMembershipsWithCirclesForUser(ctx, user)).filter((entry) =>
+    allowedCircleIds.has(entry.circle._id),
+  );
+  const visibleCircleIds = new Set(entries.map((entry) => entry.circle._id));
+  const exclusions = await getExcludedCircleIds(ctx, user._id);
+
+  return {
+    excludedCircleRefs: [...exclusions]
+      .filter((circleId) => visibleCircleIds.has(circleId))
+      .map((circleId) => {
+        const circle = entries.find((entry) => entry.circle._id === circleId)?.circle;
+        return circle ? buildRef(circle.name, circle._id) : null;
+      })
+      .filter((ref): ref is string => ref !== null),
+  };
 }
 
 /**

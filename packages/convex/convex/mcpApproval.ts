@@ -16,6 +16,7 @@ import {
   mcpCreateCategoryResultSchema,
   mcpCreateTransactionResultSchema,
   mcpDashboardSchema,
+  mcpHomeSummaryPreferencesSchema,
   mcpListCategoryTransactionsResultSchema,
   mcpMonthlyComparisonSchema,
   mcpMonthlyLedgerSchema,
@@ -58,6 +59,7 @@ import {
   getCategoryAnalyticsForUser,
   getCategoryForUser,
   getDashboardForUser,
+  getHomeSummaryPreferencesForGrant,
   getMonthlyComparisonForUser,
   getMonthlyLedgerForUser,
   getTransactionForUser,
@@ -283,6 +285,7 @@ export const executeMcpReadOperation = internalQuery({
     operation: v.union(
       v.object({ kind: v.literal("get_current_user") }),
       v.object({ kind: v.literal("list_authorized_circles") }),
+      v.object({ kind: v.literal("get_home_summary_preferences") }),
       v.object({ kind: v.literal("get_circle"), circleRef: v.string() }),
       v.object({
         kind: v.literal("list_members"),
@@ -410,6 +413,13 @@ export const executeMcpReadOperation = internalQuery({
         ok: true as const,
         value: { circles },
       };
+    }
+
+    if (args.operation.kind === "get_home_summary_preferences") {
+      return validateMcpResult(
+        mcpHomeSummaryPreferencesSchema,
+        await getHomeSummaryPreferencesForGrant(ctx, grant, user),
+      );
     }
 
     const circleId = resolveCircleRef(ctx, args.operation.circleRef);
