@@ -14,18 +14,21 @@ export const INVITATION_SUBJECT = "You're invited to join a Circle on PocketCirc
 export const ACCOUNT_DELETION_SUBJECT = "Confirm account deletion";
 
 /** Pure HTML builder — no financial content (PRD 84). */
-export function welcomeEmail(args: { displayName: string }) {
-  const { displayName } = args;
+export function welcomeEmail(args: { displayName: string; appUrl: string }) {
+  const { displayName, appUrl } = args;
   return {
     subject: WELCOME_SUBJECT,
     html: `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>${WELCOME_SUBJECT}</title></head>
 <body>
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all" aria-hidden="true">A place for your spending, and the spending you share.</div>
   <p>Hi ${escapeHtml(displayName)},</p>
-  <p>Welcome to PocketCircle — a simple way to track shared spending with the people you trust.</p>
-  <p>Your Personal Circle is ready. Open the app to finish setting up your profile and start organizing expenses together.</p>
-  <p>— The PocketCircle team</p>
+  <p>Welcome to PocketCircle.</p>
+  <p>Your Personal Circle is ready for tracking your own expenses. For spending with a partner, family, or roommates, create a separate Circle and invite them to join.</p>
+  <p>Start with something simple, like today’s coffee or groceries.</p>
+  <p><a href="${escapeHtml(appUrl)}" style="display:inline-block;padding:12px 20px;background-color:#18181b;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">Open PocketCircle</a></p>
+  <p>The PocketCircle team</p>
 </body>
 </html>`,
   };
@@ -120,8 +123,12 @@ export const EMAIL_PREVIEWS = [
   {
     id: "welcome",
     name: "Welcome",
-    fields: [{ key: "displayName", label: "Display name", default: "Ada Lovelace" }],
-    render: (p: Record<string, string>) => welcomeEmail({ displayName: p.displayName ?? "" }),
+    fields: [
+      { key: "displayName", label: "Display name", default: "Ada Lovelace" },
+      { key: "appUrl", label: "App URL", default: "https://app.example.com" },
+    ],
+    render: (p: Record<string, string>) =>
+      welcomeEmail({ displayName: p.displayName ?? "", appUrl: p.appUrl ?? "" }),
   },
   {
     id: "invitation",

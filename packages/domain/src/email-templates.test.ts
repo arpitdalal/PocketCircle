@@ -15,7 +15,10 @@ const IMAGE_PATTERN = /\b(img|avatar|ownerImage|image)\b/i;
 
 describe("welcomeEmail", () => {
   it("returns the welcome subject and HTML with the display name", () => {
-    const { subject, html } = welcomeEmail({ displayName: "Ada Lovelace" });
+    const { subject, html } = welcomeEmail({
+      displayName: "Ada Lovelace",
+      appUrl: "https://app.example.com",
+    });
     expect(subject).toBe(WELCOME_SUBJECT);
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Welcome to PocketCircle");

@@ -141,7 +141,10 @@ export const sendWelcomeEmail = internalAction({
     if (!p || p.alreadySent) {
       return;
     }
-    const { subject, html } = welcomeEmail({ displayName: p.displayName });
+    const { subject, html } = welcomeEmail({
+      displayName: p.displayName,
+      appUrl: process.env.SITE_URL ?? "http://127.0.0.1:5173",
+    });
     const sent = await sendEmailOrReport(
       ctx,
       { kind: "welcome_email_exhausted", entityId: userId },

@@ -186,6 +186,7 @@ describe("sendWelcomeEmail", () => {
   });
 
   it("posts the expected payload to Resend and marks on 2xx", async () => {
+    vi.stubEnv("SITE_URL", "https://app.example.com");
     vi.stubEnv("RESEND_API_KEY", "test-key");
     vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
 
@@ -204,6 +205,8 @@ describe("sendWelcomeEmail", () => {
     expect(resend[0]?.headers?.["idempotency-key"]).toBe(`welcome:${userId}`);
     const html = resendBodyHtml(resend[0]?.body);
     expect(html).toContain("Ada Lovelace");
+    expect(html).toContain('href="https://app.example.com"');
+    expect(html).toContain("Open PocketCircle");
     expect(html).not.toMatch(FINANCIAL_PATTERN);
     expect(await getWelcomeSentAt(t, userId)).toBeTypeOf("number");
   });
@@ -265,7 +268,10 @@ describe("sendEmail env safety and vendor errors", () => {
     vi.stubEnv("RESEND_FROM_EMAIL", "no-reply@pocketcircle.test");
     vi.stubEnv("EMAIL_DEV_LOG", "1");
 
-    const { subject, html } = welcomeEmail({ displayName: "Ada" });
+    const { subject, html } = welcomeEmail({
+      displayName: "Ada",
+      appUrl: "https://app.example.com",
+    });
     await sendEmail({ to: "a@b.com", subject, html });
 
     expect(logSpy).toHaveBeenCalledWith(`[email] to=a@b.com subject=${JSON.stringify(subject)}`);
@@ -307,7 +313,7 @@ describe("sendEmail env safety and vendor errors", () => {
       sendEmail({
         to: "a@b.com",
         subject: WELCOME_SUBJECT,
-        html: welcomeEmail({ displayName: "Ada" }).html,
+        html: welcomeEmail({ displayName: "Ada", appUrl: "https://app.example.com" }).html,
       }),
     ).rejects.toThrow(/Resend send failed: 500/);
   });
@@ -319,7 +325,7 @@ describe("sendEmail env safety and vendor errors", () => {
     await sendEmail({
       to: "a@b.com",
       subject: WELCOME_SUBJECT,
-      html: welcomeEmail({ displayName: "Ada" }).html,
+      html: welcomeEmail({ displayName: "Ada", appUrl: "https://app.example.com" }).html,
       idempotencyKey: "welcome:user-123",
     });
 
