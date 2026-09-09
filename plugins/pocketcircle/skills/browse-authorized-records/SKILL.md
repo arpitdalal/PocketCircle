@@ -11,7 +11,7 @@ Use PocketCircle MCP tools to inspect data the User already authorized for this 
 
 - This skill covers **reads**. The PocketCircle MCP server also exposes **write** tools (create/update/archive/restore Transactions and Categories). Do not claim the product or connection is read-only while those tools remain available.
 - Access is limited to Circles approved on the consent screen for this connection. Newly created or joined Circles stay excluded until the User reauthorizes.
-- Revoked connections and lost membership stop access. If tools fail with auth/permission errors, tell the User to check Connections at https://pocketcircle.app/connections and reconnect if needed.
+- Revoked connections and lost membership stop access. Distinguish an unavailable or revoked connection from an active read-only connection: reconnect only for the former. A read-only write denial means the current connection lacks `pocketcircle:write`; report that plainly and offer reauthorization with write access only if the User asks to change the connection.
 
 ## Workflow
 

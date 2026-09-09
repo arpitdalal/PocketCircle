@@ -13,6 +13,7 @@ Local marketplace install is **not** public directory publication and does **not
 | `.mcp.json` | Remote MCP HTTP URL |
 | `skills/browse-authorized-records/` | Browse/read workflow skill (honest that write tools exist) |
 | `skills/spending-review/` | Personal and Circle spending workflow |
+| `skills/record-transactions/` | Transaction and Category recording, confirmation, and uncertain outcomes |
 | `assets/logo.png` | Install-surface logo |
 
 ## Install from this repo marketplace
@@ -41,8 +42,8 @@ Restart ChatGPT / Codex after marketplace or package changes.
 ## Update / refresh
 
 1. Pull latest repo changes (or edit files under `plugins/pocketcircle/`).
-2. Bump `version` in `.codex-plugin/plugin.json` when you want a visible package bump.
-3. Restart ChatGPT desktop so the local cache reloads (`~/.codex/plugins/cache/…/pocketcircle/local/`).
+2. For local development, use the plugin-creator cachebuster helper, then run `codex plugin add pocketcircle@pocketcircle-local` to reinstall the current source. On 2026-09-07 this refreshed all three skills into the versioned cache.
+3. Start a new thread to load the new skills. Restart ChatGPT desktop if its local install still shows the earlier package. The cache is `~/.codex/plugins/cache/pocketcircle-local/pocketcircle/<version>/`.
 4. In an open plugin detail pane, use **Refresh** if the host shows one, then start a new chat so tools/skills rediscover.
 
 ## Connection / revoke
@@ -68,3 +69,7 @@ node plugins/pocketcircle/assert-package.mjs
 ## Spending review
 
 The spending-review skill separates personal Paid By totals from Circle totals, honors saved Home Summary exclusions, keeps currencies separate, and requires complete cursor pagination before calculating from search results. It reports only the Circles authorized by the current connection.
+
+## Recording validation
+
+The recording skill uses existing create tools with default previews, applicable User overrides, sequential batches, and explicit handling of partial or uncertain outcomes. Run the [reviewer cases](recording-reviewer-cases.md) in both installed hosts after refreshing the package. Server-guidance changes also require Worker deployment and metadata refresh. Automated backend checks establish tool behavior, not host compliance with the skill.

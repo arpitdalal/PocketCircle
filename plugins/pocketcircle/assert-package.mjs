@@ -33,6 +33,7 @@ const mcpPath = join(pluginRoot, ".mcp.json");
 const marketplacePath = join(root, ".agents/plugins/marketplace.json");
 const skillPath = join(pluginRoot, "skills/browse-authorized-records/SKILL.md");
 const spendingSkillPath = join(pluginRoot, "skills/spending-review/SKILL.md");
+const recordingSkillPath = join(pluginRoot, "skills/record-transactions/SKILL.md");
 
 assert(existsSync(manifestPath), "missing .codex-plugin/plugin.json");
 assert(existsSync(appPath), "missing .app.json");
@@ -40,6 +41,7 @@ assert(existsSync(mcpPath), "missing .mcp.json");
 assert(existsSync(marketplacePath), "missing .agents/plugins/marketplace.json");
 assert(existsSync(skillPath), "missing browse-authorized-records skill");
 assert(existsSync(spendingSkillPath), "missing spending-review skill");
+assert(existsSync(recordingSkillPath), "missing record-transactions skill");
 
 const manifest = readJson(manifestPath);
 assert(manifest.name === "pocketcircle", "manifest.name must be pocketcircle");

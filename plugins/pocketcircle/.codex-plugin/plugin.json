@@ -1,7 +1,7 @@
 {
   "name": "pocketcircle",
-  "version": "0.1.1",
-  "description": "Track shared income and expenses in authorized Circles. View and manage Transactions and Categories when your connection grants write access — not a read-only product.",
+  "version": "0.1.1+codex.20260908213840",
+  "description": "Track shared income and expenses in authorized Circles. View and manage Transactions and Categories when your connection grants write access \u2014 not a read-only product.",
   "author": {
     "name": "Arpit Dalal",
     "email": "arpitdalalm@gmail.com",
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "PocketCircle",
     "shortDescription": "Track shared income & expenses",
-    "longDescription": "PocketCircle helps users track personal and shared income and expenses in authorized Circles. View members, transactions, categories, history and monthly reports; create, update, archive and restore transactions and categories within your permissions. Financial records and member identities are returned to ChatGPT. Calls record connection usage, and some changes notify affected members inside PocketCircle. Write tools remain available when the connection grants write access — this plugin is not read-only.",
+    "longDescription": "PocketCircle helps users track personal and shared income and expenses in authorized Circles. View members, transactions, categories, history and monthly reports; create, update, archive and restore transactions and categories within your permissions. Financial records and member identities are returned to ChatGPT. Calls record connection usage, and some changes notify affected members inside PocketCircle. Write tools remain available when the connection grants write access \u2014 this plugin is not read-only.",
     "developerName": "Arpit Dalal",
     "category": "Finance",
     "capabilities": ["Read", "Write"],
@@ -27,7 +27,7 @@
     "supportURL": "https://pocketcircle.app/support",
     "defaultPrompt": [
       "Which Circles do I have access to, and what currency is each one?",
-      "Summarize my personal spending in PocketCircle for this month — expenses I paid, by Circle, without mixing currencies.",
+      "Summarize my personal spending in PocketCircle for this month \u2014 expenses I paid, by Circle, without mixing currencies.",
       "In PocketCircle, record a $24.50 coffee expense today in my Personal Circle under Food, paid by me."
     ],
     "brandColor": "#9470f5",
