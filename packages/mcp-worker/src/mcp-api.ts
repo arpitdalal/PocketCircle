@@ -5,6 +5,7 @@ import {
   OAuthErrorCode,
 } from "@modelcontextprotocol/server";
 import {
+  MCP_MONEY_DISPLAY_INSTRUCTIONS,
   type McpReadOperation,
   type McpWriteOperation,
   mcpArchiveCategoryInputSchema,
@@ -730,7 +731,7 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Create Category",
       description:
-        "Create an Expense or Income Category in an authorized, setup-complete Circle. The authenticated Member becomes the creator. Names are case-insensitively unique per Circle and Transaction type, including names held by Archived Categories. Repeating the same call may create another Category when the name differs.",
+        "Create an Expense or Income Category in an authorized, setup-complete Circle. The authenticated Member becomes the creator. Names are case-insensitively unique per Circle and Transaction type, including names held by Archived Categories. Repeating the same call may create another Category when the name differs. If the active connection lacks pocketcircle:write, report write access denied and do not retry or automatically request reauthorization; offer reconnecting with write access only as an optional User-directed next step.",
       inputSchema: mcpCreateCategoryInputSchema,
       outputSchema: mcpCreateCategoryResultSchema,
       annotations: {
@@ -850,7 +851,10 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Create Transaction",
       description:
-        "Create an Expense or Income in an authorized, setup-complete Circle. Recorded By is always the authenticated Member. Paid By defaults to Recorded By. Category references must be active, unique, in the same Circle, and match the Transaction type. Expected Currency must match the Circle Currency. Repeating the same call may create another Transaction.",
+        "Create an Expense or Income in an authorized, setup-complete Circle. Recorded By is always the authenticated Member. Paid By defaults to Recorded By. Category references must be active, unique, in the same Circle, and match the Transaction type. Expected Currency must match the Circle Currency. Repeating the same call may create another Transaction." +
+        " " +
+        MCP_MONEY_DISPLAY_INSTRUCTIONS +
+        " If the active connection lacks pocketcircle:write, report write access denied and do not retry or automatically request reauthorization; offer reconnecting with write access only as an optional User-directed next step.",
       inputSchema: mcpCreateTransactionInputSchema,
       outputSchema: mcpCreateTransactionResultSchema,
       annotations: {
@@ -886,7 +890,9 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Update Transaction",
       description:
-        "Update an active Transaction in an authorized, setup-complete Circle. Only the Recorded By Member may edit fields. Optional updates cover title, note, amount, date, categories, Paid By, and type. Type changes require a complete valid category set for the new type. Expected Currency is required when changing amount. A true no-op returns the current Transaction without a spurious history event.",
+        "Update an active Transaction in an authorized, setup-complete Circle. Only the Recorded By Member may edit fields. Optional updates cover title, note, amount, date, categories, Paid By, and type. Type changes require a complete valid category set for the new type. Expected Currency is required when changing amount. A true no-op returns the current Transaction without a spurious history event." +
+        " " +
+        MCP_MONEY_DISPLAY_INSTRUCTIONS,
       inputSchema: mcpUpdateTransactionInputSchema,
       outputSchema: mcpUpdateTransactionResultSchema,
       annotations: {
@@ -984,6 +990,7 @@ export function buildMcpServer(env: Env, request?: Request) {
 }
 
 const rpcCallSchema = z.object({
+  id: z.union([z.string(), z.number(), z.null()]).optional(),
   method: z.string(),
   params: z
     .object({
@@ -991,6 +998,29 @@ const rpcCallSchema = z.object({
     })
     .optional(),
 });
+
+async function readOnlyWriteResponse(request: Request) {
+  const parsed = rpcCallSchema.safeParse(
+    await request
+      .clone()
+      .json()
+      .catch(() => null),
+  );
+  const id = parsed.success ? (parsed.data.id ?? null) : null;
+  return Response.json({
+    jsonrpc: "2.0",
+    id,
+    result: {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "PocketCircle write access is not granted for this connection. This connection is read-only. Reconnect only if you want to change its granted scopes.",
+        },
+      ],
+    },
+  });
+}
 
 async function detectToolCall(request: Request) {
   if (request.method.toUpperCase() !== "POST") {
@@ -1152,6 +1182,9 @@ export function createMcpApiHandler(env: Env) {
           const requiredScope =
             toolClass === "read" ? ("pocketcircle:read" as const) : ("pocketcircle:write" as const);
           if (!caller.value.effectiveScopes.includes(requiredScope)) {
+            if (requiredScope === "pocketcircle:write") {
+              return readOnlyWriteResponse(request);
+            }
             return bearerAuthChallengeResponse(
               new OAuthError(
                 OAuthErrorCode.InsufficientScope,

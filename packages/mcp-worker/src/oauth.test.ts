@@ -2093,7 +2093,7 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for update_transaction", async () => {
+  it("returns a read-only tool error without an OAuth challenge for update_transaction", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 
     const res = await sendMcpRequest(accessToken, {
@@ -2107,10 +2107,14 @@ describe("MCP tools execution", () => {
         },
       },
     });
-    expect(res.status).toBe(403);
-    const wwwAuth = res.headers.get("www-authenticate");
-    expect(wwwAuth).toContain('error="insufficient_scope"');
-    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+    expect(res.status).toBe(200);
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(await res.json()).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("write access is not granted") }],
+      },
+    });
   });
 
   async function callLifecycleToolAndExpectStatus(
@@ -2188,7 +2192,7 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for archive_transaction", async () => {
+  it("returns a read-only tool error without an OAuth challenge for archive_transaction", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 
     const res = await sendMcpRequest(accessToken, {
@@ -2201,10 +2205,14 @@ describe("MCP tools execution", () => {
         },
       },
     });
-    expect(res.status).toBe(403);
-    const wwwAuth = res.headers.get("www-authenticate");
-    expect(wwwAuth).toContain('error="insufficient_scope"');
-    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+    expect(res.status).toBe(200);
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(await res.json()).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("write access is not granted") }],
+      },
+    });
   });
 
   it("calls restore_transaction and returns the restored transaction", async () => {
@@ -2235,7 +2243,7 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for archive_category", async () => {
+  it("returns a read-only tool error without an OAuth challenge for archive_category", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 
     const res = await sendMcpRequest(accessToken, {
@@ -2248,10 +2256,14 @@ describe("MCP tools execution", () => {
         },
       },
     });
-    expect(res.status).toBe(403);
-    const wwwAuth = res.headers.get("www-authenticate");
-    expect(wwwAuth).toContain('error="insufficient_scope"');
-    expect(wwwAuth).toContain('scope="pocketcircle:write"');
+    expect(res.status).toBe(200);
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(await res.json()).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("write access is not granted") }],
+      },
+    });
   });
 
   it("calls restore_category and returns the restored category", async () => {
@@ -2274,7 +2286,7 @@ describe("MCP tools execution", () => {
     });
   });
 
-  it("returns 403 insufficient_scope challenge when token lacks pocketcircle:write for create_transaction", async () => {
+  it("returns a read-only tool error without an OAuth challenge for create_transaction", async () => {
     const { accessToken } = await obtainAccessToken(["pocketcircle:read"]);
 
     const res = await sendMcpRequest(accessToken, {
@@ -2292,13 +2304,13 @@ describe("MCP tools execution", () => {
         },
       },
     });
-    expect(res.status).toBe(403);
-    const wwwAuth = res.headers.get("www-authenticate");
-    expect(wwwAuth).toContain('error="insufficient_scope"');
-    expect(wwwAuth).toContain('scope="pocketcircle:write"');
-    const body: unknown = await res.json();
-    expect(body).toMatchObject({
-      error: "insufficient_scope",
+    expect(res.status).toBe(200);
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(await res.json()).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("write access is not granted") }],
+      },
     });
   });
 

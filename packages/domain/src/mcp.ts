@@ -584,6 +584,9 @@ export const mcpReadOperationBodySchema = z.object({
 
 export type McpReadOperationBody = z.infer<typeof mcpReadOperationBodySchema>;
 
+export const MCP_MONEY_DISPLAY_INSTRUCTIONS =
+  "Amounts in amountMinorUnits are integer minor units, not major currency units. All supported Circle currencies use two decimal places. In user-facing previews, approval summaries, and results, divide by 100 and show two decimal places with the currency code: amountMinorUnits=700 and expectedCurrency=USD means USD 7.00, never 700 USD. Keep the tool argument as 700.";
+
 const mcpCreateTransactionCoreSchema = z.object({
   circleRef: mcpCircleRefSchema,
   type: z.enum(["expense", "income"]),
@@ -594,7 +597,7 @@ const mcpCreateTransactionCoreSchema = z.object({
     .int()
     .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" })
     .describe(
-      "Positive amount in the Circle currency's minor units (e.g. cents for USD: 500 = $5.00). Not a decimal major-unit amount.",
+      `Positive amount in the Circle currency's minor units. ${MCP_MONEY_DISPLAY_INSTRUCTIONS}`,
     ),
   date: transactionFieldSchemas.date.describe(
     "Transaction plain date as YYYY-MM-DD in the caller's local calendar.",
@@ -667,7 +670,7 @@ const mcpUpdateTransactionFieldsSchema = z.object({
     .refine(isValidMinorUnits, { message: "Amount must be a positive value within range" })
     .optional()
     .describe(
-      "Positive amount in Circle currency minor units. When set, also send expectedCurrency matching the Circle.",
+      `Positive amount in Circle currency minor units. When set, also send expectedCurrency matching the Circle. ${MCP_MONEY_DISPLAY_INSTRUCTIONS}`,
     ),
   date: transactionFieldSchemas.date
     .optional()
