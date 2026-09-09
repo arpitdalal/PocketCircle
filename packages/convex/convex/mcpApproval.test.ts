@@ -12,6 +12,7 @@ import {
   type McpReadOperation,
   type McpWorkerAssertionPayload,
   type McpWriteOperation,
+  mcpCreateCategoryResultSchema,
   parseMcpWorkerJwks,
   parseMcpWorkerPrivateJwk,
   sha256Hex,
@@ -3009,6 +3010,81 @@ describe("MCP Worker bridge HTTP routes", () => {
     });
   });
 
+  it("finds a committed Transaction after its HTTP response is lost", async () => {
+    const t = convexTest(schema, modules);
+    const { grant, authorizedCircleRef: circleRef } = await seedMcpPluginEvalFixture(t, {
+      scopes: READ_WRITE,
+    });
+    const categoryResponse = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", {
+        grantId: grant._id,
+        effectiveScopes: READ_WRITE,
+        operation: {
+          kind: "create_category",
+          circleRef,
+          name: "Recording eval",
+          type: "expense",
+          color: "teal",
+        },
+      }),
+    );
+    expect(categoryResponse.status).toBe(200);
+    const categoryEnvelope = await categoryResponse.json();
+    const category = mcpCreateCategoryResultSchema.parse(categoryEnvelope.value);
+    const response = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", {
+        grantId: grant._id,
+        effectiveScopes: READ_WRITE,
+        operation: {
+          kind: "create_transaction",
+          circleRef,
+          type: "expense",
+          title: "Lost response eval",
+          amountMinorUnits: 1234,
+          date: "2026-09-07",
+          categoryRefs: [category.ref],
+          expectedCurrency: "USD",
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    // Drop the real committed response at the HTTP body boundary.
+    if (!response.body) throw new Error("Expected create response body");
+    const interrupted = new Response(
+      response.body.pipeThrough(
+        new TransformStream({
+          transform() {
+            throw new TypeError("Connection lost after commit");
+          },
+        }),
+      ),
+    );
+    await expect(interrupted.json()).rejects.toThrow("Connection lost after commit");
+    const searchResponse = await t.fetch(
+      "/mcp/operation",
+      await workerRequestInit("/mcp/operation", {
+        grantId: grant._id,
+        effectiveScopes: READ_WRITE,
+        operation: {
+          kind: "search_transactions",
+          circleRef,
+          filters: {},
+          paginationOpts: { numItems: 100, cursor: null },
+        },
+      }),
+    );
+    expect(searchResponse.status).toBe(200);
+    expect(await searchResponse.json()).toMatchObject({
+      ok: true,
+      value: {
+        page: [expect.objectContaining({ title: "Lost response eval", amountMinorUnits: 1234 })],
+        isDone: true,
+      },
+    });
+  });
+
   it("executes create_transaction via /mcp/operation", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) =>
@@ -4228,6 +4304,52 @@ describe("MCP restore_transaction write", () => {
 });
 
 describe("MCP create_category write", () => {
+  it("preserves a created Category when the dependent Transaction loses write scope", async () => {
+    const t = convexTest(schema, modules);
+    const { grant, authorizedCircleRef: circleRef } = await seedMcpPluginEvalFixture(t, {
+      scopes: READ_WRITE,
+    });
+    const category = await executeMcpWrite(t, grant._id, {
+      kind: "create_category",
+      circleRef,
+      name: "Partial recording eval",
+      type: "expense",
+      color: "teal",
+    });
+    if (!category.ok) throw new Error(category.error);
+    const transaction = await executeMcpWrite(
+      t,
+      grant._id,
+      {
+        kind: "create_transaction",
+        circleRef,
+        type: "expense",
+        title: "Denied recording eval",
+        amountMinorUnits: 1234,
+        date: "2026-09-07",
+        categoryRefs: [category.value.ref],
+        expectedCurrency: "USD",
+      },
+      ["pocketcircle:read"],
+    );
+    expect(transaction).toMatchObject({ ok: false, error: "insufficient_scope" });
+    expect(
+      await executeMcpRead(t, grant._id, {
+        kind: "get_category",
+        circleRef,
+        categoryRef: category.value.ref,
+      }),
+    ).toMatchObject({ ok: true, value: { name: "Partial recording eval" } });
+    expect(
+      await executeMcpRead(t, grant._id, {
+        kind: "search_transactions",
+        circleRef,
+        filters: {},
+        paginationOpts: { numItems: 100, cursor: null },
+      }),
+    ).toMatchObject({ ok: true, value: { page: [], isDone: true } });
+  });
+
   it("creates expense and income categories with history and activation milestone", async () => {
     const t = convexTest(schema, modules);
     const { owner, f, grant, circleRef } = await seedMcpWriteFixture(t);

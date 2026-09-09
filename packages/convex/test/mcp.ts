@@ -106,7 +106,10 @@ export async function seedMcpWriteFixture(
  * Shared plugin-evaluation fixture (#365): one authorized Circle, one owned but
  * denied Circle (not on the grant), plus helpers to revoke the connection.
  */
-export async function seedMcpPluginEvalFixture(t: TestCtx) {
+export async function seedMcpPluginEvalFixture(
+  t: TestCtx,
+  options?: { scopes?: readonly string[] },
+) {
   const owner = await t.run((ctx) =>
     seedPersonalCircleOwner(ctx, {
       email: "plugin-eval@example.com",
@@ -122,7 +125,7 @@ export async function seedMcpPluginEvalFixture(t: TestCtx) {
   const grant = await createActiveMcpGrant(t, {
     userId: owner.userId,
     circleIds: [authorized.circleId],
-    scopes: ["pocketcircle:read"],
+    scopes: options?.scopes ?? ["pocketcircle:read"],
     clientId: DEFAULT_CLIENT_ID,
     clientKind: "static",
     redirectUri: DEFAULT_REDIRECT_URI,
