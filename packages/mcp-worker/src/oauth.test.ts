@@ -9,7 +9,7 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defaultHandler } from "./authorize.js";
 import { createMcpApiHandler } from "./mcp-api.js";
-import { pocketCircleOAuthApi } from "./oauth-options.js";
+import { createOAuthProvider, pocketCircleOAuthApi } from "./oauth-options.js";
 
 const REDIRECT_URI = "https://mcp-client.example/callback";
 const RESOURCE = "https://mcp.pocketcircle.app/mcp";
@@ -169,6 +169,50 @@ function stubConvexFetch(handler: (path: string, body: unknown) => Response | Pr
 }
 
 describe("MCP Worker OAuth discovery", () => {
+  it("supports DCR authorization when CIMD is disabled", async () => {
+    const localEnv = { ...env, MCP_CIMD_ENABLED: "false" };
+    const provider = createOAuthProvider(localEnv, defaultHandler);
+    const ctx = createExecutionContext();
+    const metadata = await provider.fetch(
+      new Request("https://mcp.pocketcircle.app/.well-known/oauth-authorization-server"),
+      localEnv,
+      ctx,
+    );
+    expect(await metadata.json()).toMatchObject({
+      client_id_metadata_document_supported: false,
+      registration_endpoint: "https://mcp.pocketcircle.app/oauth/register",
+    });
+    const registration = await provider.fetch(
+      new Request("https://mcp.pocketcircle.app/oauth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Local host",
+          redirect_uris: [REDIRECT_URI],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+      localEnv,
+      ctx,
+    );
+    expect(registration.status).toBe(201);
+    const registeredId = dcrClientId(await registration.json());
+    const authRequest = await pocketCircleOAuthApi(localEnv).parseAuthRequest(
+      new Request(
+        authorizeUrl({
+          client_id: registeredId,
+          redirect_uri: REDIRECT_URI,
+          response_type: "code",
+          scope: "pocketcircle:read",
+          resource: RESOURCE,
+          ...PKCE,
+        }),
+      ),
+    );
+    expect(authRequest.clientId).toBe(registeredId);
+    expect(authRequest.redirectUri).toBe(REDIRECT_URI);
+  });
+
   it("publishes protected-resource and authorization-server metadata", async () => {
     const resourceMeta = await SELF.fetch(
       "https://mcp.pocketcircle.app/.well-known/oauth-protected-resource",

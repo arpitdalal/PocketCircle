@@ -16,6 +16,9 @@ CONVEX_SITE_URL=https://<your-deployment>.convex.site
 # domain, so pin issuer/resource to the URL you put in mcp.json.
 MCP_ISSUER=http://127.0.0.1:8788
 MCP_RESOURCE_URI=http://127.0.0.1:8788/mcp
+# Optional: use DCR when a metadata host rejects local workerd fetches.
+# dev:mcp:chatgpt sets this override automatically; production defaults to CIMD enabled.
+# MCP_CIMD_ENABLED=false
 # Opt-in private-use redirect schemes for DCR (comma-separated). See research note.
 MCP_DCR_ALLOWED_SCHEMES=cursor,vscode
 # Optional: OpenAI plugin portal domain verification token (GET /.well-known/openai-apps-challenge).

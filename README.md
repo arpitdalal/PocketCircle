@@ -74,6 +74,59 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render sa
 
 ## Run App
 
+### ChatGPT local MCP testing
+
+After the one-time setup below, start the complete host-testing stack with:
+
+```sh
+pnpm dev:chatgpt
+```
+
+This starts the web app on `127.0.0.1:5173`, the local MCP Worker on
+`127.0.0.1:8788`, and the named Cloudflare Tunnel configured at
+`~/.cloudflared/pocketcircle-dev.yml`. The tunnel publishes
+`https://mcp-dev.pocketcircle.app/mcp` to ChatGPT and supports streamed MCP
+responses. Press Ctrl-C in that terminal to stop all three processes.
+
+The script expects the cloud Convex dev deployment already configured in the
+root `.env.local` and matching Worker credentials in
+`packages/mcp-worker/.dev.vars`. It does not start a local Convex backend or
+deploy anything. If either port is already occupied, stop the old process first.
+
+One-time Cloudflare setup:
+
+```sh
+brew install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create pocketcircle-dev
+cloudflared tunnel route dns pocketcircle-dev mcp-dev.pocketcircle.app
+```
+
+Create `~/.cloudflared/pocketcircle-dev.yml` with the tunnel UUID and credentials
+file produced by `cloudflared tunnel create`, forwarding
+`mcp-dev.pocketcircle.app` to `http://127.0.0.1:8788`. Put a `^/cdn-cgi/.*`
+404 rule before the Worker rule and a final catch-all 404. Keep this file and
+the credentials outside the repository. The script validates that the config
+exists before starting.
+
+```yaml
+tunnel: <tunnel-uuid>
+credentials-file: /Users/<you>/.cloudflared/<tunnel-uuid>.json
+ingress:
+  - hostname: mcp-dev.pocketcircle.app
+    path: ^/cdn-cgi/.*
+    service: http_status:404
+  - hostname: mcp-dev.pocketcircle.app
+    service: http://127.0.0.1:8788
+  - service: http_status:404
+```
+
+In ChatGPT developer mode, create a separate **PocketCircle Dev** connection for
+`https://mcp-dev.pocketcircle.app/mcp`, complete Google sign-in and Circle
+consent, and refresh the connection after Worker tool metadata changes. Start a
+new chat after refreshing. Keep the production PocketCircle connection pointed
+at `https://mcp.pocketcircle.app/mcp`.
+
 MCP (optional but required for Connections / consent locally):
 
 1. Set in root `.env.local` (see `.env.example`):

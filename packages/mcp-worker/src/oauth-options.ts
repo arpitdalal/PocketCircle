@@ -73,7 +73,7 @@ export function oauthProviderOptions(
       evaluateClientRegistrationPolicy(clientMetadata, {
         allowedCustomSchemes: parseAllowedCustomRedirectSchemes(env.MCP_DCR_ALLOWED_SCHEMES),
       }),
-    clientIdMetadataDocumentEnabled: true,
+    clientIdMetadataDocumentEnabled: env.MCP_CIMD_ENABLED !== "false",
     allowImplicitFlow: false,
     allowPlainPKCE: false,
     accessTokenTTL: MCP_ACCESS_TOKEN_TTL_SECONDS,

@@ -12,6 +12,8 @@
     "dev:web": "pnpm --filter @pocketcircle/web-app dev",
     "dev:web:mocks": "pnpm --filter @pocketcircle/web-app dev:mocks",
     "dev:mcp": "pnpm --filter @pocketcircle/mcp-worker dev",
+    "dev:mcp:chatgpt": "node scripts/dev-mcp-chatgpt.mjs",
+    "dev:chatgpt": "./scripts/dev-chatgpt-local.sh",
     "dev:convex": "pnpm --filter @pocketcircle/convex dev",
     "build": "pnpm --filter @pocketcircle/web-app build",
     "start": "wrangler dev",
