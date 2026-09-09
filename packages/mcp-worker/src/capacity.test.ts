@@ -130,6 +130,17 @@ describe("server instructions", () => {
     expect(MCP_SERVER_INSTRUCTIONS).toContain("either channel");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("cursor must be null for page 1");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("integer minor units");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("active Transaction or Category field update");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("without another conversational confirmation");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("host permission or safety card");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain(
+      "Do not claim success until the update tool returns success",
+    );
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("STOP before calling any write tool");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain(
+      "granting PocketCircle connection or write permission",
+    );
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("Do not call restore_* or update_*");
     expect(MCP_SERVER_INSTRUCTIONS).not.toMatch(/\$\{/);
   });
 });

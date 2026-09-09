@@ -64,7 +64,11 @@ import {
   unauthenticatedRateLimitMaterial,
 } from "./rate-limit.js";
 import { mcpLog } from "./safe-log.js";
-import { MCP_SERVER_INSTRUCTIONS } from "./server-instructions.js";
+import {
+  MCP_ARCHIVED_EDIT_INSTRUCTIONS,
+  MCP_SERVER_INSTRUCTIONS,
+  MCP_WRITE_CONFIRMATION_INSTRUCTIONS,
+} from "./server-instructions.js";
 
 function hostnameOf(urlString: string | undefined) {
   if (!urlString) {
@@ -762,7 +766,10 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Update Category",
       description:
-        "Update an active Category's name and/or color in an authorized, setup-complete Circle. Only the Category creator may edit fields; the Circle Owner may not rename or recolor another Member's Category. A true no-op returns the current Category without a spurious history event. Archived Categories cannot be updated.",
+        "Update an active Category's name and/or color in an authorized, setup-complete Circle. Only the Category creator may edit fields; the Circle Owner may not rename or recolor another Member's Category. A true no-op returns the current Category without a spurious history event. Archived Categories cannot be updated. " +
+        MCP_WRITE_CONFIRMATION_INSTRUCTIONS +
+        " " +
+        MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpUpdateCategoryInputSchema,
       outputSchema: mcpUpdateCategoryResultSchema,
       annotations: {
@@ -822,7 +829,8 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Restore Category",
       description:
-        "Restore an Archived Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Restoring makes the Category selectable for new Transactions again when uniqueness and lifecycle rules allow. Repeating restore on an already-active Category returns an error.",
+        "Restore an Archived Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Restoring makes the Category selectable for new Transactions again when uniqueness and lifecycle rules allow. Repeating restore on an already-active Category returns an error. " +
+        MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpRestoreCategoryInputSchema,
       outputSchema: mcpRestoreCategoryResultSchema,
       annotations: {
@@ -891,6 +899,10 @@ export function buildMcpServer(env: Env, request?: Request) {
       title: "Update Transaction",
       description:
         "Update an active Transaction in an authorized, setup-complete Circle. Only the Recorded By Member may edit fields. Optional updates cover title, note, amount, date, categories, Paid By, and type. Type changes require a complete valid category set for the new type. Expected Currency is required when changing amount. A true no-op returns the current Transaction without a spurious history event." +
+        " " +
+        MCP_WRITE_CONFIRMATION_INSTRUCTIONS +
+        " " +
+        MCP_ARCHIVED_EDIT_INSTRUCTIONS +
         " " +
         MCP_MONEY_DISPLAY_INSTRUCTIONS,
       inputSchema: mcpUpdateTransactionInputSchema,
@@ -962,7 +974,8 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Restore Transaction",
       description:
-        "Restore an archived Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Restoring returns the Transaction to active reporting and field editing for the Recorded By Member. Repeating restore on an already-active Transaction returns an error.",
+        "Restore an archived Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Restoring returns the Transaction to active reporting and field editing for the Recorded By Member. Repeating restore on an already-active Transaction returns an error. " +
+        MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpRestoreTransactionInputSchema,
       outputSchema: mcpRestoreTransactionResultSchema,
       annotations: {

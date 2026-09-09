@@ -1,6 +1,6 @@
 {
   "name": "pocketcircle",
-  "version": "0.1.1+codex.20260908213840",
+  "version": "0.1.1+codex.20260909230743",
   "description": "Track shared income and expenses in authorized Circles. View and manage Transactions and Categories when your connection grants write access \u2014 not a read-only product.",
   "author": {
     "name": "Arpit Dalal",
