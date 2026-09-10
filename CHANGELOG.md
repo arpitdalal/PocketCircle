@@ -7,6 +7,26 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-09-10
+
+### Added
+
+- A Support page for connecting AI assistants, fixing Connections issues, and
+  emailing support.
+- Connected AI assistants can read Home Summary Circle exclusions for Circles
+  they are allowed to use.
+
+### Changed
+
+- Privacy Policy and Terms now cover AI-assistant connections, approved Circles
+  and scopes, and that PocketCircle is run by an individual maintainer.
+- Connected AI assistants show money in major units with the Currency code,
+  treat read tools as read-only, and get a clear write-access denied result
+  when the connection is read-only instead of a silent reauthorization loop.
+- Assistants are guided to use Circle Member ids for Paid By and spending
+  filters, and to confirm updates to existing Transactions and Categories
+  before writing.
+
 ## [v0.5.1] - 2026-09-07
 
 ### Changed
