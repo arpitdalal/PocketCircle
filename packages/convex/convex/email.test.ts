@@ -574,6 +574,7 @@ describe("sendInvitationEmail", () => {
     expect(html).toContain(`https://app.example.com/invite/${token}`);
     expect(html).toContain(owner.displayName);
     expect(html).toContain("Trip");
+    expect(html).toContain(`invitation to Trip · ${invitationId}:0`);
     expect(html).not.toMatch(FINANCIAL_PATTERN);
   });
 

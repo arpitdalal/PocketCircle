@@ -291,6 +291,7 @@ export const sendInvitationEmail = internalAction({
       circleName: p.circleName,
       ownerDisplayName: p.ownerDisplayName,
       recipientEmail: p.recipientEmail,
+      sendRef: `${invitationId}:${resendCount}`,
     });
     await sendEmailOrReport(
       ctx,

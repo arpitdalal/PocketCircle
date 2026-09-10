@@ -32,12 +32,13 @@ describe("welcomeEmail", () => {
 });
 
 describe("invitationEmail", () => {
-  it("includes circle name in subject, CTA, and post-CTA copy (#376)", () => {
+  it("includes circle name in subject, CTA, and per-send footer (#376)", () => {
     const { subject, html } = invitationEmail({
       inviteLink: "https://app.example.com/invite/abc123",
       circleName: "Trip",
       ownerDisplayName: "Olive Owner",
       recipientEmail: "ada@example.com",
+      sendRef: "inv123:0",
     });
     expect(subject).toBe(invitationSubject("Trip"));
     expect(subject).toContain("Trip");
@@ -48,8 +49,9 @@ describe("invitationEmail", () => {
     expect(html).not.toContain("You're joining");
     expect(html).toContain("https://app.example.com/invite/abc123");
     expect(html).toContain("expires in 7 days");
-    expect(html).toContain("PocketCircle · invitation to Trip");
+    expect(html).toContain("PocketCircle · invitation to Trip · inv123:0");
     expect(html).toContain("— The PocketCircle team");
+    expect(html).toContain("word-break:break-word");
     expect(html).toContain(BRAND_PRIMARY);
     expect(html).toContain("https://app.example.com/logo.png");
     expect(html).not.toMatch(FINANCIAL_PATTERN);
@@ -58,6 +60,21 @@ describe("invitationEmail", () => {
     expect(html.indexOf("expires in 7 days")).toBeLessThan(
       html.indexOf("Accept invitation to Trip"),
     );
+  });
+
+  it("keeps trailing uniqueness when circle names collide across sends", () => {
+    const shared = {
+      inviteLink: "https://app.example.com/invite/tok",
+      circleName: "Trip",
+      ownerDisplayName: "Olive",
+      recipientEmail: "a@b.com",
+    };
+    const a = invitationEmail({ ...shared, sendRef: "invA:0" }).html;
+    const b = invitationEmail({ ...shared, sendRef: "invB:1" }).html;
+    expect(a).toContain("invitation to Trip · invA:0");
+    expect(b).toContain("invitation to Trip · invB:1");
+    expect(a).not.toContain("invB:1");
+    expect(b).not.toContain("invA:0");
   });
 
   it("uses the same team signature as welcome", () => {
@@ -70,6 +87,7 @@ describe("invitationEmail", () => {
       circleName: "Trip",
       ownerDisplayName: "Olive",
       recipientEmail: "a@b.com",
+      sendRef: "inv:0",
     }).html;
     expect(welcome).toContain("— The PocketCircle team");
     expect(invite).toContain("— The PocketCircle team");
@@ -81,12 +99,14 @@ describe("invitationEmail", () => {
       circleName: "<script>",
       ownerDisplayName: 'O"wn',
       recipientEmail: "a&b@example.com",
+      sendRef: "a<b>:0",
     });
     expect(subject).toBe(invitationSubject("<script>"));
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toContain("<script>");
     expect(html).toContain("a&amp;b@example.com");
     expect(html).toContain("O&quot;wn");
+    expect(html).toContain("a&lt;b&gt;:0");
   });
 });
 

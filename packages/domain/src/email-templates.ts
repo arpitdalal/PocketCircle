@@ -43,7 +43,7 @@ function originFromUrl(url: string) {
 
 function ctaButton(href: string, label: string, tone: "primary" | "danger" = "primary") {
   const bg = tone === "danger" ? BRAND.danger : BRAND.primary;
-  return `<a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 20px;background-color:${bg};color:${BRAND.primaryFg};text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;line-height:1.2;font-family:${FONT}">${escapeHtml(label)}</a>`;
+  return `<a href="${escapeHtml(href)}" style="display:inline-block;max-width:100%;box-sizing:border-box;padding:12px 20px;background-color:${bg};color:${BRAND.primaryFg};text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;line-height:1.2;font-family:${FONT};word-break:break-word;white-space:normal">${escapeHtml(label)}</a>`;
 }
 
 const TEAM_SIGNATURE = `<p style="margin:0;color:${BRAND.muted}">— The PocketCircle team</p>`;
@@ -141,8 +141,10 @@ export function invitationEmail(args: {
   circleName: string;
   ownerDisplayName: string;
   recipientEmail: string;
+  /** Per-send uniqueness for Gmail trim (#376) — e.g. `${invitationId}:${resendCount}`. */
+  sendRef: string;
 }) {
-  const { inviteLink, circleName, ownerDisplayName, recipientEmail } = args;
+  const { inviteLink, circleName, ownerDisplayName, recipientEmail, sendRef } = args;
   const subject = invitationSubject(circleName);
   const origin = originFromUrl(inviteLink);
   const bodyHtml = `
@@ -159,8 +161,8 @@ ${TEAM_SIGNATURE}`;
       preheader: `${ownerDisplayName} invited you to ${circleName}.`,
       bodyHtml,
       logoSrc: origin ? assetUrl(origin, "logo.png") : undefined,
-      // Circle-specific trailing line — keeps Gmail from hiding the CTA in threaded invites (#376).
-      footer: `PocketCircle · invitation to ${circleName}`,
+      // Circle + per-send trailing uniqueness — keeps Gmail from hiding the CTA in threaded invites (#376).
+      footer: `PocketCircle · invitation to ${circleName} · ${sendRef}`,
     }),
   };
 }
@@ -257,6 +259,7 @@ export const EMAIL_PREVIEWS = [
         label: "Invite link",
         default: "https://app.example.com/invite/sample-token",
       },
+      { key: "sendRef", label: "Send ref", default: "invite-preview:0" },
     ],
     render: (p: Record<string, string>) =>
       invitationEmail({
@@ -264,6 +267,7 @@ export const EMAIL_PREVIEWS = [
         circleName: p.circleName ?? "",
         ownerDisplayName: p.ownerDisplayName ?? "",
         recipientEmail: p.recipientEmail ?? "",
+        sendRef: p.sendRef ?? "",
       }),
   },
   {
