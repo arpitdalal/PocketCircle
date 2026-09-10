@@ -2096,3 +2096,102 @@ describe("circle capacity", () => {
     vi.useRealTimers();
   });
 });
+
+describe("authenticated invitation accept (#375)", () => {
+  it("acceptInvitationById joins the Circle and notifies the inviter", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, { email: ada.email }),
+    );
+    mockCurrentUser.mockResolvedValue(ada);
+
+    const result = await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.acceptInvitationById, { invitationId }),
+    );
+
+    expect(result).toEqual({ circleId });
+
+    await t.run(async (ctx) => {
+      const invite = await ctx.db.get(invitationId);
+      expect(invite?.status).toBe("accepted");
+      const membership = await ctx.db
+        .query("members")
+        .withIndex("by_circle_and_user", (q) => q.eq("circleId", circleId).eq("userId", ada._id))
+        .unique();
+      expect(membership?.status).toBe("active");
+      const ownerRows = await listNotificationsForUser(ctx, owner._id);
+      expect(ownerRows.some((row) => row.type === "invitation.accepted")).toBe(true);
+    });
+  });
+
+  it("getInvitationPreviewById returns preview only for the matching invitee", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
+    const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, { email: ada.email }),
+    );
+
+    mockCurrentUser.mockResolvedValue(ada);
+    expect(await t.query(api.invitations.getInvitationPreviewById, { invitationId })).toEqual({
+      circleName: "Trip",
+      ownerDisplayName: owner.displayName,
+      ownerImage: owner.image ?? null,
+      invitedEmail: "ada@example.com",
+      ref: expect.stringMatching(new RegExp(`^trip-${invitationId}$`)),
+    });
+
+    mockCurrentUser.mockResolvedValue(stranger);
+    expect(await t.query(api.invitations.getInvitationPreviewById, { invitationId })).toBeNull();
+  });
+
+  it("getInvitationPreviewById returns null for expired and revoked invitations", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
+    mockCurrentUser.mockResolvedValue(ada);
+
+    const expiredId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, {
+        email: ada.email,
+        expiresAt: Date.now() - 1,
+      }),
+    );
+    const revokedId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, {
+        email: ada.email,
+        status: "revoked",
+      }),
+    );
+
+    expect(
+      await t.query(api.invitations.getInvitationPreviewById, { invitationId: expiredId }),
+    ).toBeNull();
+    expect(
+      await t.query(api.invitations.getInvitationPreviewById, { invitationId: revokedId }),
+    ).toBeNull();
+  });
+
+  it("acceptInvitationById rejects wrong email with the generic invalid signal", async () => {
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, { email: "ada@example.com" }),
+    );
+    mockCurrentUser.mockResolvedValue(stranger);
+
+    await expect(
+      t.mutation(api.invitations.acceptInvitationById, { invitationId }),
+    ).rejects.toMatchObject({
+      data: mutationErrorData(MUTATION_ERRORS.inviteInvalid),
+    });
+  });
+});

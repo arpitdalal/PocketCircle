@@ -48,6 +48,17 @@ export function parseCategoryRef(ref: string | undefined): ParsedRef | null {
   return parseRef(ref, isConvexId);
 }
 
+/**
+ * Parses an Invitation ref from `/invitations/:invitationRef` (#375). Same
+ * domain parser as other object refs; only the route param differs.
+ */
+export function parseInvitationRef(ref: string | undefined) {
+  if (!ref) {
+    return null;
+  }
+  return parseRef(ref, isConvexId);
+}
+
 /** Strips title/name slugs from a ref before Sentry capture (ADR 0012, ADR 0013). */
 export function redactRefForTelemetry(ref: string): string {
   return redactRefSlug(ref, isConvexId);

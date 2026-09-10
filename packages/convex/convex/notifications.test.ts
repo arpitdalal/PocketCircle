@@ -1,8 +1,19 @@
-import { buildCategoryNotificationLink, buildRef } from "@pocketcircle/domain";
+import {
+  buildCategoryNotificationLink,
+  buildInvitationNotificationLink,
+  buildRef,
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
-import { addMember, firstPage, seedFixture, seedTransaction } from "../test/seed.js";
+import {
+  addMember,
+  firstPage,
+  makeUser,
+  seedFixture,
+  seedInvitation,
+  seedTransaction,
+} from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import * as guard from "./guard.js";
@@ -516,5 +527,157 @@ describe("notification link resolution", () => {
     const byTitle = Object.fromEntries(page.map((n) => [n.title, n.link]));
     expect(byTitle["Bad link"]).toBeUndefined();
     expect(byTitle["No link"]).toBeUndefined();
+  });
+
+  it("keeps pending invitation links for the matching invitee and drops them when settled", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada"));
+    mockCurrentUser.mockResolvedValue(ada);
+
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, f.circleId, f.owner._id, { email: ada.email }),
+    );
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const invitationLink = buildInvitationNotificationLink(
+      buildRef(circle?.name ?? "Trip", invitationId),
+    );
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: ada._id,
+        title: "Pending invite",
+        link: invitationLink,
+      });
+    });
+
+    let { page } = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(page[0]?.link).toBe(invitationLink);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(invitationId, { status: "revoked" });
+    });
+
+    ({ page } = await t.query(api.notifications.listNotifications, listArgs(true)));
+    expect(page[0]?.link).toBeUndefined();
+  });
+
+  it("drops invitation links when the pending Invitation has expired by time", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada"));
+    mockCurrentUser.mockResolvedValue(ada);
+
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, f.circleId, f.owner._id, {
+        email: ada.email,
+        expiresAt: Date.now() - 1,
+      }),
+    );
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const invitationLink = buildInvitationNotificationLink(
+      buildRef(circle?.name ?? "Trip", invitationId),
+    );
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: ada._id,
+        title: "Expired invite",
+        link: invitationLink,
+      });
+    });
+
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(page[0]?.link).toBeUndefined();
+  });
+
+  it("rewrites accepted invitation links to the Circle when the invitee still has access", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const ada = await t.run((ctx) => addMember(ctx, f.circleId, "ada@example.com", "Ada"));
+    mockCurrentUser.mockResolvedValue(ada.user);
+
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, f.circleId, f.owner._id, {
+        email: ada.user.email,
+        status: "accepted",
+      }),
+    );
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const invitationLink = buildInvitationNotificationLink(
+      buildRef(circle?.name ?? "Trip", invitationId),
+    );
+    const circleLink = `/circles/${buildRef(circle?.name ?? "Trip", f.circleId)}`;
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: ada.user._id,
+        title: "Accepted invite",
+        link: invitationLink,
+      });
+    });
+
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(page[0]?.link).toBe(circleLink);
+  });
+
+  it("keeps accepted invitation → Circle links after the invitee changes email", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const ada = await t.run((ctx) => addMember(ctx, f.circleId, "ada@example.com", "Ada"));
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, f.circleId, f.owner._id, {
+        email: "ada@example.com",
+        status: "accepted",
+      }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ada.user._id, { email: "ada-new@example.com" });
+    });
+    const updatedAda = await t.run(async (ctx) => ctx.db.get(ada.user._id));
+    mockCurrentUser.mockResolvedValue(updatedAda);
+
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const invitationLink = buildInvitationNotificationLink(
+      buildRef(circle?.name ?? "Trip", invitationId),
+    );
+    const circleLink = `/circles/${buildRef(circle?.name ?? "Trip", f.circleId)}`;
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: ada.user._id,
+        title: "Accepted invite after email change",
+        link: invitationLink,
+      });
+    });
+
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(page[0]?.link).toBe(circleLink);
+  });
+
+  it("drops invitation links for a User whose email does not match", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const stranger = await t.run((ctx) => makeUser(ctx, "stranger@example.com", "Stranger"));
+    mockCurrentUser.mockResolvedValue(stranger);
+
+    const invitationId = await t.run((ctx) =>
+      seedInvitation(ctx, f.circleId, f.owner._id, { email: "ada@example.com" }),
+    );
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const invitationLink = buildInvitationNotificationLink(
+      buildRef(circle?.name ?? "Trip", invitationId),
+    );
+
+    await t.run(async (ctx) => {
+      await insertNotification(ctx, {
+        userId: stranger._id,
+        title: "Wrong email",
+        link: invitationLink,
+      });
+    });
+
+    const { page } = await t.query(api.notifications.listNotifications, listArgs(true));
+    expect(page[0]?.link).toBeUndefined();
   });
 });

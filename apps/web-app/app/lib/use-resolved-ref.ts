@@ -71,7 +71,7 @@ export interface ResolvedRefOptions<T extends { ref: string }> {
  * collide with any other segment (e.g. a Circle ref `home-c1` can never equal an
  * object ref `home-t1`), and `home-c1` cannot corrupt a longer `home-c1-x`.
  */
-function canonicalizeRefSegment(
+export function canonicalizeRefSegment(
   location: { pathname: string; search: string; hash: string },
   staleRef: string,
   canonicalRef: string,

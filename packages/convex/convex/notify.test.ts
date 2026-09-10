@@ -1,6 +1,7 @@
 import {
   buildCategoryNotificationLink,
   buildCircleNotificationLink,
+  buildInvitationNotificationLink,
   buildRef,
   buildTransactionNotificationLink,
   parseNotificationLinkPath,
@@ -9,6 +10,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
+import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
   addMember,
   makeUser,
@@ -297,6 +299,98 @@ describe("notification creation on events (NTF-2)", () => {
       });
       expect(adaRows[0]?.link).toBeUndefined();
       expect(await listNotificationsForUser(ctx, owner._id)).toHaveLength(0);
+    });
+  });
+
+  it("createInvitation notifies an existing invitee with an invitation link, not a token path", async () => {
+    const t = convexTest(schema, modules);
+    registerEmailWorkpool(t);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.createInvitation, { circleId, email: ada.email }),
+    );
+
+    await t.run(async (ctx) => {
+      const invite = await ctx.db
+        .query("invitations")
+        .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+        .unique();
+      expect(invite).toBeTruthy();
+      const circle = await ctx.db.get(circleId);
+      const invitationLink = buildInvitationNotificationLink(
+        buildRef(circle?.name ?? "Trip", invite?._id ?? ""),
+      );
+      const rows = await listNotificationsForUser(ctx, ada._id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        type: "invitation.received",
+        title: "Circle invitation",
+        body: "You've been invited to Trip.",
+        link: invitationLink,
+        read: false,
+      });
+      expect(rows[0]?.link?.includes("/invite/")).toBe(false);
+      expect(await listNotificationsForUser(ctx, owner._id)).toHaveLength(0);
+    });
+  });
+
+  it("createInvitation skips Notification Center when the invitee has no account", async () => {
+    const t = convexTest(schema, modules);
+    registerEmailWorkpool(t);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.createInvitation, {
+        circleId,
+        email: "ghost@example.com",
+      }),
+    );
+
+    await t.run(async (ctx) => {
+      const all = await ctx.db.query("notifications").collect();
+      expect(all).toHaveLength(0);
+    });
+  });
+
+  it("resendInvitation creates a distinct invitation.resent row without duplicating received", async () => {
+    const t = convexTest(schema, modules);
+    registerEmailWorkpool(t);
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+    const ada = await t.run((ctx) => makeUser(ctx, "ada@example.com", "Ada Lovelace"));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.createInvitation, { circleId, email: ada.email }),
+    );
+
+    const invitationId = await t.run(async (ctx) => {
+      const invite = await ctx.db
+        .query("invitations")
+        .withIndex("by_circle", (q) => q.eq("circleId", circleId))
+        .unique();
+      if (!invite) {
+        throw new Error("expected invitation");
+      }
+      return invite._id;
+    });
+
+    await mutateAndDrain(t, () => t.mutation(api.invitations.resendInvitation, { invitationId }));
+
+    await t.run(async (ctx) => {
+      const rows = await listNotificationsForUser(ctx, ada._id);
+      expect(rows).toHaveLength(2);
+      const types = rows.map((row) => row.type).sort();
+      expect(types).toEqual(["invitation.received", "invitation.resent"]);
+      expect(rows.filter((row) => row.type === "invitation.received")).toHaveLength(1);
+      expect(rows.filter((row) => row.type === "invitation.resent")).toHaveLength(1);
+      expect(rows.every((row) => row.link?.startsWith("/invitations/"))).toBe(true);
     });
   });
 
