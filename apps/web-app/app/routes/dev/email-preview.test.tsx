@@ -1,4 +1,4 @@
-import { INVITATION_SUBJECT } from "@pocketcircle/domain";
+import { invitationSubject } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -42,10 +42,28 @@ describe("Email preview route", () => {
 
     await user.click(screen.getByRole("button", { name: "Invitation" }));
 
-    expect(screen.getByText(INVITATION_SUBJECT)).toBeInTheDocument();
+    expect(screen.getByText(invitationSubject("Weekend Trip"))).toBeInTheDocument();
     const iframe = screen.getByTitle("Email preview");
     expect(iframe.getAttribute("srcdoc")).toContain("Weekend Trip");
-    expect(iframe.getAttribute("srcdoc")).toContain("https://app.example.com/invite/sample-token");
+    expect(iframe.getAttribute("srcdoc")).toContain("Accept invitation to Weekend Trip");
+    expect(iframe.getAttribute("srcdoc")).toContain(
+      `${window.location.origin}/invite/sample-token`,
+    );
+    expect(iframe.getAttribute("srcdoc")).toContain(`${window.location.origin}/logo.png`);
+  });
+
+  it("lets you switch preview width between desktop and mobile", async () => {
+    const user = userEvent.setup();
+    renderEmailPreview();
+
+    const iframe = screen.getByTitle("Email preview");
+    expect(iframe).toHaveClass("max-w-[600px]");
+
+    await user.click(screen.getByRole("button", { name: "Mobile" }));
+    expect(iframe).toHaveClass("max-w-[375px]");
+
+    await user.click(screen.getByRole("button", { name: "Desktop" }));
+    expect(iframe).toHaveClass("max-w-[600px]");
   });
 
   it("seeds Feedback app version from the injected release identifier", async () => {

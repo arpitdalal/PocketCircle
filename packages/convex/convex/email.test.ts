@@ -1,4 +1,4 @@
-import { INVITATION_SUBJECT, WELCOME_SUBJECT, welcomeEmail } from "@pocketcircle/domain";
+import { invitationSubject, WELCOME_SUBJECT, welcomeEmail } from "@pocketcircle/domain";
 import { capturedRequests, HttpResponse, http, resetCapturedRequests } from "@pocketcircle/mocks";
 import { server } from "@pocketcircle/mocks/server";
 import { convexTest } from "convex-test";
@@ -567,13 +567,14 @@ describe("sendInvitationEmail", () => {
     expect(resend[0]?.body).toMatchObject({
       from: "no-reply@pocketcircle.test",
       to: "ada@example.com",
-      subject: INVITATION_SUBJECT,
+      subject: invitationSubject("Trip"),
     });
     expect(resend[0]?.headers?.["idempotency-key"]).toBe(`invite:${invitationId}:0`);
     const html = resendBodyHtml(resend[0]?.body);
     expect(html).toContain(`https://app.example.com/invite/${token}`);
     expect(html).toContain(owner.displayName);
     expect(html).toContain("Trip");
+    expect(html).toContain(`invitation to Trip · ${invitationId}:0`);
     expect(html).not.toMatch(FINANCIAL_PATTERN);
   });
 

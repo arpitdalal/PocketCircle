@@ -291,6 +291,7 @@ export const sendInvitationEmail = internalAction({
       circleName: p.circleName,
       ownerDisplayName: p.ownerDisplayName,
       recipientEmail: p.recipientEmail,
+      sendRef: `${invitationId}:${resendCount}`,
     });
     await sendEmailOrReport(
       ctx,
@@ -355,6 +356,7 @@ export const sendFeedbackEmail = internalAction({
       circleName: args.circleName,
       circleRef: args.circleRef,
       submittedAtIso: args.submittedAtIso,
+      appUrl: process.env.SITE_URL ?? "http://127.0.0.1:5173",
     });
     await sendEmailOrReport(
       ctx,
