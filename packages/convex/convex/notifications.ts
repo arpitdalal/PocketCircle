@@ -69,16 +69,22 @@ async function resolveInvitationNotificationLink(
   }
 
   const invitation = await ctx.db.get(invitationId);
-  if (!invitation || invitation.emailLower !== user.email.toLowerCase()) {
+  if (!invitation) {
     return undefined;
   }
 
+  // Accepted destinations follow current Circle membership, not the Invitation's
+  // original email — Google Account Email can change after join (CONTEXT.md).
   if (invitation.status === "accepted") {
     const access = await resolveCircleAccessForUser(ctx, invitation.circleId, user);
     if (!access) {
       return undefined;
     }
     return buildCircleNotificationLink(buildRef(access.circle.name, access.circle._id));
+  }
+
+  if (invitation.emailLower !== user.email.toLowerCase()) {
+    return undefined;
   }
 
   const resolved = await resolveActionablePendingInvitationForEmail(

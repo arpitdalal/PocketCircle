@@ -62,9 +62,7 @@ export function useInvitationPreview(
   return MOCKS ? MOCK_INVITATION_PREVIEW : queried;
 }
 
-export function useInvitationPreviewById(
-  invitationId: string | undefined,
-): InvitationPreviewById | null | undefined {
+export function useInvitationPreviewById(invitationId: string | undefined) {
   const queried = useQuery(
     api.invitations.getInvitationPreviewById,
     MOCKS || !invitationId ? "skip" : { invitationId },

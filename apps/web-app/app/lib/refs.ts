@@ -52,7 +52,7 @@ export function parseCategoryRef(ref: string | undefined): ParsedRef | null {
  * Parses an Invitation ref from `/invitations/:invitationRef` (#375). Same
  * domain parser as other object refs; only the route param differs.
  */
-export function parseInvitationRef(ref: string | undefined): ParsedRef | null {
+export function parseInvitationRef(ref: string | undefined) {
   if (!ref) {
     return null;
   }
