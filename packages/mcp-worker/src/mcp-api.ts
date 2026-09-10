@@ -225,7 +225,7 @@ async function handleToolExecution<T>(
   if (!result.ok) {
     return {
       isError: true,
-      content: [{ type: "text" as const, text: `PocketCircle error: ${result.error}` }],
+      content: [{ type: "text" as const, text: mcpToolErrorText(result.error ?? "unknown") }],
     };
   }
   return {
@@ -234,7 +234,15 @@ async function handleToolExecution<T>(
   };
 }
 
+function mcpToolErrorText(error: string) {
+  if (error === "invalid_member_ids" || error === "paid_by_invalid") {
+    return `PocketCircle error: ${error}. Circle Member ids come from list_members (isSelf: true for personal filters). get_current_user.id is an account User id and must not be used as a Member id.`;
+  }
+  return `PocketCircle error: ${error}`;
+}
+
 export function buildMcpServer(env: Env, request?: Request) {
+  // Reads also persist grant usage through /mcp/operation, so no tool is read-only.
   const server = new McpServer(
     { name: "PocketCircle MCP", version: "0.1.0" },
     { instructions: MCP_SERVER_INSTRUCTIONS },
@@ -245,11 +253,11 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Get Current User",
       description:
-        "Get the authenticated PocketCircle user's id, display name, image, and account createdAt.",
+        "Get the authenticated PocketCircle account User (id, display name, image, createdAt). The returned id is an account User id, not a Circle Member id — do not pass it to paidByMemberIds, recordedByMemberIds, or paidByMemberId; use list_members (isSelf) instead.",
       inputSchema: z.object({}),
       outputSchema: mcpCurrentUserViewSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -274,7 +282,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: z.object({}),
       outputSchema: listCirclesOutputSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -299,7 +307,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: z.object({}),
       outputSchema: mcpHomeSummaryPreferencesSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -324,7 +332,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: circleRefInputSchema,
       outputSchema: mcpCircleViewSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -345,11 +353,11 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "List Circle Members",
       description:
-        "List display identities, roles, and lifecycle status for an authorized Circle. Pass includeHistorical for removed Members when attributing history. Paginate with optional paginationOpts (omit for first page; cursor null = page 1).",
+        "List Circle Members (id, displayName, role, status, isSelf). Member id is Circle-specific and is what paidByMemberIds, recordedByMemberIds, and paidByMemberId require — not get_current_user.id. For personal filters, use the Member with isSelf: true. Pass includeHistorical for removed Members when attributing history. Paginate with optional paginationOpts (omit for first page; cursor null = page 1).",
       inputSchema: listMembersInputSchema,
       outputSchema: mcpPaginatedMembersSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -381,7 +389,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCircleHistoryInputSchema,
       outputSchema: mcpPaginatedCircleHistorySchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -406,11 +414,11 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Search Transactions",
       description:
-        "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger. Use either offset pagination (page/pageSize) or cursor paginationOpts — never both. Prefer omitting pagination for the first page defaults; if using paginationOpts, cursor null means page 1.",
+        "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger. paidByMemberIds and recordedByMemberIds take Circle Member ids from list_members for this Circle (isSelf: true for personal spending), never get_current_user.id — a User id matches nothing and is not proof of zero spending. Use either offset pagination (page/pageSize) or cursor paginationOpts — never both. Prefer omitting pagination for the first page defaults; if using paginationOpts, cursor null means page 1.",
       inputSchema: mcpSearchTransactionsInputSchema,
       outputSchema: mcpSearchTransactionsResultSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -442,7 +450,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: transactionRefInputSchema,
       outputSchema: mcpTransactionDetailSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -471,7 +479,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listTransactionHistoryInputSchema,
       outputSchema: mcpPaginatedTransactionHistorySchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -501,7 +509,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: monthlyLedgerInputSchema,
       outputSchema: mcpMonthlyLedgerSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -531,7 +539,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: dashboardInputSchema,
       outputSchema: mcpDashboardSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -560,7 +568,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: monthlyComparisonInputSchema,
       outputSchema: mcpMonthlyComparisonSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -590,7 +598,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -621,7 +629,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCategoriesInputSchema,
       outputSchema: mcpPaginatedCategoriesSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -651,7 +659,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpCategoryDetailSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -680,7 +688,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpListCategoryTransactionsResultSchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -709,7 +717,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       inputSchema: listCategoryHistoryInputSchema,
       outputSchema: mcpPaginatedCategoryHistorySchema,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         openWorldHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -836,7 +844,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
       },
     },
@@ -868,7 +876,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
       },
     },
@@ -981,7 +989,7 @@ export function buildMcpServer(env: Env, request?: Request) {
       annotations: {
         readOnlyHint: false,
         openWorldHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
       },
     },

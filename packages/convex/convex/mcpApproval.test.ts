@@ -1546,6 +1546,22 @@ describe("MCP Transaction search and inspect reads", () => {
       paginationOpts: { numItems: 5, cursor: null },
     });
     expect(mixedPagination).toMatchObject({ ok: false, error: "invalid_filters" });
+
+    const accountUserIdAsPaidBy = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { paidByMemberIds: [owner.userId] },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(accountUserIdAsPaidBy).toMatchObject({ ok: false, error: "invalid_member_ids" });
+
+    const accountUserIdAsRecordedBy = await executeMcpRead(t, grant._id, {
+      kind: "search_transactions",
+      circleRef,
+      filters: { recordedByMemberIds: [owner.userId] },
+      ...searchTransactionPage(1, 25),
+    });
+    expect(accountUserIdAsRecordedBy).toMatchObject({ ok: false, error: "invalid_member_ids" });
   });
 });
 

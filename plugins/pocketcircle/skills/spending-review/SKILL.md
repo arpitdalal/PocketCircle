@@ -18,7 +18,7 @@ Use this skill for spending totals, comparisons, trends, and category breakdowns
 
 1. Call `list_authorized_circles` first. This is the full Circle scope for this connection, not proof of full account access.
 2. Call `get_home_summary_preferences`. Ignore excluded refs that are not in the current authorized list.
-3. For each authorized, non-excluded Circle, call `list_members` and find the Member with `isSelf: true`.
+3. For each authorized, non-excluded Circle, call `list_members` and find the Member with `isSelf: true`. Never use `get_current_user.id` as a Member id — it is an account User id and will match no transactions.
 4. Call `search_transactions` for each Circle with `status: "active"`, the requested date range, and `paidByMemberIds` set to that self Member id. Use cursor pagination with `{ numItems: 100, cursor: null }`, then repeat with each returned `continueCursor` until `isDone` is true.
 5. Sum only `type: "expense"` rows for spending. Keep a separate integer `amountMinorUnits` total for each Currency. `recordedBy` does not determine personal spending.
 

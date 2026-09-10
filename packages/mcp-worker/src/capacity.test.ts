@@ -141,6 +141,8 @@ describe("server instructions", () => {
       "granting PocketCircle connection or write permission",
     );
     expect(MCP_SERVER_INSTRUCTIONS).toContain("Do not call restore_* or update_*");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("Account User id from get_current_user");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("isSelf: true for personal filters");
     expect(MCP_SERVER_INSTRUCTIONS).not.toMatch(/\$\{/);
   });
 });

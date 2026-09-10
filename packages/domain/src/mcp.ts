@@ -55,7 +55,11 @@ export function normalizeMcpScopes(scopes: readonly string[]) {
 }
 
 export const mcpCurrentUserViewSchema = z.object({
-  id: z.string(),
+  id: z
+    .string()
+    .describe(
+      "Account User id. Not a Circle Member id — never pass this to paidByMemberIds, recordedByMemberIds, or paidByMemberId.",
+    ),
   displayName: z.string(),
   image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
   createdAt: z.number(),
@@ -82,13 +86,19 @@ export const mcpCircleViewSchema = z.object({
 export type McpCircleView = z.infer<typeof mcpCircleViewSchema>;
 
 export const mcpMemberViewSchema = z.object({
-  id: z.string().min(1).max(128),
+  id: z
+    .string()
+    .min(1)
+    .max(128)
+    .describe(
+      "Circle-specific Member id. Use this for paidByMemberIds, recordedByMemberIds, and paidByMemberId — not get_current_user.id.",
+    ),
   displayName: z.string().min(1).max(LIMITS.displayNameMax),
   image: z.string().max(MCP_IMAGE_MAX_LENGTH).nullable(),
   role: z.enum(["owner", "member"]),
   status: z.enum(["active", "removed", "deleted"]),
   joinedAt: z.number(),
-  isSelf: z.boolean(),
+  isSelf: z.boolean().describe("True for the authenticated User's membership in this Circle."),
 });
 
 export type McpMemberView = z.infer<typeof mcpMemberViewSchema>;
@@ -410,8 +420,20 @@ export const mcpSearchTransactionsFiltersSchema = z
       .max(20)
       .optional()
       .describe("Match Transactions tagged with any of these Category refs."),
-    recordedByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
-    paidByMemberIds: z.array(z.string().min(1).max(128)).max(20).optional(),
+    recordedByMemberIds: z
+      .array(z.string().min(1).max(128))
+      .max(20)
+      .optional()
+      .describe(
+        "Circle Member ids from list_members for this Circle. Not get_current_user.id. Empty results after an invalid User id usually mean the filter was wrong, not that spending is zero.",
+      ),
+    paidByMemberIds: z
+      .array(z.string().min(1).max(128))
+      .max(20)
+      .optional()
+      .describe(
+        "Circle Member ids from list_members for this Circle (isSelf: true for personal spending). Not get_current_user.id. Passing an account User id matches nothing.",
+      ),
     dateFrom: z
       .string()
       .max(10)
@@ -615,7 +637,7 @@ const mcpCreateTransactionCoreSchema = z.object({
     .max(128)
     .optional()
     .describe(
-      "Optional Paid By Member id from list_members. Defaults to the authenticated Member.",
+      "Optional Paid By Circle Member id from list_members for this Circle. Not get_current_user.id. Defaults to the authenticated Member.",
     ),
   expectedCurrency: z
     .string()
@@ -683,7 +705,14 @@ const mcpUpdateTransactionFieldsSchema = z.object({
     .describe(
       "Replacement Category set when changing categories or type. Must match the Transaction type.",
     ),
-  paidByMemberId: z.string().min(1).max(128).optional(),
+  paidByMemberId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "Replacement Paid By Circle Member id from list_members for this Circle. Not get_current_user.id.",
+    ),
   expectedCurrency: z
     .string()
     .min(1)

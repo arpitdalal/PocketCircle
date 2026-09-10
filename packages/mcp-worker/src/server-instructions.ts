@@ -27,4 +27,5 @@ export const MCP_SERVER_INSTRUCTIONS = [
   MCP_MONEY_DISPLAY_INSTRUCTIONS,
   "Dates are YYYY-MM-DD and months are YYYY-MM in the caller's local calendar.",
   "Use Circle, Category, and Transaction refs from prior tool results, not display names.",
+  "Account User id from get_current_user is not a Circle Member id. For paidByMemberIds, recordedByMemberIds, or paidByMemberId, call list_members and use that Circle's Member id (isSelf: true for personal filters).",
 ].join(" ");

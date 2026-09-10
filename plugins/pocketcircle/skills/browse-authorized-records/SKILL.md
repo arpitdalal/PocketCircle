@@ -19,7 +19,7 @@ Use PocketCircle MCP tools to inspect data the User already authorized for this 
 2. For ambiguous Circle names, list authorized Circles and ask which `ref` to use, citing prior tool results.
 3. Transactions: `search_transactions` then `get_transaction` / `list_transaction_history` as needed. Paginate until complete when totals or full coverage matter.
 4. Categories: `list_categories`, `get_category`, `list_category_transactions`, `list_category_history`.
-5. Members / Circle history: `list_members`, `list_circle_history`.
+5. Members / Circle history: `list_members`, `list_circle_history`. Member `id` is Circle-specific; never substitute `get_current_user.id` into `paidByMemberIds`, `recordedByMemberIds`, or `paidByMemberId`.
 6. Reports on an authorized Circle: `get_dashboard`, `get_monthly_ledger`, `get_monthly_comparison`, `get_category_analytics`. Keep Currencies separate — never sum across Currencies.
 
 ## Guardrails

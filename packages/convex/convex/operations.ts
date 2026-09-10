@@ -1067,7 +1067,10 @@ async function mapSearchTransactionsForAccess(
     recordedByMemberIds: filters.recordedByMemberIds,
     paidByMemberIds: filters.paidByMemberIds,
   });
-  if (categoryRefs.hasOnlyUnknown || common.hasOnlyUnknownIds) {
+  if (common.paidByMemberIds.hasOnlyUnknown || common.recordedByMemberIds.hasOnlyUnknown) {
+    return { ok: false as const, error: "invalid_member_ids" as const };
+  }
+  if (categoryRefs.hasOnlyUnknown || common.categoryIds.hasOnlyUnknown) {
     return args.paginationOpts
       ? {
           ok: true as const,
