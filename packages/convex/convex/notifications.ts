@@ -62,6 +62,7 @@ async function resolveInvitationNotificationLink(
   ctx: QueryCtx,
   user: Doc<"users">,
   invitationIdRaw: string,
+  circleAccess: CircleAccessLookup,
 ) {
   const invitationId = ctx.db.normalizeId("invitations", invitationIdRaw);
   if (!invitationId) {
@@ -76,7 +77,7 @@ async function resolveInvitationNotificationLink(
   // Accepted destinations follow current Circle membership, not the Invitation's
   // original email — Google Account Email can change after join (CONTEXT.md).
   if (invitation.status === "accepted") {
-    const access = await resolveCircleAccessForUser(ctx, invitation.circleId, user);
+    const access = await circleAccess(invitation.circleId);
     if (!access) {
       return undefined;
     }
@@ -115,7 +116,7 @@ async function resolveNotificationLinkWithAccess(
   }
 
   if (parsed.kind === "invitation") {
-    return resolveInvitationNotificationLink(ctx, user, parsed.invitationId);
+    return resolveInvitationNotificationLink(ctx, user, parsed.invitationId, circleAccess);
   }
 
   const circleId = ctx.db.normalizeId("circles", parsed.circleId);

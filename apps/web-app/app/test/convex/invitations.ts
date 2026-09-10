@@ -48,10 +48,7 @@ export function invitationsDouble(state: InvitationsState): EntityDouble {
       [getFunctionName(api.invitations.getInvitationPreview)]: (args) =>
         resolveWith(invitationPreview, args),
       [getFunctionName(api.invitations.getInvitationPreviewById)]: (args) =>
-        resolveWith(
-          invitationPreviewById !== undefined ? invitationPreviewById : invitationPreview,
-          args,
-        ),
+        resolveWith(invitationPreviewById, args),
     },
     mutations: {
       [getFunctionName(api.invitations.createInvitation)]: createInvitation,
