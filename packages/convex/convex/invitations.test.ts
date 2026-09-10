@@ -1,4 +1,6 @@
 import {
+  buildInvitationNotificationLink,
+  buildRef,
   CIRCLE_CAPACITY_LIMIT,
   LIMITS,
   MUTATION_ERRORS,
@@ -8,6 +10,7 @@ import { capturedRequests, resetCapturedRequests } from "@pocketcircle/mocks";
 import { ConvexError } from "convex/values";
 import { convexTest as createConvexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNextTableInserts } from "../test/db-syscall-fault.js";
 import {
   advanceScheduledTo,
   drainScheduledFunctions,
@@ -2242,36 +2245,38 @@ describe("invitation expiry and reminders (#315)", () => {
   }
 
   it("materializes expired status at the deadline via the scheduled job", async () => {
-    const { t, owner, circleId, invitation } = await createLiveInvite({
-      withInviteeUser: false,
+    const { t, owner, circleId, invitation, invitee } = await createLiveInvite({
+      inviteeEmail: "expire-silent@example.com",
     });
     mockCurrentUser.mockResolvedValue(owner);
+    if (!invitee) {
+      throw new Error("expected invitee");
+    }
 
     await advanceScheduledTo(t, invitation.expiresAt - 1);
     expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
 
     const historyBefore = await t.run((ctx) => listEntityHistory(ctx, circleEntity(circleId)));
-    const notificationsBefore = await t.run(async (ctx) => {
-      const events = await ctx.db.query("invitationEmailEvents").collect();
-      return events.length;
-    });
+    const emailEventsBefore = await t.run(
+      async (ctx) => (await ctx.db.query("invitationEmailEvents").collect()).length,
+    );
+    const inviteeNotificationsBefore = await t.run((ctx) =>
+      listNotificationsForUser(ctx, invitee._id),
+    );
 
     await advanceScheduledTo(t, invitation.expiresAt);
 
-    const expired = await t.run(async (ctx) => ctx.db.get(invitation._id));
-    expect(expired?.status).toBe("expired");
-
-    const pending = await t.query(api.invitations.listPendingInvitations, { circleId });
-    expect(pending).toEqual([]);
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("expired");
+    expect(await t.query(api.invitations.listPendingInvitations, { circleId })).toEqual([]);
 
     const historyAfter = await t.run((ctx) => listEntityHistory(ctx, circleEntity(circleId)));
     expect(historyAfter).toHaveLength(historyBefore.length);
-
-    const notificationsAfter = await t.run(async (ctx) => {
-      const events = await ctx.db.query("invitationEmailEvents").collect();
-      return events.length;
-    });
-    expect(notificationsAfter).toBe(notificationsBefore);
+    expect(
+      await t.run(async (ctx) => (await ctx.db.query("invitationEmailEvents").collect()).length),
+    ).toBe(emailEventsBefore);
+    expect(await t.run((ctx) => listNotificationsForUser(ctx, invitee._id))).toHaveLength(
+      inviteeNotificationsBefore.length,
+    );
   });
 
   it("rejects accept/resend/preview at the deadline even if expiry job is withheld", async () => {
@@ -2406,26 +2411,90 @@ describe("invitation expiry and reminders (#315)", () => {
     await advanceScheduledTo(t, invitation.expiresAt);
   });
 
-  it("account deletion of invitee blocks expiry while row is still pending", async () => {
+  it("invitee account deletion tombstone blocks expiry and reminders while still pending", async () => {
     const { t, invitation, invitee } = await createLiveInvite({
       inviteeEmail: "doomed@example.com",
     });
-    await mutateAndDrain(t, () =>
-      t.run((ctx) =>
-        finalizeOnUserDelete(ctx, {
-          email: invitee!.email,
-          userId: invitee!._id,
-          name: invitee!.displayName,
-        }),
-      ),
-    );
-    // Cleanup may revoke asynchronously; if still pending, expiry must no-op.
-    const mid = await t.run(async (ctx) => ctx.db.get(invitation._id));
-    if (mid?.status === "pending") {
-      await advanceScheduledTo(t, invitation.expiresAt);
-      const after = await t.run(async (ctx) => ctx.db.get(invitation._id));
-      expect(after?.status).not.toBe("expired");
+    if (!invitee) {
+      throw new Error("expected invitee");
     }
+
+    await t.run((ctx) =>
+      finalizeOnUserDelete(ctx, {
+        email: invitee.email,
+        userId: invitee._id,
+        name: invitee.displayName,
+      }),
+    );
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
+
+    await t.mutation(internal.invitations.expireInvitation, {
+      invitationId: invitation._id,
+      expectedResendCount: invitation.resendCount,
+      expectedExpiresAt: invitation.expiresAt,
+    });
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
+
+    const resurrected = await t.run((ctx) => makeUser(ctx, "doomed@example.com", "Resurrected"));
+    await t.mutation(internal.notify.deliverInvitationExpiryReminder, {
+      invitationId: invitation._id,
+      expectedResendCount: invitation.resendCount,
+      expectedExpiresAt: invitation.expiresAt,
+      daysBefore: 3,
+    });
+    expect(await t.run((ctx) => listNotificationsForUser(ctx, resurrected._id))).toEqual([]);
+  });
+
+  it("inviter account deletion tombstone blocks expiry; new owner invites still expire", async () => {
+    const { t, owner, circleId, invitation } = await createLiveInvite({
+      inviteeEmail: "still-pending@example.com",
+      withInviteeUser: false,
+    });
+    const successor = await t.run((ctx) => addMember(ctx, circleId, "heir@example.com", "Heir"));
+    mockCurrentUser.mockResolvedValue(owner);
+    await mutateAndDrain(t, () =>
+      t.mutation(api.members.transferOwnership, {
+        circleId,
+        toMemberId: successor.memberId,
+      }),
+    );
+
+    await t.run((ctx) =>
+      finalizeOnUserDelete(ctx, {
+        email: owner.email,
+        userId: owner._id,
+        name: owner.displayName,
+      }),
+    );
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
+    await t.mutation(internal.invitations.expireInvitation, {
+      invitationId: invitation._id,
+      expectedResendCount: invitation.resendCount,
+      expectedExpiresAt: invitation.expiresAt,
+    });
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
+
+    mockCurrentUser.mockResolvedValue(successor.user);
+    await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.createInvitation, {
+        circleId,
+        email: "fresh@example.com",
+      }),
+    );
+    const fresh = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("invitations")
+        .withIndex("by_circle_and_email", (q) =>
+          q.eq("circleId", circleId).eq("emailLower", "fresh@example.com"),
+        )
+        .unique();
+      if (!row) {
+        throw new Error("expected fresh invitation");
+      }
+      return row;
+    });
+    await advanceScheduledTo(t, fresh.expiresAt);
+    expect(await t.run(async (ctx) => (await ctx.db.get(fresh._id))?.status)).toBe("expired");
   });
 
   it("delivers 3-day and 1-day reminders to the invitee only", async () => {
@@ -2647,5 +2716,181 @@ describe("invitation expiry and reminders (#315)", () => {
 
     const one = await t.run(async (ctx) => ctx.db.get(oneLeft));
     expect(one?.remindersScheduledResendCount).toBe(0);
+  });
+
+  it("accept and revoke suppress reminders after scheduling", async () => {
+    const { t, owner, invitation, invitee } = await createLiveInvite({
+      inviteeEmail: "suppress@example.com",
+    });
+    if (!invitee) {
+      throw new Error("expected invitee");
+    }
+    mockCurrentUser.mockResolvedValue(invitee);
+    await mutateAndDrain(t, () =>
+      t.mutation(api.invitations.acceptInvitationById, { invitationId: invitation._id }),
+    );
+    await advanceScheduledTo(t, invitation.expiresAt - 3 * DAY_MS);
+    expect(
+      (await t.run((ctx) => listNotificationsForUser(ctx, invitee._id))).filter((row) =>
+        row.type.startsWith("invitation.expiring"),
+      ),
+    ).toHaveLength(0);
+
+    const second = await createLiveInvite({ inviteeEmail: "revoke-suppress@example.com" });
+    if (!second.invitee) {
+      throw new Error("expected invitee");
+    }
+    mockCurrentUser.mockResolvedValue(second.owner);
+    await mutateAndDrain(second.t, () =>
+      second.t.mutation(api.invitations.revokeInvitation, {
+        invitationId: second.invitation._id,
+      }),
+    );
+    await advanceScheduledTo(second.t, second.invitation.expiresAt - 3 * DAY_MS);
+    expect(
+      (await second.t.run((ctx) => listNotificationsForUser(ctx, second.invitee!._id))).filter(
+        (row) => row.type.startsWith("invitation.expiring"),
+      ),
+    ).toHaveLength(0);
+    expect(owner._id).toBeTruthy();
+  });
+
+  it("changed invitee email does not receive reminders for the old address", async () => {
+    const { t, invitation, invitee, email } = await createLiveInvite({
+      inviteeEmail: "old-address@example.com",
+    });
+    if (!invitee) {
+      throw new Error("expected invitee");
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.patch(invitee._id, { email: "new-address@example.com" });
+    });
+    await advanceScheduledTo(t, invitation.expiresAt - 3 * DAY_MS);
+    expect(await t.run((ctx) => listNotificationsForUser(ctx, invitee._id))).toEqual(
+      expect.not.arrayContaining([expect.objectContaining({ type: "invitation.expiring_soon" })]),
+    );
+    // Only invitation.received from create remains.
+    const rows = await t.run((ctx) => listNotificationsForUser(ctx, invitee._id));
+    expect(rows.filter((row) => row.type.startsWith("invitation.expiring"))).toHaveLength(0);
+    expect(email).toBe("old-address@example.com");
+  });
+
+  it("reminder notification insert failure does not block create or expiry", async () => {
+    const { t, invitation, invitee } = await createLiveInvite({
+      inviteeEmail: "fault@example.com",
+    });
+    if (!invitee) {
+      throw new Error("expected invitee");
+    }
+    vi.setSystemTime(invitation.expiresAt - 3 * DAY_MS);
+    const restore = failNextTableInserts("notifications", 1);
+    try {
+      await expect(
+        t.mutation(internal.notify.deliverInvitationExpiryReminder, {
+          invitationId: invitation._id,
+          expectedResendCount: invitation.resendCount,
+          expectedExpiresAt: invitation.expiresAt,
+          daysBefore: 3,
+        }),
+      ).rejects.toThrow(/notifications insert failed/);
+    } finally {
+      restore();
+    }
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("pending");
+    vi.setSystemTime(invitation.expiresAt);
+    await t.mutation(internal.invitations.expireInvitation, {
+      invitationId: invitation._id,
+      expectedResendCount: invitation.resendCount,
+      expectedExpiresAt: invitation.expiresAt,
+    });
+    expect(await t.run(async (ctx) => (await ctx.db.get(invitation._id))?.status)).toBe("expired");
+  });
+
+  it("reminder rows use the authenticated invitation link contract", async () => {
+    const { t, invitation, invitee, circleId } = await createLiveInvite({
+      inviteeEmail: "link@example.com",
+    });
+    if (!invitee) {
+      throw new Error("expected invitee");
+    }
+    await advanceScheduledTo(t, invitation.expiresAt - 3 * DAY_MS);
+    const rows = await t.run((ctx) => listNotificationsForUser(ctx, invitee._id));
+    const reminder = rows.find((row) => row.type === "invitation.expiring_soon");
+    const circle = await t.run(async (ctx) => ctx.db.get(circleId));
+    if (!circle || !reminder?.link) {
+      throw new Error("expected reminder link");
+    }
+    expect(reminder.link).toBe(
+      buildInvitationNotificationLink(buildRef(circle.name, invitation._id)),
+    );
+
+    mockCurrentUser.mockResolvedValue(invitee);
+    const page = await t.query(api.notifications.listNotifications, {
+      unreadOnly: false,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    const listed = page.page.find((row) => row.type === "invitation.expiring_soon");
+    expect(listed?.link).toBe(reminder.link);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(invitation._id, { status: "revoked" });
+    });
+    const afterRevoke = await t.query(api.notifications.listNotifications, {
+      unreadOnly: false,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(
+      afterRevoke.page.find((row) => row.type === "invitation.expiring_soon")?.link,
+    ).toBeUndefined();
+  });
+
+  it("expiry backfill preserves live fields and skips deletion-blocked rows", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.UTC(2026, 4, 1, 0, 0, 0);
+    vi.setSystemTime(t0);
+    const t = createTestConvex();
+    const { owner, circleId } = await t.run((ctx) => seedCircle(ctx));
+    await t.run((ctx) => markCircleSetupComplete(ctx, circleId));
+
+    const tokenHash = await hashInvitationToken("preserve-token");
+    const liveId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, {
+        email: "preserve@example.com",
+        expiresAt: t0 + INVITE_TTL_MS,
+        createdAt: t0 - 1000,
+        resendCount: 2,
+        tokenHash,
+      }),
+    );
+
+    const doomed = await t.run((ctx) => makeUser(ctx, "blocked@example.com", "Blocked"));
+    const blockedId = await t.run((ctx) =>
+      seedInvitation(ctx, circleId, owner._id, {
+        email: doomed.email,
+        expiresAt: t0 - 1,
+        createdAt: t0 - INVITE_TTL_MS,
+      }),
+    );
+    await t.run((ctx) =>
+      finalizeOnUserDelete(ctx, {
+        email: doomed.email,
+        userId: doomed._id,
+        name: doomed.displayName,
+      }),
+    );
+
+    await t.mutation(internal.invitations.backfillInvitationExpiry, {});
+    const live = await t.run(async (ctx) => ctx.db.get(liveId));
+    expect(live?.tokenHash).toBe(tokenHash);
+    expect(live?.resendCount).toBe(2);
+    expect(live?.createdAt).toBe(t0 - 1000);
+    expect(live?.expiresAt).toBe(t0 + INVITE_TTL_MS);
+    expect(live?.status).toBe("pending");
+    expect(await t.run(async (ctx) => (await ctx.db.get(blockedId))?.status)).toBe("pending");
+
+    await t.mutation(internal.invitations.backfillInvitationReminders, {});
+    expect(
+      await t.run(async (ctx) => (await ctx.db.get(liveId))?.remindersScheduledResendCount),
+    ).toBe(2);
   });
 });
