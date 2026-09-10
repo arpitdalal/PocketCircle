@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCategoryNotificationLink,
   buildCircleNotificationLink,
+  buildInvitationNotificationLink,
   buildTransactionNotificationLink,
   parseNotificationLinkPath,
 } from "./notification-links.js";
@@ -9,7 +10,7 @@ import {
 const isValidId = (candidate: string) => /^[a-z0-9]{2,}$/.test(candidate);
 
 describe("notification link builders", () => {
-  it("builds the three canonical path shapes", () => {
+  it("builds the canonical path shapes", () => {
     expect(buildCircleNotificationLink("trip-c1abc")).toBe("/circles/trip-c1abc");
     expect(buildTransactionNotificationLink("trip-c1abc", "weekly-t1abc")).toBe(
       "/circles/trip-c1abc/transactions/weekly-t1abc",
@@ -17,11 +18,12 @@ describe("notification link builders", () => {
     expect(buildCategoryNotificationLink("trip-c1abc", "groceries-cat1")).toBe(
       "/circles/trip-c1abc/categories/groceries-cat1",
     );
+    expect(buildInvitationNotificationLink("trip-j97abc")).toBe("/invitations/trip-j97abc");
   });
 });
 
 describe("parseNotificationLinkPath", () => {
-  it("parses circle, transaction, and category links", () => {
+  it("parses circle, transaction, category, and invitation links", () => {
     expect(parseNotificationLinkPath("/circles/trip-c1abc", isValidId)).toEqual({
       kind: "circle",
       circleRef: "trip-c1abc",
@@ -45,6 +47,11 @@ describe("parseNotificationLinkPath", () => {
       objectRef: "groceries-cat1",
       objectId: "cat1",
     });
+    expect(parseNotificationLinkPath("/invitations/trip-j97abc", isValidId)).toEqual({
+      kind: "invitation",
+      invitationRef: "trip-j97abc",
+      invitationId: "j97abc",
+    });
   });
 
   it("rejects malformed paths", () => {
@@ -59,5 +66,8 @@ describe("parseNotificationLinkPath", () => {
     ).toBeNull();
     expect(parseNotificationLinkPath("/circles/trip-c1abc/categories", isValidId)).toBeNull();
     expect(parseNotificationLinkPath("/circles/!", isValidId)).toBeNull();
+    expect(parseNotificationLinkPath("/invitations", isValidId)).toBeNull();
+    expect(parseNotificationLinkPath("/invitations/!", isValidId)).toBeNull();
+    expect(parseNotificationLinkPath("/invite/opaque-token", isValidId)).toBeNull();
   });
 });

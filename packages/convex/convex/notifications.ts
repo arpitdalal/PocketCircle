@@ -1,4 +1,9 @@
-import { parseNotificationLinkPath } from "@pocketcircle/domain";
+import {
+  buildCircleNotificationLink,
+  buildInvitationNotificationLink,
+  buildRef,
+  parseNotificationLinkPath,
+} from "@pocketcircle/domain";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api.js";
@@ -12,6 +17,7 @@ import {
 } from "./_generated/server.js";
 import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { type AuthorizedCircle, resolveCircleAccessForUser } from "./guard.js";
+import { resolveActionablePendingInvitationForEmail } from "./invitations.js";
 
 /** Badge cap — scan at most CAP+1 unread rows so the UI can render `99+`. */
 export const UNREAD_COUNT_CAP = 99;
@@ -47,13 +53,49 @@ export function createNotificationLinkResolver(ctx: QueryCtx, user: Doc<"users">
 
   return {
     resolve(link: string | undefined) {
-      return resolveNotificationLinkWithAccess(ctx, link, circleAccess);
+      return resolveNotificationLinkWithAccess(ctx, user, link, circleAccess);
     },
   };
 }
 
+async function resolveInvitationNotificationLink(
+  ctx: QueryCtx,
+  user: Doc<"users">,
+  invitationIdRaw: string,
+) {
+  const invitationId = ctx.db.normalizeId("invitations", invitationIdRaw);
+  if (!invitationId) {
+    return undefined;
+  }
+
+  const invitation = await ctx.db.get(invitationId);
+  if (!invitation || invitation.emailLower !== user.email.toLowerCase()) {
+    return undefined;
+  }
+
+  if (invitation.status === "accepted") {
+    const access = await resolveCircleAccessForUser(ctx, invitation.circleId, user);
+    if (!access) {
+      return undefined;
+    }
+    return buildCircleNotificationLink(buildRef(access.circle.name, access.circle._id));
+  }
+
+  const resolved = await resolveActionablePendingInvitationForEmail(
+    ctx,
+    invitation,
+    user.email.toLowerCase(),
+  );
+  if (!resolved) {
+    return undefined;
+  }
+
+  return buildInvitationNotificationLink(buildRef(resolved.circle.name, resolved.invitation._id));
+}
+
 async function resolveNotificationLinkWithAccess(
   ctx: QueryCtx,
+  user: Doc<"users">,
   link: string | undefined,
   circleAccess: CircleAccessLookup,
 ): Promise<string | undefined> {
@@ -64,6 +106,10 @@ async function resolveNotificationLinkWithAccess(
   const parsed = parseNotificationLinkPath(link, acceptRefIdSegment);
   if (!parsed) {
     return undefined;
+  }
+
+  if (parsed.kind === "invitation") {
+    return resolveInvitationNotificationLink(ctx, user, parsed.invitationId);
   }
 
   const circleId = ctx.db.normalizeId("circles", parsed.circleId);

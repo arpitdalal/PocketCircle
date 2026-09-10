@@ -39,6 +39,9 @@ export default [
     route("settings", "routes/settings.tsx"),
     route("connections", "routes/connections.tsx"),
     route("feedback", "routes/feedback.tsx"),
+    // Authenticated Invitation acceptance by Invitation identity (#375).
+    // Notification Center links land here; emailed tokens stay on /invite/:token.
+    route("invitations/:invitationRef", "routes/invitation-accept.tsx"),
     // MCP client consent (#318). Protected so Google sign-in + onboarding gate
     // apply; `handoffId` is the Worker-stored continuation (signed token is
     // loaded from the Worker, not placed in sign-in returnTo).

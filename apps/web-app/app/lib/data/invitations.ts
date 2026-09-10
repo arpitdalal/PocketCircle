@@ -40,8 +40,16 @@ export function useAcceptInvitation() {
   return useMutation(api.invitations.acceptInvitation);
 }
 
+export function useAcceptInvitationById() {
+  return useMutation(api.invitations.acceptInvitationById);
+}
+
 export type InvitationPreview = NonNullable<
   FunctionReturnType<typeof api.invitations.getInvitationPreview>
+>;
+
+export type InvitationPreviewById = NonNullable<
+  FunctionReturnType<typeof api.invitations.getInvitationPreviewById>
 >;
 
 export function useInvitationPreview(
@@ -52,4 +60,14 @@ export function useInvitationPreview(
     MOCKS || !token ? "skip" : { token },
   );
   return MOCKS ? MOCK_INVITATION_PREVIEW : queried;
+}
+
+export function useInvitationPreviewById(
+  invitationId: string | undefined,
+): InvitationPreviewById | null | undefined {
+  const queried = useQuery(
+    api.invitations.getInvitationPreviewById,
+    MOCKS || !invitationId ? "skip" : { invitationId },
+  );
+  return MOCKS ? { ...MOCK_INVITATION_PREVIEW, ref: `trip-mockinvite` } : queried;
 }

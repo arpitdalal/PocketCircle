@@ -1,4 +1,5 @@
 import {
+  buildRef,
   CIRCLE_CAPACITY_LIMIT,
   inviteEmailSchema,
   MUTATION_ERRORS,
@@ -12,13 +13,18 @@ import { mutation, query } from "./_generated/server.js";
 import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { markActivationMilestone } from "./activation.js";
-import { requireCurrentUser } from "./auth.js";
+import { getCurrentUserOrNull, requireCurrentUser } from "./auth.js";
 import { emailPool } from "./email.js";
 import { requireCircleAccess, resolveCircleAccess } from "./guard.js";
 import { circleEntity, recordEvent } from "./history.js";
 import { generateInvitationToken, hashInvitationToken } from "./invitationToken.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
-import { notifyInvitationAccepted, notifyInvitationRevoked } from "./notify.js";
+import {
+  notifyInvitationAccepted,
+  notifyInvitationReceived,
+  notifyInvitationResent,
+  notifyInvitationRevoked,
+} from "./notify.js";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -223,6 +229,15 @@ export const createInvitation = mutation({
       kind: "create",
       sentAt: now,
     });
+
+    if (existingUser) {
+      await notifyInvitationReceived(ctx, {
+        inviteeUserId: existingUser._id,
+        actorUserId: access.user._id,
+        circle: access.circle,
+        invitationId,
+      });
+    }
   },
 });
 
@@ -265,25 +280,192 @@ export const getInvitationPreview = query({
     if (!resolved) {
       return null;
     }
-
-    const ownerUser = await ctx.db.get(resolved.circle.ownerUserId);
-    if (!ownerUser) {
-      return null;
-    }
-
-    return {
-      circleName: resolved.circle.name,
-      ownerDisplayName: ownerUser.displayName,
-      ownerImage: ownerUser.image ?? null,
-      invitedEmail: resolved.invitation.emailLower,
-    };
+    return invitationPreviewFields(ctx, resolved.invitation, resolved.circle);
   },
 });
 
 /**
+ * Authenticated preview by Invitation id (#375). Returns the token-preview fields
+ * plus the canonical Invitation `ref` for ADR 0016 rewrite when the current User's
+ * live email matches a still-actionable pending Invitation; otherwise null.
+ */
+export const getInvitationPreviewById = query({
+  args: { invitationId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) {
+      return null;
+    }
+    const invitationId = ctx.db.normalizeId("invitations", args.invitationId);
+    if (invitationId === null) {
+      return null;
+    }
+    const invitation = await ctx.db.get(invitationId);
+    if (invitation === null) {
+      return null;
+    }
+
+    const resolved = await resolveActionablePendingInvitationForEmail(
+      ctx,
+      invitation,
+      user.email.toLowerCase(),
+    );
+    if (!resolved) {
+      return null;
+    }
+
+    const fields = await invitationPreviewFields(ctx, resolved.invitation, resolved.circle);
+    if (!fields) {
+      return null;
+    }
+    return {
+      ...fields,
+      ref: buildRef(resolved.circle.name, resolved.invitation._id),
+    };
+  },
+});
+
+async function invitationPreviewFields(
+  ctx: QueryCtx | MutationCtx,
+  invitation: Doc<"invitations">,
+  circle: Doc<"circles">,
+) {
+  const ownerUser = await ctx.db.get(circle.ownerUserId);
+  if (!ownerUser) {
+    return null;
+  }
+  return {
+    circleName: circle.name,
+    ownerDisplayName: ownerUser.displayName,
+    ownerImage: ownerUser.image ?? null,
+    invitedEmail: invitation.emailLower,
+  };
+}
+
+/**
+ * Pending Invitation that is still accept-able for `emailLower`: unexpired,
+ * email match, not deletion-blocked, Circle active + setup-complete.
+ * Shared by authenticated preview, accept, and Notification link resolution.
+ */
+export async function resolveActionablePendingInvitationForEmail(
+  ctx: QueryCtx | MutationCtx,
+  invitation: Doc<"invitations">,
+  emailLower: string,
+) {
+  if (
+    invitation.status !== "pending" ||
+    invitation.expiresAt <= Date.now() ||
+    invitation.emailLower !== emailLower
+  ) {
+    return null;
+  }
+
+  if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
+    return null;
+  }
+
+  const circle = await ctx.db.get(invitation.circleId);
+  if (circle === null || circle.setupCompletedAt === null || circle.status !== "active") {
+    return null;
+  }
+
+  return { invitation, circle };
+}
+
+/**
+ * Shared accept path for token and authenticated-id entry points (MEM-3 / #375).
+ * Reactivates a Removed Member's existing row on rejoin (PRD 44); all failure
+ * branches return the same generic signal (ADR 0016).
+ */
+async function acceptPendingInvitationForUser(
+  ctx: MutationCtx,
+  invitation: Doc<"invitations">,
+  user: Doc<"users">,
+) {
+  const resolved = await resolveActionablePendingInvitationForEmail(
+    ctx,
+    invitation,
+    user.email.toLowerCase(),
+  );
+  if (!resolved) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
+  }
+  const { circle } = resolved;
+
+  const existingMembership = await ctx.db
+    .query("members")
+    .withIndex("by_circle_and_user", (q) => q.eq("circleId", circle._id).eq("userId", user._id))
+    .unique();
+
+  if (existingMembership && (await isEffectiveActiveMember(ctx, existingMembership))) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
+  }
+
+  if ((await countActiveMembers(ctx, circle._id)) >= CIRCLE_CAPACITY_LIMIT) {
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleCapacityReached));
+  }
+
+  let membership: Doc<"members">;
+  if (existingMembership?.status === "removed") {
+    await ctx.db.patch(existingMembership._id, {
+      status: "active",
+      displayName: user.displayName,
+      image: user.image ?? undefined,
+      removedAt: undefined,
+    });
+    const reactivated = await ctx.db.get(existingMembership._id);
+    if (!reactivated) {
+      // unreachable: row existed immediately before patch
+      throw new Error("Member row missing after reactivation");
+    }
+    membership = reactivated;
+  } else if (existingMembership?.status === "deleted") {
+    // Deleted Members never reconnect (USR-3), even if userId somehow collides.
+    throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
+  } else {
+    const memberId = await ctx.db.insert("members", {
+      circleId: circle._id,
+      userId: user._id,
+      role: "member",
+      status: "active",
+      displayName: user.displayName,
+      image: user.image ?? undefined,
+      joinedAt: Date.now(),
+    });
+    const inserted = await ctx.db.get(memberId);
+    if (!inserted) {
+      // unreachable: insert returned an id
+      throw new Error("Member row missing after insert");
+    }
+    membership = inserted;
+  }
+
+  await ctx.db.patch(invitation._id, { status: "accepted" });
+
+  await recordEvent(ctx, {
+    entity: circleEntity(circle._id),
+    actor: membership,
+    action: "member joined",
+    changes: [{ field: "member", to: membership.displayName }],
+  });
+
+  await recomputeAccountDeletionBlockers(ctx, circle._id);
+
+  await markActivationMilestone(ctx, invitation.invitedByUserId, "sharedMemberJoinedAt");
+
+  await notifyInvitationAccepted(ctx, {
+    inviterUserId: invitation.invitedByUserId,
+    acceptorUserId: user._id,
+    acceptorDisplayName: user.displayName,
+    circle,
+  });
+
+  return { circleId: circle._id };
+}
+
+/**
  * Accepts a pending Invitation for the signed-in User whose Google Account Email
- * matches the invite (MEM-3). Reactivates a Removed Member's existing row on
- * rejoin (PRD 44); all failure branches return the same generic signal (ADR 0016).
+ * matches the invite (MEM-3). Token entry from the emailed Invitation Link.
  */
 export const acceptInvitation = mutation({
   args: { token: v.string() },
@@ -296,96 +478,31 @@ export const acceptInvitation = mutation({
       .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
       .unique();
 
-    if (
-      invitation === null ||
-      invitation.expiresAt <= Date.now() ||
-      invitation.status !== "pending"
-    ) {
+    if (invitation === null) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
 
-    if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
+    return acceptPendingInvitationForUser(ctx, invitation, user);
+  },
+});
+
+/**
+ * Authenticated accept by Invitation identity (#375). No emailed token; email
+ * match still required against the live Google Account Email.
+ */
+export const acceptInvitationById = mutation({
+  args: { invitationId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const invitationId = ctx.db.normalizeId("invitations", args.invitationId);
+    if (invitationId === null) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
-
-    if (invitation.emailLower !== user.email.toLowerCase()) {
+    const invitation = await ctx.db.get(invitationId);
+    if (invitation === null) {
       throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
     }
-
-    const circle = await ctx.db.get(invitation.circleId);
-    if (circle === null || circle.setupCompletedAt === null || circle.status !== "active") {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
-    }
-
-    const existingMembership = await ctx.db
-      .query("members")
-      .withIndex("by_circle_and_user", (q) => q.eq("circleId", circle._id).eq("userId", user._id))
-      .unique();
-
-    if (existingMembership && (await isEffectiveActiveMember(ctx, existingMembership))) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
-    }
-
-    if ((await countActiveMembers(ctx, circle._id)) >= CIRCLE_CAPACITY_LIMIT) {
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.circleCapacityReached));
-    }
-
-    let membership: Doc<"members">;
-    if (existingMembership?.status === "removed") {
-      await ctx.db.patch(existingMembership._id, {
-        status: "active",
-        displayName: user.displayName,
-        image: user.image ?? undefined,
-        removedAt: undefined,
-      });
-      const reactivated = await ctx.db.get(existingMembership._id);
-      if (!reactivated) {
-        // unreachable: row existed immediately before patch
-        throw new Error("Member row missing after reactivation");
-      }
-      membership = reactivated;
-    } else if (existingMembership?.status === "deleted") {
-      // Deleted Members never reconnect (USR-3), even if userId somehow collides.
-      throw new ConvexError(mutationErrorData(MUTATION_ERRORS.inviteInvalid));
-    } else {
-      const memberId = await ctx.db.insert("members", {
-        circleId: circle._id,
-        userId: user._id,
-        role: "member",
-        status: "active",
-        displayName: user.displayName,
-        image: user.image ?? undefined,
-        joinedAt: Date.now(),
-      });
-      const inserted = await ctx.db.get(memberId);
-      if (!inserted) {
-        // unreachable: insert returned an id
-        throw new Error("Member row missing after insert");
-      }
-      membership = inserted;
-    }
-
-    await ctx.db.patch(invitation._id, { status: "accepted" });
-
-    await recordEvent(ctx, {
-      entity: circleEntity(circle._id),
-      actor: membership,
-      action: "member joined",
-      changes: [{ field: "member", to: membership.displayName }],
-    });
-
-    await recomputeAccountDeletionBlockers(ctx, circle._id);
-
-    await markActivationMilestone(ctx, invitation.invitedByUserId, "sharedMemberJoinedAt");
-
-    await notifyInvitationAccepted(ctx, {
-      inviterUserId: invitation.invitedByUserId,
-      acceptorUserId: user._id,
-      acceptorDisplayName: user.displayName,
-      circle,
-    });
-
-    return { circleId: circle._id };
+    return acceptPendingInvitationForUser(ctx, invitation, user);
   },
 });
 
@@ -482,6 +599,19 @@ export const resendInvitation = mutation({
       kind: "resend",
       sentAt: now,
     });
+
+    const invitee = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", invitation.emailLower))
+      .unique();
+    if (invitee) {
+      await notifyInvitationResent(ctx, {
+        inviteeUserId: invitee._id,
+        actorUserId: access.user._id,
+        circle: access.circle,
+        invitationId: args.invitationId,
+      });
+    }
   },
 });
 

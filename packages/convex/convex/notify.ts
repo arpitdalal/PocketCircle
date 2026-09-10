@@ -1,6 +1,7 @@
 import {
   buildCategoryNotificationLink,
   buildCircleNotificationLink,
+  buildInvitationNotificationLink,
   buildRef,
   buildTransactionNotificationLink,
 } from "@pocketcircle/domain";
@@ -13,6 +14,8 @@ import { isEffectiveActiveMember } from "./memberIdentity.js";
 
 /** Closed set of v1 notification types — a typo can't create an unknown type. */
 export const NOTIFICATION_TYPES = [
+  "invitation.received",
+  "invitation.resent",
   "invitation.accepted",
   "invitation.revoked",
   "member.removed",
@@ -29,6 +32,8 @@ export const NOTIFICATION_TYPES = [
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 const notificationTypeValidator = v.union(
+  v.literal("invitation.received"),
+  v.literal("invitation.resent"),
   v.literal("invitation.accepted"),
   v.literal("invitation.revoked"),
   v.literal("member.removed"),
@@ -148,6 +153,66 @@ async function scheduleDeliverOne(ctx: MutationCtx, args: DeliverOneArgs) {
 
 function circleRef(circle: Doc<"circles">) {
   return buildRef(circle.name, circle._id);
+}
+
+function invitationRef(circle: Doc<"circles">, invitationId: Id<"invitations">) {
+  return buildRef(circle.name, invitationId);
+}
+
+async function notifyInvitationOffer(
+  ctx: MutationCtx,
+  opts: {
+    inviteeUserId: Id<"users">;
+    actorUserId: Id<"users">;
+    circle: Doc<"circles">;
+    invitationId: Id<"invitations">;
+    type: "invitation.received" | "invitation.resent";
+    title: string;
+    body: string;
+  },
+) {
+  await scheduleDeliverOne(ctx, {
+    recipientUserId: opts.inviteeUserId,
+    actorUserId: opts.actorUserId,
+    type: opts.type,
+    title: opts.title,
+    body: opts.body,
+    link: buildInvitationNotificationLink(invitationRef(opts.circle, opts.invitationId)),
+  });
+}
+
+export async function notifyInvitationReceived(
+  ctx: MutationCtx,
+  opts: {
+    inviteeUserId: Id<"users">;
+    actorUserId: Id<"users">;
+    circle: Doc<"circles">;
+    invitationId: Id<"invitations">;
+  },
+) {
+  await notifyInvitationOffer(ctx, {
+    ...opts,
+    type: "invitation.received",
+    title: "Circle invitation",
+    body: `You've been invited to ${opts.circle.name}.`,
+  });
+}
+
+export async function notifyInvitationResent(
+  ctx: MutationCtx,
+  opts: {
+    inviteeUserId: Id<"users">;
+    actorUserId: Id<"users">;
+    circle: Doc<"circles">;
+    invitationId: Id<"invitations">;
+  },
+) {
+  await notifyInvitationOffer(ctx, {
+    ...opts,
+    type: "invitation.resent",
+    title: "Invitation resent",
+    body: `Your invitation to ${opts.circle.name} was resent.`,
+  });
 }
 
 export async function notifyInvitationAccepted(
