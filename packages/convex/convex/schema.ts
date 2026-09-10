@@ -281,6 +281,10 @@ export default defineSchema({
     resendTimestamps: v.array(v.number()),
     createdAt: v.number(),
     expiresAt: v.number(),
+    // Optional for deploy compatibility / backfill markers (#315).
+    expiryScheduledResendCount: v.optional(v.number()),
+    remindersScheduledResendCount: v.optional(v.number()),
+    remindersSent: v.optional(v.array(v.union(v.literal(3), v.literal(1)))),
   })
     .index("by_circle", ["circleId"])
     .index("by_circle_and_email", ["circleId", "emailLower"])

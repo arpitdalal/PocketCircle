@@ -10,12 +10,17 @@ import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
 import { internalMutation } from "./_generated/server.js";
+import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Closed set of v1 notification types — a typo can't create an unknown type. */
 export const NOTIFICATION_TYPES = [
   "invitation.received",
   "invitation.resent",
+  "invitation.expiring_soon",
+  "invitation.expiring_tomorrow",
   "invitation.accepted",
   "invitation.revoked",
   "member.removed",
@@ -34,6 +39,8 @@ export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 const notificationTypeValidator = v.union(
   v.literal("invitation.received"),
   v.literal("invitation.resent"),
+  v.literal("invitation.expiring_soon"),
+  v.literal("invitation.expiring_tomorrow"),
   v.literal("invitation.accepted"),
   v.literal("invitation.revoked"),
   v.literal("member.removed"),
@@ -70,10 +77,38 @@ function isActorSkip(recipientUserId: Id<"users">, actorUserId: Id<"users">) {
   return recipientUserId === actorUserId;
 }
 
+/** Sole `notifications` insert path — actor-driven and system events share it (#315 / #309). */
+async function insertNotificationRow(
+  ctx: MutationCtx,
+  args: {
+    recipientUserId: Id<"users">;
+    type: NotificationType;
+    title: string;
+    body?: string;
+    link?: string;
+  },
+) {
+  const recipient = await ctx.db.get("users", args.recipientUserId);
+  if (!recipient) {
+    return false;
+  }
+
+  await ctx.db.insert("notifications", {
+    userId: args.recipientUserId,
+    type: args.type,
+    title: args.title,
+    body: args.body,
+    link: args.link,
+    read: false,
+    createdAt: Date.now(),
+  });
+  return true;
+}
+
 /**
  * Single-recipient delivery seam (NTF-2 / ADR 0027). The sole writer of
- * `notifications` — actor-skip is enforced at enqueue time; this guard is a
- * backstop for direct internal calls.
+ * `notifications` for actor-driven events — actor-skip is enforced at enqueue
+ * time; this guard is a backstop for direct internal calls.
  */
 export const deliverOne = internalMutation({
   args: deliverOneArgsValidator,
@@ -82,19 +117,102 @@ export const deliverOne = internalMutation({
       return;
     }
 
-    const recipient = await ctx.db.get("users", args.recipientUserId);
-    if (!recipient) {
+    await insertNotificationRow(ctx, args);
+  },
+});
+
+const reminderDaysBeforeValidator = v.union(v.literal(3), v.literal(1));
+
+/**
+ * System reminder delivery (#315): validate + insert in one transaction so
+ * acceptance/resend/archive/deletion between jobs cannot orphan a notification.
+ */
+export const deliverInvitationExpiryReminder = internalMutation({
+  args: {
+    invitationId: v.id("invitations"),
+    expectedResendCount: v.number(),
+    expectedExpiresAt: v.number(),
+    daysBefore: reminderDaysBeforeValidator,
+  },
+  handler: async (ctx, args) => {
+    const invitation = await ctx.db.get(args.invitationId);
+    if (
+      invitation === null ||
+      invitation.status !== "pending" ||
+      invitation.resendCount !== args.expectedResendCount ||
+      invitation.expiresAt !== args.expectedExpiresAt
+    ) {
       return;
     }
 
-    await ctx.db.insert("notifications", {
-      userId: args.recipientUserId,
-      type: args.type,
-      title: args.title,
-      body: args.body,
-      link: args.link,
-      read: false,
-      createdAt: Date.now(),
+    const now = Date.now();
+    if (now >= invitation.expiresAt) {
+      return;
+    }
+
+    const thresholdAt = invitation.expiresAt - args.daysBefore * DAY_MS;
+    if (now < thresholdAt) {
+      return;
+    }
+    // Late 3-day jobs skip once the 1-day window opens; 1-day jobs skip at expiry.
+    if (args.daysBefore === 3 && now >= invitation.expiresAt - DAY_MS) {
+      return;
+    }
+
+    if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
+      return;
+    }
+
+    const circle = await ctx.db.get(invitation.circleId);
+    if (circle === null || circle.setupCompletedAt === null || circle.status !== "active") {
+      return;
+    }
+
+    const inviter = await ctx.db.get(invitation.invitedByUserId);
+    if (inviter === null) {
+      return;
+    }
+
+    const invitee = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", invitation.emailLower))
+      .unique();
+    if (invitee === null) {
+      return;
+    }
+
+    const membership = await ctx.db
+      .query("members")
+      .withIndex("by_circle_and_user", (q) =>
+        q.eq("circleId", invitation.circleId).eq("userId", invitee._id),
+      )
+      .unique();
+    if (membership && (await isEffectiveActiveMember(ctx, membership))) {
+      return;
+    }
+
+    const sent = invitation.remindersSent ?? [];
+    if (sent.includes(args.daysBefore)) {
+      return;
+    }
+
+    const type =
+      args.daysBefore === 3 ? "invitation.expiring_soon" : "invitation.expiring_tomorrow";
+    const title =
+      args.daysBefore === 3 ? "Invitation expires in 3 days" : "Invitation expires in 1 day";
+    const inserted = await insertNotificationRow(ctx, {
+      recipientUserId: invitee._id,
+      type,
+      title,
+      body: `Your invitation to ${circle.name} is waiting for a response.`,
+      link: buildInvitationNotificationLink(invitationRef(circle, invitation._id)),
+    });
+    if (!inserted) {
+      return;
+    }
+
+    await ctx.db.patch(invitation._id, {
+      remindersSent: [...sent, args.daysBefore],
     });
   },
 });

@@ -46,6 +46,24 @@ export async function drainScheduledFunctions(t: ConvexTestHandle) {
   await withFakeTimers(() => finishScheduled(t));
 }
 
+/**
+ * Advance fake time to an absolute epoch-ms boundary and run due `runAt` jobs.
+ * Follow-on `runAfter(0)` work is drained without the 200ms workpool pump so
+ * day-scale invitation timers past the target stay pending.
+ */
+export async function advanceScheduledTo(t: ConvexTestHandle, targetTimeMs: number) {
+  await withFakeTimers(async () => {
+    const delta = targetTimeMs - Date.now();
+    if (delta > 0) {
+      vi.advanceTimersByTime(delta);
+    }
+    await t.finishInProgressScheduledFunctions();
+    await t.finishAllScheduledFunctions(() => {
+      vi.advanceTimersByTime(0);
+    });
+  });
+}
+
 type WorkpoolRetry = {
   maxAttempts: number;
   initialBackoffMs: number;
