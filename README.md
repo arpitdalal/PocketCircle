@@ -70,7 +70,7 @@ pnpm --filter @pocketcircle/convex exec convex env set SUPPORT_EMAIL arpitdalalm
 pnpm --filter @pocketcircle/convex exec convex env set EMAIL_DEV_LOG 1
 ```
 
-Open `/dev/email-preview` while running the web app in dev (or E2E) to render sample transactional emails in the browser.
+Open `/dev/email-preview` while running the web app in dev (or E2E) to render branded transactional email templates (sample data + desktop/mobile widths).
 
 ## Run App
 
