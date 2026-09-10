@@ -9,7 +9,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
-import { mutation, query } from "./_generated/server.js";
+import { internalMutation, mutation, query } from "./_generated/server.js";
 import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { recomputeAccountDeletionBlockers } from "./accountDeletionBlockers.js";
 import { markActivationMilestone } from "./activation.js";
@@ -31,6 +31,88 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_INVITATION_EMAIL_CAP = 100;
 const PER_EMAIL_RESEND_CAP = 3;
 const PER_EMAIL_CREATE_CAP = 2;
+const MIGRATION_BATCH_SIZE = 50;
+const REMINDER_DAYS_BEFORE = [3, 1] as const;
+
+async function invitationIsActionableForLifecycle(
+  ctx: QueryCtx | MutationCtx,
+  invitation: Doc<"invitations">,
+) {
+  if (invitation.status !== "pending") {
+    return false;
+  }
+  if (await isInvitationBlockedByAccountDeletion(ctx, invitation)) {
+    return false;
+  }
+  const circle = await ctx.db.get(invitation.circleId);
+  if (circle === null || circle.setupCompletedAt === null || circle.status !== "active") {
+    return false;
+  }
+  const inviter = await ctx.db.get(invitation.invitedByUserId);
+  return inviter !== null;
+}
+
+/** Shared expiry write — callers already validated generation / deadline / actionability. */
+async function materializeInvitationExpired(ctx: MutationCtx, invitationId: Id<"invitations">) {
+  await ctx.db.patch(invitationId, { status: "expired" });
+}
+
+async function scheduleInvitationExpiry(
+  ctx: MutationCtx,
+  invitation: Pick<
+    Doc<"invitations">,
+    "_id" | "resendCount" | "expiresAt" | "expiryScheduledResendCount"
+  >,
+) {
+  if (invitation.expiryScheduledResendCount === invitation.resendCount) {
+    return;
+  }
+  await ctx.db.patch(invitation._id, {
+    expiryScheduledResendCount: invitation.resendCount,
+  });
+  await ctx.scheduler.runAt(invitation.expiresAt, internal.invitations.expireInvitation, {
+    invitationId: invitation._id,
+    expectedResendCount: invitation.resendCount,
+    expectedExpiresAt: invitation.expiresAt,
+  });
+}
+
+async function scheduleInvitationReminders(
+  ctx: MutationCtx,
+  invitation: Pick<
+    Doc<"invitations">,
+    "_id" | "resendCount" | "expiresAt" | "remindersScheduledResendCount"
+  >,
+  now: number,
+) {
+  if (invitation.remindersScheduledResendCount === invitation.resendCount) {
+    return;
+  }
+  await ctx.db.patch(invitation._id, {
+    remindersScheduledResendCount: invitation.resendCount,
+  });
+  for (const daysBefore of REMINDER_DAYS_BEFORE) {
+    const at = invitation.expiresAt - daysBefore * DAY_MS;
+    if (at <= now) {
+      continue;
+    }
+    await ctx.scheduler.runAt(at, internal.notify.deliverInvitationExpiryReminder, {
+      invitationId: invitation._id,
+      expectedResendCount: invitation.resendCount,
+      expectedExpiresAt: invitation.expiresAt,
+      daysBefore,
+    });
+  }
+}
+
+async function scheduleInvitationLifecycle(
+  ctx: MutationCtx,
+  invitation: Doc<"invitations">,
+  now: number,
+) {
+  await scheduleInvitationExpiry(ctx, invitation);
+  await scheduleInvitationReminders(ctx, invitation, now);
+}
 
 async function assertUnderDailyInvitationCap(ctx: MutationCtx, userId: Id<"users">, now: number) {
   const windowStart = now - DAY_MS;
@@ -204,6 +286,12 @@ export const createInvitation = mutation({
       createdAt: now,
       expiresAt: now + INVITE_TTL_MS,
     });
+
+    const invitation = await ctx.db.get(invitationId);
+    if (invitation === null) {
+      throw new Error("invitation insert missing");
+    }
+    await scheduleInvitationLifecycle(ctx, invitation, now);
 
     await recordEvent(ctx, {
       entity: circleEntity(access.circle._id),
@@ -568,13 +656,22 @@ export const resendInvitation = mutation({
 
     const token = generateInvitationToken();
     const tokenHash = await hashInvitationToken(token);
+    const expiresAt = now + INVITE_TTL_MS;
+    const resendCount = invitation.resendCount + 1;
 
     await ctx.db.patch(args.invitationId, {
       tokenHash,
-      expiresAt: now + INVITE_TTL_MS,
-      resendCount: invitation.resendCount + 1,
+      expiresAt,
+      resendCount,
       resendTimestamps: [...(invitation.resendTimestamps ?? []), now],
+      remindersSent: [],
     });
+
+    const renewed = await ctx.db.get(args.invitationId);
+    if (renewed === null) {
+      throw new Error("invitation patch missing");
+    }
+    await scheduleInvitationLifecycle(ctx, renewed, now);
 
     await recordEvent(ctx, {
       entity: circleEntity(access.circle._id),
@@ -585,7 +682,7 @@ export const resendInvitation = mutation({
     await emailPool.enqueueAction(
       ctx,
       internal.email.sendInvitationEmail,
-      { invitationId: args.invitationId, token, resendCount: invitation.resendCount + 1 },
+      { invitationId: args.invitationId, token, resendCount },
       {
         onComplete: internal.email.onInvitationRunComplete,
         context: { invitationId: args.invitationId },
@@ -675,5 +772,132 @@ export const revokeInvitation = mutation({
         circleName: access.circle.name,
       });
     }
+  },
+});
+
+/** Materializes `status: "expired"` at the scheduled deadline (#315). */
+export const expireInvitation = internalMutation({
+  args: {
+    invitationId: v.id("invitations"),
+    expectedResendCount: v.number(),
+    expectedExpiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const invitation = await ctx.db.get(args.invitationId);
+    if (
+      invitation === null ||
+      invitation.status !== "pending" ||
+      invitation.resendCount !== args.expectedResendCount ||
+      invitation.expiresAt !== args.expectedExpiresAt
+    ) {
+      return;
+    }
+
+    if (Date.now() < args.expectedExpiresAt) {
+      return;
+    }
+
+    if (!(await invitationIsActionableForLifecycle(ctx, invitation))) {
+      return;
+    }
+
+    await materializeInvitationExpired(ctx, invitation._id);
+  },
+});
+
+/** Bounded one-time backfill: expire overdue pending rows and schedule live deadlines. */
+export const backfillInvitationExpiry = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("invitations").paginate({
+      cursor: args.cursor ?? null,
+      numItems: MIGRATION_BATCH_SIZE,
+    });
+    let expired = 0;
+    let scheduled = 0;
+    let skipped = 0;
+    const now = Date.now();
+
+    for (const invitation of page.page) {
+      if (invitation.status !== "pending") {
+        skipped += 1;
+        continue;
+      }
+      if (!(await invitationIsActionableForLifecycle(ctx, invitation))) {
+        skipped += 1;
+        continue;
+      }
+
+      if (invitation.expiresAt <= now) {
+        await materializeInvitationExpired(ctx, invitation._id);
+        expired += 1;
+        continue;
+      }
+
+      if (invitation.expiryScheduledResendCount === invitation.resendCount) {
+        skipped += 1;
+        continue;
+      }
+      await scheduleInvitationExpiry(ctx, invitation);
+      scheduled += 1;
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.invitations.backfillInvitationExpiry, {
+        cursor: page.continueCursor,
+      });
+    }
+
+    return {
+      done: page.isDone,
+      expired,
+      scheduled,
+      skipped,
+      continueCursor: page.continueCursor,
+    };
+  },
+});
+
+/** Bounded backfill: schedule only still-future reminder thresholds for pending invites. */
+export const backfillInvitationReminders = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("invitations").paginate({
+      cursor: args.cursor ?? null,
+      numItems: MIGRATION_BATCH_SIZE,
+    });
+    let scheduled = 0;
+    let skipped = 0;
+    const now = Date.now();
+
+    for (const invitation of page.page) {
+      if (invitation.status !== "pending" || invitation.expiresAt <= now) {
+        skipped += 1;
+        continue;
+      }
+      if (!(await invitationIsActionableForLifecycle(ctx, invitation))) {
+        skipped += 1;
+        continue;
+      }
+      if (invitation.remindersScheduledResendCount === invitation.resendCount) {
+        skipped += 1;
+        continue;
+      }
+      await scheduleInvitationReminders(ctx, invitation, now);
+      scheduled += 1;
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.invitations.backfillInvitationReminders, {
+        cursor: page.continueCursor,
+      });
+    }
+
+    return {
+      done: page.isDone,
+      scheduled,
+      skipped,
+      continueCursor: page.continueCursor,
+    };
   },
 });
