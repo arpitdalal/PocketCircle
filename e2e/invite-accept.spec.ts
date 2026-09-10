@@ -91,7 +91,10 @@ test("a removed member rejoins through a fresh invitation on the same member row
   browser,
   baseURL,
 }) => {
-  test.setTimeout(60_000);
+  // Owner + invitee sessions, remove, re-invite, accept — needs headroom when the
+  // self-hosted backend is under the full parallel suite (default 60s timed out with
+  // the re-invite still pending).
+  test.setTimeout(120_000);
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const circleName = `Rejoin Circle ${Date.now()}`;
   const inviteeEmail = `e2e+rejoin-${Date.now()}@example.com`;

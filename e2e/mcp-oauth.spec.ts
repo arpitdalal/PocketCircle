@@ -36,6 +36,22 @@ function mcpStructuredContent(body: unknown) {
   return structured;
 }
 
+/** Ledger expense total — absolute 0/500 flakes when the worker-shared Personal Circle has other month spend. */
+function ledgerExpenseMinor(content: object) {
+  if (!("totals" in content)) {
+    throw new Error("missing ledger totals");
+  }
+  const totals = Reflect.get(content, "totals");
+  if (typeof totals !== "object" || totals === null || !("expenseMinor" in totals)) {
+    throw new Error("missing expenseMinor");
+  }
+  const expenseMinor = Reflect.get(totals, "expenseMinor");
+  if (typeof expenseMinor !== "number") {
+    throw new Error("invalid expenseMinor");
+  }
+  return expenseMinor;
+}
+
 async function registerMcpClientViaDcr(request: APIRequestContext, clientName: string) {
   const registered = await request.post(`${WORKER_ORIGIN}/oauth/register`, {
     data: {
@@ -486,7 +502,17 @@ test.describe("local MCP OAuth", () => {
       ]),
     });
 
-    const archiveRes = await postMcp("tools/call", 10, {
+    const month = localPlainDate().slice(0, 7);
+    const ledgerBeforeArchive = await postMcp("tools/call", 10, {
+      name: "get_monthly_ledger",
+      arguments: { circleRef, month },
+    });
+    expect(ledgerBeforeArchive.status()).toBe(200);
+    const expenseBeforeArchive = ledgerExpenseMinor(
+      mcpStructuredContent(await ledgerBeforeArchive.json()),
+    );
+
+    const archiveRes = await postMcp("tools/call", 11, {
       name: "archive_transaction",
       arguments: {
         circleRef,
@@ -499,20 +525,16 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ status: "archived" }),
     });
 
-    const ledgerAfterArchive = await postMcp("tools/call", 11, {
+    const ledgerAfterArchive = await postMcp("tools/call", 12, {
       name: "get_monthly_ledger",
-      arguments: {
-        circleRef,
-        month: localPlainDate().slice(0, 7),
-      },
+      arguments: { circleRef, month },
     });
     expect(ledgerAfterArchive.status()).toBe(200);
-    const ledgerAfterArchiveContent = mcpStructuredContent(await ledgerAfterArchive.json());
-    expect(ledgerAfterArchiveContent).toMatchObject({
-      totals: { expenseMinor: 0 },
-    });
+    expect(ledgerExpenseMinor(mcpStructuredContent(await ledgerAfterArchive.json()))).toBe(
+      expenseBeforeArchive - 500,
+    );
 
-    const restoreRes = await postMcp("tools/call", 12, {
+    const restoreRes = await postMcp("tools/call", 13, {
       name: "restore_transaction",
       arguments: {
         circleRef,
@@ -525,20 +547,16 @@ test.describe("local MCP OAuth", () => {
       transaction: expect.objectContaining({ status: "active" }),
     });
 
-    const ledgerAfterRestore = await postMcp("tools/call", 13, {
+    const ledgerAfterRestore = await postMcp("tools/call", 14, {
       name: "get_monthly_ledger",
-      arguments: {
-        circleRef,
-        month: localPlainDate().slice(0, 7),
-      },
+      arguments: { circleRef, month },
     });
     expect(ledgerAfterRestore.status()).toBe(200);
-    const ledgerAfterRestoreContent = mcpStructuredContent(await ledgerAfterRestore.json());
-    expect(ledgerAfterRestoreContent).toMatchObject({
-      totals: { expenseMinor: 500 },
-    });
+    expect(ledgerExpenseMinor(mcpStructuredContent(await ledgerAfterRestore.json()))).toBe(
+      expenseBeforeArchive,
+    );
 
-    const archiveCategoryRes = await postMcp("tools/call", 14, {
+    const archiveCategoryRes = await postMcp("tools/call", 15, {
       name: "archive_category",
       arguments: {
         circleRef,
@@ -554,7 +572,7 @@ test.describe("local MCP OAuth", () => {
       }),
     });
 
-    const categoryDetailAfterArchive = await postMcp("tools/call", 15, {
+    const categoryDetailAfterArchive = await postMcp("tools/call", 16, {
       name: "get_category",
       arguments: {
         circleRef,
@@ -567,7 +585,7 @@ test.describe("local MCP OAuth", () => {
       name: updatedCategoryName,
     });
 
-    const categoryTxnsAfterArchive = await postMcp("tools/call", 16, {
+    const categoryTxnsAfterArchive = await postMcp("tools/call", 17, {
       name: "list_category_transactions",
       arguments: {
         circleRef,
@@ -579,7 +597,7 @@ test.describe("local MCP OAuth", () => {
       transactions: expect.arrayContaining([expect.objectContaining({ title: updatedTitle })]),
     });
 
-    const blockedCreateRes = await postMcp("tools/call", 17, {
+    const blockedCreateRes = await postMcp("tools/call", 18, {
       name: "create_transaction",
       arguments: {
         circleRef,
@@ -597,7 +615,7 @@ test.describe("local MCP OAuth", () => {
       result: { isError: true },
     });
 
-    const restoreCategoryRes = await postMcp("tools/call", 18, {
+    const restoreCategoryRes = await postMcp("tools/call", 19, {
       name: "restore_category",
       arguments: {
         circleRef,
@@ -612,7 +630,7 @@ test.describe("local MCP OAuth", () => {
       }),
     });
 
-    const createAfterRestoreRes = await postMcp("tools/call", 19, {
+    const createAfterRestoreRes = await postMcp("tools/call", 20, {
       name: "create_transaction",
       arguments: {
         circleRef,

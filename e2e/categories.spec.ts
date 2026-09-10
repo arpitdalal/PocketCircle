@@ -219,8 +219,13 @@ test("the category filter searches, scopes by status, reloads from the URL, and 
   await expect(page).toHaveURL(/q=filter\+match\+25/);
 
   // Reload: the filtered view reproduces from the URL alone.
+  // Under a contended local Convex, the list can sit on "Loading categories…" past the
+  // default 5s expect — wait for the skeleton to clear, then for the row.
   await page.reload();
-  await expect(page.getByRole("listitem").filter({ hasText: matchName(25) })).toBeVisible();
+  await expect(page.getByTestId("categories-skeleton")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole("listitem").filter({ hasText: matchName(25) })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByRole("listitem").filter({ hasText: otherName })).toHaveCount(0);
 
   // Widen to this run's full set by the nonce (27 rows — two source pages).
