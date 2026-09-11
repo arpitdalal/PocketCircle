@@ -1,10 +1,13 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { Route } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountMenu } from "~/components/account-menu.js";
 import { withReturnTo } from "~/lib/return-to-url.js";
-import { renderRoutes } from "~/test/convex-react.js";
+import { configureConvex, renderRoutes } from "~/test/convex-react.js";
+import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+
+vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
 // Mock only the true boundary: Better Auth's network client. Our own `signOut`
 // wrapper in `~/lib/auth-client.js` still runs for real against this fake client,
@@ -19,8 +22,14 @@ vi.mock("better-auth/react", () => ({
 }));
 
 afterEach(() => {
+  resetPushEnv();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+});
+
+beforeEach(() => {
+  configureConvex({});
+  signOutMock.mockResolvedValue({ data: { success: true }, error: null });
 });
 
 async function openAccountMenu(u: UserEvent) {
@@ -145,12 +154,47 @@ describe("AccountMenu", () => {
 
   it("shows Sign out and invokes signOut when chosen", async () => {
     const u = userEvent.setup();
+    configureConvex({});
     renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
       initialEntries: ["/"],
     });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signOutMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears local Push subscription and binding before signOut", async () => {
+    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const sub = makeFakePushSubscription();
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({ disablePushSubscription });
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+      expect(signOutMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("still signs out when Push cleanup fails", async () => {
+    const sub = makeFakePushSubscription();
+    sub.unsubscribe.mockRejectedValueOnce(new Error("sw down"));
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({ disablePushSubscription: vi.fn() });
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("shows a pending state while sign-out is in flight", async () => {

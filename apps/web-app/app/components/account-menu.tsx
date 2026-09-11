@@ -8,6 +8,7 @@ import { Badge } from "~/components/ui/badge.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { signOut } from "~/lib/auth-client.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
+import { useClearPushOnSignOut } from "~/lib/data.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import type { SessionUser } from "~/lib/session.js";
 import { cn } from "~/lib/utils.js";
@@ -46,6 +47,7 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
   const navigate = useNavigate();
   const origin = useReturnToOrigin();
   const { available: installAvailable, install } = usePwaInstall();
+  const clearPushOnSignOut = useClearPushOnSignOut();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const feedbackTo = isCircleScopedPath(origin) ? withReturnTo("/feedback", origin) : "/feedback";
 
@@ -55,11 +57,13 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
   // destination ourselves rather than strand them in a half-signed-out menu (#132, #107).
   // Either outcome unmounts this control, so the pending state never needs resetting and
   // the re-entry guard blocks a double-click while the request is in flight.
+  // Clear local Push + User binding before signOut (#381); failures must not block.
   const handleSignOut = async () => {
     if (isSigningOut) {
       return;
     }
     setIsSigningOut(true);
+    await clearPushOnSignOut();
     try {
       await signOut();
     } catch (error) {

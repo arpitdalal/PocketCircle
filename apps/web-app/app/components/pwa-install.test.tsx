@@ -4,7 +4,7 @@ import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountMenu } from "~/components/account-menu.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
-import { renderRoutes } from "~/test/convex-react.js";
+import { configureConvex, renderRoutes } from "~/test/convex-react.js";
 import {
   clearPwaInstallPromptDismissal,
   dispatchAppInstalled,
@@ -14,6 +14,8 @@ import {
   seedPwaInstallPromptDismissed,
   setNavigatorInstallProps,
 } from "~/test/pwa-install-env.js";
+
+vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
 const signOutMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { success: true }, error: null }),
@@ -63,6 +65,7 @@ function renderInstallChrome() {
 }
 
 beforeEach(() => {
+  configureConvex({});
   installMatchMediaFake(false);
   resetNavigatorInstallProps();
   clearPwaInstallPromptDismissal();

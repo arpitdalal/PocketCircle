@@ -794,6 +794,24 @@ describe("cleanup phases", () => {
         read: false,
         createdAt: Date.now(),
       });
+      await ctx.db.insert("pushSubscriptions", {
+        userId: deleting.userId,
+        endpoint: "https://push.example/mine",
+        p256dh: "p",
+        auth: "a",
+        vapidKeyId: "primary",
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
+      await ctx.db.insert("pushSubscriptions", {
+        userId: other._id,
+        endpoint: "https://push.example/theirs",
+        p256dh: "p",
+        auth: "a",
+        vapidKeyId: "primary",
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+      });
       await seedFeedbackEmailEvent(ctx, {
         userId: deleting.userId,
         type: "bug",
@@ -828,6 +846,18 @@ describe("cleanup phases", () => {
       expect(
         await ctx.db
           .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", other._id))
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("pushSubscriptions")
+          .withIndex("by_user", (q) => q.eq("userId", deleting.userId))
+          .collect(),
+      ).toHaveLength(0);
+      expect(
+        await ctx.db
+          .query("pushSubscriptions")
           .withIndex("by_user", (q) => q.eq("userId", other._id))
           .collect(),
       ).toHaveLength(1);

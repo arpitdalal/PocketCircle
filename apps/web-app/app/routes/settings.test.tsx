@@ -5,7 +5,7 @@ import { ConvexError } from "convex/values";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountDeletionBlocker } from "~/lib/data.js";
-import { SnackbarProvider } from "~/lib/snackbar.js";
+import { AppTestProviders } from "~/test/app-test-providers.js";
 import {
   configureConvex,
   convexReactMock,
@@ -18,6 +18,13 @@ import {
   primeAnalyticsForTests,
   resetPostHogBoundary,
 } from "~/test/posthog-boundary.js";
+import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+import {
+  installMatchMediaFake,
+  resetNavigatorInstallProps,
+  seedPwaInstallPromptDismissed,
+  setNavigatorInstallProps,
+} from "~/test/pwa-install-env.js";
 
 const auth = vi.hoisted(() => ({
   deleteUser: vi.fn(),
@@ -40,11 +47,11 @@ import Settings from "./settings.js";
 
 function renderSettings() {
   return render(
-    <SnackbarProvider>
+    <AppTestProviders>
       <MemoryRouter>
         <Settings />
       </MemoryRouter>
-    </SnackbarProvider>,
+    </AppTestProviders>,
   );
 }
 
@@ -52,10 +59,15 @@ beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   await primeAnalyticsForTests();
   auth.deleteUser.mockReset();
+  resetPushEnv();
+  resetNavigatorInstallProps();
+  installMatchMediaFake(false);
 });
 
 afterEach(() => {
   resetPostHogBoundary();
+  resetPushEnv();
+  resetNavigatorInstallProps();
   vi.clearAllMocks();
 });
 
@@ -70,11 +82,11 @@ describe("Settings profile form", () => {
       currentUser: makeCurrentUserView({ displayName: "Ada Lovelace" }),
     });
     rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <MemoryRouter>
           <Settings />
         </MemoryRouter>
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     expect(await screen.findByLabelText("Display name")).toHaveValue("Ada Lovelace");
@@ -448,5 +460,112 @@ describe("Settings danger zone", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't start account deletion. Please try again.",
     );
+  });
+});
+
+describe("Settings notifications", () => {
+  it("explains unsupported browsers", async () => {
+    installPushEnv({ serviceWorker: false, pushManager: false, notification: false });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(/Push notifications are not supported in this browser/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows Install PocketCircle on iPhone browser tabs", async () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    seedPwaInstallPromptDismissed();
+    installPushEnv({ permission: "default" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(/Install PocketCircle to enable notifications on this iPhone/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install PocketCircle" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explains blocked browser permission", async () => {
+    installPushEnv({ permission: "denied" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(await screen.findByText(/Blocked in browser settings/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("enables notifications only from the switch (never on load)", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const enablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    installPushEnv({ permission: "default", requestPermission, subscription: null });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(enablePushSubscription).not.toHaveBeenCalled();
+
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(requestPermission).toHaveBeenCalledTimes(1);
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: "https://push.example/test-endpoint",
+          vapidKeyId: "primary",
+        }),
+      );
+    });
+  });
+
+  it("disables by unsubscribing without revoking permission", async () => {
+    const sub = makeFakePushSubscription();
+    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    });
   });
 });

@@ -542,6 +542,22 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_and_read", ["userId", "read"]),
 
+  // Per-device Web Push bindings (ADR 0033 / #381). Endpoint + keys never logged.
+  // `vapidKeyId` matches the public key identity from getPushVapidPublicKey
+  // (`VAPID_KEY_ID` env, default `"primary"`) so rotation can target old rows.
+  pushSubscriptions: defineTable({
+    userId: v.id("users"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    vapidKeyId: v.string(),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_and_lastSeenAt", ["userId", "lastSeenAt"])
+    .index("by_endpoint", ["endpoint"]),
+
   // Append-only, IMMUTABLE event-as-row audit; written server-side only via the
   // history module (ADR 0015, 0018). One row per user action: the event IS the
   // row. Convex _ids are globally unique, so `entityId` (a stringified Circle /

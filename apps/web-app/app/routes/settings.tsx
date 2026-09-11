@@ -1,6 +1,7 @@
 import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { href, Link } from "react-router";
+import { usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
 import {
   Field,
@@ -19,10 +20,17 @@ import { requestAccountDeletion } from "~/lib/auth-client.js";
 import {
   type AccountDeletionBlocker,
   useAccountDeletionBlockers,
+  useDisableNotifications,
+  useEnableNotifications,
+  usePushVapidPublicKey,
   useSetAnalyticsEnabled,
   useUpdateProfile,
 } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
+import {
+  type PushNotificationsUiState,
+  resolvePushNotificationsUiState,
+} from "~/lib/push-subscriptions.js";
 import { type SessionUser, useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 
@@ -53,6 +61,11 @@ export default function Settings() {
           key={`privacy-${session.user.id}-${String(session.user.analyticsEnabled)}`}
           user={session.user}
         />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-muted-foreground">Notifications</h2>
+        <NotificationsSettingsCard />
       </section>
 
       <section className="space-y-2">
@@ -326,6 +339,141 @@ function PrivacySettingsForm({ user }: { user: SessionUser }) {
             On by default for new accounts. PocketCircle shares only coarse feature-usage events
             with PostHog—not transaction amounts, titles, notes, names, or other free text. Turn
             this off anytime. Operational error monitoring (Sentry) stays on regardless.
+          </FieldDescription>
+        </FieldContent>
+      </Field>
+
+      {error ? <FieldError>{error}</FieldError> : null}
+    </div>
+  );
+}
+
+function NotificationsSettingsCard() {
+  const vapid = usePushVapidPublicKey();
+  const enableNotifications = useEnableNotifications();
+  const disableNotifications = useDisableNotifications();
+  const { install } = usePwaInstall();
+  const { show } = useSnackbar();
+  const [uiState, setUiState] = useState<PushNotificationsUiState>("unsupported");
+  const [ready, setReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolvePushNotificationsUiState().then((state) => {
+      if (!cancelled) {
+        setUiState(state);
+        setReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const effectiveState =
+    vapid === null && uiState !== "needs_install" && uiState !== "blocked"
+      ? "unsupported"
+      : uiState;
+
+  async function refreshState() {
+    setUiState(await resolvePushNotificationsUiState());
+  }
+
+  async function onToggle(nextEnabled: boolean) {
+    if (submitting || !vapid) {
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      if (nextEnabled) {
+        await enableNotifications();
+        show("Notifications enabled on this device.");
+      } else {
+        await disableNotifications();
+        show("Notifications disabled on this device.");
+      }
+      await refreshState();
+    } catch (caught) {
+      setError(
+        mutationErrorMessageForUser(
+          caught,
+          nextEnabled
+            ? "Couldn't enable notifications. Please try again."
+            : "Couldn't disable notifications. Please try again.",
+        ),
+      );
+      await refreshState();
+    }
+    setSubmitting(false);
+  }
+
+  if (!ready || vapid === undefined) {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <p className="text-sm text-muted-foreground">Checking notification support…</p>
+      </div>
+    );
+  }
+
+  if (effectiveState === "unsupported") {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <p className="text-sm text-muted-foreground">
+          Push notifications are not supported in this browser.
+        </p>
+      </div>
+    );
+  }
+
+  if (effectiveState === "needs_install") {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <p className="text-sm text-muted-foreground">
+          Install PocketCircle to enable notifications on this iPhone.
+        </p>
+        <Button type="button" onClick={() => install()}>
+          Install PocketCircle
+        </Button>
+      </div>
+    );
+  }
+
+  if (effectiveState === "blocked") {
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <p className="text-sm text-muted-foreground">
+          Blocked in browser settings. Allow notifications for PocketCircle there, then return here
+          to enable them on this device.
+        </p>
+      </div>
+    );
+  }
+
+  const enabled = effectiveState === "enabled";
+
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+      <Field orientation="horizontal">
+        <Switch
+          id="settings-notifications-enabled"
+          checked={enabled}
+          disabled={submitting || vapid === null}
+          aria-labelledby="settings-notifications-enabled-label"
+          onClick={() => void onToggle(!enabled)}
+        />
+        <FieldContent>
+          <FieldLabel
+            id="settings-notifications-enabled-label"
+            htmlFor="settings-notifications-enabled"
+          >
+            Enable notifications on this device
+          </FieldLabel>
+          <FieldDescription>
+            Delivers PocketCircle alerts while the app is closed. Applies only to this browser or
+            installed app—not your other devices.
           </FieldDescription>
         </FieldContent>
       </Field>

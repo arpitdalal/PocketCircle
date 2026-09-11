@@ -9,6 +9,7 @@ import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
 import { MarketingHome } from "~/components/marketing-home.js";
 import { NotificationCenter } from "~/components/notification-center.js";
+import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
 import { MAIN_CONTENT_ID, SkipNavigation } from "~/components/skip-navigation.js";
@@ -136,6 +137,7 @@ export default function ProtectedLayout() {
       </main>
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}
       <FeatureAnnouncementCard />
+      {!MOCKS ? <PushSubscriptionLifecycle /> : null}
     </div>
   );
 }
