@@ -495,7 +495,9 @@ describe("Settings notifications", () => {
     });
     renderSettings();
     expect(
-      await screen.findByText(/Install PocketCircle to enable notifications on this iPhone/i),
+      await screen.findByText(
+        /Install PocketCircle to enable notifications on this iPhone or iPad/i,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Install PocketCircle" })).toBeInTheDocument();
     expect(

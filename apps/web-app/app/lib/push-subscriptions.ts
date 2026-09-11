@@ -35,26 +35,26 @@ function hasPushApis() {
 }
 
 /** Sync capability for Settings (subscription presence is async). */
-export function resolvePushNotificationsCapability(): Exclude<PushNotificationsUiState, "enabled"> {
+export function resolvePushNotificationsCapability() {
   if (!hasPushApis()) {
-    return "unsupported";
+    return "unsupported" as const;
   }
   if (isIosDevice() && !isInstalledWebApp()) {
-    return "needs_install";
+    return "needs_install" as const;
   }
   if (Notification.permission === "denied") {
-    return "blocked";
+    return "blocked" as const;
   }
-  return "default";
+  return "default" as const;
 }
 
-export async function resolvePushNotificationsUiState(): Promise<PushNotificationsUiState> {
+export async function resolvePushNotificationsUiState() {
   const capability = resolvePushNotificationsCapability();
   if (capability !== "default") {
     return capability;
   }
   const sub = await getCurrentPushSubscription();
-  return sub ? "enabled" : "default";
+  return sub ? ("enabled" as const) : ("default" as const);
 }
 
 /** Register Push SW outside mock env (MSW owns the root scope under MOCKS). */
@@ -102,10 +102,7 @@ function readSubscriptionKeys(subscription: PushSubscription) {
  * Explicit User action only — requests permission, subscribes, returns material
  * for the enable mutation. Never call on load.
  */
-export async function subscribeForPushNotifications(vapid: {
-  publicKey: string;
-  keyId: string;
-}): Promise<PushSubscriptionMaterial> {
+export async function subscribeForPushNotifications(vapid: { publicKey: string; keyId: string }) {
   if (!hasPushApis()) {
     throw new Error("Push notifications are not supported");
   }
@@ -137,9 +134,7 @@ export async function unsubscribeLocalPushSubscription() {
   return endpoint;
 }
 
-export async function readPushSubscriptionMaterial(
-  vapidKeyId: string,
-): Promise<PushSubscriptionMaterial | null> {
+export async function readPushSubscriptionMaterial(vapidKeyId: string) {
   const subscription = await getCurrentPushSubscription();
   if (!subscription) {
     return null;

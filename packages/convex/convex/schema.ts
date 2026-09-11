@@ -555,7 +555,6 @@ export default defineSchema({
     lastSeenAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_user_and_lastSeenAt", ["userId", "lastSeenAt"])
     .index("by_endpoint", ["endpoint"]),
 
   // Append-only, IMMUTABLE event-as-row audit; written server-side only via the

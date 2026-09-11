@@ -432,7 +432,7 @@ function NotificationsSettingsCard() {
     return (
       <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
         <p className="text-sm text-muted-foreground">
-          Install PocketCircle to enable notifications on this iPhone.
+          Install PocketCircle to enable notifications on this iPhone or iPad.
         </p>
         <Button type="button" onClick={() => install()}>
           Install PocketCircle

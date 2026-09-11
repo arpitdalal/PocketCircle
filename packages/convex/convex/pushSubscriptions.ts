@@ -46,7 +46,7 @@ export const enablePushSubscription = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     assertValidSubscription(args);
-    await bindPushSubscription(ctx, user._id, args, { createRoom: true });
+    await bindPushSubscription(ctx, user._id, args);
   },
 });
 
@@ -77,7 +77,7 @@ export const reconcilePushSubscription = mutation({
       return;
     }
     assertValidSubscription(args.subscription);
-    await bindPushSubscription(ctx, user._id, args.subscription, { createRoom: true });
+    await bindPushSubscription(ctx, user._id, args.subscription);
   },
 });
 
@@ -179,7 +179,6 @@ async function bindPushSubscription(
     auth: string;
     vapidKeyId: string;
   },
-  options: { createRoom: boolean },
 ) {
   await pruneInvalidSubscriptionsForUser(ctx, userId);
   const now = Date.now();
@@ -196,9 +195,7 @@ async function bindPushSubscription(
       return;
     }
     // Rebind from another User — counts toward this User's cap.
-    if (options.createRoom) {
-      await makeRoomForOneSubscription(ctx, userId);
-    }
+    await makeRoomForOneSubscription(ctx, userId);
     await ctx.db.patch(existing._id, {
       userId,
       p256dh: args.p256dh,
@@ -209,9 +206,7 @@ async function bindPushSubscription(
     return;
   }
 
-  if (options.createRoom) {
-    await makeRoomForOneSubscription(ctx, userId);
-  }
+  await makeRoomForOneSubscription(ctx, userId);
   await ctx.db.insert("pushSubscriptions", {
     userId,
     endpoint: args.endpoint,
