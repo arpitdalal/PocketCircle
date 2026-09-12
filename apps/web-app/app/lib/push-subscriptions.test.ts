@@ -510,6 +510,30 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     expect(disable).toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  it("heartbeats the sign-out guard past the crash TTL until release", async () => {
+    vi.useFakeTimers();
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    const releasePromise = clearLocalPushSubscriptionAndBinding(disable);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const release = await releasePromise;
+
+    // Without heartbeat the 60s TTL would sweep the mark/cancel.
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(isPushEnableCancelRequested()).toBe(true);
+    beginPushEnable();
+    expect(isPushEnableCancelRequested()).toBe(true);
+    endPushEnable();
+
+    release();
+    expect(isPushEnableCancelRequested()).toBe(false);
+    vi.useRealTimers();
+  });
 });
 
 describe("disableCurrentPushSubscription", () => {

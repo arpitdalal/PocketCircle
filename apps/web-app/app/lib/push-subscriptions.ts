@@ -187,6 +187,8 @@ const localPushEnableLeaseIds: string[] = [];
 let pushEnableHeartbeatTimer: number | null = null;
 let pushEnableGraceUntil = 0;
 const pushEnableGraceTimers = new Set<number>();
+/** Heartbeats for live sign-out guards (cleared on release / test reset). */
+const pushSignOutGuardHeartbeats = new Set<number>();
 
 function newPushEnableLeaseId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -364,6 +366,18 @@ function markPushSignOutCleanup() {
   return id;
 }
 
+function touchPushSignOutCleanup(id: string) {
+  try {
+    const key = `${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`;
+    if (window.localStorage.getItem(key) == null) {
+      return;
+    }
+    window.localStorage.setItem(key, String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
 function unmarkPushSignOutCleanup(id: string) {
   try {
     window.localStorage.removeItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`);
@@ -521,6 +535,10 @@ export function resetPushEnableLeases() {
     window.clearTimeout(timer);
   }
   pushEnableGraceTimers.clear();
+  for (const timer of pushSignOutGuardHeartbeats) {
+    window.clearInterval(timer);
+  }
+  pushSignOutGuardHeartbeats.clear();
   if (pushEnableHeartbeatTimer !== null) {
     window.clearInterval(pushEnableHeartbeatTimer);
     pushEnableHeartbeatTimer = null;
@@ -957,12 +975,28 @@ export async function clearLocalPushSubscriptionAndBinding(
     pushSignOutCleanupInProgress = false;
   }
 
+  const heartbeatMs = Math.max(1_000, Math.floor(PUSH_SIGNOUT_CLEANUP_TTL_MS / 3));
+  const heartbeat = window.setInterval(() => {
+    touchPushSignOutCleanup(cleanupId);
+    // Refresh cancel timestamp too so stale-cancel sweep cannot outlive the mark.
+    try {
+      if (window.localStorage.getItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${cleanupId}`) != null) {
+        window.localStorage.setItem(PUSH_ENABLE_CANCEL_KEY, String(Date.now()));
+      }
+    } catch {
+      // ignore
+    }
+  }, heartbeatMs);
+  pushSignOutGuardHeartbeats.add(heartbeat);
+
   let released = false;
   return () => {
     if (released) {
       return;
     }
     released = true;
+    window.clearInterval(heartbeat);
+    pushSignOutGuardHeartbeats.delete(heartbeat);
     unmarkPushSignOutCleanup(cleanupId);
     // Keep cancel while any tab still guards sign-out or still has an active enable.
     if (
