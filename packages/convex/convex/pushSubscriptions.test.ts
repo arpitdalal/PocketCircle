@@ -214,6 +214,40 @@ describe("pushSubscriptions", () => {
     });
   });
 
+  it("replace refuses a next endpoint owned by another User", async () => {
+    const t = convexTest(schema, modules);
+    const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));
+    const bob = await t.run((ctx) => makeUser(ctx, "bob@example.com", "Bob"));
+    await t.run(async (ctx) => {
+      await seedPushSubscription(ctx, {
+        userId: alice._id,
+        endpoint: "https://push.example/alice-old",
+      });
+      await seedPushSubscription(ctx, {
+        userId: bob._id,
+        endpoint: "https://push.example/bob",
+      });
+    });
+
+    signInAs(alice);
+    expect(
+      await t.mutation(api.pushSubscriptions.replacePushSubscription, {
+        previousEndpoint: "https://push.example/alice-old",
+        ...VALID,
+        endpoint: "https://push.example/bob",
+      }),
+    ).toEqual({ bound: false });
+
+    await t.run(async (ctx) => {
+      expect((await listPushSubscriptionsForUser(ctx, alice._id))[0]?.endpoint).toBe(
+        "https://push.example/alice-old",
+      );
+      expect((await listPushSubscriptionsForUser(ctx, bob._id))[0]?.endpoint).toBe(
+        "https://push.example/bob",
+      );
+    });
+  });
+
   it("reconcile with null does not wipe other device subscriptions", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));

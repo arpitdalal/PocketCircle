@@ -287,42 +287,47 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
 }
 
 /**
- * Sign-out / disable helper: unsubscribe locally then remove User binding.
- * Failures must not block sign-out. If live `getSubscription()` fails, falls
- * back to the last remembered endpoint so server unbind still runs. Never logs
- * endpoint material.
+ * Sign-out helper: unsubscribe locally then remove User binding. Failures must
+ * not block sign-out. If live `getSubscription()` fails, falls back to the last
+ * remembered endpoint so server unbind still runs. Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   try {
-    let subscription: PushSubscription | null = null;
-    try {
-      const registration = await resolvePushRegistration();
-      if (registration) {
-        subscription = await registration.pushManager.getSubscription();
-      }
-    } catch {
-      // Transient lookup failure — fall back to remembered endpoint below.
-    }
-    const endpoint = subscription?.endpoint ?? recalledPushEndpoint();
-    if (!endpoint) {
-      return;
-    }
-    if (subscription) {
-      try {
-        await subscription.unsubscribe();
-      } catch {
-        // Still clear the server binding below.
-      }
-    }
-    try {
-      await disable({ endpoint });
-      rememberPushEndpoint(null);
-    } catch {
-      // Binding clear is best-effort; local path already attempted.
-    }
+    await disableCurrentPushSubscription(disable);
   } catch {
     // Never block sign-out on Push cleanup.
   }
+}
+
+/**
+ * Settings disable: same steps as sign-out cleanup, but surfaces server unbind
+ * failures so the UI can retry instead of claiming success with a live binding.
+ */
+export async function disableCurrentPushSubscription(
+  disable: (args: { endpoint: string }) => Promise<unknown>,
+) {
+  let subscription: PushSubscription | null = null;
+  try {
+    const registration = await resolvePushRegistration();
+    if (registration) {
+      subscription = await registration.pushManager.getSubscription();
+    }
+  } catch {
+    // Transient lookup failure — fall back to remembered endpoint below.
+  }
+  const endpoint = subscription?.endpoint ?? recalledPushEndpoint();
+  if (!endpoint) {
+    return;
+  }
+  if (subscription) {
+    try {
+      await subscription.unsubscribe();
+    } catch {
+      // Still clear the server binding below.
+    }
+  }
+  await disable({ endpoint });
+  rememberPushEndpoint(null);
 }

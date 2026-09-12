@@ -4,6 +4,7 @@ import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
   clearLocalPushSubscriptionAndBinding,
+  disableCurrentPushSubscription,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
 } from "../push-subscriptions.js";
@@ -80,7 +81,7 @@ export function useDisableNotifications() {
   const disable = useDisablePushSubscription();
 
   return async () => {
-    await clearLocalPushSubscriptionAndBinding(disable);
+    await disableCurrentPushSubscription(disable);
     track("notifications_disabled", {});
   };
 }

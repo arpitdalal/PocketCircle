@@ -95,7 +95,8 @@ export const reconcilePushSubscription = mutation({
 
 /**
  * Replace a browser-refreshed endpoint. Only when `previousEndpoint` is already
- * owned by the current User — never migrates another User's binding.
+ * owned by the current User — never migrates another User's binding, and never
+ * steals a `next` endpoint owned by someone else (explicit enable may rebind).
  */
 export const replacePushSubscription = mutation({
   args: {
@@ -108,6 +109,10 @@ export const replacePushSubscription = mutation({
     assertValidSubscription(next);
     const previous = await findByEndpoint(ctx, previousEndpoint);
     if (!previous || previous.userId !== user._id) {
+      return { bound: false };
+    }
+    const nextExisting = await findByEndpoint(ctx, next.endpoint);
+    if (nextExisting && nextExisting.userId !== user._id) {
       return { bound: false };
     }
     await ctx.db.delete(previous._id);
