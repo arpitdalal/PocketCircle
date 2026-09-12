@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  beginPushEnable,
   canRegisterPushServiceWorker,
+  clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
+  endPushEnable,
+  isPushEnableInFlight,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
   registerPushServiceWorker,
@@ -23,6 +27,10 @@ afterEach(() => {
   resetPushEnv();
   resetNavigatorInstallProps();
   rememberPushEndpoint(null);
+  window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
+  while (isPushEnableInFlight()) {
+    endPushEnable();
+  }
   vi.clearAllMocks();
 });
 
@@ -180,6 +188,67 @@ describe("readPushSubscriptionMaterial", () => {
         vapidKeyId: "primary",
       },
     });
+  });
+
+  it("unbinds a remembered endpoint when the browser has no subscription", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+    rememberPushEndpoint("https://push.example/stale");
+
+    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+      subscription: null,
+      unboundEndpoint: "https://push.example/stale",
+    });
+  });
+
+  it("does not unbind remembered endpoints when subscription lookup fails", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: null,
+      getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
+    });
+    rememberPushEndpoint("https://push.example/stale");
+
+    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+      subscription: null,
+    });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/stale",
+    );
+  });
+});
+
+describe("push enable in-flight coordination", () => {
+  it("keeps cross-tab enables visible until every tab ends", () => {
+    // Simulate another tab's begin without touching this tab's counter.
+    window.localStorage.setItem(
+      "pocketcircle.pushEnableInFlight",
+      JSON.stringify({ count: 1, updatedAt: Date.now() }),
+    );
+    expect(isPushEnableInFlight()).toBe(true);
+
+    beginPushEnable();
+    endPushEnable();
+    // Other tab still in flight.
+    expect(isPushEnableInFlight()).toBe(true);
+
+    window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
+    expect(isPushEnableInFlight()).toBe(false);
+  });
+});
+
+describe("clearLocalPushSubscriptionAndBinding", () => {
+  it("resolves when disable stalls past the sign-out timeout", async () => {
+    vi.useFakeTimers();
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    const disable = vi.fn().mockImplementation(() => new Promise(() => {}));
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(done).resolves.toBeUndefined();
+    vi.useRealTimers();
   });
 });
 

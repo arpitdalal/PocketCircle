@@ -43,18 +43,70 @@ export function recalledPushEndpoint() {
 }
 
 /** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
+const PUSH_ENABLE_IN_FLIGHT_KEY = "pocketcircle.pushEnableInFlight";
+const PUSH_ENABLE_IN_FLIGHT_TTL_MS = 60_000;
 let pushEnableInFlight = 0;
+
+function readCrossTabPushEnableInFlight() {
+  try {
+    const raw = window.localStorage.getItem(PUSH_ENABLE_IN_FLIGHT_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("count" in parsed) ||
+      !("updatedAt" in parsed) ||
+      typeof parsed.count !== "number" ||
+      typeof parsed.updatedAt !== "number" ||
+      !Number.isFinite(parsed.count) ||
+      !Number.isFinite(parsed.updatedAt) ||
+      parsed.count <= 0
+    ) {
+      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
+      return null;
+    }
+    if (Date.now() - parsed.updatedAt > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
+      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
+      return null;
+    }
+    return { count: parsed.count, updatedAt: parsed.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writeCrossTabPushEnableInFlight(delta: number) {
+  try {
+    const current = readCrossTabPushEnableInFlight();
+    const count = Math.max(0, (current?.count ?? 0) + delta);
+    if (count === 0) {
+      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      PUSH_ENABLE_IN_FLIGHT_KEY,
+      JSON.stringify({ count, updatedAt: Date.now() }),
+    );
+  } catch {
+    // Private mode — same-tab counter still applies.
+  }
+}
 
 export function beginPushEnable() {
   pushEnableInFlight += 1;
+  writeCrossTabPushEnableInFlight(1);
 }
 
 export function endPushEnable() {
   pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
+  writeCrossTabPushEnableInFlight(-1);
 }
 
 export function isPushEnableInFlight() {
-  return pushEnableInFlight > 0;
+  return pushEnableInFlight > 0 || readCrossTabPushEnableInFlight() !== null;
 }
 
 export type PushNotificationsUiState =
@@ -306,9 +358,16 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
   try {
     existing = await registration.pushManager.getSubscription();
   } catch {
+    // Lookup failure — do not treat as confirmed absence.
     return { subscription: null };
   }
   if (!existing) {
+    // Confirmed absence: drop any remembered server binding so dead rows
+    // do not consume the ten-device cap.
+    const remembered = recalledPushEndpoint();
+    if (remembered) {
+      return { subscription: null, unboundEndpoint: remembered };
+    }
     return { subscription: null };
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
@@ -336,15 +395,25 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
 }
 
 /**
- * Sign-out helper: unsubscribe locally then remove User binding. Failures must
- * not block sign-out. If live `getSubscription()` fails, falls back to the last
- * remembered endpoint so server unbind still runs. Never logs endpoint material.
+ * Sign-out helper: unsubscribe locally then remove User binding. Failures and
+ * stalled mutations must not block sign-out. If live `getSubscription()` fails,
+ * falls back to the last remembered endpoint so server unbind still runs.
+ * Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
+  const SIGN_OUT_CLEANUP_TIMEOUT_MS = 5_000;
   try {
-    await disableCurrentPushSubscription(disable);
+    await Promise.race([
+      disableCurrentPushSubscription(disable),
+      new Promise((_, reject) => {
+        window.setTimeout(
+          () => reject(new Error("push cleanup timeout")),
+          SIGN_OUT_CLEANUP_TIMEOUT_MS,
+        );
+      }),
+    ]);
   } catch {
     // Never block sign-out on Push cleanup.
   }

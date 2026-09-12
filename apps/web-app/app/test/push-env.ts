@@ -20,6 +20,7 @@ type InstallPushEnvOptions = {
   subscription?: PushSubFake | null;
   requestPermission?: ReturnType<typeof vi.fn>;
   subscribe?: ReturnType<typeof vi.fn>;
+  getSubscription?: ReturnType<typeof vi.fn>;
   register?: ReturnType<typeof vi.fn>;
 };
 
@@ -53,7 +54,7 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
   const subscribe =
     options.subscribe ??
     vi.fn().mockImplementation(async () => subscription ?? makeFakePushSubscription());
-  const getSubscription = vi.fn().mockResolvedValue(subscription);
+  const getSubscription = options.getSubscription ?? vi.fn().mockResolvedValue(subscription);
   const register =
     options.register ??
     vi.fn().mockResolvedValue({
