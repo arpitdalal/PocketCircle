@@ -11,6 +11,8 @@ import {
   isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
+  recalledPendingPushCleanup,
+  recordOrphanLocalDrop,
   registerPushServiceWorker,
   rememberPushEndpoint,
   rememberPushEndpoints,
@@ -41,7 +43,12 @@ export function PushSubscriptionLifecycle() {
       // Keep remembered state — Settings would otherwise show enabled with no binding.
       return;
     }
-    rememberPushEndpoint(null);
+    // Enable may have committed during unsubscribe — do not wipe its remember.
+    if (isPushEnableInFlight()) {
+      return;
+    }
+    // Preserve as pending so a foreign owner's server row keeps a retry handle.
+    recordOrphanLocalDrop(expectedEndpoint);
     notifyPushSubscriptionChanged();
   });
 
@@ -103,6 +110,26 @@ export function PushSubscriptionLifecycle() {
     return failures;
   });
 
+  /** Retry failed unbinds even while an active subscription stays healthy. */
+  const flushPendingCleanup = useEffectEvent(
+    async (generation: number, exceptEndpoint?: string) => {
+      if (generation !== lifecycleGeneration.current || isPushEnableInFlight()) {
+        return;
+      }
+      const pending = recalledPendingPushCleanup().filter(
+        (endpoint) => endpoint !== exceptEndpoint,
+      );
+      if (pending.length === 0) {
+        return;
+      }
+      const failures = await disableCapturedEndpoints(pending);
+      if (generation !== lifecycleGeneration.current) {
+        return;
+      }
+      rememberPushEndpoints(failures);
+    },
+  );
+
   const runReconcile = useEffectEvent(async () => {
     if (!vapid) {
       return;
@@ -135,6 +162,7 @@ export function PushSubscriptionLifecycle() {
         return;
       }
       if (!result.subscription) {
+        await flushPendingCleanup(generation);
         return;
       }
       if (result.previousEndpoint) {
@@ -148,6 +176,7 @@ export function PushSubscriptionLifecycle() {
         if (outcome?.bound) {
           rememberPushEndpoint(result.subscription.endpoint);
           notifyPushSubscriptionChanged();
+          await flushPendingCleanup(generation, result.subscription.endpoint);
           return;
         }
         // Parallel run may have already migrated — reconfirm before orphan drop.
@@ -161,7 +190,10 @@ export function PushSubscriptionLifecycle() {
       if (!outcome?.bound) {
         // Orphan / other-User / LRU-evicted — reconfirm first in case enable just committed.
         await dropIfStillUnbound(result.subscription, generation);
+        return;
       }
+      rememberPushEndpoint(result.subscription.endpoint);
+      await flushPendingCleanup(generation, result.subscription.endpoint);
     } catch {
       // Best-effort lifecycle — never surface unhandled rejections on focus.
     }

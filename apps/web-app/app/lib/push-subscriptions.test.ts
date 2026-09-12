@@ -10,10 +10,13 @@ import {
   isPushEnableInFlight,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
+  recalledPendingPushCleanup,
   recalledPushEndpoints,
+  recordOrphanLocalDrop,
   registerPushServiceWorker,
   rememberPushEndpoint,
   rememberPushEndpoints,
+  resetPushEnableLeases,
   resolvePushNotificationsCapability,
   subscribeForPushNotifications,
   vapidPublicKeyBytes,
@@ -33,19 +36,7 @@ afterEach(() => {
   resetPushEnv();
   resetNavigatorInstallProps();
   clearRememberedPushEndpoints();
-  const leaseKeys: string[] = [];
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (key?.startsWith("pocketcircle.pushEnableLease.")) {
-      leaseKeys.push(key);
-    }
-  }
-  for (const key of leaseKeys) {
-    window.localStorage.removeItem(key);
-  }
-  while (isPushEnableInFlight()) {
-    endPushEnable();
-  }
+  resetPushEnableLeases();
   vi.clearAllMocks();
 });
 
@@ -247,6 +238,7 @@ describe("readPushSubscriptionMaterial", () => {
 
 describe("push enable in-flight coordination", () => {
   it("keeps cross-tab enables visible until every tab ends", () => {
+    vi.useFakeTimers();
     // Simulate another tab's lease without touching this tab's counter.
     window.localStorage.setItem("pocketcircle.pushEnableLease.other-tab", String(Date.now()));
     expect(isPushEnableInFlight()).toBe(true);
@@ -257,17 +249,25 @@ describe("push enable in-flight coordination", () => {
     expect(isPushEnableInFlight()).toBe(true);
 
     window.localStorage.removeItem("pocketcircle.pushEnableLease.other-tab");
+    // Local grace still holds briefly after endPushEnable.
+    expect(isPushEnableInFlight()).toBe(true);
+    vi.advanceTimersByTime(3_000);
     expect(isPushEnableInFlight()).toBe(false);
+    vi.useRealTimers();
   });
 
   it("keeps concurrent tab leases independent", () => {
+    vi.useFakeTimers();
     beginPushEnable();
     beginPushEnable();
     endPushEnable();
     // One local lease remains.
     expect(isPushEnableInFlight()).toBe(true);
     endPushEnable();
+    expect(isPushEnableInFlight()).toBe(true);
+    vi.advanceTimersByTime(3_000);
     expect(isPushEnableInFlight()).toBe(false);
+    vi.useRealTimers();
   });
 
   it("heartbeats so a long enable does not expire for other tabs", () => {
@@ -290,6 +290,19 @@ describe("push enable in-flight coordination", () => {
     expect(Date.now() - startedAt).toBeLessThan(60_000);
 
     endPushEnable();
+    vi.advanceTimersByTime(3_000);
+    expect(isPushEnableInFlight()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("holds a post-commit grace so orphan drop cannot race enable", () => {
+    vi.useFakeTimers();
+    beginPushEnable();
+    endPushEnable();
+    expect(isPushEnableInFlight()).toBe(true);
+    vi.advanceTimersByTime(2_999);
+    expect(isPushEnableInFlight()).toBe(true);
+    vi.advanceTimersByTime(1);
     expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
   });
@@ -342,6 +355,21 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     );
     expect(nextSub.unsubscribe).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it("unbinds remembered endpoints when live lookup fails on sign-out", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: null,
+      getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
+    });
+    rememberPushEndpoint("https://push.example/remembered");
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    await clearLocalPushSubscriptionAndBinding(disable);
+
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/remembered" });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 });
 
@@ -415,6 +443,41 @@ describe("disableCurrentPushSubscription", () => {
       "https://push.example/stale-a",
       "https://push.example/stale-b",
     ]);
+    expect(recalledPendingPushCleanup()).toEqual([
+      "https://push.example/stale-a",
+      "https://push.example/stale-b",
+    ]);
+  });
+
+  it("throws on lookup failure without sign-out fallback (Settings)", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: null,
+      getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
+    });
+    rememberPushEndpoint("https://push.example/remembered");
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    await expect(disableCurrentPushSubscription(disable)).rejects.toThrow(
+      "push subscription lookup failed",
+    );
+    expect(disable).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/remembered",
+    );
+  });
+
+  it("removes an endpoint from pending when it becomes active again", () => {
+    rememberPushEndpoints(["https://push.example/a", "https://push.example/b"]);
+    rememberPushEndpoint("https://push.example/a");
+    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/b"]);
+  });
+
+  it("preserves foreign orphan endpoints as pending cleanup", () => {
+    rememberPushEndpoint("https://push.example/alice");
+    recordOrphanLocalDrop("https://push.example/alice");
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/alice"]);
   });
 });
 

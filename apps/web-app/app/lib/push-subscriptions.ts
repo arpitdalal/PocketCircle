@@ -74,7 +74,7 @@ export function rememberPushEndpoints(endpoints: readonly string[]) {
   writeEndpointList(PENDING_PUSH_CLEANUP_KEY, endpoints);
 }
 
-/** Active endpoint only — leaves pending cleanup intact across re-enable. */
+/** Active endpoint only — leaves other pending cleanup intact across re-enable. */
 export function rememberPushEndpoint(endpoint: string | null) {
   try {
     if (!endpoint) {
@@ -83,19 +83,40 @@ export function rememberPushEndpoint(endpoint: string | null) {
     }
     // Legacy: array in the active key was multi-endpoint storage — migrate out.
     const legacy = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    let pending = readEndpointList(PENDING_PUSH_CLEANUP_KEY);
     if (legacy?.startsWith("[")) {
       const migrated = readEndpointList(LAST_PUSH_ENDPOINT_KEY).filter(
         (value) => value !== endpoint,
       );
-      writeEndpointList(PENDING_PUSH_CLEANUP_KEY, [
-        ...readEndpointList(PENDING_PUSH_CLEANUP_KEY),
-        ...migrated,
-      ]);
+      pending = [...pending, ...migrated];
     }
+    // Active again — drop this endpoint from pending so cleanup cannot unbind it.
+    writeEndpointList(
+      PENDING_PUSH_CLEANUP_KEY,
+      pending.filter((value) => value !== endpoint),
+    );
     window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, endpoint);
   } catch {
     // Private mode / blocked storage.
   }
+}
+
+/** Failed server-unbind retries only (excludes the active endpoint key). */
+export function recalledPendingPushCleanup() {
+  return readEndpointList(PENDING_PUSH_CLEANUP_KEY);
+}
+
+/**
+ * Local orphan drop after reconcile `{ bound: false }`: clear active remember but
+ * keep the endpoint as pending cleanup so a foreign owner's server row still has
+ * a retry handle on this device (account switch / timed-out sign-out).
+ */
+export function recordOrphanLocalDrop(endpoint: string) {
+  rememberPushEndpoint(null);
+  rememberPushEndpoints([
+    ...recalledPendingPushCleanup().filter((value) => value !== endpoint),
+    endpoint,
+  ]);
 }
 
 export function clearRememberedPushEndpoints() {
@@ -138,9 +159,16 @@ const PUSH_ENABLE_LEASE_PREFIX = "pocketcircle.pushEnableLease.";
 /** Crash recovery only — active enables refresh lease timestamps via heartbeat. */
 const PUSH_ENABLE_IN_FLIGHT_TTL_MS = 60_000;
 const PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS = 15_000;
+/**
+ * After enable commits, keep the lease briefly so a concurrent orphan drop cannot
+ * unsubscribe the just-bound endpoint between reconcile `{ bound: false }` and drop.
+ */
+const PUSH_ENABLE_LEASE_GRACE_MS = 3_000;
 let pushEnableInFlight = 0;
 const localPushEnableLeaseIds: string[] = [];
 let pushEnableHeartbeatTimer: number | null = null;
+let pushEnableGraceUntil = 0;
+const pushEnableGraceTimers = new Set<number>();
 
 function newPushEnableLeaseId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -234,19 +262,61 @@ export function beginPushEnable() {
 
 export function endPushEnable() {
   pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
+  pushEnableGraceUntil = Math.max(pushEnableGraceUntil, Date.now() + PUSH_ENABLE_LEASE_GRACE_MS);
   const id = localPushEnableLeaseIds.pop();
   if (id) {
+    // Keep the cross-tab lease visible through the grace window.
     try {
-      window.localStorage.removeItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`);
+      window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, String(Date.now()));
     } catch {
       // ignore
     }
+    const timer = window.setTimeout(() => {
+      pushEnableGraceTimers.delete(timer);
+      try {
+        window.localStorage.removeItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`);
+      } catch {
+        // ignore
+      }
+    }, PUSH_ENABLE_LEASE_GRACE_MS);
+    pushEnableGraceTimers.add(timer);
   }
   syncPushEnableHeartbeat();
 }
 
 export function isPushEnableInFlight() {
-  return pushEnableInFlight > 0 || anyFreshCrossTabPushEnableLease();
+  return (
+    pushEnableInFlight > 0 || Date.now() < pushEnableGraceUntil || anyFreshCrossTabPushEnableLease()
+  );
+}
+
+/** Test helper — drop leases/grace so cases do not leak across tests. */
+export function resetPushEnableLeases() {
+  pushEnableInFlight = 0;
+  localPushEnableLeaseIds.length = 0;
+  pushEnableGraceUntil = 0;
+  for (const timer of pushEnableGraceTimers) {
+    window.clearTimeout(timer);
+  }
+  pushEnableGraceTimers.clear();
+  if (pushEnableHeartbeatTimer !== null) {
+    window.clearInterval(pushEnableHeartbeatTimer);
+    pushEnableHeartbeatTimer = null;
+  }
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export type PushNotificationsUiState =
@@ -608,7 +678,12 @@ export async function clearLocalPushSubscriptionAndBinding(
   }, SIGN_OUT_CLEANUP_TIMEOUT_MS);
   try {
     await Promise.race([
-      disableCurrentPushSubscription(disable, { isCancelled: () => cancelled }),
+      disableCurrentPushSubscription(disable, {
+        isCancelled: () => cancelled,
+        // Sign-out must still best-effort unbind remembered endpoints when the
+        // live lookup fails — Settings stays strict (no fallback).
+        rememberedFallbackOnLookupFailure: true,
+      }),
       new Promise((_, reject) => {
         window.setTimeout(
           () => reject(new Error("push cleanup timeout")),
@@ -631,7 +706,11 @@ export async function clearLocalPushSubscriptionAndBinding(
  */
 export async function disableCurrentPushSubscription(
   disable: (args: { endpoint: string }) => Promise<unknown>,
-  options?: { isCancelled?: () => boolean },
+  options?: {
+    isCancelled?: () => boolean;
+    /** Sign-out only — unbind recalled endpoints when live lookup fails. */
+    rememberedFallbackOnLookupFailure?: boolean;
+  },
 ) {
   const cancelled = () => options?.isCancelled?.() === true;
   let subscription: PushSubscription | null = null;
@@ -655,7 +734,11 @@ export async function disableCurrentPushSubscription(
     return;
   }
   if (lookupFailed) {
-    throw new Error("push subscription lookup failed");
+    if (!options?.rememberedFallbackOnLookupFailure) {
+      throw new Error("push subscription lookup failed");
+    }
+    // Best-effort sign-out: no live sub handle — still try remembered endpoints.
+    subscription = null;
   }
   const liveEndpoint = subscription?.endpoint ?? null;
   // Snapshot once — do not re-read storage during awaits (cross-tab enable).
