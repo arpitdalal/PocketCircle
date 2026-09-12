@@ -2,11 +2,11 @@
  * Browser-API boundary fakes for Push / Notifications / Permissions / SW
  * tests (issue #381). Stub only at the true boundary — never mock our hooks.
  */
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
 type PushSubFake = {
   endpoint: string;
-  unsubscribe: ReturnType<typeof vi.fn>;
+  unsubscribe: Mock<() => Promise<boolean>>;
   toJSON: () => { endpoint: string; keys: { p256dh: string; auth: string } };
   options: { applicationServerKey?: ArrayBuffer | ArrayBufferView };
 };
@@ -18,10 +18,10 @@ type InstallPushEnvOptions = {
   pushManager?: boolean;
   notification?: boolean;
   subscription?: PushSubFake | null;
-  requestPermission?: ReturnType<typeof vi.fn>;
-  subscribe?: ReturnType<typeof vi.fn>;
-  getSubscription?: ReturnType<typeof vi.fn>;
-  register?: ReturnType<typeof vi.fn>;
+  requestPermission?: Mock<() => Promise<NotificationPermission>>;
+  subscribe?: Mock<() => Promise<PushSubFake>>;
+  getSubscription?: Mock<() => Promise<PushSubFake | null>>;
+  register?: Mock<() => Promise<{ pushManager: { subscribe: Mock; getSubscription: Mock } }>>;
 };
 
 const DEFAULT_ENDPOINT = "https://push.example/test-endpoint";
@@ -34,10 +34,27 @@ export function makeFakePushSubscription(
   const auth = over.auth ?? "auth-test";
   return {
     endpoint,
-    unsubscribe: vi.fn().mockResolvedValue(true),
+    unsubscribe: vi.fn(async () => true),
     toJSON: () => ({ endpoint, keys: { p256dh, auth } }),
     options: {},
   };
+}
+
+/** Wire unsubscribe so getSubscription observes the removal (real PushManager). */
+function trackSubscription(
+  sub: PushSubFake,
+  getCurrent: () => PushSubFake | null,
+  setCurrent: (next: PushSubFake | null) => void,
+) {
+  const previous = sub.unsubscribe.getMockImplementation() ?? (async () => true);
+  sub.unsubscribe = vi.fn(async () => {
+    const result = await previous();
+    if (getCurrent() === sub) {
+      setCurrent(null);
+    }
+    return result;
+  });
+  return sub;
 }
 
 export function installPushEnv(options: InstallPushEnvOptions = {}) {
@@ -46,15 +63,38 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
   const withServiceWorker = options.serviceWorker ?? true;
   const withPushManager = options.pushManager ?? true;
   const withNotification = options.notification ?? true;
-  const subscription = options.subscription === undefined ? null : options.subscription;
+
+  let currentSubscription: PushSubFake | null =
+    options.subscription === undefined ? null : options.subscription;
+  if (currentSubscription) {
+    trackSubscription(
+      currentSubscription,
+      () => currentSubscription,
+      (next) => {
+        currentSubscription = next;
+      },
+    );
+  }
 
   const requestPermission =
     options.requestPermission ??
     vi.fn().mockResolvedValue(permission === "denied" ? "denied" : "granted");
   const subscribe =
     options.subscribe ??
-    vi.fn().mockImplementation(async () => subscription ?? makeFakePushSubscription());
-  const getSubscription = options.getSubscription ?? vi.fn().mockResolvedValue(subscription);
+    vi.fn().mockImplementation(async () => {
+      if (!currentSubscription) {
+        currentSubscription = trackSubscription(
+          makeFakePushSubscription(),
+          () => currentSubscription,
+          (next) => {
+            currentSubscription = next;
+          },
+        );
+      }
+      return currentSubscription;
+    });
+  const getSubscription =
+    options.getSubscription ?? vi.fn().mockImplementation(async () => currentSubscription);
   const register =
     options.register ??
     vi.fn().mockResolvedValue({
@@ -109,7 +149,9 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     subscribe,
     getSubscription,
     register,
-    subscription,
+    get subscription() {
+      return currentSubscription;
+    },
   };
 }
 

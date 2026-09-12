@@ -8,8 +8,13 @@ import { MOCKS } from "~/lib/env.js";
 
 export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
-/** Last-known endpoint(s) for sign-out / disable retry when live lookup fails. */
+/**
+ * Active device endpoint (single). Separate from pending cleanup so a re-enable
+ * cannot wipe failed server-unbind retries that still consume the 10-device cap.
+ */
 const LAST_PUSH_ENDPOINT_KEY = "pocketcircle.lastPushEndpoint";
+/** Endpoints whose server disable failed — retried on focus / next disable. */
+const PENDING_PUSH_CLEANUP_KEY = "pocketcircle.pendingPushCleanup";
 
 /** Fired when lifecycle drops/changes the local subscription so Settings can refresh. */
 export const PUSH_SUBSCRIPTION_CHANGED_EVENT = "pocketcircle:push-subscription-changed";
@@ -22,38 +27,16 @@ export function notifyPushSubscriptionChanged() {
   }
 }
 
-export function rememberPushEndpoints(endpoints: readonly string[]) {
+function readEndpointList(key: string) {
   try {
-    const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
-    if (unique.length === 0) {
-      window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
-      return;
-    }
-    const [only, ...rest] = unique;
-    if (only && rest.length === 0) {
-      window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, only);
-      return;
-    }
-    window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, JSON.stringify(unique));
-  } catch {
-    // Private mode / blocked storage — cleanup may fall back to live lookup only.
-  }
-}
-
-export function rememberPushEndpoint(endpoint: string | null) {
-  rememberPushEndpoints(endpoint ? [endpoint] : []);
-}
-
-export function recalledPushEndpoints() {
-  try {
-    const raw = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) {
       return [];
     }
     if (raw.startsWith("[")) {
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) {
-        window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
+        window.localStorage.removeItem(key);
         return [];
       }
       return [
@@ -62,14 +45,92 @@ export function recalledPushEndpoints() {
         ),
       ];
     }
-    return [raw];
+    return raw.length > 0 ? [raw] : [];
   } catch {
     return [];
   }
 }
 
+function writeEndpointList(key: string, endpoints: readonly string[]) {
+  try {
+    const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
+    if (unique.length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    const [only, ...rest] = unique;
+    if (only && rest.length === 0) {
+      window.localStorage.setItem(key, only);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(unique));
+  } catch {
+    // Private mode / blocked storage — cleanup may fall back to live lookup only.
+  }
+}
+
+/** Failed server-unbind retries only — never replaces the active endpoint. */
+export function rememberPushEndpoints(endpoints: readonly string[]) {
+  writeEndpointList(PENDING_PUSH_CLEANUP_KEY, endpoints);
+}
+
+/** Active endpoint only — leaves pending cleanup intact across re-enable. */
+export function rememberPushEndpoint(endpoint: string | null) {
+  try {
+    if (!endpoint) {
+      window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
+      return;
+    }
+    // Legacy: array in the active key was multi-endpoint storage — migrate out.
+    const legacy = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    if (legacy?.startsWith("[")) {
+      const migrated = readEndpointList(LAST_PUSH_ENDPOINT_KEY).filter(
+        (value) => value !== endpoint,
+      );
+      writeEndpointList(PENDING_PUSH_CLEANUP_KEY, [
+        ...readEndpointList(PENDING_PUSH_CLEANUP_KEY),
+        ...migrated,
+      ]);
+    }
+    window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, endpoint);
+  } catch {
+    // Private mode / blocked storage.
+  }
+}
+
+export function clearRememberedPushEndpoints() {
+  rememberPushEndpoint(null);
+  rememberPushEndpoints([]);
+}
+
+export function recalledPushEndpoints() {
+  try {
+    const rawActive = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    let active: string[] = [];
+    let pending = readEndpointList(PENDING_PUSH_CLEANUP_KEY);
+    if (rawActive?.startsWith("[")) {
+      // Legacy multi-list lived in the active key — treat as pending.
+      pending = [...new Set([...pending, ...readEndpointList(LAST_PUSH_ENDPOINT_KEY)])];
+    } else if (rawActive) {
+      active = [rawActive];
+    }
+    return [...new Set([...active, ...pending])];
+  } catch {
+    return [];
+  }
+}
+
+/** Active endpoint only (not pending cleanup). */
 export function recalledPushEndpoint() {
-  return recalledPushEndpoints()[0] ?? null;
+  try {
+    const raw = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    if (!raw || raw.startsWith("[")) {
+      return null;
+    }
+    return raw;
+  } catch {
+    return null;
+  }
 }
 
 /** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
@@ -405,7 +466,7 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
 export async function unsubscribeLocalPushSubscription(expectedEndpoint?: string) {
   const subscription = await getCurrentPushSubscription();
   if (!subscription) {
-    return recalledPushEndpoint();
+    return recalledPushEndpoints()[0] ?? null;
   }
   if (expectedEndpoint && subscription.endpoint !== expectedEndpoint) {
     return null;
@@ -453,7 +514,9 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     try {
       await existing.unsubscribe();
     } catch {
-      // Still report unboundEndpoint for server cleanup.
+      // Local sub still present — do not unbind server or Settings shows
+      // enabled with nothing deliverable after a successful disable.
+      return { subscription: null };
     }
     return { subscription: null, unboundEndpoint };
   }
@@ -462,9 +525,8 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     ...readSubscriptionKeys(existing),
     vapidKeyId: vapid.keyId,
   };
-  const previousEndpoint = recalledPushEndpoints().find(
-    (endpoint) => endpoint !== material.endpoint,
-  );
+  const active = recalledPushEndpoint();
+  const previousEndpoint = active && active !== material.endpoint ? active : undefined;
   if (previousEndpoint) {
     // Keep previous remembered until replace succeeds — otherwise a failed
     // replace forgets the owned old endpoint and cannot retry migration.
@@ -565,7 +627,7 @@ export async function disableCurrentPushSubscription(
     return;
   }
   if (failures.length === 0) {
-    rememberPushEndpoint(null);
+    clearRememberedPushEndpoints();
     if (unsubscribeFailed) {
       const lingering = await getCurrentPushSubscription();
       if (cancelled()) {
@@ -580,7 +642,9 @@ export async function disableCurrentPushSubscription(
     }
     return;
   }
-  // Keep every failed endpoint so later retries can clear the device-cap rows.
+  // Active sub is gone (or never cleared) — keep failures as pending cleanup
+  // so a later enable cannot wipe them via rememberPushEndpoint.
+  rememberPushEndpoint(null);
   rememberPushEndpoints(failures.map((failure) => failure.endpoint));
   throw failures[0]?.error;
 }

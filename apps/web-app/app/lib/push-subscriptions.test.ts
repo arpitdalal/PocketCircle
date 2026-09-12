@@ -3,14 +3,19 @@ import {
   beginPushEnable,
   canRegisterPushServiceWorker,
   clearLocalPushSubscriptionAndBinding,
+  clearRememberedPushEndpoints,
   disableCurrentPushSubscription,
   endPushEnable,
+  getCurrentPushSubscription,
   isPushEnableInFlight,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
+  recalledPushEndpoints,
   registerPushServiceWorker,
   rememberPushEndpoint,
+  rememberPushEndpoints,
   resolvePushNotificationsCapability,
+  subscribeForPushNotifications,
   vapidPublicKeyBytes,
 } from "~/lib/push-subscriptions.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
@@ -22,11 +27,12 @@ import {
 
 const VAPID_PUBLIC_KEY = "AQID";
 const VAPID = { publicKey: VAPID_PUBLIC_KEY, keyId: "primary" };
+const PENDING_PUSH_CLEANUP_KEY = "pocketcircle.pendingPushCleanup";
 
 afterEach(() => {
   resetPushEnv();
   resetNavigatorInstallProps();
-  rememberPushEndpoint(null);
+  clearRememberedPushEndpoints();
   window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
   while (isPushEnableInFlight()) {
     endPushEnable();
@@ -151,6 +157,17 @@ describe("readPushSubscriptionMaterial", () => {
     });
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
     expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it("does not unbind the server when VAPID unsubscribe fails", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    sub.unsubscribe = vi.fn().mockRejectedValue(new Error("unsubscribe failed"));
+    installPushEnv({ permission: "granted", subscription: sub });
+
+    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+      subscription: null,
+    });
   });
 
   it("reports previousEndpoint when the browser refreshes the endpoint", async () => {
@@ -338,9 +355,8 @@ describe("disableCurrentPushSubscription", () => {
       .mockRejectedValueOnce(new Error("server down"));
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("server down");
-    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/old",
-    );
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBe("https://push.example/old");
   });
 
   it("retains every endpoint whose disable failed", async () => {
@@ -350,8 +366,46 @@ describe("disableCurrentPushSubscription", () => {
     const disable = vi.fn().mockRejectedValue(new Error("offline"));
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("offline");
-    expect(
-      JSON.parse(window.localStorage.getItem("pocketcircle.lastPushEndpoint") ?? "null"),
-    ).toEqual(["https://push.example/new", "https://push.example/old"]);
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY) ?? "null")).toEqual([
+      "https://push.example/new",
+      "https://push.example/old",
+    ]);
+  });
+
+  it("keeps pending cleanup endpoints across re-enable", async () => {
+    rememberPushEndpoints(["https://push.example/stale-a", "https://push.example/stale-b"]);
+    installPushEnv({ permission: "granted", subscription: null });
+
+    await subscribeForPushNotifications(VAPID);
+
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/test-endpoint",
+    );
+    expect(recalledPushEndpoints()).toEqual([
+      "https://push.example/test-endpoint",
+      "https://push.example/stale-a",
+      "https://push.example/stale-b",
+    ]);
+  });
+});
+
+describe("installPushEnv subscription persistence", () => {
+  it("lets getSubscription observe subscribe and unsubscribe", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: null,
+    });
+
+    expect(await getCurrentPushSubscription()).toBeNull();
+    await subscribeForPushNotifications(VAPID);
+    const created = await getCurrentPushSubscription();
+    expect(created?.endpoint).toBe("https://push.example/test-endpoint");
+    if (!created) {
+      throw new Error("expected push subscription after subscribe");
+    }
+
+    await created.unsubscribe();
+    expect(await getCurrentPushSubscription()).toBeNull();
   });
 });

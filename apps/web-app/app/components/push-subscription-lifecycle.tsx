@@ -7,6 +7,7 @@ import {
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
+  clearRememberedPushEndpoints,
   isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
@@ -33,7 +34,12 @@ export function PushSubscriptionLifecycle() {
     if (isPushEnableInFlight()) {
       return;
     }
-    await unsubscribeLocalPushSubscription(expectedEndpoint).catch(() => undefined);
+    try {
+      await unsubscribeLocalPushSubscription(expectedEndpoint);
+    } catch {
+      // Keep remembered state — Settings would otherwise show enabled with no binding.
+      return;
+    }
     rememberPushEndpoint(null);
     notifyPushSubscriptionChanged();
   });
@@ -91,9 +97,10 @@ export function PushSubscriptionLifecycle() {
           result.unboundEndpoints ?? [],
         );
         if (failures.length === 0) {
-          rememberPushEndpoint(null);
+          clearRememberedPushEndpoints();
         } else {
           // Keep every failed endpoint so a later focus can retry unbind.
+          rememberPushEndpoint(null);
           rememberPushEndpoints(failures);
         }
         notifyPushSubscriptionChanged();
