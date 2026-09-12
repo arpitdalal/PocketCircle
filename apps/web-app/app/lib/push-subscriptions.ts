@@ -398,13 +398,9 @@ export async function disableCurrentPushSubscription(
     if (unsubscribeFailed) {
       const lingering = await getCurrentPushSubscription();
       if (lingering) {
-        try {
-          await lingering.unsubscribe();
-        } catch (error) {
-          // Server unbound but browser sub remains — surface so Settings does
-          // not claim disabled while still showing enabled.
-          throw error;
-        }
+        // Server unbound but browser sub remains — surface so Settings does
+        // not claim disabled while still showing enabled.
+        await lingering.unsubscribe();
       }
     }
     return;

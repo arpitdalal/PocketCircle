@@ -203,7 +203,8 @@ describe("AccountMenu", () => {
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => {
-      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+      // First unsubscribe rejects; after server disable we retry local cleanup.
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(2);
       expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
       expect(signOutMock).toHaveBeenCalledTimes(1);
     });
