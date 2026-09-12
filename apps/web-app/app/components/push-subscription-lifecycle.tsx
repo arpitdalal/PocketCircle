@@ -1,5 +1,9 @@
 import { useEffect, useEffectEvent } from "react";
-import { usePushVapidPublicKey, useReconcilePushSubscription } from "~/lib/data.js";
+import {
+  useDisablePushSubscription,
+  usePushVapidPublicKey,
+  useReconcilePushSubscription,
+} from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
   readPushSubscriptionMaterial,
@@ -13,13 +17,21 @@ import {
 export function PushSubscriptionLifecycle() {
   const vapid = usePushVapidPublicKey();
   const reconcile = useReconcilePushSubscription();
+  const disable = useDisablePushSubscription();
 
   const runReconcile = useEffectEvent(async () => {
     if (!vapid) {
       return;
     }
-    const material = await readPushSubscriptionMaterial(vapid);
-    await reconcile({ subscription: material });
+    const result = await readPushSubscriptionMaterial(vapid);
+    if (result.unboundEndpoint) {
+      try {
+        await disable({ endpoint: result.unboundEndpoint });
+      } catch {
+        // Best-effort: still reconcile the replacement if any.
+      }
+    }
+    await reconcile({ subscription: result.subscription });
   });
 
   useEffect(() => {

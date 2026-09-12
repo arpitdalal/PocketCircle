@@ -362,12 +362,19 @@ function NotificationsSettingsCard() {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      void resolvePushNotificationsUiState().then((state) => {
-        if (!cancelled) {
-          setUiState(state);
-          setReady(true);
-        }
-      });
+      void resolvePushNotificationsUiState()
+        .then((state) => {
+          if (!cancelled) {
+            setUiState(state);
+            setReady(true);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setUiState("unsupported");
+            setReady(true);
+          }
+        });
     };
     refresh();
     const onFocus = () => refresh();

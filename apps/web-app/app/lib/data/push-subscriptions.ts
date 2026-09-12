@@ -42,6 +42,7 @@ export function useReconcilePushSubscription() {
 export function useEnableNotifications() {
   const vapid = usePushVapidPublicKey();
   const enable = useEnablePushSubscription();
+  const disable = useDisablePushSubscription();
 
   return async () => {
     if (!vapid) {
@@ -51,7 +52,13 @@ export function useEnableNotifications() {
     try {
       await enable(material);
     } catch (error) {
-      // Roll back local sub so the switch does not look enabled without a binding.
+      // Ambiguous transport failures: clear server binding for this endpoint
+      // (covers committed-but-lost-response) then drop the local subscription.
+      try {
+        await disable({ endpoint: material.endpoint });
+      } catch {
+        // Best-effort compensation.
+      }
       await unsubscribeLocalPushSubscription().catch(() => undefined);
       throw error;
     }

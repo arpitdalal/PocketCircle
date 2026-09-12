@@ -98,7 +98,11 @@ export async function getCurrentPushSubscription() {
   if (!registration) {
     return null;
   }
-  return await registration.pushManager.getSubscription();
+  try {
+    return await registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
 }
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -194,23 +198,51 @@ export async function unsubscribeLocalPushSubscription() {
 }
 
 /**
- * Startup/focus material. If the browser sub is bound to a different VAPID
- * public key (rotation), unsubscribe and return null so the User must re-enable.
+ * Startup/focus material for reconcile. On VAPID rotation (browser sub bound to
+ * a different public key), replaces the local sub when permission is already
+ * granted (no prompt) and reports the old endpoint so the caller can unbind it.
+ * Never requests notification permission.
  */
 export async function readPushSubscriptionMaterial(vapid: { publicKey: string; keyId: string }) {
-  const subscription = await getCurrentPushSubscription();
-  if (!subscription) {
-    return null;
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    return { subscription: null };
   }
-  if (!applicationServerKeyMatches(subscription, vapid.publicKey)) {
-    try {
-      await subscription.unsubscribe();
-    } catch {
-      // Fall through to null — reconcile must not relabel with the new keyId.
-    }
-    return null;
+  let existing: PushSubscription | null = null;
+  try {
+    existing = await registration.pushManager.getSubscription();
+  } catch {
+    return { subscription: null };
   }
-  return { ...readSubscriptionKeys(subscription), vapidKeyId: vapid.keyId };
+  if (!existing) {
+    return { subscription: null };
+  }
+  if (applicationServerKeyMatches(existing, vapid.publicKey)) {
+    return {
+      subscription: { ...readSubscriptionKeys(existing), vapidKeyId: vapid.keyId },
+    };
+  }
+
+  const unboundEndpoint = existing.endpoint;
+  try {
+    await existing.unsubscribe();
+  } catch {
+    // Still attempt replace / unbind below.
+  }
+
+  if (Notification.permission !== "granted") {
+    return { subscription: null, unboundEndpoint };
+  }
+
+  try {
+    const next = await subscribeWithVapid(registration, vapid);
+    return {
+      subscription: { ...readSubscriptionKeys(next), vapidKeyId: vapid.keyId },
+      unboundEndpoint,
+    };
+  } catch {
+    return { subscription: null, unboundEndpoint };
+  }
 }
 
 /**
