@@ -1,5 +1,7 @@
 import type { Id } from "../convex/_generated/dataModel.js";
-import type { MutationCtx, QueryCtx } from "../convex/_generated/server.js";
+import type { MutationCtx } from "../convex/_generated/server.js";
+
+export { listPushSubscriptionsForUser } from "../convex/pushSubscriptions.js";
 
 type PushSubscriptionSeed = {
   userId: Id<"users">;
@@ -23,14 +25,4 @@ export async function seedPushSubscription(ctx: MutationCtx, seed: PushSubscript
     createdAt: seed.createdAt ?? now,
     lastSeenAt: seed.lastSeenAt ?? now,
   });
-}
-
-export async function listPushSubscriptionsForUser(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-) {
-  return await ctx.db
-    .query("pushSubscriptions")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
 }

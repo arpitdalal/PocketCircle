@@ -197,6 +197,7 @@ describe("readPushSubscriptionMaterial", () => {
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
       unboundEndpoint: "https://push.example/stale",
+      unboundEndpoints: ["https://push.example/stale"],
     });
   });
 
@@ -233,6 +234,32 @@ describe("push enable in-flight coordination", () => {
 
     window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
     expect(isPushEnableInFlight()).toBe(false);
+  });
+
+  it("heartbeats so a long enable does not expire for other tabs", () => {
+    vi.useFakeTimers();
+    beginPushEnable();
+
+    vi.advanceTimersByTime(90_000);
+    const raw = window.localStorage.getItem("pocketcircle.pushEnableInFlight");
+    expect(raw).not.toBeNull();
+    const marker: unknown = JSON.parse(raw ?? "null");
+    expect(marker).toEqual(expect.objectContaining({ count: 1 }));
+    if (
+      typeof marker === "object" &&
+      marker !== null &&
+      "updatedAt" in marker &&
+      typeof marker.updatedAt === "number"
+    ) {
+      // Marker stayed within TTL of "now" thanks to heartbeats.
+      expect(Date.now() - marker.updatedAt).toBeLessThan(60_000);
+    } else {
+      expect.unreachable("expected in-flight marker");
+    }
+
+    endPushEnable();
+    expect(window.localStorage.getItem("pocketcircle.pushEnableInFlight")).toBeNull();
+    vi.useRealTimers();
   });
 });
 
@@ -280,5 +307,17 @@ describe("disableCurrentPushSubscription", () => {
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
       "https://push.example/old",
     );
+  });
+
+  it("retains every endpoint whose disable failed", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint("https://push.example/old");
+    const disable = vi.fn().mockRejectedValue(new Error("offline"));
+
+    await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("offline");
+    expect(
+      JSON.parse(window.localStorage.getItem("pocketcircle.lastPushEndpoint") ?? "null"),
+    ).toEqual(["https://push.example/new", "https://push.example/old"]);
   });
 });

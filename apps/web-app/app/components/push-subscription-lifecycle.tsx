@@ -10,9 +10,10 @@ import {
   isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
-  recalledPushEndpoint,
+  recalledPushEndpoints,
   registerPushServiceWorker,
   rememberPushEndpoint,
+  rememberPushEndpoints,
   unsubscribeLocalPushSubscription,
 } from "~/lib/push-subscriptions.js";
 
@@ -37,9 +38,12 @@ export function PushSubscriptionLifecycle() {
     notifyPushSubscriptionChanged();
   });
 
-  const disableDistinctEndpoints = useEffectEvent(async (primary: string) => {
-    const remembered = recalledPushEndpoint();
-    const endpoints = [...new Set([primary, remembered].filter((value) => value !== null))];
+  const disableDistinctEndpoints = useEffectEvent(async (primary: string, extra: string[] = []) => {
+    const endpoints = [
+      ...new Set(
+        [primary, ...extra, ...recalledPushEndpoints()].filter((value) => value.length > 0),
+      ),
+    ];
     const failures: string[] = [];
     for (const endpoint of endpoints) {
       try {
@@ -58,12 +62,15 @@ export function PushSubscriptionLifecycle() {
     try {
       const result = await readPushSubscriptionMaterial(vapid);
       if (result.unboundEndpoint) {
-        const failures = await disableDistinctEndpoints(result.unboundEndpoint);
+        const failures = await disableDistinctEndpoints(
+          result.unboundEndpoint,
+          result.unboundEndpoints ?? [],
+        );
         if (failures.length === 0) {
           rememberPushEndpoint(null);
         } else {
-          // Keep a failed endpoint so a later focus can retry unbind.
-          rememberPushEndpoint(failures[0] ?? null);
+          // Keep every failed endpoint so a later focus can retry unbind.
+          rememberPushEndpoints(failures);
         }
         notifyPushSubscriptionChanged();
         return;

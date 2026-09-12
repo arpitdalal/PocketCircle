@@ -8,7 +8,7 @@ import { MOCKS } from "~/lib/env.js";
 
 export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
-/** Last-known endpoint for sign-out cleanup when `getSubscription()` fails. */
+/** Last-known endpoint(s) for sign-out / disable retry when live lookup fails. */
 const LAST_PUSH_ENDPOINT_KEY = "pocketcircle.lastPushEndpoint";
 
 /** Fired when lifecycle drops/changes the local subscription so Settings can refresh. */
@@ -22,30 +22,63 @@ export function notifyPushSubscriptionChanged() {
   }
 }
 
-export function rememberPushEndpoint(endpoint: string | null) {
+export function rememberPushEndpoints(endpoints: readonly string[]) {
   try {
-    if (endpoint) {
-      window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, endpoint);
-    } else {
+    const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
+    if (unique.length === 0) {
       window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
+      return;
     }
+    const [only, ...rest] = unique;
+    if (only && rest.length === 0) {
+      window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, only);
+      return;
+    }
+    window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, JSON.stringify(unique));
   } catch {
     // Private mode / blocked storage — cleanup may fall back to live lookup only.
   }
 }
 
-export function recalledPushEndpoint() {
+export function rememberPushEndpoint(endpoint: string | null) {
+  rememberPushEndpoints(endpoint ? [endpoint] : []);
+}
+
+export function recalledPushEndpoints() {
   try {
-    return window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    const raw = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+    if (!raw) {
+      return [];
+    }
+    if (raw.startsWith("[")) {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
+        return [];
+      }
+      return [
+        ...new Set(
+          parsed.filter((value): value is string => typeof value === "string" && value.length > 0),
+        ),
+      ];
+    }
+    return [raw];
   } catch {
-    return null;
+    return [];
   }
+}
+
+export function recalledPushEndpoint() {
+  return recalledPushEndpoints()[0] ?? null;
 }
 
 /** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
 const PUSH_ENABLE_IN_FLIGHT_KEY = "pocketcircle.pushEnableInFlight";
+/** Crash recovery only — active enables refresh `updatedAt` via heartbeat. */
 const PUSH_ENABLE_IN_FLIGHT_TTL_MS = 60_000;
+const PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS = 15_000;
 let pushEnableInFlight = 0;
+let pushEnableHeartbeatTimer: number | null = null;
 
 function readCrossTabPushEnableInFlight() {
   try {
@@ -95,14 +128,54 @@ function writeCrossTabPushEnableInFlight(delta: number) {
   }
 }
 
+function touchCrossTabPushEnableInFlight() {
+  try {
+    const current = readCrossTabPushEnableInFlight();
+    if (!current) {
+      return;
+    }
+    window.localStorage.setItem(
+      PUSH_ENABLE_IN_FLIGHT_KEY,
+      JSON.stringify({ count: current.count, updatedAt: Date.now() }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function syncPushEnableHeartbeat() {
+  if (pushEnableInFlight > 0) {
+    if (pushEnableHeartbeatTimer !== null) {
+      return;
+    }
+    pushEnableHeartbeatTimer = window.setInterval(() => {
+      if (pushEnableInFlight <= 0) {
+        if (pushEnableHeartbeatTimer !== null) {
+          window.clearInterval(pushEnableHeartbeatTimer);
+          pushEnableHeartbeatTimer = null;
+        }
+        return;
+      }
+      touchCrossTabPushEnableInFlight();
+    }, PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS);
+    return;
+  }
+  if (pushEnableHeartbeatTimer !== null) {
+    window.clearInterval(pushEnableHeartbeatTimer);
+    pushEnableHeartbeatTimer = null;
+  }
+}
+
 export function beginPushEnable() {
   pushEnableInFlight += 1;
   writeCrossTabPushEnableInFlight(1);
+  syncPushEnableHeartbeat();
 }
 
 export function endPushEnable() {
   pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
   writeCrossTabPushEnableInFlight(-1);
+  syncPushEnableHeartbeat();
 }
 
 export function isPushEnableInFlight() {
@@ -364,9 +437,14 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
   if (!existing) {
     // Confirmed absence: drop any remembered server binding so dead rows
     // do not consume the ten-device cap.
-    const remembered = recalledPushEndpoint();
-    if (remembered) {
-      return { subscription: null, unboundEndpoint: remembered };
+    const remembered = recalledPushEndpoints();
+    const [primary, ...rest] = remembered;
+    if (primary) {
+      return {
+        subscription: null,
+        unboundEndpoint: primary,
+        unboundEndpoints: [primary, ...rest],
+      };
     }
     return { subscription: null };
   }
@@ -384,8 +462,10 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     ...readSubscriptionKeys(existing),
     vapidKeyId: vapid.keyId,
   };
-  const previousEndpoint = recalledPushEndpoint();
-  if (previousEndpoint && previousEndpoint !== material.endpoint) {
+  const previousEndpoint = recalledPushEndpoints().find(
+    (endpoint) => endpoint !== material.endpoint,
+  );
+  if (previousEndpoint) {
     // Keep previous remembered until replace succeeds — otherwise a failed
     // replace forgets the owned old endpoint and cannot retry migration.
     return { subscription: material, previousEndpoint };
@@ -438,9 +518,10 @@ export async function disableCurrentPushSubscription(
     // Transient lookup failure — fall back to remembered endpoint below.
   }
   const liveEndpoint = subscription?.endpoint ?? null;
-  const rememberedEndpoint = recalledPushEndpoint();
   const endpoints = [
-    ...new Set([liveEndpoint, rememberedEndpoint].filter((value) => value !== null)),
+    ...new Set(
+      [liveEndpoint, ...recalledPushEndpoints()].filter((value): value is string => value !== null),
+    ),
   ];
   if (endpoints.length === 0) {
     return;
@@ -474,7 +555,7 @@ export async function disableCurrentPushSubscription(
     }
     return;
   }
-  // Keep a failed endpoint remembered so Settings can retry unbind.
-  rememberPushEndpoint(failures[0]?.endpoint ?? null);
+  // Keep every failed endpoint so later retries can clear the device-cap rows.
+  rememberPushEndpoints(failures.map((failure) => failure.endpoint));
   throw failures[0]?.error;
 }
