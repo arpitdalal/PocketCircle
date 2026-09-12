@@ -137,7 +137,7 @@ describe("pushSubscriptions", () => {
     });
   });
 
-  it("reconcile refreshes lastSeenAt and rebinds to the authenticated User", async () => {
+  it("reconcile refreshes lastSeenAt only when the current User already owns the endpoint", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-01T00:00:00Z"));
     const t = convexTest(schema, modules);
@@ -158,10 +158,21 @@ describe("pushSubscriptions", () => {
     });
 
     await t.run(async (ctx) => {
-      expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(0);
-      const bobRows = await listPushSubscriptionsForUser(ctx, bob._id);
-      expect(bobRows).toHaveLength(1);
-      expect(bobRows[0]?.lastSeenAt).toBe(Date.parse("2026-03-02T00:00:00Z"));
+      // Cross-User reconcile must not steal Alice's binding — explicit enable only.
+      expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(1);
+      expect(await listPushSubscriptionsForUser(ctx, bob._id)).toHaveLength(0);
+    });
+
+    signInAs(alice);
+    await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
+      subscription: { ...VALID, p256dh: "p256dh-refreshed", auth: "auth-refreshed" },
+    });
+
+    await t.run(async (ctx) => {
+      const aliceRows = await listPushSubscriptionsForUser(ctx, alice._id);
+      expect(aliceRows).toHaveLength(1);
+      expect(aliceRows[0]?.p256dh).toBe("p256dh-refreshed");
+      expect(aliceRows[0]?.lastSeenAt).toBe(Date.parse("2026-03-02T00:00:00Z"));
     });
   });
 

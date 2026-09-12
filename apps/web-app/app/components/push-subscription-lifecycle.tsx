@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent } from "react";
 import {
   useDisablePushSubscription,
+  useEnablePushSubscription,
   usePushVapidPublicKey,
   useReconcilePushSubscription,
 } from "~/lib/data.js";
@@ -17,21 +18,34 @@ import {
 export function PushSubscriptionLifecycle() {
   const vapid = usePushVapidPublicKey();
   const reconcile = useReconcilePushSubscription();
+  const enable = useEnablePushSubscription();
   const disable = useDisablePushSubscription();
 
   const runReconcile = useEffectEvent(async () => {
     if (!vapid) {
       return;
     }
-    const result = await readPushSubscriptionMaterial(vapid);
-    if (result.unboundEndpoint) {
-      try {
-        await disable({ endpoint: result.unboundEndpoint });
-      } catch {
-        // Best-effort: still reconcile the replacement if any.
+    try {
+      const result = await readPushSubscriptionMaterial(vapid);
+      if (result.unboundEndpoint) {
+        try {
+          await disable({ endpoint: result.unboundEndpoint });
+        } catch {
+          // Best-effort old-endpoint cleanup during VAPID rotation.
+        }
       }
+      if (!result.subscription) {
+        return;
+      }
+      if (result.unboundEndpoint) {
+        // Replacement sub after rotation — explicit bind under current User.
+        await enable(result.subscription);
+        return;
+      }
+      await reconcile({ subscription: result.subscription });
+    } catch {
+      // Best-effort lifecycle — never surface unhandled rejections on focus.
     }
-    await reconcile({ subscription: result.subscription });
   });
 
   useEffect(() => {

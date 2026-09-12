@@ -64,8 +64,9 @@ export const disablePushSubscription = mutation({
 });
 
 /**
- * Startup/focus reconcile: refresh lastSeenAt / rebind when the browser still
- * has a subscription. `null` leaves other devices alone (sign-out clears local).
+ * Startup/focus reconcile: refresh lastSeenAt / keys only when this User already
+ * owns the endpoint. Never steals another User's binding and never auto-creates
+ * a first binding — that requires explicit enable (#381 / research §7).
  */
 export const reconcilePushSubscription = mutation({
   args: {
@@ -77,7 +78,16 @@ export const reconcilePushSubscription = mutation({
       return;
     }
     assertValidSubscription(args.subscription);
-    await bindPushSubscription(ctx, user._id, args.subscription);
+    const existing = await findByEndpoint(ctx, args.subscription.endpoint);
+    if (!existing || existing.userId !== user._id) {
+      return;
+    }
+    await ctx.db.patch(existing._id, {
+      p256dh: args.subscription.p256dh,
+      auth: args.subscription.auth,
+      vapidKeyId: args.subscription.vapidKeyId,
+      lastSeenAt: Date.now(),
+    });
   },
 });
 
