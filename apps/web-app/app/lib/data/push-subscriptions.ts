@@ -7,8 +7,13 @@ import {
   clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
   endPushEnable,
+  getCurrentPushSubscription,
+  recalledPendingPushCleanup,
+  rememberPushEndpoint,
+  rememberPushEndpoints,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
+  waitForOrphanDropIdle,
 } from "../push-subscriptions.js";
 
 export function usePushVapidPublicKey() {
@@ -62,17 +67,44 @@ export function useEnableNotifications() {
     }
     beginPushEnable();
     try {
-      const material = await subscribeForPushNotifications(vapid);
+      await waitForOrphanDropIdle();
+      let material = await subscribeForPushNotifications(vapid);
       try {
         await enable(material);
+        // Orphan drop may have unsubscribed during bind — recover once.
+        const live = await getCurrentPushSubscription();
+        if (!live || live.endpoint !== material.endpoint) {
+          material = await subscribeForPushNotifications(vapid);
+          await enable(material);
+          const recovered = await getCurrentPushSubscription();
+          if (!recovered || recovered.endpoint !== material.endpoint) {
+            throw new Error("Push subscription was removed during enable");
+          }
+        }
         track("notifications_enabled", {});
       } catch (error) {
         // Ambiguous transport failures: clear server binding for this endpoint
         // (covers committed-but-lost-response) then drop the local subscription.
+        let removed = false;
         try {
-          await disable({ endpoint: material.endpoint });
+          const outcome = await disable({ endpoint: material.endpoint });
+          removed =
+            typeof outcome === "object" &&
+            outcome !== null &&
+            "removed" in outcome &&
+            outcome.removed === true;
         } catch {
-          // Best-effort compensation.
+          removed = false;
+        }
+        if (!removed) {
+          // Keep a pending cleanup handle — active slot alone is overwritten on retry.
+          rememberPushEndpoint(null);
+          rememberPushEndpoints([
+            ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== material.endpoint),
+            material.endpoint,
+          ]);
+        } else {
+          rememberPushEndpoint(null);
         }
         await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
         throw error;

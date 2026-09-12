@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyPendingCleanupFlushResult,
   beginPushEnable,
   canRegisterPushServiceWorker,
   clearLocalPushSubscriptionAndBinding,
@@ -19,6 +20,7 @@ import {
   resetPushEnableLeases,
   resolvePushNotificationsCapability,
   subscribeForPushNotifications,
+  unsubscribeLocalPushSubscription,
   vapidPublicKeyBytes,
 } from "~/lib/push-subscriptions.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
@@ -251,7 +253,7 @@ describe("push enable in-flight coordination", () => {
     window.localStorage.removeItem("pocketcircle.pushEnableLease.other-tab");
     // Local grace still holds briefly after endPushEnable.
     expect(isPushEnableInFlight()).toBe(true);
-    vi.advanceTimersByTime(3_000);
+    vi.advanceTimersByTime(12_000);
     expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
   });
@@ -265,7 +267,7 @@ describe("push enable in-flight coordination", () => {
     expect(isPushEnableInFlight()).toBe(true);
     endPushEnable();
     expect(isPushEnableInFlight()).toBe(true);
-    vi.advanceTimersByTime(3_000);
+    vi.advanceTimersByTime(12_000);
     expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
   });
@@ -290,7 +292,7 @@ describe("push enable in-flight coordination", () => {
     expect(Date.now() - startedAt).toBeLessThan(60_000);
 
     endPushEnable();
-    vi.advanceTimersByTime(3_000);
+    vi.advanceTimersByTime(12_000);
     expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
   });
@@ -300,7 +302,7 @@ describe("push enable in-flight coordination", () => {
     beginPushEnable();
     endPushEnable();
     expect(isPushEnableInFlight()).toBe(true);
-    vi.advanceTimersByTime(2_999);
+    vi.advanceTimersByTime(11_999);
     expect(isPushEnableInFlight()).toBe(true);
     vi.advanceTimersByTime(1);
     expect(isPushEnableInFlight()).toBe(false);
@@ -478,6 +480,54 @@ describe("disableCurrentPushSubscription", () => {
     recordOrphanLocalDrop("https://push.example/alice");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
     expect(recalledPendingPushCleanup()).toEqual(["https://push.example/alice"]);
+  });
+
+  it("merges pending cleanup flush results without wiping newer endpoints", () => {
+    rememberPushEndpoints(["https://push.example/a", "https://push.example/b"]);
+    // Simulate another tab adding C while A/B flush is in flight.
+    rememberPushEndpoints([
+      "https://push.example/a",
+      "https://push.example/b",
+      "https://push.example/c",
+    ]);
+    applyPendingCleanupFlushResult(
+      ["https://push.example/a", "https://push.example/b"],
+      ["https://push.example/b"],
+    );
+    expect(recalledPendingPushCleanup()).toEqual([
+      "https://push.example/c",
+      "https://push.example/b",
+    ]);
+  });
+});
+
+describe("unsubscribeLocalPushSubscription", () => {
+  it("throws when subscription lookup fails instead of clearing orphan state", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: null,
+      getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
+    });
+    rememberPushEndpoint("https://push.example/orphan");
+
+    await expect(unsubscribeLocalPushSubscription("https://push.example/orphan")).rejects.toThrow(
+      "push subscription lookup failed",
+    );
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/orphan",
+    );
+  });
+
+  it("aborts before unsubscribe when enable is in flight", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/race" });
+    installPushEnv({ permission: "granted", subscription: sub });
+    beginPushEnable();
+
+    await expect(
+      unsubscribeLocalPushSubscription(sub.endpoint, { abortIfEnableInFlight: true }),
+    ).rejects.toThrow("push enable in flight");
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    endPushEnable();
   });
 });
 

@@ -74,6 +74,23 @@ export function rememberPushEndpoints(endpoints: readonly string[]) {
   writeEndpointList(PENDING_PUSH_CLEANUP_KEY, endpoints);
 }
 
+/**
+ * After a pending-cleanup flush: drop only endpoints from `attempted` that are
+ * absent from `failures` (confirmed removed). Keep failures plus any endpoints
+ * another tab added after the snapshot — never replace the whole list.
+ */
+export function applyPendingCleanupFlushResult(
+  attempted: readonly string[],
+  failures: readonly string[],
+) {
+  const attemptedSet = new Set(attempted.filter((endpoint) => endpoint.length > 0));
+  const next = [
+    ...recalledPendingPushCleanup().filter((endpoint) => !attemptedSet.has(endpoint)),
+    ...failures.filter((endpoint) => endpoint.length > 0),
+  ];
+  rememberPushEndpoints([...new Set(next)]);
+}
+
 /** Active endpoint only — leaves other pending cleanup intact across re-enable. */
 export function rememberPushEndpoint(endpoint: string | null) {
   try {
@@ -162,8 +179,9 @@ const PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS = 15_000;
 /**
  * After enable commits, keep the lease briefly so a concurrent orphan drop cannot
  * unsubscribe the just-bound endpoint between reconcile `{ bound: false }` and drop.
+ * Must cover `waitForActiveServiceWorker` (up to 10s) inside orphan unsubscribe.
  */
-const PUSH_ENABLE_LEASE_GRACE_MS = 3_000;
+const PUSH_ENABLE_LEASE_GRACE_MS = 12_000;
 let pushEnableInFlight = 0;
 const localPushEnableLeaseIds: string[] = [];
 let pushEnableHeartbeatTimer: number | null = null;
@@ -290,11 +308,43 @@ export function isPushEnableInFlight() {
   );
 }
 
+/** Same-tab: orphan unsubscribe in flight — enable waits so bind is not killed mid-flight. */
+let orphanDropInFlight = 0;
+
+export function beginOrphanDrop() {
+  orphanDropInFlight += 1;
+}
+
+export function endOrphanDrop() {
+  orphanDropInFlight = Math.max(0, orphanDropInFlight - 1);
+}
+
+export function isOrphanDropInFlight() {
+  return orphanDropInFlight > 0;
+}
+
+/** Bounded wait so Settings enable does not race a same-tab orphan unsubscribe. */
+export async function waitForOrphanDropIdle(timeoutMs = 15_000) {
+  if (orphanDropInFlight <= 0) {
+    return;
+  }
+  const started = Date.now();
+  while (orphanDropInFlight > 0) {
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error("push orphan drop still in flight");
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 25);
+    });
+  }
+}
+
 /** Test helper — drop leases/grace so cases do not leak across tests. */
 export function resetPushEnableLeases() {
   pushEnableInFlight = 0;
   localPushEnableLeaseIds.length = 0;
   pushEnableGraceUntil = 0;
+  orphanDropInFlight = 0;
   for (const timer of pushEnableGraceTimers) {
     window.clearTimeout(timer);
   }
@@ -581,14 +631,34 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
  * Local unsubscribe; caller persists disable via mutation. When
  * `expectedEndpoint` is set, only unsubscribes if it still matches — avoids
  * racing a newer subscription from a stale reconcile.
+ *
+ * Throws on registration/subscription lookup failure (do not treat as absence).
+ * Confirmed absence returns null without touching storage.
  */
-export async function unsubscribeLocalPushSubscription(expectedEndpoint?: string) {
-  const subscription = await getCurrentPushSubscription();
+export async function unsubscribeLocalPushSubscription(
+  expectedEndpoint?: string,
+  options?: { abortIfEnableInFlight?: boolean },
+) {
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    throw new Error("push subscription lookup failed");
+  }
+  let subscription: PushSubscription | null;
+  try {
+    subscription = await registration.pushManager.getSubscription();
+  } catch {
+    throw new Error("push subscription lookup failed");
+  }
   if (!subscription) {
-    return recalledPushEndpoints()[0] ?? null;
+    return null;
   }
   if (expectedEndpoint && subscription.endpoint !== expectedEndpoint) {
     return null;
+  }
+  // Enable may have started after the caller's pre-check — abort before the
+  // destructive unsubscribe so Settings enable is not left with a dead local sub.
+  if (options?.abortIfEnableInFlight && isPushEnableInFlight()) {
+    throw new Error("push enable in flight");
   }
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe();
@@ -781,7 +851,8 @@ export async function disableCurrentPushSubscription(
     return;
   }
   if (failures.length === 0) {
-    clearRememberedPushEndpoints();
+    rememberPushEndpoint(null);
+    applyPendingCleanupFlushResult(endpoints, []);
     if (unsubscribeFailed) {
       const lingering = await getCurrentPushSubscription();
       if (cancelled()) {
@@ -799,7 +870,10 @@ export async function disableCurrentPushSubscription(
   // Active sub is gone (or never cleared) — keep failures as pending cleanup
   // so a later enable cannot wipe them via rememberPushEndpoint.
   rememberPushEndpoint(null);
-  rememberPushEndpoints(failures.map((failure) => failure.endpoint));
+  applyPendingCleanupFlushResult(
+    endpoints,
+    failures.map((failure) => failure.endpoint),
+  );
   throw failures[0]?.error;
 }
 

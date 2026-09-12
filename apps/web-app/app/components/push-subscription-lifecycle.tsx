@@ -7,15 +7,17 @@ import {
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
-  clearRememberedPushEndpoints,
+  applyPendingCleanupFlushResult,
+  beginOrphanDrop,
+  endOrphanDrop,
   isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
   recalledPendingPushCleanup,
+  recalledPushEndpoint,
   recordOrphanLocalDrop,
   registerPushServiceWorker,
   rememberPushEndpoint,
-  rememberPushEndpoints,
   unsubscribeLocalPushSubscription,
 } from "~/lib/push-subscriptions.js";
 
@@ -37,19 +39,23 @@ export function PushSubscriptionLifecycle() {
     if (isPushEnableInFlight()) {
       return;
     }
+    beginOrphanDrop();
     try {
-      await unsubscribeLocalPushSubscription(expectedEndpoint);
+      await unsubscribeLocalPushSubscription(expectedEndpoint, {
+        abortIfEnableInFlight: true,
+      });
+      // Enable may have committed during unsubscribe — do not wipe its remember.
+      if (isPushEnableInFlight()) {
+        return;
+      }
+      // Preserve as pending so a foreign owner's server row keeps a retry handle.
+      recordOrphanLocalDrop(expectedEndpoint);
+      notifyPushSubscriptionChanged();
     } catch {
-      // Keep remembered state — Settings would otherwise show enabled with no binding.
-      return;
+      // Lookup failure or enable raced in — keep remembered / live state.
+    } finally {
+      endOrphanDrop();
     }
-    // Enable may have committed during unsubscribe — do not wipe its remember.
-    if (isPushEnableInFlight()) {
-      return;
-    }
-    // Preserve as pending so a foreign owner's server row keeps a retry handle.
-    recordOrphanLocalDrop(expectedEndpoint);
-    notifyPushSubscriptionChanged();
   });
 
   /** Reconfirm before drop — an enable may have committed after an unbound response. */
@@ -90,7 +96,20 @@ export function PushSubscriptionLifecycle() {
     }
     const unique = [...new Set(endpoints.filter((value) => value.length > 0))];
     const failures: string[] = [];
-    for (const endpoint of unique) {
+    for (let i = 0; i < unique.length; i += 1) {
+      const endpoint = unique[i];
+      if (!endpoint) {
+        continue;
+      }
+      if (isPushEnableInFlight()) {
+        // Keep remaining snapshot endpoints for a later retry.
+        failures.push(endpoint, ...unique.slice(i + 1).filter((value) => value.length > 0));
+        break;
+      }
+      // Enable may have rebound this endpoint — do not delete its new row.
+      if (recalledPushEndpoint() === endpoint) {
+        continue;
+      }
       try {
         const outcome = await disable({ endpoint });
         if (
@@ -126,7 +145,7 @@ export function PushSubscriptionLifecycle() {
       if (generation !== lifecycleGeneration.current) {
         return;
       }
-      rememberPushEndpoints(failures);
+      applyPendingCleanupFlushResult(pending, failures);
     },
   );
 
@@ -144,20 +163,20 @@ export function PushSubscriptionLifecycle() {
         if (isPushEnableInFlight()) {
           return;
         }
-        const failures = await disableCapturedEndpoints([
-          result.unboundEndpoint,
-          ...(result.unboundEndpoints ?? []),
-        ]);
+        const attempted = [result.unboundEndpoint, ...(result.unboundEndpoints ?? [])];
+        const failures = await disableCapturedEndpoints(attempted);
         if (generation !== lifecycleGeneration.current) {
           return;
         }
-        if (failures.length === 0) {
-          clearRememberedPushEndpoints();
-        } else {
-          // Keep every failed endpoint so a later focus can retry unbind.
-          rememberPushEndpoint(null);
-          rememberPushEndpoints(failures);
+        // Only clear active if it was one of the unbound endpoints — do not wipe
+        // a newer enable that rebound a different endpoint mid-flush.
+        if (!isPushEnableInFlight()) {
+          const active = recalledPushEndpoint();
+          if (active && attempted.includes(active)) {
+            rememberPushEndpoint(null);
+          }
         }
+        applyPendingCleanupFlushResult(attempted, failures);
         notifyPushSubscriptionChanged();
         return;
       }

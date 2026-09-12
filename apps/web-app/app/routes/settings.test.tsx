@@ -597,6 +597,36 @@ describe("Settings notifications", () => {
     });
   });
 
+  it("keeps a pending cleanup handle when enable compensation disable fails", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const enablePushSubscription = vi.fn().mockRejectedValue(new Error("transport lost"));
+    const disablePushSubscription = vi.fn().mockRejectedValue(new Error("offline"));
+    installPushEnv({ permission: "default", requestPermission, subscription: null });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/test-endpoint",
+      });
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.pendingPushCleanup")).toBe(
+        "https://push.example/test-endpoint",
+      );
+    });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+  });
+
   it("disables by unsubscribing without revoking permission", async () => {
     const sub = makeFakePushSubscription();
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
