@@ -4,6 +4,7 @@ import {
   beginPushEnable,
   canRegisterPushServiceWorker,
   clearLocalPushSubscriptionAndBinding,
+  clearPushEnableCancel,
   clearRememberedPushEndpoints,
   disableCurrentPushSubscription,
   endPushEnable,
@@ -287,8 +288,10 @@ describe("push enable in-flight coordination", () => {
     }
     expect(leaseKeys).toHaveLength(1);
     const [leaseKey] = leaseKeys;
-    const startedAt = Number(window.localStorage.getItem(leaseKey ?? ""));
+    const raw = window.localStorage.getItem(leaseKey ?? "") ?? "";
+    const startedAt = Number(raw.split("|")[0]);
     expect(Number.isFinite(startedAt)).toBe(true);
+    expect(raw.endsWith("|active")).toBe(true);
     // Lease stayed within TTL of "now" thanks to heartbeats.
     expect(Date.now() - startedAt).toBeLessThan(60_000);
 
@@ -386,6 +389,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     const done = clearLocalPushSubscriptionAndBinding(disable);
     await Promise.resolve();
     expect(isPushEnableCancelRequested()).toBe(true);
+    expect(window.localStorage.getItem("pocketcircle.pushEnableCancel")).not.toBeNull();
     expect(disable).not.toHaveBeenCalled();
 
     // A concurrent enable must not clear sign-out's cancel flag.
@@ -398,6 +402,104 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
     expect(disable).toHaveBeenCalled();
     expect(isPushEnableCancelRequested()).toBe(false);
+  });
+
+  it("waits for a cross-tab active enable lease before cleanup", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    window.localStorage.setItem("pocketcircle.pushEnableLease.other-tab", `${Date.now()}|active`);
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 40);
+    });
+    expect(isPushEnableCancelRequested()).toBe(true);
+    expect(disable).not.toHaveBeenCalled();
+
+    window.localStorage.removeItem("pocketcircle.pushEnableLease.other-tab");
+    await done;
+
+    expect(disable).toHaveBeenCalled();
+  });
+
+  it("does not let another tab's begin clear cancel during sign-out cleanup", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    window.localStorage.setItem("pocketcircle.pushSignOutCleanup.other", String(Date.now()));
+    window.localStorage.setItem("pocketcircle.pushEnableCancel", String(Date.now()));
+
+    beginPushEnable();
+    expect(isPushEnableCancelRequested()).toBe(true);
+    endPushEnable();
+  });
+
+  it("refuses to clear cancel when a cleanup mark is present", () => {
+    window.localStorage.setItem("pocketcircle.pushSignOutCleanup.racer", String(Date.now()));
+    window.localStorage.setItem("pocketcircle.pushEnableCancel", String(Date.now()));
+    clearPushEnableCancel();
+    expect(isPushEnableCancelRequested()).toBe(true);
+  });
+
+  it("restores cancel if a cleanup mark appears during clear", () => {
+    const originalRemove = window.localStorage.removeItem.bind(window.localStorage);
+    window.localStorage.removeItem = (key: string) => {
+      originalRemove(key);
+      if (key === "pocketcircle.pushEnableCancel") {
+        window.localStorage.setItem(
+          "pocketcircle.pushSignOutCleanup.during-clear",
+          String(Date.now()),
+        );
+      }
+    };
+    try {
+      window.localStorage.setItem("pocketcircle.pushEnableCancel", String(Date.now()));
+      clearPushEnableCancel();
+      expect(isPushEnableCancelRequested()).toBe(true);
+    } finally {
+      window.localStorage.removeItem = originalRemove;
+    }
+  });
+
+  it("uses one shared deadline across enable-wait and disable", async () => {
+    vi.useFakeTimers();
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    beginPushEnable();
+    const disable = vi.fn().mockImplementation(() => new Promise(() => {}));
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    // Wait is capped so ~1s remains for disable inside the 5s deadline.
+    await vi.advanceTimersByTimeAsync(3_500);
+    endPushEnable();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(disable).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(done).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("still attempts disable when enable-wait consumes its budget", async () => {
+    vi.useFakeTimers();
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    window.localStorage.setItem("pocketcircle.pushEnableLease.stuck", `${Date.now()}|active`);
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    // Wait budget is 4s (5s - 1s reserved); advance past it while lease stays active.
+    await vi.advanceTimersByTimeAsync(4_100);
+    await expect(done).resolves.toBeUndefined();
+    expect(disable).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 

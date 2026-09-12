@@ -195,6 +195,35 @@ function newPushEnableLeaseId() {
   return `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** Lease value: `<epochMs>|active` or `<epochMs>|grace` (legacy bare number = active). */
+function parsePushEnableLease(raw: string | null) {
+  if (!raw) {
+    return null;
+  }
+  const pipe = raw.indexOf("|");
+  if (pipe === -1) {
+    const at = Number(raw);
+    if (!Number.isFinite(at)) {
+      return null;
+    }
+    return { at, phase: "active" as const };
+  }
+  const at = Number(raw.slice(0, pipe));
+  if (!Number.isFinite(at)) {
+    return null;
+  }
+  const phase = raw.slice(pipe + 1) === "grace" ? ("grace" as const) : ("active" as const);
+  return { at, phase };
+}
+
+function writePushEnableLease(id: string, phase: "active" | "grace") {
+  try {
+    window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, `${Date.now()}|${phase}`);
+  } catch {
+    // Private mode — same-tab counter still applies.
+  }
+}
+
 function sweepExpiredPushEnableLeases() {
   try {
     const now = Date.now();
@@ -204,8 +233,8 @@ function sweepExpiredPushEnableLeases() {
       if (!key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
         continue;
       }
-      const startedAt = Number(window.localStorage.getItem(key));
-      if (!Number.isFinite(startedAt) || now - startedAt > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
+      const lease = parsePushEnableLease(window.localStorage.getItem(key));
+      if (!lease || now - lease.at > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
         stale.push(key);
       }
     }
@@ -217,12 +246,19 @@ function sweepExpiredPushEnableLeases() {
   }
 }
 
-function anyFreshCrossTabPushEnableLease() {
+function anyCrossTabPushEnableLease(phase?: "active" | "grace") {
   sweepExpiredPushEnableLeases();
   try {
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+      if (!key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+        continue;
+      }
+      const lease = parsePushEnableLease(window.localStorage.getItem(key));
+      if (!lease) {
+        continue;
+      }
+      if (!phase || lease.phase === phase) {
         return true;
       }
     }
@@ -232,14 +268,17 @@ function anyFreshCrossTabPushEnableLease() {
   return false;
 }
 
+function anyFreshCrossTabPushEnableLease() {
+  return anyCrossTabPushEnableLease();
+}
+
+function anyActiveCrossTabPushEnableLease() {
+  return anyCrossTabPushEnableLease("active");
+}
+
 function touchLocalPushEnableLeases() {
-  try {
-    const now = String(Date.now());
-    for (const id of localPushEnableLeaseIds) {
-      window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, now);
-    }
-  } catch {
-    // ignore
+  for (const id of localPushEnableLeaseIds) {
+    writePushEnableLease(id, "active");
   }
 }
 
@@ -266,19 +305,134 @@ function syncPushEnableHeartbeat() {
   }
 }
 
+/** Sign-out sets this so an in-flight enable aborts before/after bind. */
+let pushEnableCancelRequested = false;
+/** True while sign-out Push cleanup runs — beginPushEnable must not clear cancel. */
+let pushSignOutCleanupInProgress = false;
+/** Cross-tab: cancel + per-tab sign-out cleanup marks (other tabs must not clear cancel). */
+const PUSH_ENABLE_CANCEL_KEY = "pocketcircle.pushEnableCancel";
+const PUSH_SIGNOUT_CLEANUP_PREFIX = "pocketcircle.pushSignOutCleanup.";
+/** Crash recovery — stuck marks/cancel must not block enable forever. */
+const PUSH_SIGNOUT_CLEANUP_TTL_MS = 60_000;
+/** Reserve disable time inside the shared sign-out deadline so wait cannot starve unbind. */
+const SIGN_OUT_MIN_DISABLE_BUDGET_MS = 1_000;
+
+function sweepExpiredSignOutCleanupMarks() {
+  try {
+    const now = Date.now();
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)) {
+        continue;
+      }
+      const at = Number(window.localStorage.getItem(key));
+      if (!Number.isFinite(at) || now - at > PUSH_SIGNOUT_CLEANUP_TTL_MS) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function isPushSignOutCleanupMarked() {
+  sweepExpiredSignOutCleanupMarks();
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function markPushSignOutCleanup() {
+  const id = newPushEnableLeaseId();
+  try {
+    window.localStorage.setItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`, String(Date.now()));
+  } catch {
+    // ignore
+  }
+  return id;
+}
+
+function unmarkPushSignOutCleanup(id: string) {
+  try {
+    window.localStorage.removeItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`);
+  } catch {
+    // ignore
+  }
+}
+
+export function requestPushEnableCancel() {
+  pushEnableCancelRequested = true;
+  try {
+    window.localStorage.setItem(PUSH_ENABLE_CANCEL_KEY, String(Date.now()));
+  } catch {
+    // Private mode — same-tab flag still applies.
+  }
+}
+
+export function clearPushEnableCancel() {
+  // Check → clear → re-check. localStorage is not atomic across tabs; if another
+  // tab marks+cancels in the window, restore cancel so enable still aborts.
+  if (pushSignOutCleanupInProgress || isPushSignOutCleanupMarked()) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
+  } catch {
+    // ignore
+  }
+  if (pushSignOutCleanupInProgress || isPushSignOutCleanupMarked()) {
+    requestPushEnableCancel();
+    return;
+  }
+  pushEnableCancelRequested = false;
+}
+
+export function isPushEnableCancelRequested() {
+  if (pushEnableCancelRequested) {
+    return true;
+  }
+  try {
+    const raw = window.localStorage.getItem(PUSH_ENABLE_CANCEL_KEY);
+    if (!raw) {
+      return false;
+    }
+    const at = Number(raw);
+    // Stale cancel with no live cleanup mark — treat as expired crash residue.
+    if (
+      Number.isFinite(at) &&
+      Date.now() - at > PUSH_SIGNOUT_CLEANUP_TTL_MS &&
+      !isPushSignOutCleanupMarked()
+    ) {
+      window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function beginPushEnable() {
-  // Fresh enable may clear a stale cancel, but never during sign-out cleanup.
-  if (!pushSignOutCleanupInProgress) {
-    pushEnableCancelRequested = false;
+  // Fresh enable may clear a stale cancel, but never during any tab's sign-out cleanup.
+  if (!pushSignOutCleanupInProgress && !isPushSignOutCleanupMarked()) {
+    clearPushEnableCancel();
   }
   pushEnableInFlight += 1;
   const id = newPushEnableLeaseId();
   localPushEnableLeaseIds.push(id);
-  try {
-    window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, String(Date.now()));
-  } catch {
-    // Private mode — same-tab counter still applies.
-  }
+  writePushEnableLease(id, "active");
   syncPushEnableHeartbeat();
 }
 
@@ -287,12 +441,8 @@ export function endPushEnable() {
   pushEnableGraceUntil = Math.max(pushEnableGraceUntil, Date.now() + PUSH_ENABLE_LEASE_GRACE_MS);
   const id = localPushEnableLeaseIds.pop();
   if (id) {
-    // Keep the cross-tab lease visible through the grace window.
-    try {
-      window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, String(Date.now()));
-    } catch {
-      // ignore
-    }
+    // Keep the cross-tab lease visible through the grace window (orphan protection).
+    writePushEnableLease(id, "grace");
     const timer = window.setTimeout(() => {
       pushEnableGraceTimers.delete(timer);
       try {
@@ -312,31 +462,14 @@ export function isPushEnableInFlight() {
   );
 }
 
-/** Sign-out sets this so an in-flight enable aborts before/after bind. */
-let pushEnableCancelRequested = false;
-/** True while sign-out Push cleanup runs — beginPushEnable must not clear cancel. */
-let pushSignOutCleanupInProgress = false;
-
-export function requestPushEnableCancel() {
-  pushEnableCancelRequested = true;
-}
-
-export function clearPushEnableCancel() {
-  pushEnableCancelRequested = false;
-}
-
-export function isPushEnableCancelRequested() {
-  return pushEnableCancelRequested;
-}
-
-/** Wait until same-tab enable counter is 0 (ignores post-commit grace). */
+/**
+ * Wait until same-tab enable counter is 0 and no cross-tab *active* enable lease
+ * remains (grace leases ignored — those already committed and cleanup can unbind).
+ */
 export async function waitForActivePushEnableIdle(timeoutMs = 15_000) {
-  if (pushEnableInFlight <= 0) {
-    return;
-  }
-  const started = Date.now();
-  while (pushEnableInFlight > 0) {
-    if (Date.now() - started >= timeoutMs) {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (pushEnableInFlight > 0 || anyActiveCrossTabPushEnableLease()) {
+    if (Date.now() >= deadline) {
       throw new Error("push enable still in flight");
     }
     await new Promise<void>((resolve) => {
@@ -396,7 +529,11 @@ export function resetPushEnableLeases() {
     const stale: string[] = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+      if (
+        key?.startsWith(PUSH_ENABLE_LEASE_PREFIX) ||
+        key === PUSH_ENABLE_CANCEL_KEY ||
+        key?.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)
+      ) {
         stale.push(key);
       }
     }
@@ -780,23 +917,25 @@ export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   const SIGN_OUT_CLEANUP_TIMEOUT_MS = 5_000;
-  // Abort any in-flight Settings enable before snapshotting endpoints to unbind.
+  const deadline = Date.now() + SIGN_OUT_CLEANUP_TIMEOUT_MS;
+  const remainingMs = () => Math.max(0, deadline - Date.now());
+  // Mark before cancel so another tab's beginPushEnable cannot clear cancel in the gap.
+  const cleanupId = markPushSignOutCleanup();
   requestPushEnableCancel();
   pushSignOutCleanupInProgress = true;
   try {
+    // Leave disable a slice of the shared deadline — wait must not consume it all.
+    const waitBudget = Math.max(0, remainingMs() - SIGN_OUT_MIN_DISABLE_BUDGET_MS);
     try {
-      await waitForActivePushEnableIdle(SIGN_OUT_CLEANUP_TIMEOUT_MS);
+      await waitForActivePushEnableIdle(waitBudget);
     } catch {
       // Proceed with best-effort cleanup even if enable is stuck.
     }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      cancelled = true;
-    }, SIGN_OUT_CLEANUP_TIMEOUT_MS);
+    const budget = remainingMs();
     try {
       await Promise.race([
         disableCurrentPushSubscription(disable, {
-          isCancelled: () => cancelled,
+          isCancelled: () => Date.now() >= deadline,
           // Sign-out must still best-effort unbind remembered endpoints when the
           // live lookup fails — Settings stays strict (no fallback).
           rememberedFallbackOnLookupFailure: true,
@@ -804,19 +943,23 @@ export async function clearLocalPushSubscriptionAndBinding(
         new Promise((_, reject) => {
           window.setTimeout(
             () => reject(new Error("push cleanup timeout")),
-            SIGN_OUT_CLEANUP_TIMEOUT_MS,
+            // Always attempt disable; 0 would reject before disable schedules work.
+            Math.max(budget, 1),
           );
         }),
       ]);
     } catch {
       // Never block sign-out on Push cleanup.
-    } finally {
-      window.clearTimeout(timer);
     }
   } finally {
     pushSignOutCleanupInProgress = false;
-    // Keep cancel if enable is still stuck so a late bind still aborts.
-    if (pushEnableInFlight <= 0) {
+    unmarkPushSignOutCleanup(cleanupId);
+    // Keep cancel while any tab still cleans up or still has an active enable.
+    if (
+      pushEnableInFlight <= 0 &&
+      !anyActiveCrossTabPushEnableLease() &&
+      !isPushSignOutCleanupMarked()
+    ) {
       clearPushEnableCancel();
     }
   }
