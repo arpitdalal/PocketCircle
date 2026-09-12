@@ -478,15 +478,20 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
  * Sign-out helper: unsubscribe locally then remove User binding. Failures and
  * stalled mutations must not block sign-out. If live `getSubscription()` fails,
  * falls back to the last remembered endpoint so server unbind still runs.
+ * After the deadline, local side effects stop so a later session is untouched.
  * Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   const SIGN_OUT_CLEANUP_TIMEOUT_MS = 5_000;
+  let cancelled = false;
+  const timer = window.setTimeout(() => {
+    cancelled = true;
+  }, SIGN_OUT_CLEANUP_TIMEOUT_MS);
   try {
     await Promise.race([
-      disableCurrentPushSubscription(disable),
+      disableCurrentPushSubscription(disable, { isCancelled: () => cancelled }),
       new Promise((_, reject) => {
         window.setTimeout(
           () => reject(new Error("push cleanup timeout")),
@@ -496,6 +501,8 @@ export async function clearLocalPushSubscriptionAndBinding(
     ]);
   } catch {
     // Never block sign-out on Push cleanup.
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -507,7 +514,9 @@ export async function clearLocalPushSubscriptionAndBinding(
  */
 export async function disableCurrentPushSubscription(
   disable: (args: { endpoint: string }) => Promise<unknown>,
+  options?: { isCancelled?: () => boolean },
 ) {
+  const cancelled = () => options?.isCancelled?.() === true;
   let subscription: PushSubscription | null = null;
   try {
     const registration = await resolvePushRegistration();
@@ -516,6 +525,9 @@ export async function disableCurrentPushSubscription(
     }
   } catch {
     // Transient lookup failure — fall back to remembered endpoint below.
+  }
+  if (cancelled()) {
+    return;
   }
   const liveEndpoint = subscription?.endpoint ?? null;
   const endpoints = [
@@ -535,19 +547,32 @@ export async function disableCurrentPushSubscription(
       unsubscribeFailed = true;
     }
   }
+  if (cancelled()) {
+    return;
+  }
   const failures: { endpoint: string; error: unknown }[] = [];
   for (const endpoint of endpoints) {
+    if (cancelled()) {
+      return;
+    }
     try {
       await disable({ endpoint });
     } catch (error) {
       failures.push({ endpoint, error });
     }
   }
+  if (cancelled()) {
+    return;
+  }
   if (failures.length === 0) {
     rememberPushEndpoint(null);
     if (unsubscribeFailed) {
       const lingering = await getCurrentPushSubscription();
-      if (lingering) {
+      if (cancelled()) {
+        return;
+      }
+      // Only touch the endpoint we started with — never a later session's sub.
+      if (lingering && liveEndpoint && lingering.endpoint === liveEndpoint) {
         // Server unbound but browser sub remains — surface so Settings does
         // not claim disabled while still showing enabled.
         await lingering.unsubscribe();

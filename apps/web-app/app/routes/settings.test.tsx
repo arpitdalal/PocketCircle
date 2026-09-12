@@ -505,6 +505,30 @@ describe("Settings notifications", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("hides notification onboarding when VAPID is unavailable", async () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    seedPwaInstallPromptDismissed();
+    installPushEnv({ permission: "default" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: null,
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(/Push notifications are not supported in this browser/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install PocketCircle" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Install PocketCircle to enable notifications/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("explains blocked browser permission", async () => {
     installPushEnv({ permission: "denied" });
     configureConvex({

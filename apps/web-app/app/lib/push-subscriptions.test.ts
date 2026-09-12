@@ -277,6 +277,40 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     await expect(done).resolves.toBeUndefined();
     vi.useRealTimers();
   });
+
+  it("does not clear a later session after the sign-out cleanup times out", async () => {
+    vi.useFakeTimers();
+    const oldSub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    installPushEnv({ permission: "granted", subscription: oldSub });
+    rememberPushEndpoint("https://push.example/old");
+
+    let releaseDisable = () => {};
+    const disable = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseDisable = () => resolve();
+        }),
+    );
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(done).resolves.toBeUndefined();
+
+    // Later session enables Push before the stalled disable settles.
+    const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
+    installPushEnv({ permission: "granted", subscription: nextSub });
+    rememberPushEndpoint("https://push.example/next");
+
+    releaseDisable();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/next",
+    );
+    expect(nextSub.unsubscribe).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });
 
 describe("disableCurrentPushSubscription", () => {

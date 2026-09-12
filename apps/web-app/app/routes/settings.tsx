@@ -397,10 +397,7 @@ function NotificationsSettingsCard() {
     };
   }, []);
 
-  const effectiveState =
-    vapid === null && uiState !== "needs_install" && uiState !== "blocked"
-      ? "unsupported"
-      : uiState;
+  const effectiveState = vapid === null ? "unsupported" : uiState;
 
   async function refreshState() {
     setUiState(await resolvePushNotificationsUiState());
