@@ -5,7 +5,8 @@ import { ConvexError } from "convex/values";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountDeletionBlocker } from "~/lib/data.js";
-import { SnackbarProvider } from "~/lib/snackbar.js";
+import { recalledPendingPushCleanup } from "~/lib/push-subscriptions.js";
+import { AppTestProviders } from "~/test/app-test-providers.js";
 import {
   configureConvex,
   convexReactMock,
@@ -18,6 +19,13 @@ import {
   primeAnalyticsForTests,
   resetPostHogBoundary,
 } from "~/test/posthog-boundary.js";
+import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+import {
+  installMatchMediaFake,
+  resetNavigatorInstallProps,
+  seedPwaInstallPromptDismissed,
+  setNavigatorInstallProps,
+} from "~/test/pwa-install-env.js";
 
 const auth = vi.hoisted(() => ({
   deleteUser: vi.fn(),
@@ -36,15 +44,16 @@ vi.mock("better-auth/react", () => ({
 }));
 
 import { initAnalytics, track } from "~/lib/analytics.js";
+import { clearRememberedPushEndpoints, resetPushOperationState } from "~/lib/push-subscriptions.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
   return render(
-    <SnackbarProvider>
+    <AppTestProviders>
       <MemoryRouter>
         <Settings />
       </MemoryRouter>
-    </SnackbarProvider>,
+    </AppTestProviders>,
   );
 }
 
@@ -52,10 +61,19 @@ beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   await primeAnalyticsForTests();
   auth.deleteUser.mockReset();
+  resetPushEnv();
+  resetNavigatorInstallProps();
+  installMatchMediaFake(false);
+  clearRememberedPushEndpoints();
+  resetPushOperationState();
 });
 
 afterEach(() => {
   resetPostHogBoundary();
+  resetPushEnv();
+  resetNavigatorInstallProps();
+  clearRememberedPushEndpoints();
+  resetPushOperationState();
   vi.clearAllMocks();
 });
 
@@ -70,11 +88,11 @@ describe("Settings profile form", () => {
       currentUser: makeCurrentUserView({ displayName: "Ada Lovelace" }),
     });
     rerender(
-      <SnackbarProvider>
+      <AppTestProviders>
         <MemoryRouter>
           <Settings />
         </MemoryRouter>
-      </SnackbarProvider>,
+      </AppTestProviders>,
     );
 
     expect(await screen.findByLabelText("Display name")).toHaveValue("Ada Lovelace");
@@ -448,5 +466,302 @@ describe("Settings danger zone", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't start account deletion. Please try again.",
     );
+  });
+});
+
+describe("Settings notifications", () => {
+  it("explains unsupported browsers", async () => {
+    installPushEnv({ serviceWorker: false, pushManager: false, notification: false });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(/Push notifications are not supported in this browser/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows Install PocketCircle on iPhone browser tabs", async () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    seedPwaInstallPromptDismissed();
+    installPushEnv({ permission: "default" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(
+        /Install PocketCircle to enable notifications on this iPhone or iPad/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install PocketCircle" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides notification onboarding when VAPID is unavailable", async () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    seedPwaInstallPromptDismissed();
+    installPushEnv({ permission: "default" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: null,
+    });
+    renderSettings();
+    expect(
+      await screen.findByText(/Push notifications are not supported in this browser/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install PocketCircle" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Install PocketCircle to enable notifications/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps disable available when VAPID is absent but this device is already subscribed", async () => {
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    const sub = makeFakePushSubscription();
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: null,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(toggle).toBeChecked();
+    expect(toggle).not.toBeDisabled();
+
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+  });
+
+  it("explains blocked browser permission", async () => {
+    installPushEnv({ permission: "denied" });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+    });
+    renderSettings();
+    expect(await screen.findByText(/Blocked in browser settings/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("enables notifications only from the switch (never on load)", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const enablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    installPushEnv({ permission: "default", requestPermission, subscription: null });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(enablePushSubscription).not.toHaveBeenCalled();
+
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(requestPermission).toHaveBeenCalledTimes(1);
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: "https://push.example/test-endpoint",
+          vapidKeyId: "primary",
+        }),
+      );
+    });
+  });
+
+  it("keeps a pending cleanup handle when enable compensation disable fails", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const enablePushSubscription = vi.fn().mockRejectedValue(new Error("transport lost"));
+    const disablePushSubscription = vi.fn().mockRejectedValue(new Error("offline"));
+    installPushEnv({ permission: "default", requestPermission, subscription: null });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/test-endpoint",
+      });
+    });
+    await waitFor(() => {
+      expect(recalledPendingPushCleanup()).toEqual(["https://push.example/test-endpoint"]);
+    });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+  });
+
+  it("disables the abandoned endpoint after enable recovery resubscribe", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    const subscribe = vi.fn(async () => {
+      subscribeCount += 1;
+      live = makeFakePushSubscription({
+        endpoint:
+          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+      });
+      return live;
+    });
+    const getSubscription = vi.fn(async () => live);
+    const enablePushSubscription = vi
+      .fn()
+      .mockImplementation(async (args: { endpoint: string }) => {
+        if (args.endpoint === "https://push.example/first") {
+          // Orphan drop removed the local sub after the first bind committed.
+          live = null;
+        }
+      });
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    installPushEnv({
+      permission: "default",
+      requestPermission,
+      subscription: null,
+      subscribe,
+      getSubscription,
+    });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "https://push.example/first" }),
+      );
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "https://push.example/second" }),
+      );
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/first",
+      });
+    });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/second",
+    );
+  });
+
+  it("keeps pending cleanup for the first bind when recovery enable fails", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    const subscribe = vi.fn(async () => {
+      subscribeCount += 1;
+      live = makeFakePushSubscription({
+        endpoint:
+          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+      });
+      return live;
+    });
+    const getSubscription = vi.fn(async () => live);
+    const enablePushSubscription = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        live = null;
+      })
+      .mockRejectedValueOnce(new Error("recovery bind failed"));
+    const disablePushSubscription = vi.fn().mockRejectedValue(new Error("offline"));
+    installPushEnv({
+      permission: "default",
+      requestPermission,
+      subscription: null,
+      subscribe,
+      getSubscription,
+    });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/first",
+      });
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/second",
+      });
+    });
+    await waitFor(() => {
+      expect(new Set(recalledPendingPushCleanup())).toEqual(
+        new Set(["https://push.example/second", "https://push.example/first"]),
+      );
+    });
+  });
+
+  it("disables by unsubscribing without revoking permission", async () => {
+    const sub = makeFakePushSubscription();
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtest", keyId: "primary" },
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    });
   });
 });

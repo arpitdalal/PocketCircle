@@ -1,18 +1,7 @@
 import { vi } from "vitest";
+import { deferredValue } from "~/lib/deferred.js";
 
-/**
- * A promise that stays pending until the test calls {@link DeferredValue.resolve}
- * or {@link DeferredValue.reject}. Shared seam for in-flight mutation doubles.
- */
-export function deferredValue<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
+export { deferredValue } from "~/lib/deferred.js";
 
 /**
  * A `vi.fn` that returns one shared pending promise until resolved — for doubles

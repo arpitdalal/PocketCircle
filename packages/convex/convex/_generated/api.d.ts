@@ -53,6 +53,7 @@ import type * as notify from "../notify.js";
 import type * as opaqueToken from "../opaqueToken.js";
 import type * as operationReader from "../operationReader.js";
 import type * as operations from "../operations.js";
+import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as search from "../search.js";
 import type * as terminalFailure from "../terminalFailure.js";
 import type * as terminalFailureSentry from "../terminalFailureSentry.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   opaqueToken: typeof opaqueToken;
   operationReader: typeof operationReader;
   operations: typeof operations;
+  pushSubscriptions: typeof pushSubscriptions;
   search: typeof search;
   terminalFailure: typeof terminalFailure;
   terminalFailureSentry: typeof terminalFailureSentry;
