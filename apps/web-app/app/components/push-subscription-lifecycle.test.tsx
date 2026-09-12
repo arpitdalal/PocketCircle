@@ -122,4 +122,60 @@ describe("PushSubscriptionLifecycle", () => {
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
     expect(sub.unsubscribe).not.toHaveBeenCalled();
   });
+
+  it("disables the remembered active endpoint when the local subscription is absent", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+    rememberPushEndpoint("https://push.example/absent");
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      disablePushSubscription,
+      reconcilePushSubscription: vi.fn(),
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/absent",
+      });
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+  });
+
+  it("does not clear active remember when orphan drop finds a different live endpoint", async () => {
+    const a = matchingSub("https://push.example/a");
+    const b = matchingSub("https://push.example/b");
+    let live: ReturnType<typeof matchingSub> | null = a;
+    installPushEnv({
+      permission: "granted",
+      subscription: a,
+      getSubscription: vi.fn(async () => live),
+    });
+    rememberPushEndpoint(a.endpoint);
+    const reconcilePushSubscription = vi.fn().mockImplementation(async () => {
+      live = b;
+      rememberPushEndpoint(b.endpoint);
+      return { bound: false };
+    });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      reconcilePushSubscription,
+      disablePushSubscription: vi.fn().mockResolvedValue({ removed: false }),
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(reconcilePushSubscription.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(b.endpoint);
+    });
+    expect(a.unsubscribe).not.toHaveBeenCalled();
+    expect(b.unsubscribe).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBeNull();
+  });
 });

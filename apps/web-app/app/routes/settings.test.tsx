@@ -43,6 +43,7 @@ vi.mock("better-auth/react", () => ({
 }));
 
 import { initAnalytics, track } from "~/lib/analytics.js";
+import { clearRememberedPushEndpoints, resetPushEnableLeases } from "~/lib/push-subscriptions.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
@@ -62,12 +63,16 @@ beforeEach(async () => {
   resetPushEnv();
   resetNavigatorInstallProps();
   installMatchMediaFake(false);
+  clearRememberedPushEndpoints();
+  resetPushEnableLeases();
 });
 
 afterEach(() => {
   resetPostHogBoundary();
   resetPushEnv();
   resetNavigatorInstallProps();
+  clearRememberedPushEndpoints();
+  resetPushEnableLeases();
   vi.clearAllMocks();
 });
 
@@ -625,6 +630,117 @@ describe("Settings notifications", () => {
       );
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+  });
+
+  it("disables the abandoned endpoint after enable recovery resubscribe", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    const subscribe = vi.fn(async () => {
+      subscribeCount += 1;
+      live = makeFakePushSubscription({
+        endpoint:
+          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+      });
+      return live;
+    });
+    const getSubscription = vi.fn(async () => live);
+    const enablePushSubscription = vi
+      .fn()
+      .mockImplementation(async (args: { endpoint: string }) => {
+        if (args.endpoint === "https://push.example/first") {
+          // Orphan drop removed the local sub after the first bind committed.
+          live = null;
+        }
+      });
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    installPushEnv({
+      permission: "default",
+      requestPermission,
+      subscription: null,
+      subscribe,
+      getSubscription,
+    });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "https://push.example/first" }),
+      );
+      expect(enablePushSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "https://push.example/second" }),
+      );
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/first",
+      });
+    });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/second",
+    );
+  });
+
+  it("keeps pending cleanup for the first bind when recovery enable fails", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    const subscribe = vi.fn(async () => {
+      subscribeCount += 1;
+      live = makeFakePushSubscription({
+        endpoint:
+          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+      });
+      return live;
+    });
+    const getSubscription = vi.fn(async () => live);
+    const enablePushSubscription = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        live = null;
+      })
+      .mockRejectedValueOnce(new Error("recovery bind failed"));
+    const disablePushSubscription = vi.fn().mockRejectedValue(new Error("offline"));
+    installPushEnv({
+      permission: "default",
+      requestPermission,
+      subscription: null,
+      subscribe,
+      getSubscription,
+    });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(
+      await screen.findByRole("switch", { name: /Enable notifications on this device/i }),
+    );
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/first",
+      });
+      expect(disablePushSubscription).toHaveBeenCalledWith({
+        endpoint: "https://push.example/second",
+      });
+    });
+    await waitFor(() => {
+      expect(
+        JSON.parse(window.localStorage.getItem("pocketcircle.pendingPushCleanup") ?? "null"),
+      ).toEqual(["https://push.example/second", "https://push.example/first"]);
+    });
   });
 
   it("disables by unsubscribing without revoking permission", async () => {

@@ -41,14 +41,18 @@ export function PushSubscriptionLifecycle() {
     }
     beginOrphanDrop();
     try {
-      await unsubscribeLocalPushSubscription(expectedEndpoint, {
+      const result = await unsubscribeLocalPushSubscription(expectedEndpoint, {
         abortIfEnableInFlight: true,
       });
+      // Live sub moved to a different endpoint — leave B's remember alone.
+      if (result.status === "mismatch") {
+        return;
+      }
       // Enable may have committed during unsubscribe — do not wipe its remember.
       if (isPushEnableInFlight()) {
         return;
       }
-      // Preserve as pending so a foreign owner's server row keeps a retry handle.
+      // Absent or unsubscribed expected endpoint — keep pending for server unbind.
       recordOrphanLocalDrop(expectedEndpoint);
       notifyPushSubscriptionChanged();
     } catch {
@@ -102,13 +106,10 @@ export function PushSubscriptionLifecycle() {
         continue;
       }
       if (isPushEnableInFlight()) {
-        // Keep remaining snapshot endpoints for a later retry.
+        // Keep remaining snapshot endpoints for a later retry — includes the
+        // active endpoint when enable rebinds it mid-flush.
         failures.push(endpoint, ...unique.slice(i + 1).filter((value) => value.length > 0));
         break;
-      }
-      // Enable may have rebound this endpoint — do not delete its new row.
-      if (recalledPushEndpoint() === endpoint) {
-        continue;
       }
       try {
         const outcome = await disable({ endpoint });

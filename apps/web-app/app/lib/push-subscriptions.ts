@@ -267,6 +267,10 @@ function syncPushEnableHeartbeat() {
 }
 
 export function beginPushEnable() {
+  // Fresh enable may clear a stale cancel, but never during sign-out cleanup.
+  if (!pushSignOutCleanupInProgress) {
+    pushEnableCancelRequested = false;
+  }
   pushEnableInFlight += 1;
   const id = newPushEnableLeaseId();
   localPushEnableLeaseIds.push(id);
@@ -308,6 +312,39 @@ export function isPushEnableInFlight() {
   );
 }
 
+/** Sign-out sets this so an in-flight enable aborts before/after bind. */
+let pushEnableCancelRequested = false;
+/** True while sign-out Push cleanup runs — beginPushEnable must not clear cancel. */
+let pushSignOutCleanupInProgress = false;
+
+export function requestPushEnableCancel() {
+  pushEnableCancelRequested = true;
+}
+
+export function clearPushEnableCancel() {
+  pushEnableCancelRequested = false;
+}
+
+export function isPushEnableCancelRequested() {
+  return pushEnableCancelRequested;
+}
+
+/** Wait until same-tab enable counter is 0 (ignores post-commit grace). */
+export async function waitForActivePushEnableIdle(timeoutMs = 15_000) {
+  if (pushEnableInFlight <= 0) {
+    return;
+  }
+  const started = Date.now();
+  while (pushEnableInFlight > 0) {
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error("push enable still in flight");
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 25);
+    });
+  }
+}
+
 /** Same-tab: orphan unsubscribe in flight — enable waits so bind is not killed mid-flight. */
 let orphanDropInFlight = 0;
 
@@ -345,6 +382,8 @@ export function resetPushEnableLeases() {
   localPushEnableLeaseIds.length = 0;
   pushEnableGraceUntil = 0;
   orphanDropInFlight = 0;
+  pushEnableCancelRequested = false;
+  pushSignOutCleanupInProgress = false;
   for (const timer of pushEnableGraceTimers) {
     window.clearTimeout(timer);
   }
@@ -633,7 +672,6 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
  * racing a newer subscription from a stale reconcile.
  *
  * Throws on registration/subscription lookup failure (do not treat as absence).
- * Confirmed absence returns null without touching storage.
  */
 export async function unsubscribeLocalPushSubscription(
   expectedEndpoint?: string,
@@ -650,10 +688,10 @@ export async function unsubscribeLocalPushSubscription(
     throw new Error("push subscription lookup failed");
   }
   if (!subscription) {
-    return null;
+    return { status: "absent" as const };
   }
   if (expectedEndpoint && subscription.endpoint !== expectedEndpoint) {
-    return null;
+    return { status: "mismatch" as const };
   }
   // Enable may have started after the caller's pre-check — abort before the
   // destructive unsubscribe so Settings enable is not left with a dead local sub.
@@ -662,7 +700,7 @@ export async function unsubscribeLocalPushSubscription(
   }
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe();
-  return endpoint;
+  return { status: "unsubscribed" as const, endpoint };
 }
 
 /**
@@ -742,29 +780,45 @@ export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   const SIGN_OUT_CLEANUP_TIMEOUT_MS = 5_000;
-  let cancelled = false;
-  const timer = window.setTimeout(() => {
-    cancelled = true;
-  }, SIGN_OUT_CLEANUP_TIMEOUT_MS);
+  // Abort any in-flight Settings enable before snapshotting endpoints to unbind.
+  requestPushEnableCancel();
+  pushSignOutCleanupInProgress = true;
   try {
-    await Promise.race([
-      disableCurrentPushSubscription(disable, {
-        isCancelled: () => cancelled,
-        // Sign-out must still best-effort unbind remembered endpoints when the
-        // live lookup fails — Settings stays strict (no fallback).
-        rememberedFallbackOnLookupFailure: true,
-      }),
-      new Promise((_, reject) => {
-        window.setTimeout(
-          () => reject(new Error("push cleanup timeout")),
-          SIGN_OUT_CLEANUP_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } catch {
-    // Never block sign-out on Push cleanup.
+    try {
+      await waitForActivePushEnableIdle(SIGN_OUT_CLEANUP_TIMEOUT_MS);
+    } catch {
+      // Proceed with best-effort cleanup even if enable is stuck.
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      cancelled = true;
+    }, SIGN_OUT_CLEANUP_TIMEOUT_MS);
+    try {
+      await Promise.race([
+        disableCurrentPushSubscription(disable, {
+          isCancelled: () => cancelled,
+          // Sign-out must still best-effort unbind remembered endpoints when the
+          // live lookup fails — Settings stays strict (no fallback).
+          rememberedFallbackOnLookupFailure: true,
+        }),
+        new Promise((_, reject) => {
+          window.setTimeout(
+            () => reject(new Error("push cleanup timeout")),
+            SIGN_OUT_CLEANUP_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } catch {
+      // Never block sign-out on Push cleanup.
+    } finally {
+      window.clearTimeout(timer);
+    }
   } finally {
-    window.clearTimeout(timer);
+    pushSignOutCleanupInProgress = false;
+    // Keep cancel if enable is still stuck so a late bind still aborts.
+    if (pushEnableInFlight <= 0) {
+      clearPushEnableCancel();
+    }
   }
 }
 

@@ -8,6 +8,7 @@ import {
   disableCurrentPushSubscription,
   endPushEnable,
   getCurrentPushSubscription,
+  isPushEnableCancelRequested,
   isPushEnableInFlight,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
@@ -373,6 +374,31 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/remembered" });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
+
+  it("cancels and waits for in-flight enable before sign-out cleanup", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    beginPushEnable();
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    await Promise.resolve();
+    expect(isPushEnableCancelRequested()).toBe(true);
+    expect(disable).not.toHaveBeenCalled();
+
+    // A concurrent enable must not clear sign-out's cancel flag.
+    beginPushEnable();
+    expect(isPushEnableCancelRequested()).toBe(true);
+    endPushEnable();
+
+    endPushEnable();
+    await done;
+
+    expect(disable).toHaveBeenCalled();
+    expect(isPushEnableCancelRequested()).toBe(false);
+  });
 });
 
 describe("disableCurrentPushSubscription", () => {
@@ -528,6 +554,24 @@ describe("unsubscribeLocalPushSubscription", () => {
     ).rejects.toThrow("push enable in flight");
     expect(sub.unsubscribe).not.toHaveBeenCalled();
     endPushEnable();
+  });
+
+  it("reports mismatch without unsubscribing a different live endpoint", async () => {
+    const live = makeFakePushSubscription({ endpoint: "https://push.example/b" });
+    installPushEnv({ permission: "granted", subscription: live });
+
+    await expect(unsubscribeLocalPushSubscription("https://push.example/a")).resolves.toEqual({
+      status: "mismatch",
+    });
+    expect(live.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("reports absent when there is no live subscription", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+
+    await expect(unsubscribeLocalPushSubscription("https://push.example/a")).resolves.toEqual({
+      status: "absent",
+    });
   });
 });
 

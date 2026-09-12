@@ -8,6 +8,7 @@ import {
   disableCurrentPushSubscription,
   endPushEnable,
   getCurrentPushSubscription,
+  isPushEnableCancelRequested,
   recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
@@ -55,6 +56,41 @@ export function useReplacePushSubscription() {
   return replace;
 }
 
+function assertEnableNotCancelled() {
+  if (isPushEnableCancelRequested()) {
+    throw new Error("push enable cancelled");
+  }
+}
+
+function outcomeRemoved(outcome: unknown) {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    "removed" in outcome &&
+    outcome.removed === true
+  );
+}
+
+/** Disable endpoint or retain a pending cleanup handle. */
+async function disableOrRememberPending(
+  disable: (args: { endpoint: string }) => Promise<unknown>,
+  endpoint: string,
+) {
+  let removed = false;
+  try {
+    removed = outcomeRemoved(await disable({ endpoint }));
+  } catch {
+    removed = false;
+  }
+  if (!removed) {
+    rememberPushEndpoints([
+      ...recalledPendingPushCleanup().filter((value) => value !== endpoint),
+      endpoint,
+    ]);
+  }
+  return removed;
+}
+
 /** Settings enable: permission + subscribe + bind. */
 export function useEnableNotifications() {
   const vapid = usePushVapidPublicKey();
@@ -67,45 +103,65 @@ export function useEnableNotifications() {
     }
     beginPushEnable();
     try {
+      assertEnableNotCancelled();
       await waitForOrphanDropIdle();
+      assertEnableNotCancelled();
       let material = await subscribeForPushNotifications(vapid);
+      /** First bind that recovery abandoned — catch must unbind it too. */
+      let abandonedEndpoint: string | undefined;
       try {
+        assertEnableNotCancelled();
         await enable(material);
+        assertEnableNotCancelled();
         // Orphan drop may have unsubscribed during bind — recover once.
         const live = await getCurrentPushSubscription();
         if (!live || live.endpoint !== material.endpoint) {
+          const previousEndpoint = material.endpoint;
+          // First bind may have committed — catch must unbind it if recovery fails.
+          abandonedEndpoint = previousEndpoint;
           material = await subscribeForPushNotifications(vapid);
+          assertEnableNotCancelled();
           await enable(material);
+          assertEnableNotCancelled();
           const recovered = await getCurrentPushSubscription();
           if (!recovered || recovered.endpoint !== material.endpoint) {
             throw new Error("Push subscription was removed during enable");
           }
+          // Drop the abandoned first endpoint (or keep pending on failure).
+          if (previousEndpoint !== material.endpoint) {
+            await disableOrRememberPending(disable, previousEndpoint);
+          }
+          abandonedEndpoint = undefined;
         }
+        assertEnableNotCancelled();
         track("notifications_enabled", {});
       } catch (error) {
         // Ambiguous transport failures: clear server binding for this endpoint
         // (covers committed-but-lost-response) then drop the local subscription.
-        let removed = false;
-        try {
-          const outcome = await disable({ endpoint: material.endpoint });
-          removed =
-            typeof outcome === "object" &&
-            outcome !== null &&
-            "removed" in outcome &&
-            outcome.removed === true;
-        } catch {
-          removed = false;
+        const endpoints = [
+          ...new Set(
+            [material.endpoint, abandonedEndpoint].filter(
+              (endpoint): endpoint is string => typeof endpoint === "string" && endpoint.length > 0,
+            ),
+          ),
+        ];
+        const failures: string[] = [];
+        for (const endpoint of endpoints) {
+          let removed = false;
+          try {
+            removed = outcomeRemoved(await disable({ endpoint }));
+          } catch {
+            removed = false;
+          }
+          if (!removed) {
+            failures.push(endpoint);
+          }
         }
-        if (!removed) {
-          // Keep a pending cleanup handle — active slot alone is overwritten on retry.
-          rememberPushEndpoint(null);
-          rememberPushEndpoints([
-            ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== material.endpoint),
-            material.endpoint,
-          ]);
-        } else {
-          rememberPushEndpoint(null);
-        }
+        rememberPushEndpoint(null);
+        rememberPushEndpoints([
+          ...recalledPendingPushCleanup().filter((endpoint) => !endpoints.includes(endpoint)),
+          ...failures,
+        ]);
         await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
         throw error;
       }
