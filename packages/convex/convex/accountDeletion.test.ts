@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNextTableInserts } from "../test/db-syscall-fault.js";
 import { drainScheduledFunctions, mutateAndDrain } from "../test/mutateAndDrain.js";
+import { seedPushSubscription } from "../test/pushSubscriptions.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import {
   addMember,
@@ -794,23 +795,17 @@ describe("cleanup phases", () => {
         read: false,
         createdAt: Date.now(),
       });
-      await ctx.db.insert("pushSubscriptions", {
+      await seedPushSubscription(ctx, {
         userId: deleting.userId,
         endpoint: "https://push.example/mine",
         p256dh: "p",
         auth: "a",
-        vapidKeyId: "primary",
-        createdAt: Date.now(),
-        lastSeenAt: Date.now(),
       });
-      await ctx.db.insert("pushSubscriptions", {
+      await seedPushSubscription(ctx, {
         userId: other._id,
         endpoint: "https://push.example/theirs",
         p256dh: "p",
         auth: "a",
-        vapidKeyId: "primary",
-        createdAt: Date.now(),
-        lastSeenAt: Date.now(),
       });
       await seedFeedbackEmailEvent(ctx, {
         userId: deleting.userId,

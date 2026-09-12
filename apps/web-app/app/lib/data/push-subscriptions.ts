@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { MOCKS } from "../env.js";
 import {
   clearLocalPushSubscriptionAndBinding,
+  rememberPushEndpoint,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
 } from "../push-subscriptions.js";
@@ -73,6 +74,7 @@ export function useDisableNotifications() {
     const endpoint = await unsubscribeLocalPushSubscription();
     if (endpoint) {
       await disable({ endpoint });
+      rememberPushEndpoint(null);
     }
   };
 }

@@ -7,6 +7,29 @@ import { MOCKS } from "~/lib/env.js";
 
 export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
+/** Last-known endpoint for sign-out cleanup when `getSubscription()` fails. */
+const LAST_PUSH_ENDPOINT_KEY = "pocketcircle.lastPushEndpoint";
+
+export function rememberPushEndpoint(endpoint: string | null) {
+  try {
+    if (endpoint) {
+      window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, endpoint);
+    } else {
+      window.localStorage.removeItem(LAST_PUSH_ENDPOINT_KEY);
+    }
+  } catch {
+    // Private mode / blocked storage — cleanup may fall back to live lookup only.
+  }
+}
+
+export function recalledPushEndpoint() {
+  try {
+    return window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export type PushNotificationsUiState =
   | "unsupported"
   | "needs_install"
@@ -183,6 +206,7 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
   }
   const subscription = await subscribeWithVapid(registration, vapid);
   const keys = readSubscriptionKeys(subscription);
+  rememberPushEndpoint(keys.endpoint);
   return { ...keys, vapidKeyId: vapid.keyId };
 }
 
@@ -190,7 +214,7 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
 export async function unsubscribeLocalPushSubscription() {
   const subscription = await getCurrentPushSubscription();
   if (!subscription) {
-    return null;
+    return recalledPushEndpoint();
   }
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe();
@@ -218,9 +242,12 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     return { subscription: null };
   }
   if (applicationServerKeyMatches(existing, vapid.publicKey)) {
-    return {
-      subscription: { ...readSubscriptionKeys(existing), vapidKeyId: vapid.keyId },
+    const material = {
+      ...readSubscriptionKeys(existing),
+      vapidKeyId: vapid.keyId,
     };
+    rememberPushEndpoint(material.endpoint);
+    return { subscription: material };
   }
 
   const unboundEndpoint = existing.endpoint;
@@ -236,8 +263,10 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
 
   try {
     const next = await subscribeWithVapid(registration, vapid);
+    const material = { ...readSubscriptionKeys(next), vapidKeyId: vapid.keyId };
+    rememberPushEndpoint(material.endpoint);
     return {
-      subscription: { ...readSubscriptionKeys(next), vapidKeyId: vapid.keyId },
+      subscription: material,
       unboundEndpoint,
     };
   } catch {
@@ -247,25 +276,37 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
 
 /**
  * Sign-out / disable helper: unsubscribe locally then remove User binding.
- * Failures must not block sign-out. Server unbind runs even when local
- * unsubscribe rejects (endpoint already known). Never logs endpoint material.
+ * Failures must not block sign-out. If live `getSubscription()` fails, falls
+ * back to the last remembered endpoint so server unbind still runs. Never logs
+ * endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   try {
-    const subscription = await getCurrentPushSubscription();
-    if (!subscription) {
+    let subscription: PushSubscription | null = null;
+    try {
+      const registration = await resolvePushRegistration();
+      if (registration) {
+        subscription = await registration.pushManager.getSubscription();
+      }
+    } catch {
+      // Transient lookup failure — fall back to remembered endpoint below.
+    }
+    const endpoint = subscription?.endpoint ?? recalledPushEndpoint();
+    if (!endpoint) {
       return;
     }
-    const endpoint = subscription.endpoint;
-    try {
-      await subscription.unsubscribe();
-    } catch {
-      // Still clear the server binding below.
+    if (subscription) {
+      try {
+        await subscription.unsubscribe();
+      } catch {
+        // Still clear the server binding below.
+      }
     }
     try {
       await disable({ endpoint });
+      rememberPushEndpoint(null);
     } catch {
       // Binding clear is best-effort; local path already attempted.
     }
