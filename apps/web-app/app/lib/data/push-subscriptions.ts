@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
+  assertOrphanDropIdleForEnable,
   beginPushEnable,
   clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
@@ -14,7 +15,6 @@ import {
   rememberPushEndpoints,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
-  waitForOrphanDropIdle,
 } from "../push-subscriptions.js";
 
 export function usePushVapidPublicKey() {
@@ -104,7 +104,8 @@ export function useEnableNotifications() {
     beginPushEnable();
     try {
       assertEnableNotCancelled();
-      await waitForOrphanDropIdle();
+      // Fail fast — waiting would burn the user-activation window (iOS/Safari).
+      assertOrphanDropIdleForEnable();
       assertEnableNotCancelled();
       let material = await subscribeForPushNotifications(vapid);
       /** First bind that recovery abandoned — catch must unbind it too. */

@@ -36,11 +36,13 @@ export function PushSubscriptionLifecycle() {
   const lifecycleGeneration = useRef(0);
 
   const dropOrphanLocal = useEffectEvent(async (expectedEndpoint: string) => {
-    if (isPushEnableInFlight()) {
-      return;
-    }
+    // Mark busy before the enable check so another tab's enable fails fast
+    // instead of racing an already-started unsubscribe.
     beginOrphanDrop();
     try {
+      if (isPushEnableInFlight()) {
+        return;
+      }
       const result = await unsubscribeLocalPushSubscription(expectedEndpoint, {
         abortIfEnableInFlight: true,
       });

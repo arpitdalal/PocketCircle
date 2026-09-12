@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyPendingCleanupFlushResult,
+  assertOrphanDropIdleForEnable,
+  beginOrphanDrop,
   beginPushEnable,
   canRegisterPushServiceWorker,
   clearLocalPushSubscriptionAndBinding,
   clearPushEnableCancel,
   clearRememberedPushEndpoints,
   disableCurrentPushSubscription,
+  endOrphanDrop,
   endPushEnable,
   getCurrentPushSubscription,
+  isOrphanDropInFlight,
   isPushEnableCancelRequested,
   isPushEnableInFlight,
   PUSH_SERVICE_WORKER_URL,
@@ -311,6 +315,36 @@ describe("push enable in-flight coordination", () => {
     vi.advanceTimersByTime(1);
     expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
+  });
+});
+
+describe("orphan drop coordination", () => {
+  it("exposes a cross-tab orphan-drop lease while drop is in flight", () => {
+    beginOrphanDrop();
+    expect(isOrphanDropInFlight()).toBe(true);
+    const leaseKeys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith("pocketcircle.orphanDropLease.")) {
+        leaseKeys.push(key);
+      }
+    }
+    expect(leaseKeys).toHaveLength(1);
+    endOrphanDrop();
+    expect(isOrphanDropInFlight()).toBe(false);
+  });
+
+  it("treats another tab's orphan-drop lease as busy", () => {
+    window.localStorage.setItem("pocketcircle.orphanDropLease.other", String(Date.now()));
+    expect(isOrphanDropInFlight()).toBe(true);
+    expect(() => assertOrphanDropIdleForEnable()).toThrow(/try again/i);
+  });
+
+  it("fails fast for enable while orphan drop is in flight", () => {
+    beginOrphanDrop();
+    expect(() => assertOrphanDropIdleForEnable()).toThrow(/try again/i);
+    endOrphanDrop();
+    expect(() => assertOrphanDropIdleForEnable()).not.toThrow();
   });
 });
 

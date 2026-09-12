@@ -492,34 +492,84 @@ export async function waitForActivePushEnableIdle(timeoutMs = 15_000) {
   }
 }
 
-/** Same-tab: orphan unsubscribe in flight — enable waits so bind is not killed mid-flight. */
+/** Same-tab + cross-tab: orphan unsubscribe in flight — enable must not bind over it. */
+const ORPHAN_DROP_LEASE_PREFIX = "pocketcircle.orphanDropLease.";
+const ORPHAN_DROP_LEASE_TTL_MS = 60_000;
 let orphanDropInFlight = 0;
+const localOrphanDropLeaseIds: string[] = [];
+
+function sweepExpiredOrphanDropLeases() {
+  try {
+    const now = Date.now();
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(ORPHAN_DROP_LEASE_PREFIX)) {
+        continue;
+      }
+      const at = Number(window.localStorage.getItem(key));
+      if (!Number.isFinite(at) || now - at > ORPHAN_DROP_LEASE_TTL_MS) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function anyActiveCrossTabOrphanDropLease() {
+  sweepExpiredOrphanDropLeases();
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(ORPHAN_DROP_LEASE_PREFIX)) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 export function beginOrphanDrop() {
   orphanDropInFlight += 1;
+  const id = newPushEnableLeaseId();
+  localOrphanDropLeaseIds.push(id);
+  try {
+    window.localStorage.setItem(`${ORPHAN_DROP_LEASE_PREFIX}${id}`, String(Date.now()));
+  } catch {
+    // Private mode — same-tab counter still applies.
+  }
 }
 
 export function endOrphanDrop() {
   orphanDropInFlight = Math.max(0, orphanDropInFlight - 1);
+  const id = localOrphanDropLeaseIds.pop();
+  if (id) {
+    try {
+      window.localStorage.removeItem(`${ORPHAN_DROP_LEASE_PREFIX}${id}`);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function isOrphanDropInFlight() {
-  return orphanDropInFlight > 0;
+  return orphanDropInFlight > 0 || anyActiveCrossTabOrphanDropLease();
 }
 
-/** Bounded wait so Settings enable does not race a same-tab orphan unsubscribe. */
-export async function waitForOrphanDropIdle(timeoutMs = 15_000) {
-  if (orphanDropInFlight <= 0) {
-    return;
-  }
-  const started = Date.now();
-  while (orphanDropInFlight > 0) {
-    if (Date.now() - started >= timeoutMs) {
-      throw new Error("push orphan drop still in flight");
-    }
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, 25);
-    });
+/**
+ * Settings enable: do not wait — a long wait burns the user-activation window
+ * required for `Notification.requestPermission` / `PushManager.subscribe` (iOS).
+ * If orphan cleanup is busy, fail fast and require a fresh click.
+ */
+export function assertOrphanDropIdleForEnable() {
+  if (isOrphanDropInFlight()) {
+    throw new Error("Push cleanup is in progress — try again");
   }
 }
 
@@ -529,6 +579,7 @@ export function resetPushEnableLeases() {
   localPushEnableLeaseIds.length = 0;
   pushEnableGraceUntil = 0;
   orphanDropInFlight = 0;
+  localOrphanDropLeaseIds.length = 0;
   pushEnableCancelRequested = false;
   pushSignOutCleanupInProgress = false;
   for (const timer of pushEnableGraceTimers) {
@@ -549,6 +600,7 @@ export function resetPushEnableLeases() {
       const key = window.localStorage.key(i);
       if (
         key?.startsWith(PUSH_ENABLE_LEASE_PREFIX) ||
+        key?.startsWith(ORPHAN_DROP_LEASE_PREFIX) ||
         key === PUSH_ENABLE_CANCEL_KEY ||
         key?.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)
       ) {
