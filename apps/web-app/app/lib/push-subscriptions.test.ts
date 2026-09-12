@@ -33,7 +33,16 @@ afterEach(() => {
   resetPushEnv();
   resetNavigatorInstallProps();
   clearRememberedPushEndpoints();
-  window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
+  const leaseKeys: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (key?.startsWith("pocketcircle.pushEnableLease.")) {
+      leaseKeys.push(key);
+    }
+  }
+  for (const key of leaseKeys) {
+    window.localStorage.removeItem(key);
+  }
   while (isPushEnableInFlight()) {
     endPushEnable();
   }
@@ -238,11 +247,8 @@ describe("readPushSubscriptionMaterial", () => {
 
 describe("push enable in-flight coordination", () => {
   it("keeps cross-tab enables visible until every tab ends", () => {
-    // Simulate another tab's begin without touching this tab's counter.
-    window.localStorage.setItem(
-      "pocketcircle.pushEnableInFlight",
-      JSON.stringify({ count: 1, updatedAt: Date.now() }),
-    );
+    // Simulate another tab's lease without touching this tab's counter.
+    window.localStorage.setItem("pocketcircle.pushEnableLease.other-tab", String(Date.now()));
     expect(isPushEnableInFlight()).toBe(true);
 
     beginPushEnable();
@@ -250,7 +256,17 @@ describe("push enable in-flight coordination", () => {
     // Other tab still in flight.
     expect(isPushEnableInFlight()).toBe(true);
 
-    window.localStorage.removeItem("pocketcircle.pushEnableInFlight");
+    window.localStorage.removeItem("pocketcircle.pushEnableLease.other-tab");
+    expect(isPushEnableInFlight()).toBe(false);
+  });
+
+  it("keeps concurrent tab leases independent", () => {
+    beginPushEnable();
+    beginPushEnable();
+    endPushEnable();
+    // One local lease remains.
+    expect(isPushEnableInFlight()).toBe(true);
+    endPushEnable();
     expect(isPushEnableInFlight()).toBe(false);
   });
 
@@ -259,24 +275,22 @@ describe("push enable in-flight coordination", () => {
     beginPushEnable();
 
     vi.advanceTimersByTime(90_000);
-    const raw = window.localStorage.getItem("pocketcircle.pushEnableInFlight");
-    expect(raw).not.toBeNull();
-    const marker: unknown = JSON.parse(raw ?? "null");
-    expect(marker).toEqual(expect.objectContaining({ count: 1 }));
-    if (
-      typeof marker === "object" &&
-      marker !== null &&
-      "updatedAt" in marker &&
-      typeof marker.updatedAt === "number"
-    ) {
-      // Marker stayed within TTL of "now" thanks to heartbeats.
-      expect(Date.now() - marker.updatedAt).toBeLessThan(60_000);
-    } else {
-      expect.unreachable("expected in-flight marker");
+    const leaseKeys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith("pocketcircle.pushEnableLease.")) {
+        leaseKeys.push(key);
+      }
     }
+    expect(leaseKeys).toHaveLength(1);
+    const [leaseKey] = leaseKeys;
+    const startedAt = Number(window.localStorage.getItem(leaseKey ?? ""));
+    expect(Number.isFinite(startedAt)).toBe(true);
+    // Lease stayed within TTL of "now" thanks to heartbeats.
+    expect(Date.now() - startedAt).toBeLessThan(60_000);
 
     endPushEnable();
-    expect(window.localStorage.getItem("pocketcircle.pushEnableInFlight")).toBeNull();
+    expect(isPushEnableInFlight()).toBe(false);
     vi.useRealTimers();
   });
 });

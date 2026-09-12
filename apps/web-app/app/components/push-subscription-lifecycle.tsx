@@ -28,6 +28,8 @@ export function PushSubscriptionLifecycle() {
   const disable = useDisablePushSubscription();
   /** Serialize focus+visibility overlap so a second replace cannot orphan a successful first. */
   const reconcileChain = useRef(Promise.resolve());
+  /** Bumped on unmount so in-flight reconcile cannot drop a later session's sub. */
+  const lifecycleGeneration = useRef(0);
 
   const dropOrphanLocal = useEffectEvent(async (expectedEndpoint: string) => {
     if (isPushEnableInFlight()) {
@@ -45,22 +47,28 @@ export function PushSubscriptionLifecycle() {
 
   /** Reconfirm before drop — an enable may have committed after an unbound response. */
   const dropIfStillUnbound = useEffectEvent(
-    async (subscription: {
-      endpoint: string;
-      p256dh: string;
-      auth: string;
-      vapidKeyId: string;
-    }) => {
-      if (isPushEnableInFlight()) {
+    async (
+      subscription: {
+        endpoint: string;
+        p256dh: string;
+        auth: string;
+        vapidKeyId: string;
+      },
+      generation: number,
+    ) => {
+      if (generation !== lifecycleGeneration.current || isPushEnableInFlight()) {
         return;
       }
       const confirmed = await reconcile({ subscription });
+      if (generation !== lifecycleGeneration.current) {
+        return;
+      }
       if (confirmed?.bound) {
         rememberPushEndpoint(subscription.endpoint);
         notifyPushSubscriptionChanged();
         return;
       }
-      if (isPushEnableInFlight()) {
+      if (generation !== lifecycleGeneration.current || isPushEnableInFlight()) {
         return;
       }
       await dropOrphanLocal(subscription.endpoint);
@@ -99,8 +107,12 @@ export function PushSubscriptionLifecycle() {
     if (!vapid) {
       return;
     }
+    const generation = lifecycleGeneration.current;
     try {
       const result = await readPushSubscriptionMaterial(vapid);
+      if (generation !== lifecycleGeneration.current) {
+        return;
+      }
       if (result.unboundEndpoint) {
         if (isPushEnableInFlight()) {
           return;
@@ -109,6 +121,9 @@ export function PushSubscriptionLifecycle() {
           result.unboundEndpoint,
           ...(result.unboundEndpoints ?? []),
         ]);
+        if (generation !== lifecycleGeneration.current) {
+          return;
+        }
         if (failures.length === 0) {
           clearRememberedPushEndpoints();
         } else {
@@ -127,19 +142,25 @@ export function PushSubscriptionLifecycle() {
           previousEndpoint: result.previousEndpoint,
           ...result.subscription,
         });
+        if (generation !== lifecycleGeneration.current) {
+          return;
+        }
         if (outcome?.bound) {
           rememberPushEndpoint(result.subscription.endpoint);
           notifyPushSubscriptionChanged();
           return;
         }
         // Parallel run may have already migrated — reconfirm before orphan drop.
-        await dropIfStillUnbound(result.subscription);
+        await dropIfStillUnbound(result.subscription, generation);
         return;
       }
       const outcome = await reconcile({ subscription: result.subscription });
+      if (generation !== lifecycleGeneration.current) {
+        return;
+      }
       if (!outcome?.bound) {
         // Orphan / other-User / LRU-evicted — reconfirm first in case enable just committed.
-        await dropIfStillUnbound(result.subscription);
+        await dropIfStillUnbound(result.subscription, generation);
       }
     } catch {
       // Best-effort lifecycle — never surface unhandled rejections on focus.
@@ -151,6 +172,13 @@ export function PushSubscriptionLifecycle() {
       .then(() => runReconcile())
       .catch(() => undefined);
   });
+
+  useEffect(() => {
+    lifecycleGeneration.current += 1;
+    return () => {
+      lifecycleGeneration.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (MOCKS) {

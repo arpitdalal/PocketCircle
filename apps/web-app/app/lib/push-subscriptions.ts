@@ -134,71 +134,64 @@ export function recalledPushEndpoint() {
 }
 
 /** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
-const PUSH_ENABLE_IN_FLIGHT_KEY = "pocketcircle.pushEnableInFlight";
-/** Crash recovery only — active enables refresh `updatedAt` via heartbeat. */
+const PUSH_ENABLE_LEASE_PREFIX = "pocketcircle.pushEnableLease.";
+/** Crash recovery only — active enables refresh lease timestamps via heartbeat. */
 const PUSH_ENABLE_IN_FLIGHT_TTL_MS = 60_000;
 const PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS = 15_000;
 let pushEnableInFlight = 0;
+const localPushEnableLeaseIds: string[] = [];
 let pushEnableHeartbeatTimer: number | null = null;
 
-function readCrossTabPushEnableInFlight() {
+function newPushEnableLeaseId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function sweepExpiredPushEnableLeases() {
   try {
-    const raw = window.localStorage.getItem(PUSH_ENABLE_IN_FLIGHT_KEY);
-    if (!raw) {
-      return null;
+    const now = Date.now();
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+        continue;
+      }
+      const startedAt = Number(window.localStorage.getItem(key));
+      if (!Number.isFinite(startedAt) || now - startedAt > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
+        stale.push(key);
+      }
     }
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      !("count" in parsed) ||
-      !("updatedAt" in parsed) ||
-      typeof parsed.count !== "number" ||
-      typeof parsed.updatedAt !== "number" ||
-      !Number.isFinite(parsed.count) ||
-      !Number.isFinite(parsed.updatedAt) ||
-      parsed.count <= 0
-    ) {
-      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
-      return null;
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
     }
-    if (Date.now() - parsed.updatedAt > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
-      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
-      return null;
-    }
-    return { count: parsed.count, updatedAt: parsed.updatedAt };
   } catch {
-    return null;
+    // ignore
   }
 }
 
-function writeCrossTabPushEnableInFlight(delta: number) {
+function anyFreshCrossTabPushEnableLease() {
+  sweepExpiredPushEnableLeases();
   try {
-    const current = readCrossTabPushEnableInFlight();
-    const count = Math.max(0, (current?.count ?? 0) + delta);
-    if (count === 0) {
-      window.localStorage.removeItem(PUSH_ENABLE_IN_FLIGHT_KEY);
-      return;
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
+        return true;
+      }
     }
-    window.localStorage.setItem(
-      PUSH_ENABLE_IN_FLIGHT_KEY,
-      JSON.stringify({ count, updatedAt: Date.now() }),
-    );
   } catch {
-    // Private mode — same-tab counter still applies.
+    // ignore
   }
+  return false;
 }
 
-function touchCrossTabPushEnableInFlight() {
+function touchLocalPushEnableLeases() {
   try {
-    const current = readCrossTabPushEnableInFlight();
-    if (!current) {
-      return;
+    const now = String(Date.now());
+    for (const id of localPushEnableLeaseIds) {
+      window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, now);
     }
-    window.localStorage.setItem(
-      PUSH_ENABLE_IN_FLIGHT_KEY,
-      JSON.stringify({ count: current.count, updatedAt: Date.now() }),
-    );
   } catch {
     // ignore
   }
@@ -217,7 +210,7 @@ function syncPushEnableHeartbeat() {
         }
         return;
       }
-      touchCrossTabPushEnableInFlight();
+      touchLocalPushEnableLeases();
     }, PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS);
     return;
   }
@@ -229,18 +222,31 @@ function syncPushEnableHeartbeat() {
 
 export function beginPushEnable() {
   pushEnableInFlight += 1;
-  writeCrossTabPushEnableInFlight(1);
+  const id = newPushEnableLeaseId();
+  localPushEnableLeaseIds.push(id);
+  try {
+    window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, String(Date.now()));
+  } catch {
+    // Private mode — same-tab counter still applies.
+  }
   syncPushEnableHeartbeat();
 }
 
 export function endPushEnable() {
   pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
-  writeCrossTabPushEnableInFlight(-1);
+  const id = localPushEnableLeaseIds.pop();
+  if (id) {
+    try {
+      window.localStorage.removeItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`);
+    } catch {
+      // ignore
+    }
+  }
   syncPushEnableHeartbeat();
 }
 
 export function isPushEnableInFlight() {
-  return pushEnableInFlight > 0 || readCrossTabPushEnableInFlight() !== null;
+  return pushEnableInFlight > 0 || anyFreshCrossTabPushEnableLease();
 }
 
 export type PushNotificationsUiState =
@@ -554,6 +560,8 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
     const unboundEndpoint = existing.endpoint;
+    // Snapshot before await — another tab may enable and remember a new endpoint.
+    const rememberedBeforeUnsubscribe = recalledPushEndpoints();
     try {
       await existing.unsubscribe();
     } catch {
@@ -564,7 +572,7 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     return {
       subscription: null,
       unboundEndpoint,
-      unboundEndpoints: [...new Set([unboundEndpoint, ...recalledPushEndpoints()])],
+      unboundEndpoints: [...new Set([unboundEndpoint, ...rememberedBeforeUnsubscribe])],
     };
   }
 
@@ -627,16 +635,27 @@ export async function disableCurrentPushSubscription(
 ) {
   const cancelled = () => options?.isCancelled?.() === true;
   let subscription: PushSubscription | null = null;
+  let lookupFailed = false;
   try {
     const registration = await resolvePushRegistration();
-    if (registration) {
-      subscription = await registration.pushManager.getSubscription();
+    if (!registration) {
+      // Could not confirm absence vs presence — do not server-unbind a maybe-live sub.
+      lookupFailed = true;
+    } else {
+      try {
+        subscription = await registration.pushManager.getSubscription();
+      } catch {
+        lookupFailed = true;
+      }
     }
   } catch {
-    // Transient lookup failure — fall back to remembered endpoint below.
+    lookupFailed = true;
   }
   if (cancelled()) {
     return;
+  }
+  if (lookupFailed) {
+    throw new Error("push subscription lookup failed");
   }
   const liveEndpoint = subscription?.endpoint ?? null;
   // Snapshot once — do not re-read storage during awaits (cross-tab enable).
