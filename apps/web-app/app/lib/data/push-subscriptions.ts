@@ -1,5 +1,6 @@
 import { api } from "@pocketcircle/convex";
 import { useMutation, useQuery } from "convex/react";
+import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
   clearLocalPushSubscriptionAndBinding,
@@ -59,6 +60,7 @@ export function useEnableNotifications() {
     const material = await subscribeForPushNotifications(vapid);
     try {
       await enable(material);
+      track("notifications_enabled", {});
     } catch (error) {
       // Ambiguous transport failures: clear server binding for this endpoint
       // (covers committed-but-lost-response) then drop the local subscription.
@@ -67,7 +69,7 @@ export function useEnableNotifications() {
       } catch {
         // Best-effort compensation.
       }
-      await unsubscribeLocalPushSubscription().catch(() => undefined);
+      await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
       throw error;
     }
   };
@@ -79,6 +81,7 @@ export function useDisableNotifications() {
 
   return async () => {
     await clearLocalPushSubscriptionAndBinding(disable);
+    track("notifications_disabled", {});
   };
 }
 

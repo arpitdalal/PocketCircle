@@ -119,6 +119,10 @@ describe("readPushSubscriptionMaterial", () => {
       },
       previousEndpoint: "https://push.example/old",
     });
+    // Keep old endpoint remembered until replace succeeds.
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/old",
+    );
   });
 
   it("returns matching material without previousEndpoint when unchanged", async () => {

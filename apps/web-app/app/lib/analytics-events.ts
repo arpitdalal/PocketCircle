@@ -114,6 +114,10 @@ export type AnalyticsEventMap = {
   feature_announcement_impression: { announcement: FeatureAnnouncementId };
   feature_announcement_cta_clicked: { announcement: FeatureAnnouncementId };
   feature_announcement_dismissed: { announcement: FeatureAnnouncementId };
+  /** Coarse Push preference funnel (#381) — never include endpoint material. */
+  notification_permission_result: { result: NotificationPermission };
+  notifications_enabled: Record<string, never>;
+  notifications_disabled: Record<string, never>;
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -151,6 +155,9 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   feature_announcement_impression: new Set(["announcement"]),
   feature_announcement_cta_clicked: new Set(["announcement"]),
   feature_announcement_dismissed: new Set(["announcement"]),
+  notification_permission_result: new Set(["result"]),
+  notifications_enabled: new Set(),
+  notifications_disabled: new Set(),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -290,6 +297,11 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
     case "feature_announcement_cta_clicked":
     case "feature_announcement_dismissed":
       return key === "announcement" && typeof value === "string" && isFeatureAnnouncementId(value);
+    case "notification_permission_result":
+      return key === "result" && isNotificationPermissionResult(value);
+    case "notifications_enabled":
+    case "notifications_disabled":
+      return false;
     default:
       return false;
   }
@@ -426,6 +438,22 @@ function isFeatureAnnouncementPayload(
   );
 }
 
+function isNotificationPermissionResult(value: unknown): value is NotificationPermission {
+  return value === "granted" || value === "denied" || value === "default";
+}
+
+function isNotificationPermissionResultPayload(
+  value: Record<string, unknown>,
+): value is AnalyticsEventMap["notification_permission_result"] {
+  return isNotificationPermissionResult(value.result) && Object.keys(value).length === 1;
+}
+
+function isEmptyNotificationsPreferencePayload(
+  value: Record<string, unknown>,
+): value is Record<string, never> {
+  return Object.keys(value).length === 0;
+}
+
 function toValidatedPayload(
   event: "circle_created",
   sanitized: Record<string, unknown>,
@@ -487,6 +515,18 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["feature_announcement_dismissed"] | null;
 function toValidatedPayload(
+  event: "notification_permission_result",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notification_permission_result"] | null;
+function toValidatedPayload(
+  event: "notifications_enabled",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notifications_enabled"] | null;
+function toValidatedPayload(
+  event: "notifications_disabled",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notifications_disabled"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -520,6 +560,11 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
     case "feature_announcement_cta_clicked":
     case "feature_announcement_dismissed":
       return isFeatureAnnouncementPayload(sanitized) ? sanitized : null;
+    case "notification_permission_result":
+      return isNotificationPermissionResultPayload(sanitized) ? sanitized : null;
+    case "notifications_enabled":
+    case "notifications_disabled":
+      return isEmptyNotificationsPreferencePayload(sanitized) ? sanitized : null;
     default:
       return null;
   }

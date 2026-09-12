@@ -7,6 +7,7 @@ import {
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
+  notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
   registerPushServiceWorker,
   rememberPushEndpoint,
@@ -23,6 +24,12 @@ export function PushSubscriptionLifecycle() {
   const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
 
+  const dropOrphanLocal = useEffectEvent(async (expectedEndpoint: string) => {
+    await unsubscribeLocalPushSubscription(expectedEndpoint).catch(() => undefined);
+    rememberPushEndpoint(null);
+    notifyPushSubscriptionChanged();
+  });
+
   const runReconcile = useEffectEvent(async () => {
     if (!vapid) {
       return;
@@ -36,6 +43,7 @@ export function PushSubscriptionLifecycle() {
           // Best-effort — may no-op if another User owns the row.
         }
         rememberPushEndpoint(null);
+        notifyPushSubscriptionChanged();
         return;
       }
       if (!result.subscription) {
@@ -47,16 +55,17 @@ export function PushSubscriptionLifecycle() {
           ...result.subscription,
         });
         if (!outcome?.bound) {
-          await unsubscribeLocalPushSubscription().catch(() => undefined);
-          rememberPushEndpoint(null);
+          await dropOrphanLocal(result.subscription.endpoint);
+          return;
         }
+        rememberPushEndpoint(result.subscription.endpoint);
+        notifyPushSubscriptionChanged();
         return;
       }
       const outcome = await reconcile({ subscription: result.subscription });
       if (!outcome?.bound) {
         // Orphan / other-User / LRU-evicted local sub — clear so UI is not falsely enabled.
-        await unsubscribeLocalPushSubscription().catch(() => undefined);
-        rememberPushEndpoint(null);
+        await dropOrphanLocal(result.subscription.endpoint);
       }
     } catch {
       // Best-effort lifecycle — never surface unhandled rejections on focus.

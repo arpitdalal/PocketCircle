@@ -640,6 +640,39 @@ describe("track", () => {
     }
   });
 
+  it("captures coarse notification preference events without endpoint material", async () => {
+    await initAnalytics(readyUser);
+
+    expect(sanitizeAnalyticsProps("notification_permission_result", { result: "granted" })).toEqual(
+      { result: "granted" },
+    );
+    expect(
+      sanitizeAnalyticsProps("notification_permission_result", {
+        result: "granted",
+        ...{ endpoint: "https://push.example/x", url: "/settings" },
+      }),
+    ).toEqual({ result: "granted" });
+    expect(
+      // @ts-expect-error intentional invalid permission for allowlist coverage
+      sanitizeAnalyticsProps("notification_permission_result", { result: "prompt" }),
+    ).toBeNull();
+    expect(sanitizeAnalyticsProps("notifications_enabled", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
+    expect(
+      // @ts-expect-error intentional endpoint leak attempt — must be stripped
+      sanitizeAnalyticsProps("notifications_enabled", { endpoint: "https://push.example/x" }),
+    ).toEqual({});
+
+    track("notification_permission_result", { result: "denied" });
+    track("notifications_enabled", {});
+    track("notifications_disabled", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_permission_result", {
+      result: "denied",
+    });
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_enabled", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_disabled", {});
+  });
+
   it("does not throw when PostHog capture rejects", async () => {
     await initAnalytics(readyUser);
     posthogSdk.capture.mockImplementation(() => {

@@ -3,12 +3,24 @@
  * mutations live in `~/lib/data/push-subscriptions.ts`. Never log endpoints.
  */
 import { isInstalledWebApp, isIosDevice } from "~/components/pwa-install.js";
+import { track } from "~/lib/analytics.js";
 import { MOCKS } from "~/lib/env.js";
 
 export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
 /** Last-known endpoint for sign-out cleanup when `getSubscription()` fails. */
 const LAST_PUSH_ENDPOINT_KEY = "pocketcircle.lastPushEndpoint";
+
+/** Fired when lifecycle drops/changes the local subscription so Settings can refresh. */
+export const PUSH_SUBSCRIPTION_CHANGED_EVENT = "pocketcircle:push-subscription-changed";
+
+export function notifyPushSubscriptionChanged() {
+  try {
+    window.dispatchEvent(new Event(PUSH_SUBSCRIPTION_CHANGED_EVENT));
+  } catch {
+    // Non-browser / restricted — Settings will refresh on next focus.
+  }
+}
 
 export function rememberPushEndpoint(endpoint: string | null) {
   try {
@@ -197,6 +209,7 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
     throw new Error("Push notifications are not supported");
   }
   const permission = await Notification.requestPermission();
+  track("notification_permission_result", { result: permission });
   if (permission !== "granted") {
     throw new Error("Notification permission was not granted");
   }
@@ -210,11 +223,18 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
   return { ...keys, vapidKeyId: vapid.keyId };
 }
 
-/** Local unsubscribe; caller persists disable via mutation. */
-export async function unsubscribeLocalPushSubscription() {
+/**
+ * Local unsubscribe; caller persists disable via mutation. When
+ * `expectedEndpoint` is set, only unsubscribes if it still matches — avoids
+ * racing a newer subscription from a stale reconcile.
+ */
+export async function unsubscribeLocalPushSubscription(expectedEndpoint?: string) {
   const subscription = await getCurrentPushSubscription();
   if (!subscription) {
     return recalledPushEndpoint();
+  }
+  if (expectedEndpoint && subscription.endpoint !== expectedEndpoint) {
+    return null;
   }
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe();
@@ -258,7 +278,8 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
   };
   const previousEndpoint = recalledPushEndpoint();
   if (previousEndpoint && previousEndpoint !== material.endpoint) {
-    rememberPushEndpoint(material.endpoint);
+    // Keep previous remembered until replace succeeds — otherwise a failed
+    // replace forgets the owned old endpoint and cannot retry migration.
     return { subscription: material, previousEndpoint };
   }
   rememberPushEndpoint(material.endpoint);

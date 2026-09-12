@@ -28,6 +28,7 @@ import {
 } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
+  PUSH_SUBSCRIPTION_CHANGED_EVENT,
   type PushNotificationsUiState,
   resolvePushNotificationsUiState,
 } from "~/lib/push-subscriptions.js";
@@ -385,10 +386,12 @@ function NotificationsSettingsCard() {
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
     return () => {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
     };
   }, []);
 
