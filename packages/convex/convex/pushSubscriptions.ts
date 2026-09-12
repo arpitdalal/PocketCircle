@@ -67,6 +67,7 @@ export const disablePushSubscription = mutation({
  * Startup/focus reconcile: refresh lastSeenAt / keys only when this User already
  * owns the endpoint. Never steals another User's binding and never auto-creates
  * a first binding — that requires explicit enable (#381 / research §7).
+ * Returns `{ bound }` so the client can drop an orphan local subscription.
  */
 export const reconcilePushSubscription = mutation({
   args: {
@@ -75,12 +76,12 @@ export const reconcilePushSubscription = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     if (args.subscription === null) {
-      return;
+      return { bound: false };
     }
     assertValidSubscription(args.subscription);
     const existing = await findByEndpoint(ctx, args.subscription.endpoint);
     if (!existing || existing.userId !== user._id) {
-      return;
+      return { bound: false };
     }
     await ctx.db.patch(existing._id, {
       p256dh: args.subscription.p256dh,
@@ -88,6 +89,30 @@ export const reconcilePushSubscription = mutation({
       vapidKeyId: args.subscription.vapidKeyId,
       lastSeenAt: Date.now(),
     });
+    return { bound: true };
+  },
+});
+
+/**
+ * Replace a browser-refreshed endpoint. Only when `previousEndpoint` is already
+ * owned by the current User — never migrates another User's binding.
+ */
+export const replacePushSubscription = mutation({
+  args: {
+    previousEndpoint: v.string(),
+    ...subscriptionFields,
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const { previousEndpoint, ...next } = args;
+    assertValidSubscription(next);
+    const previous = await findByEndpoint(ctx, previousEndpoint);
+    if (!previous || previous.userId !== user._id) {
+      return { bound: false };
+    }
+    await ctx.db.delete(previous._id);
+    await bindPushSubscription(ctx, user._id, next);
+    return { bound: true };
   },
 });
 

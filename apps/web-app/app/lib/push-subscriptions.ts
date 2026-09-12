@@ -222,10 +222,11 @@ export async function unsubscribeLocalPushSubscription() {
 }
 
 /**
- * Startup/focus material for reconcile. On VAPID rotation (browser sub bound to
- * a different public key), replaces the local sub when permission is already
- * granted (no prompt) and reports the old endpoint so the caller can unbind it.
- * Never requests notification permission.
+ * Startup/focus material for reconcile. VAPID key mismatch: unsubscribe locally
+ * and report `unboundEndpoint` for best-effort server cleanup — does not
+ * resubscribe (explicit Settings enable required; avoids cross-User auto-bind).
+ * Same-key endpoint change vs last remembered endpoint → `previousEndpoint`
+ * for owned migration via replacePushSubscription.
  */
 export async function readPushSubscriptionMaterial(vapid: { publicKey: string; keyId: string }) {
   const registration = await resolvePushRegistration();
@@ -241,37 +242,27 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
   if (!existing) {
     return { subscription: null };
   }
-  if (applicationServerKeyMatches(existing, vapid.publicKey)) {
-    const material = {
-      ...readSubscriptionKeys(existing),
-      vapidKeyId: vapid.keyId,
-    };
-    rememberPushEndpoint(material.endpoint);
-    return { subscription: material };
-  }
-
-  const unboundEndpoint = existing.endpoint;
-  try {
-    await existing.unsubscribe();
-  } catch {
-    // Still attempt replace / unbind below.
-  }
-
-  if (Notification.permission !== "granted") {
+  if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
+    const unboundEndpoint = existing.endpoint;
+    try {
+      await existing.unsubscribe();
+    } catch {
+      // Still report unboundEndpoint for server cleanup.
+    }
     return { subscription: null, unboundEndpoint };
   }
 
-  try {
-    const next = await subscribeWithVapid(registration, vapid);
-    const material = { ...readSubscriptionKeys(next), vapidKeyId: vapid.keyId };
+  const material = {
+    ...readSubscriptionKeys(existing),
+    vapidKeyId: vapid.keyId,
+  };
+  const previousEndpoint = recalledPushEndpoint();
+  if (previousEndpoint && previousEndpoint !== material.endpoint) {
     rememberPushEndpoint(material.endpoint);
-    return {
-      subscription: material,
-      unboundEndpoint,
-    };
-  } catch {
-    return { subscription: null, unboundEndpoint };
+    return { subscription: material, previousEndpoint };
   }
+  rememberPushEndpoint(material.endpoint);
+  return { subscription: material };
 }
 
 /**

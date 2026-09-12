@@ -13,6 +13,7 @@ export interface PushSubscriptionsState {
   enablePushSubscription?: Mock;
   disablePushSubscription?: Mock;
   reconcilePushSubscription?: Mock;
+  replacePushSubscription?: Mock;
 }
 
 export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
@@ -21,6 +22,7 @@ export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
     enablePushSubscription,
     disablePushSubscription,
     reconcilePushSubscription,
+    replacePushSubscription,
   } = state;
   return {
     queries: {
@@ -31,6 +33,7 @@ export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
       [getFunctionName(api.pushSubscriptions.enablePushSubscription)]: enablePushSubscription,
       [getFunctionName(api.pushSubscriptions.disablePushSubscription)]: disablePushSubscription,
       [getFunctionName(api.pushSubscriptions.reconcilePushSubscription)]: reconcilePushSubscription,
+      [getFunctionName(api.pushSubscriptions.replacePushSubscription)]: replacePushSubscription,
     },
   } satisfies EntityDouble;
 }

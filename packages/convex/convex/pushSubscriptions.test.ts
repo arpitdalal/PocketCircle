@@ -164,15 +164,53 @@ describe("pushSubscriptions", () => {
     });
 
     signInAs(alice);
-    await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
+    const refreshed = await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
       subscription: { ...VALID, p256dh: "p256dh-refreshed", auth: "auth-refreshed" },
     });
+    expect(refreshed).toEqual({ bound: true });
 
     await t.run(async (ctx) => {
       const aliceRows = await listPushSubscriptionsForUser(ctx, alice._id);
       expect(aliceRows).toHaveLength(1);
       expect(aliceRows[0]?.p256dh).toBe("p256dh-refreshed");
       expect(aliceRows[0]?.lastSeenAt).toBe(Date.parse("2026-03-02T00:00:00Z"));
+    });
+  });
+
+  it("replace migrates a refreshed endpoint only when previous is owned", async () => {
+    const t = convexTest(schema, modules);
+    const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));
+    const bob = await t.run((ctx) => makeUser(ctx, "bob@example.com", "Bob"));
+    await t.run((ctx) =>
+      seedPushSubscription(ctx, {
+        userId: alice._id,
+        endpoint: "https://push.example/old",
+      }),
+    );
+
+    signInAs(bob);
+    expect(
+      await t.mutation(api.pushSubscriptions.replacePushSubscription, {
+        previousEndpoint: "https://push.example/old",
+        ...VALID,
+        endpoint: "https://push.example/new",
+      }),
+    ).toEqual({ bound: false });
+
+    signInAs(alice);
+    expect(
+      await t.mutation(api.pushSubscriptions.replacePushSubscription, {
+        previousEndpoint: "https://push.example/old",
+        ...VALID,
+        endpoint: "https://push.example/new",
+      }),
+    ).toEqual({ bound: true });
+
+    await t.run(async (ctx) => {
+      expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(1);
+      expect((await listPushSubscriptionsForUser(ctx, alice._id))[0]?.endpoint).toBe(
+        "https://push.example/new",
+      );
     });
   });
 

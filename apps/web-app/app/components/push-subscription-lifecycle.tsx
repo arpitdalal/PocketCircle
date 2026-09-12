@@ -1,14 +1,16 @@
 import { useEffect, useEffectEvent } from "react";
 import {
   useDisablePushSubscription,
-  useEnablePushSubscription,
   usePushVapidPublicKey,
   useReconcilePushSubscription,
+  useReplacePushSubscription,
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
   readPushSubscriptionMaterial,
   registerPushServiceWorker,
+  rememberPushEndpoint,
+  unsubscribeLocalPushSubscription,
 } from "~/lib/push-subscriptions.js";
 
 /**
@@ -18,7 +20,7 @@ import {
 export function PushSubscriptionLifecycle() {
   const vapid = usePushVapidPublicKey();
   const reconcile = useReconcilePushSubscription();
-  const enable = useEnablePushSubscription();
+  const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
 
   const runReconcile = useEffectEvent(async () => {
@@ -31,18 +33,31 @@ export function PushSubscriptionLifecycle() {
         try {
           await disable({ endpoint: result.unboundEndpoint });
         } catch {
-          // Best-effort old-endpoint cleanup during VAPID rotation.
+          // Best-effort — may no-op if another User owns the row.
         }
+        rememberPushEndpoint(null);
+        return;
       }
       if (!result.subscription) {
         return;
       }
-      if (result.unboundEndpoint) {
-        // Replacement sub after rotation — explicit bind under current User.
-        await enable(result.subscription);
+      if (result.previousEndpoint) {
+        const outcome = await replace({
+          previousEndpoint: result.previousEndpoint,
+          ...result.subscription,
+        });
+        if (!outcome?.bound) {
+          await unsubscribeLocalPushSubscription().catch(() => undefined);
+          rememberPushEndpoint(null);
+        }
         return;
       }
-      await reconcile({ subscription: result.subscription });
+      const outcome = await reconcile({ subscription: result.subscription });
+      if (!outcome?.bound) {
+        // Orphan / other-User / LRU-evicted local sub — clear so UI is not falsely enabled.
+        await unsubscribeLocalPushSubscription().catch(() => undefined);
+        rememberPushEndpoint(null);
+      }
     } catch {
       // Best-effort lifecycle — never surface unhandled rejections on focus.
     }

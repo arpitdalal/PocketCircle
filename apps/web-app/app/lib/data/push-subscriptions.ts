@@ -33,9 +33,17 @@ export function useDisablePushSubscription() {
 export function useReconcilePushSubscription() {
   const reconcile = useMutation(api.pushSubscriptions.reconcilePushSubscription);
   if (MOCKS) {
-    return async () => {};
+    return async () => ({ bound: false });
   }
   return reconcile;
+}
+
+export function useReplacePushSubscription() {
+  const replace = useMutation(api.pushSubscriptions.replacePushSubscription);
+  if (MOCKS) {
+    return async () => ({ bound: false });
+  }
+  return replace;
 }
 
 /** Settings enable: permission + subscribe + bind. */
