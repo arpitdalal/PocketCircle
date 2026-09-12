@@ -397,14 +397,20 @@ function NotificationsSettingsCard() {
     };
   }, []);
 
-  const effectiveState = vapid === null ? "unsupported" : uiState;
+  // Null VAPID: hide enable/onboarding, but keep disable if already subscribed.
+  const effectiveState =
+    vapid === null ? (uiState === "enabled" ? "enabled" : "unsupported") : uiState;
 
   async function refreshState() {
     setUiState(await resolvePushNotificationsUiState());
   }
 
   async function onToggle(nextEnabled: boolean) {
-    if (submitting || !vapid) {
+    if (submitting) {
+      return;
+    }
+    // Enable needs a server key; disable does not.
+    if (nextEnabled && !vapid) {
       return;
     }
     setError(null);
@@ -482,7 +488,7 @@ function NotificationsSettingsCard() {
         <Switch
           id="settings-notifications-enabled"
           checked={enabled}
-          disabled={submitting || vapid === null}
+          disabled={submitting || (vapid === null && !enabled)}
           aria-labelledby="settings-notifications-enabled-label"
           onClick={() => void onToggle(!enabled)}
         />

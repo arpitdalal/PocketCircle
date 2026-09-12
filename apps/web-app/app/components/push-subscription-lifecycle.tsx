@@ -38,6 +38,30 @@ export function PushSubscriptionLifecycle() {
     notifyPushSubscriptionChanged();
   });
 
+  /** Reconfirm before drop — an enable may have committed after an unbound response. */
+  const dropIfStillUnbound = useEffectEvent(
+    async (subscription: {
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      vapidKeyId: string;
+    }) => {
+      if (isPushEnableInFlight()) {
+        return;
+      }
+      const confirmed = await reconcile({ subscription });
+      if (confirmed?.bound) {
+        rememberPushEndpoint(subscription.endpoint);
+        notifyPushSubscriptionChanged();
+        return;
+      }
+      if (isPushEnableInFlight()) {
+        return;
+      }
+      await dropOrphanLocal(subscription.endpoint);
+    },
+  );
+
   const disableDistinctEndpoints = useEffectEvent(async (primary: string, extra: string[] = []) => {
     const endpoints = [
       ...new Set(
@@ -88,21 +112,14 @@ export function PushSubscriptionLifecycle() {
           notifyPushSubscriptionChanged();
           return;
         }
-        // Parallel run may have already migrated — confirm via ordinary reconcile
-        // before treating the live endpoint as an orphan.
-        const confirmed = await reconcile({ subscription: result.subscription });
-        if (confirmed?.bound) {
-          rememberPushEndpoint(result.subscription.endpoint);
-          notifyPushSubscriptionChanged();
-          return;
-        }
-        await dropOrphanLocal(result.subscription.endpoint);
+        // Parallel run may have already migrated — reconfirm before orphan drop.
+        await dropIfStillUnbound(result.subscription);
         return;
       }
       const outcome = await reconcile({ subscription: result.subscription });
       if (!outcome?.bound) {
-        // Orphan / other-User / LRU-evicted local sub — clear so UI is not falsely enabled.
-        await dropOrphanLocal(result.subscription.endpoint);
+        // Orphan / other-User / LRU-evicted — reconfirm first in case enable just committed.
+        await dropIfStillUnbound(result.subscription);
       }
     } catch {
       // Best-effort lifecycle — never surface unhandled rejections on focus.

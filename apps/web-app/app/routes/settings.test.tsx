@@ -529,6 +529,31 @@ describe("Settings notifications", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps disable available when VAPID is absent but this device is already subscribed", async () => {
+    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const sub = makeFakePushSubscription();
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: null,
+      disablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /Enable notifications on this device/i,
+    });
+    expect(toggle).toBeChecked();
+    expect(toggle).not.toBeDisabled();
+
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+  });
+
   it("explains blocked browser permission", async () => {
     installPushEnv({ permission: "denied" });
     configureConvex({
