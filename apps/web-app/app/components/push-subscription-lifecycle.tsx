@@ -40,13 +40,15 @@ export function PushSubscriptionLifecycle() {
   const disableDistinctEndpoints = useEffectEvent(async (primary: string) => {
     const remembered = recalledPushEndpoint();
     const endpoints = [...new Set([primary, remembered].filter((value) => value !== null))];
+    const failures: string[] = [];
     for (const endpoint of endpoints) {
       try {
         await disable({ endpoint });
       } catch {
-        // Best-effort — may no-op if another User owns the row.
+        failures.push(endpoint);
       }
     }
+    return failures;
   });
 
   const runReconcile = useEffectEvent(async () => {
@@ -56,8 +58,13 @@ export function PushSubscriptionLifecycle() {
     try {
       const result = await readPushSubscriptionMaterial(vapid);
       if (result.unboundEndpoint) {
-        await disableDistinctEndpoints(result.unboundEndpoint);
-        rememberPushEndpoint(null);
+        const failures = await disableDistinctEndpoints(result.unboundEndpoint);
+        if (failures.length === 0) {
+          rememberPushEndpoint(null);
+        } else {
+          // Keep a failed endpoint so a later focus can retry unbind.
+          rememberPushEndpoint(failures[0] ?? null);
+        }
         notifyPushSubscriptionChanged();
         return;
       }

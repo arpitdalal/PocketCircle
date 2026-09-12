@@ -376,11 +376,13 @@ export async function disableCurrentPushSubscription(
   if (endpoints.length === 0) {
     return;
   }
+  let unsubscribeFailed = false;
   if (subscription) {
     try {
       await subscription.unsubscribe();
     } catch {
-      // Still clear server bindings below.
+      // Still clear server bindings below; retry local cleanup after success.
+      unsubscribeFailed = true;
     }
   }
   const failures: { endpoint: string; error: unknown }[] = [];
@@ -393,6 +395,18 @@ export async function disableCurrentPushSubscription(
   }
   if (failures.length === 0) {
     rememberPushEndpoint(null);
+    if (unsubscribeFailed) {
+      const lingering = await getCurrentPushSubscription();
+      if (lingering) {
+        try {
+          await lingering.unsubscribe();
+        } catch (error) {
+          // Server unbound but browser sub remains — surface so Settings does
+          // not claim disabled while still showing enabled.
+          throw error;
+        }
+      }
+    }
     return;
   }
   // Keep a failed endpoint remembered so Settings can retry unbind.

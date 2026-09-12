@@ -362,16 +362,18 @@ function NotificationsSettingsCard() {
 
   useEffect(() => {
     let cancelled = false;
+    let generation = 0;
     const refresh = () => {
+      const requestId = ++generation;
       void resolvePushNotificationsUiState()
         .then((state) => {
-          if (!cancelled) {
+          if (!cancelled && requestId === generation) {
             setUiState(state);
             setReady(true);
           }
         })
         .catch(() => {
-          if (!cancelled) {
+          if (!cancelled && requestId === generation) {
             setUiState("unsupported");
             setReady(true);
           }
