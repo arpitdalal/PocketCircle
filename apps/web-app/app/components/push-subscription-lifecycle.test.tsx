@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import {
   clearRememberedPushEndpoints,
+  recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
-  resetPushEnableLeases,
+  resetPushOperationState,
   vapidPublicKeyBytes,
 } from "~/lib/push-subscriptions.js";
 import { AppTestProviders } from "~/test/app-test-providers.js";
@@ -15,7 +16,6 @@ import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/p
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
 const VAPID = { publicKey: "AQID", keyId: "primary" };
-const PENDING_PUSH_CLEANUP_KEY = "pocketcircle.pendingPushCleanup";
 
 function matchingSub(endpoint: string) {
   const sub = makeFakePushSubscription({ endpoint });
@@ -35,13 +35,13 @@ beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   resetPushEnv();
   clearRememberedPushEndpoints();
-  resetPushEnableLeases();
+  resetPushOperationState();
 });
 
 afterEach(() => {
   resetPushEnv();
   clearRememberedPushEndpoints();
-  resetPushEnableLeases();
+  resetPushOperationState();
   vi.clearAllMocks();
 });
 
@@ -92,7 +92,7 @@ describe("PushSubscriptionLifecycle", () => {
       expect(sub.unsubscribe).toHaveBeenCalled();
     });
     // Foreign/unbound — keep pending retry handle after local drop.
-    expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBe(sub.endpoint);
+    expect(recalledPendingPushCleanup()).toEqual([sub.endpoint]);
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 
@@ -117,7 +117,7 @@ describe("PushSubscriptionLifecycle", () => {
       });
     });
     await waitFor(() => {
-      expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBeNull();
+      expect(recalledPendingPushCleanup()).toEqual([]);
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
     expect(sub.unsubscribe).not.toHaveBeenCalled();
@@ -176,6 +176,6 @@ describe("PushSubscriptionLifecycle", () => {
     });
     expect(a.unsubscribe).not.toHaveBeenCalled();
     expect(b.unsubscribe).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBeNull();
+    expect(recalledPendingPushCleanup()).toEqual([a.endpoint]);
   });
 });

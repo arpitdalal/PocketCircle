@@ -81,6 +81,36 @@ describe("pushSubscriptions", () => {
     ).rejects.toThrow("Invalid push subscription");
   });
 
+  it.each([
+    { endpoint: `https://push.example/${"x".repeat(4096)}` },
+    { p256dh: "x".repeat(129) },
+    { auth: "x".repeat(129) },
+    { vapidKeyId: "x".repeat(129) },
+    { vapidKeyId: " " },
+    { endpoint: "https://user:password@push.example/a" },
+  ])(
+    "rejects oversized or unusable material on every public binding path: case %#",
+    async (invalid) => {
+      const t = convexTest(schema, modules);
+      const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+      signInAs(owner);
+      const material = { ...VALID, ...invalid };
+      await expect(
+        t.mutation(api.pushSubscriptions.enablePushSubscription, material),
+      ).rejects.toThrow("Invalid push subscription");
+      await expect(
+        t.mutation(api.pushSubscriptions.reconcilePushSubscription, { subscription: material }),
+      ).rejects.toThrow("Invalid push subscription");
+      await expect(
+        t.mutation(api.pushSubscriptions.replacePushSubscription, {
+          ...material,
+          previousEndpoint: VALID.endpoint,
+        }),
+      ).rejects.toThrow("Invalid push subscription");
+      expect(await t.run((ctx) => listPushSubscriptionsForUser(ctx, owner._id))).toEqual([]);
+    },
+  );
+
   it("rebinds an endpoint from another User on account switch", async () => {
     const t = convexTest(schema, modules);
     const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));

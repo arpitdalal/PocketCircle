@@ -137,7 +137,7 @@ export default function ProtectedLayout() {
       </main>
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}
       <FeatureAnnouncementCard />
-      {!MOCKS ? <PushSubscriptionLifecycle /> : null}
+      {!MOCKS ? <PushSubscriptionLifecycle key={session.user.id} /> : null}
     </div>
   );
 }

@@ -3,18 +3,22 @@ import { useMutation, useQuery } from "convex/react";
 import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
-  assertOrphanDropIdleForEnable,
+  applyPendingCleanupFlushResult,
   beginPushEnable,
+  capturePushCancellation,
   clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
   endPushEnable,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
+  type PushSubscriptionMaterial,
   recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
+  requestPushNotificationPermission,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
+  withPushSubscriptionLock,
 } from "../push-subscriptions.js";
 
 export function usePushVapidPublicKey() {
@@ -91,39 +95,46 @@ async function disableOrRememberPending(
   return removed;
 }
 
-/** Settings enable: permission + subscribe + bind. */
-export function useEnableNotifications() {
-  const vapid = usePushVapidPublicKey();
-  const enable = useEnablePushSubscription();
-  const disable = useDisablePushSubscription();
-
-  return async () => {
-    if (!vapid) {
-      throw new Error("Push notifications are not configured");
-    }
+/** One complete enable transaction; the hook only supplies the network boundary. */
+async function enableNotifications(
+  vapid: { publicKey: string; keyId: string } | null | undefined,
+  enable: (material: PushSubscriptionMaterial) => Promise<unknown>,
+  disable: (args: { endpoint: string }) => Promise<unknown>,
+) {
+  if (!vapid) {
+    throw new Error("Push notifications are not configured");
+  }
+  const cancelled = capturePushCancellation();
+  const assertCurrentOperation = () => {
+    if (cancelled()) throw new Error("push enable cancelled");
+    assertEnableNotCancelled();
+  };
+  // Invoke in the click stack; acquiring a Web Lock crosses a task boundary.
+  const permission = requestPushNotificationPermission();
+  // A busy lock can reject before the permission promise settles.
+  void permission.catch(() => undefined);
+  await withPushSubscriptionLock(async () => {
+    if (cancelled()) throw new Error("push enable cancelled");
     beginPushEnable();
     try {
-      assertEnableNotCancelled();
-      // Fail fast — waiting would burn the user-activation window (iOS/Safari).
-      assertOrphanDropIdleForEnable();
-      assertEnableNotCancelled();
-      let material = await subscribeForPushNotifications(vapid);
+      assertCurrentOperation();
+      let material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
       /** First bind that recovery abandoned — catch must unbind it too. */
       let abandonedEndpoint: string | undefined;
       try {
-        assertEnableNotCancelled();
+        assertCurrentOperation();
         await enable(material);
-        assertEnableNotCancelled();
-        // Orphan drop may have unsubscribed during bind — recover once.
+        assertCurrentOperation();
+        // The browser may revoke or refresh its subscription during bind; recover once.
         const live = await getCurrentPushSubscription();
         if (!live || live.endpoint !== material.endpoint) {
           const previousEndpoint = material.endpoint;
           // First bind may have committed — catch must unbind it if recovery fails.
           abandonedEndpoint = previousEndpoint;
-          material = await subscribeForPushNotifications(vapid);
-          assertEnableNotCancelled();
+          material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
+          assertCurrentOperation();
           await enable(material);
-          assertEnableNotCancelled();
+          assertCurrentOperation();
           const recovered = await getCurrentPushSubscription();
           if (!recovered || recovered.endpoint !== material.endpoint) {
             throw new Error("Push subscription was removed during enable");
@@ -134,7 +145,7 @@ export function useEnableNotifications() {
           }
           abandonedEndpoint = undefined;
         }
-        assertEnableNotCancelled();
+        assertCurrentOperation();
         track("notifications_enabled", {});
       } catch (error) {
         // Ambiguous transport failures: clear server binding for this endpoint
@@ -159,17 +170,22 @@ export function useEnableNotifications() {
           }
         }
         rememberPushEndpoint(null);
-        rememberPushEndpoints([
-          ...recalledPendingPushCleanup().filter((endpoint) => !endpoints.includes(endpoint)),
-          ...failures,
-        ]);
+        applyPendingCleanupFlushResult(endpoints, failures);
         await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
         throw error;
       }
     } finally {
       endPushEnable();
     }
-  };
+  });
+}
+
+/** Settings enable: permission + subscribe + bind. */
+export function useEnableNotifications() {
+  const vapid = usePushVapidPublicKey();
+  const enable = useEnablePushSubscription();
+  const disable = useDisablePushSubscription();
+  return () => enableNotifications(vapid, enable, disable);
 }
 
 /** Settings disable: unsubscribe + unbind; leaves browser permission granted. */
@@ -177,7 +193,7 @@ export function useDisableNotifications() {
   const disable = useDisablePushSubscription();
 
   return async () => {
-    await disableCurrentPushSubscription(disable);
+    await withPushSubscriptionLock(() => disableCurrentPushSubscription(disable));
     track("notifications_disabled", {});
   };
 }

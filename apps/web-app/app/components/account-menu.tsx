@@ -66,12 +66,10 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
     setIsSigningOut(true);
     const releasePushSignOutGuard = await clearPushOnSignOut();
     try {
-      await signOut();
+      await signOut().finally(releasePushSignOutGuard);
     } catch (error) {
       console.error("signOut failed", error);
       void navigate("/signin", { replace: true });
-    } finally {
-      releasePushSignOutGuard();
     }
   };
 

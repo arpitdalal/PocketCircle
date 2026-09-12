@@ -153,7 +153,12 @@ export async function listPushSubscriptionsForUser(
     .collect();
 }
 
-function assertValidSubscription(input: { endpoint: string; p256dh: string; auth: string }) {
+function assertValidSubscription(input: {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  vapidKeyId: string;
+}) {
   if (!isValidPushSubscriptionMaterial(input)) {
     throw new Error(INVALID_SUBSCRIPTION);
   }
@@ -169,13 +174,7 @@ async function findByEndpoint(ctx: QueryCtx | MutationCtx, endpoint: string) {
 async function pruneInvalidSubscriptionsForUser(ctx: MutationCtx, userId: Id<"users">) {
   const rows = await listPushSubscriptionsForUser(ctx, userId);
   for (const row of rows) {
-    if (
-      !isValidPushSubscriptionMaterial({
-        endpoint: row.endpoint,
-        p256dh: row.p256dh,
-        auth: row.auth,
-      })
-    ) {
+    if (!isValidPushSubscriptionMaterial(row)) {
       await ctx.db.delete(row._id);
     }
   }

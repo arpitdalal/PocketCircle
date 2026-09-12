@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountDeletionBlocker } from "~/lib/data.js";
+import { recalledPendingPushCleanup } from "~/lib/push-subscriptions.js";
 import { AppTestProviders } from "~/test/app-test-providers.js";
 import {
   configureConvex,
@@ -43,7 +44,7 @@ vi.mock("better-auth/react", () => ({
 }));
 
 import { initAnalytics, track } from "~/lib/analytics.js";
-import { clearRememberedPushEndpoints, resetPushEnableLeases } from "~/lib/push-subscriptions.js";
+import { clearRememberedPushEndpoints, resetPushOperationState } from "~/lib/push-subscriptions.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
@@ -64,7 +65,7 @@ beforeEach(async () => {
   resetNavigatorInstallProps();
   installMatchMediaFake(false);
   clearRememberedPushEndpoints();
-  resetPushEnableLeases();
+  resetPushOperationState();
 });
 
 afterEach(() => {
@@ -72,7 +73,7 @@ afterEach(() => {
   resetPushEnv();
   resetNavigatorInstallProps();
   clearRememberedPushEndpoints();
-  resetPushEnableLeases();
+  resetPushOperationState();
   vi.clearAllMocks();
 });
 
@@ -625,9 +626,7 @@ describe("Settings notifications", () => {
       });
     });
     await waitFor(() => {
-      expect(window.localStorage.getItem("pocketcircle.pendingPushCleanup")).toBe(
-        "https://push.example/test-endpoint",
-      );
+      expect(recalledPendingPushCleanup()).toEqual(["https://push.example/test-endpoint"]);
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
@@ -737,9 +736,9 @@ describe("Settings notifications", () => {
       });
     });
     await waitFor(() => {
-      expect(
-        JSON.parse(window.localStorage.getItem("pocketcircle.pendingPushCleanup") ?? "null"),
-      ).toEqual(["https://push.example/second", "https://push.example/first"]);
+      expect(new Set(recalledPendingPushCleanup())).toEqual(
+        new Set(["https://push.example/second", "https://push.example/first"]),
+      );
     });
   });
 

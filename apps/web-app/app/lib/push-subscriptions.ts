@@ -4,7 +4,25 @@
  */
 import { isInstalledWebApp, isIosDevice } from "~/components/pwa-install.js";
 import { track } from "~/lib/analytics.js";
+import { deferredValue } from "~/lib/deferred.js";
 import { MOCKS } from "~/lib/env.js";
+
+/** Hold through every browser/server side effect, including failed-operation cleanup. */
+export async function withPushSubscriptionLock<T>(
+  operation: () => Promise<T>,
+  options: { signal?: AbortSignal; wait?: boolean } = {},
+) {
+  if (!("locks" in navigator)) {
+    throw new Error("Push coordination is unavailable in this browser");
+  }
+  const lockOptions = options.wait ? { signal: options.signal } : { ifAvailable: true };
+  return navigator.locks.request("pocketcircle.push-subscription", lockOptions, async (lock) => {
+    if (!lock) {
+      throw new Error("Notifications are being updated in another tab. Please try again.");
+    }
+    return operation();
+  });
+}
 
 export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
@@ -51,44 +69,39 @@ function readEndpointList(key: string) {
   }
 }
 
-function writeEndpointList(key: string, endpoints: readonly string[]) {
-  try {
-    const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
-    if (unique.length === 0) {
-      window.localStorage.removeItem(key);
-      return;
-    }
-    const [only, ...rest] = unique;
-    if (only && rest.length === 0) {
-      window.localStorage.setItem(key, only);
-      return;
-    }
-    window.localStorage.setItem(key, JSON.stringify(unique));
-  } catch {
-    // Private mode / blocked storage — cleanup may fall back to live lookup only.
-  }
-}
+const PENDING_PUSH_CLEANUP_PREFIX = `${PENDING_PUSH_CLEANUP_KEY}.`;
 
-/** Failed server-unbind retries only — never replaces the active endpoint. */
+/** Add independently keyed retry records; adding one never overwrites another. */
 export function rememberPushEndpoints(endpoints: readonly string[]) {
-  writeEndpointList(PENDING_PUSH_CLEANUP_KEY, endpoints);
+  let persisted = true;
+  for (const endpoint of endpoints) {
+    if (!endpoint) continue;
+    try {
+      window.localStorage.setItem(`${PENDING_PUSH_CLEANUP_PREFIX}${endpoint}`, endpoint);
+    } catch {
+      // Storage can be unavailable; live subscription cleanup still works.
+      persisted = false;
+    }
+  }
+  return persisted;
 }
 
-/**
- * After a pending-cleanup flush: drop only endpoints from `attempted` that are
- * absent from `failures` (confirmed removed). Keep failures plus any endpoints
- * another tab added after the snapshot — never replace the whole list.
- */
 export function applyPendingCleanupFlushResult(
   attempted: readonly string[],
   failures: readonly string[],
 ) {
-  const attemptedSet = new Set(attempted.filter((endpoint) => endpoint.length > 0));
-  const next = [
-    ...recalledPendingPushCleanup().filter((endpoint) => !attemptedSet.has(endpoint)),
-    ...failures.filter((endpoint) => endpoint.length > 0),
-  ];
-  rememberPushEndpoints([...new Set(next)]);
+  // Migrate before removing confirmed successes. Production callers hold the browser lock.
+  recalledPendingPushCleanup();
+  const failed = new Set(failures);
+  for (const endpoint of attempted) {
+    if (failed.has(endpoint)) continue;
+    try {
+      window.localStorage.removeItem(`${PENDING_PUSH_CLEANUP_PREFIX}${endpoint}`);
+    } catch {
+      // Keep retry state if storage is inaccessible.
+    }
+  }
+  rememberPushEndpoints(failures);
 }
 
 /** Active endpoint only — leaves other pending cleanup intact across re-enable. */
@@ -100,18 +113,16 @@ export function rememberPushEndpoint(endpoint: string | null) {
     }
     // Legacy: array in the active key was multi-endpoint storage — migrate out.
     const legacy = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
-    let pending = readEndpointList(PENDING_PUSH_CLEANUP_KEY);
-    if (legacy?.startsWith("[")) {
+    let pending = recalledPendingPushCleanup();
+    if (legacy && legacy !== endpoint) {
       const migrated = readEndpointList(LAST_PUSH_ENDPOINT_KEY).filter(
         (value) => value !== endpoint,
       );
       pending = [...pending, ...migrated];
     }
     // Active again — drop this endpoint from pending so cleanup cannot unbind it.
-    writeEndpointList(
-      PENDING_PUSH_CLEANUP_KEY,
-      pending.filter((value) => value !== endpoint),
-    );
+    rememberPushEndpoints(pending.filter((value) => value !== endpoint));
+    applyPendingCleanupFlushResult([endpoint], []);
     window.localStorage.setItem(LAST_PUSH_ENDPOINT_KEY, endpoint);
   } catch {
     // Private mode / blocked storage.
@@ -120,7 +131,21 @@ export function rememberPushEndpoint(endpoint: string | null) {
 
 /** Failed server-unbind retries only (excludes the active endpoint key). */
 export function recalledPendingPushCleanup() {
-  return readEndpointList(PENDING_PUSH_CLEANUP_KEY);
+  const endpoints = readEndpointList(PENDING_PUSH_CLEANUP_KEY);
+  const migrated = rememberPushEndpoints(endpoints);
+  try {
+    if (migrated) window.localStorage.removeItem(PENDING_PUSH_CLEANUP_KEY);
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(PENDING_PUSH_CLEANUP_PREFIX)) {
+        const endpoint = window.localStorage.getItem(key);
+        if (endpoint) endpoints.push(endpoint);
+      }
+    }
+  } catch {
+    // Restricted storage.
+  }
+  return [...new Set(endpoints)];
 }
 
 /**
@@ -138,14 +163,14 @@ export function recordOrphanLocalDrop(endpoint: string) {
 
 export function clearRememberedPushEndpoints() {
   rememberPushEndpoint(null);
-  rememberPushEndpoints([]);
+  applyPendingCleanupFlushResult(recalledPendingPushCleanup(), []);
 }
 
 export function recalledPushEndpoints() {
   try {
     const rawActive = window.localStorage.getItem(LAST_PUSH_ENDPOINT_KEY);
     let active: string[] = [];
-    let pending = readEndpointList(PENDING_PUSH_CLEANUP_KEY);
+    let pending = recalledPendingPushCleanup();
     if (rawActive?.startsWith("[")) {
       // Legacy multi-list lived in the active key — treat as pending.
       pending = [...new Set([...pending, ...readEndpointList(LAST_PUSH_ENDPOINT_KEY)])];
@@ -171,153 +196,20 @@ export function recalledPushEndpoint() {
   }
 }
 
-/** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
-const PUSH_ENABLE_LEASE_PREFIX = "pocketcircle.pushEnableLease.";
-/** Crash recovery only — active enables refresh lease timestamps via heartbeat. */
-const PUSH_ENABLE_IN_FLIGHT_TTL_MS = 60_000;
-const PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS = 15_000;
-/**
- * After enable commits, keep the lease briefly so a concurrent orphan drop cannot
- * unsubscribe the just-bound endpoint between reconcile `{ bound: false }` and drop.
- * Must cover `waitForActiveServiceWorker` (up to 10s) inside orphan unsubscribe.
- */
-const PUSH_ENABLE_LEASE_GRACE_MS = 12_000;
 let pushEnableInFlight = 0;
-const localPushEnableLeaseIds: string[] = [];
-let pushEnableHeartbeatTimer: number | null = null;
-let pushEnableGraceUntil = 0;
-const pushEnableGraceTimers = new Set<number>();
-/** Heartbeats for live sign-out guards (cleared on release / test reset). */
+let pushCancellationGeneration = 0;
 const pushSignOutGuardHeartbeats = new Set<number>();
-
-function newPushEnableLeaseId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** Lease value: `<epochMs>|active` or `<epochMs>|grace` (legacy bare number = active). */
-function parsePushEnableLease(raw: string | null) {
-  if (!raw) {
-    return null;
-  }
-  const pipe = raw.indexOf("|");
-  if (pipe === -1) {
-    const at = Number(raw);
-    if (!Number.isFinite(at)) {
-      return null;
-    }
-    return { at, phase: "active" as const };
-  }
-  const at = Number(raw.slice(0, pipe));
-  if (!Number.isFinite(at)) {
-    return null;
-  }
-  const phase = raw.slice(pipe + 1) === "grace" ? ("grace" as const) : ("active" as const);
-  return { at, phase };
-}
-
-function writePushEnableLease(id: string, phase: "active" | "grace") {
-  try {
-    window.localStorage.setItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`, `${Date.now()}|${phase}`);
-  } catch {
-    // Private mode — same-tab counter still applies.
-  }
-}
-
-function sweepExpiredPushEnableLeases() {
-  try {
-    const now = Date.now();
-    const stale: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (!key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
-        continue;
-      }
-      const lease = parsePushEnableLease(window.localStorage.getItem(key));
-      if (!lease || now - lease.at > PUSH_ENABLE_IN_FLIGHT_TTL_MS) {
-        stale.push(key);
-      }
-    }
-    for (const key of stale) {
-      window.localStorage.removeItem(key);
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function anyCrossTabPushEnableLease(phase?: "active" | "grace") {
-  sweepExpiredPushEnableLeases();
-  try {
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (!key?.startsWith(PUSH_ENABLE_LEASE_PREFIX)) {
-        continue;
-      }
-      const lease = parsePushEnableLease(window.localStorage.getItem(key));
-      if (!lease) {
-        continue;
-      }
-      if (!phase || lease.phase === phase) {
-        return true;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-
-function anyFreshCrossTabPushEnableLease() {
-  return anyCrossTabPushEnableLease();
-}
-
-function anyActiveCrossTabPushEnableLease() {
-  return anyCrossTabPushEnableLease("active");
-}
-
-function touchLocalPushEnableLeases() {
-  for (const id of localPushEnableLeaseIds) {
-    writePushEnableLease(id, "active");
-  }
-}
-
-function syncPushEnableHeartbeat() {
-  if (pushEnableInFlight > 0) {
-    if (pushEnableHeartbeatTimer !== null) {
-      return;
-    }
-    pushEnableHeartbeatTimer = window.setInterval(() => {
-      if (pushEnableInFlight <= 0) {
-        if (pushEnableHeartbeatTimer !== null) {
-          window.clearInterval(pushEnableHeartbeatTimer);
-          pushEnableHeartbeatTimer = null;
-        }
-        return;
-      }
-      touchLocalPushEnableLeases();
-    }, PUSH_ENABLE_IN_FLIGHT_HEARTBEAT_MS);
-    return;
-  }
-  if (pushEnableHeartbeatTimer !== null) {
-    window.clearInterval(pushEnableHeartbeatTimer);
-    pushEnableHeartbeatTimer = null;
-  }
-}
 
 /** Sign-out sets this so an in-flight enable aborts before/after bind. */
 let pushEnableCancelRequested = false;
 /** True while sign-out Push cleanup runs — beginPushEnable must not clear cancel. */
-let pushSignOutCleanupInProgress = false;
+let pushSignOutCleanupInProgress = 0;
 /** Cross-tab: cancel + per-tab sign-out cleanup marks (other tabs must not clear cancel). */
+const PUSH_CANCEL_GENERATION_KEY = "pocketcircle.pushCancelGeneration";
 const PUSH_ENABLE_CANCEL_KEY = "pocketcircle.pushEnableCancel";
 const PUSH_SIGNOUT_CLEANUP_PREFIX = "pocketcircle.pushSignOutCleanup.";
 /** Crash recovery — stuck marks/cancel must not block enable forever. */
 const PUSH_SIGNOUT_CLEANUP_TTL_MS = 60_000;
-/** Reserve disable time inside the shared sign-out deadline so wait cannot starve unbind. */
-const SIGN_OUT_MIN_DISABLE_BUDGET_MS = 1_000;
 
 function sweepExpiredSignOutCleanupMarks() {
   try {
@@ -357,7 +249,7 @@ function isPushSignOutCleanupMarked() {
 }
 
 function markPushSignOutCleanup() {
-  const id = newPushEnableLeaseId();
+  const id = crypto.randomUUID();
   try {
     window.localStorage.setItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`, String(Date.now()));
   } catch {
@@ -386,7 +278,27 @@ function unmarkPushSignOutCleanup(id: string) {
   }
 }
 
+/** Captures cancellation even if a later explicit enable clears the sign-out flag. */
+export function capturePushCancellation() {
+  const generation = pushCancellationGeneration;
+  const read = () => {
+    try {
+      return window.localStorage.getItem(PUSH_CANCEL_GENERATION_KEY);
+    } catch {
+      return null;
+    }
+  };
+  const sharedGeneration = read();
+  return () => generation !== pushCancellationGeneration || sharedGeneration !== read();
+}
+
 export function requestPushEnableCancel() {
+  pushCancellationGeneration += 1;
+  try {
+    window.localStorage.setItem(PUSH_CANCEL_GENERATION_KEY, crypto.randomUUID());
+  } catch {
+    /* Same-tab generation still cancels pending work. */
+  }
   pushEnableCancelRequested = true;
   try {
     window.localStorage.setItem(PUSH_ENABLE_CANCEL_KEY, String(Date.now()));
@@ -439,179 +351,29 @@ export function isPushEnableCancelRequested() {
 }
 
 export function beginPushEnable() {
-  // Fresh enable may clear a stale cancel, but never during any tab's sign-out cleanup.
-  if (!pushSignOutCleanupInProgress && !isPushSignOutCleanupMarked()) {
-    clearPushEnableCancel();
-  }
+  if (!pushSignOutCleanupInProgress && !isPushSignOutCleanupMarked()) clearPushEnableCancel();
   pushEnableInFlight += 1;
-  const id = newPushEnableLeaseId();
-  localPushEnableLeaseIds.push(id);
-  writePushEnableLease(id, "active");
-  syncPushEnableHeartbeat();
 }
 
 export function endPushEnable() {
   pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
-  pushEnableGraceUntil = Math.max(pushEnableGraceUntil, Date.now() + PUSH_ENABLE_LEASE_GRACE_MS);
-  const id = localPushEnableLeaseIds.pop();
-  if (id) {
-    // Keep the cross-tab lease visible through the grace window (orphan protection).
-    writePushEnableLease(id, "grace");
-    const timer = window.setTimeout(() => {
-      pushEnableGraceTimers.delete(timer);
-      try {
-        window.localStorage.removeItem(`${PUSH_ENABLE_LEASE_PREFIX}${id}`);
-      } catch {
-        // ignore
-      }
-    }, PUSH_ENABLE_LEASE_GRACE_MS);
-    pushEnableGraceTimers.add(timer);
-  }
-  syncPushEnableHeartbeat();
 }
 
-export function isPushEnableInFlight() {
-  return (
-    pushEnableInFlight > 0 || Date.now() < pushEnableGraceUntil || anyFreshCrossTabPushEnableLease()
-  );
-}
-
-/**
- * Wait until same-tab enable counter is 0 and no cross-tab *active* enable lease
- * remains (grace leases ignored — those already committed and cleanup can unbind).
- */
-export async function waitForActivePushEnableIdle(timeoutMs = 15_000) {
-  const deadline = Date.now() + Math.max(0, timeoutMs);
-  while (pushEnableInFlight > 0 || anyActiveCrossTabPushEnableLease()) {
-    if (Date.now() >= deadline) {
-      throw new Error("push enable still in flight");
-    }
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, 25);
-    });
-  }
-}
-
-/** Same-tab + cross-tab: orphan unsubscribe in flight — enable must not bind over it. */
-const ORPHAN_DROP_LEASE_PREFIX = "pocketcircle.orphanDropLease.";
-const ORPHAN_DROP_LEASE_TTL_MS = 60_000;
-let orphanDropInFlight = 0;
-const localOrphanDropLeaseIds: string[] = [];
-
-function sweepExpiredOrphanDropLeases() {
-  try {
-    const now = Date.now();
-    const stale: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (!key?.startsWith(ORPHAN_DROP_LEASE_PREFIX)) {
-        continue;
-      }
-      const at = Number(window.localStorage.getItem(key));
-      if (!Number.isFinite(at) || now - at > ORPHAN_DROP_LEASE_TTL_MS) {
-        stale.push(key);
-      }
-    }
-    for (const key of stale) {
-      window.localStorage.removeItem(key);
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function anyActiveCrossTabOrphanDropLease() {
-  sweepExpiredOrphanDropLeases();
-  try {
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(ORPHAN_DROP_LEASE_PREFIX)) {
-        return true;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-
-export function beginOrphanDrop() {
-  orphanDropInFlight += 1;
-  const id = newPushEnableLeaseId();
-  localOrphanDropLeaseIds.push(id);
-  try {
-    window.localStorage.setItem(`${ORPHAN_DROP_LEASE_PREFIX}${id}`, String(Date.now()));
-  } catch {
-    // Private mode — same-tab counter still applies.
-  }
-}
-
-export function endOrphanDrop() {
-  orphanDropInFlight = Math.max(0, orphanDropInFlight - 1);
-  const id = localOrphanDropLeaseIds.pop();
-  if (id) {
-    try {
-      window.localStorage.removeItem(`${ORPHAN_DROP_LEASE_PREFIX}${id}`);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-export function isOrphanDropInFlight() {
-  return orphanDropInFlight > 0 || anyActiveCrossTabOrphanDropLease();
-}
-
-/**
- * Settings enable: do not wait — a long wait burns the user-activation window
- * required for `Notification.requestPermission` / `PushManager.subscribe` (iOS).
- * If orphan cleanup is busy, fail fast and require a fresh click.
- */
-export function assertOrphanDropIdleForEnable() {
-  if (isOrphanDropInFlight()) {
-    throw new Error("Push cleanup is in progress — try again");
-  }
-}
-
-/** Test helper — drop leases/grace so cases do not leak across tests. */
-export function resetPushEnableLeases() {
+/** Test isolation for the module-local sign-out cancellation state. */
+export function resetPushOperationState() {
   pushEnableInFlight = 0;
-  localPushEnableLeaseIds.length = 0;
-  pushEnableGraceUntil = 0;
-  orphanDropInFlight = 0;
-  localOrphanDropLeaseIds.length = 0;
   pushEnableCancelRequested = false;
-  pushSignOutCleanupInProgress = false;
-  for (const timer of pushEnableGraceTimers) {
-    window.clearTimeout(timer);
-  }
-  pushEnableGraceTimers.clear();
-  for (const timer of pushSignOutGuardHeartbeats) {
-    window.clearInterval(timer);
-  }
+  pushSignOutCleanupInProgress = 0;
+  for (const timer of pushSignOutGuardHeartbeats) window.clearInterval(timer);
   pushSignOutGuardHeartbeats.clear();
-  if (pushEnableHeartbeatTimer !== null) {
-    window.clearInterval(pushEnableHeartbeatTimer);
-    pushEnableHeartbeatTimer = null;
-  }
   try {
-    const stale: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
-      if (
-        key?.startsWith(PUSH_ENABLE_LEASE_PREFIX) ||
-        key?.startsWith(ORPHAN_DROP_LEASE_PREFIX) ||
-        key === PUSH_ENABLE_CANCEL_KEY ||
-        key?.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)
-      ) {
-        stale.push(key);
-      }
-    }
-    for (const key of stale) {
-      window.localStorage.removeItem(key);
+    window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
+    const keys = Object.keys(window.localStorage);
+    for (const key of keys) {
+      if (key.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)) window.localStorage.removeItem(key);
     }
   } catch {
-    // ignore
+    // Restricted storage.
   }
 }
 
@@ -638,7 +400,8 @@ function hasPushApis() {
     hasSecureContext() &&
     "serviceWorker" in navigator &&
     "PushManager" in window &&
-    "Notification" in window
+    "Notification" in window &&
+    "locks" in navigator
   );
 }
 
@@ -727,30 +490,20 @@ async function waitForActiveServiceWorker(
   if (!candidate) {
     return null;
   }
-  try {
-    await Promise.race([
-      new Promise<void>((resolve, reject) => {
-        const onStateChange = () => {
-          if (registration.active || candidate.state === "activated") {
-            candidate.removeEventListener("statechange", onStateChange);
-            resolve();
-            return;
-          }
-          if (candidate.state === "redundant") {
-            candidate.removeEventListener("statechange", onStateChange);
-            reject(new Error("service worker redundant"));
-          }
-        };
-        candidate.addEventListener("statechange", onStateChange);
-        onStateChange();
-      }),
-      new Promise<void>((_, reject) => {
-        window.setTimeout(() => reject(new Error("service worker activate timeout")), timeoutMs);
-      }),
-    ]);
-  } catch {
-    return null;
-  }
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timer);
+      candidate.removeEventListener("statechange", onStateChange);
+      resolve();
+    };
+    const onStateChange = () => {
+      if (registration.active || candidate.state === "activated" || candidate.state === "redundant")
+        finish();
+    };
+    const timer = window.setTimeout(finish, timeoutMs);
+    candidate.addEventListener("statechange", onStateChange);
+    onStateChange();
+  });
   return registration.active ? registration : null;
 }
 
@@ -842,7 +595,7 @@ async function subscribeWithVapid(
     return existing;
   }
   if (existing) {
-    await existing.unsubscribe();
+    if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
   }
   return await registration.pushManager.subscribe({
     userVisibleOnly: true,
@@ -854,19 +607,30 @@ async function subscribeWithVapid(
  * Explicit User action only — requests permission, subscribes, returns material
  * for the enable mutation. Never call on load.
  */
-export async function subscribeForPushNotifications(vapid: { publicKey: string; keyId: string }) {
+export function requestPushNotificationPermission() {
   if (!hasPushApis()) {
-    throw new Error("Push notifications are not supported");
+    return Promise.reject(new Error("Push notifications are not supported"));
   }
-  const permission = await Notification.requestPermission();
-  track("notification_permission_result", { result: permission });
-  if (permission !== "granted") {
-    throw new Error("Notification permission was not granted");
-  }
+  return Notification.requestPermission().then((permission) => {
+    track("notification_permission_result", { result: permission });
+    if (permission !== "granted") {
+      throw new Error("Notification permission was not granted");
+    }
+  });
+}
+
+export async function subscribeForPushNotifications(
+  vapid: { publicKey: string; keyId: string },
+  permission = requestPushNotificationPermission(),
+  assertCurrentOperation = () => {},
+) {
+  await permission;
+  assertCurrentOperation();
   const registration = await resolvePushRegistration();
   if (!registration) {
     throw new Error("Push service worker is not available");
   }
+  assertCurrentOperation();
   const subscription = await subscribeWithVapid(registration, vapid);
   const keys = readSubscriptionKeys(subscription);
   rememberPushEndpoint(keys.endpoint);
@@ -882,7 +646,7 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
  */
 export async function unsubscribeLocalPushSubscription(
   expectedEndpoint?: string,
-  options?: { abortIfEnableInFlight?: boolean },
+  isCancelled = () => false,
 ) {
   const registration = await resolvePushRegistration();
   if (!registration) {
@@ -900,13 +664,9 @@ export async function unsubscribeLocalPushSubscription(
   if (expectedEndpoint && subscription.endpoint !== expectedEndpoint) {
     return { status: "mismatch" as const };
   }
-  // Enable may have started after the caller's pre-check — abort before the
-  // destructive unsubscribe so Settings enable is not left with a dead local sub.
-  if (options?.abortIfEnableInFlight && isPushEnableInFlight()) {
-    throw new Error("push enable in flight");
-  }
+  if (isCancelled()) throw new Error("Push operation cancelled");
   const endpoint = subscription.endpoint;
-  await subscription.unsubscribe();
+  if (!(await subscription.unsubscribe())) throw new Error("Push unsubscribe failed");
   return { status: "unsubscribed" as const, endpoint };
 }
 
@@ -917,7 +677,10 @@ export async function unsubscribeLocalPushSubscription(
  * Same-key endpoint change vs last remembered endpoint → `previousEndpoint`
  * for owned migration via replacePushSubscription.
  */
-export async function readPushSubscriptionMaterial(vapid: { publicKey: string; keyId: string }) {
+export async function readPushSubscriptionMaterial(
+  vapid: { publicKey: string; keyId: string },
+  isCancelled = () => false,
+) {
   const registration = await resolvePushRegistration();
   if (!registration) {
     return { subscription: null };
@@ -929,6 +692,7 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     // Lookup failure — do not treat as confirmed absence.
     return { subscription: null };
   }
+  if (isCancelled()) return { subscription: null };
   if (!existing) {
     // Confirmed absence: drop any remembered server binding so dead rows
     // do not consume the ten-device cap.
@@ -948,7 +712,7 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
     // Snapshot before await — another tab may enable and remember a new endpoint.
     const rememberedBeforeUnsubscribe = recalledPushEndpoints();
     try {
-      await existing.unsubscribe();
+      if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
     } catch {
       // Local sub still present — do not unbind server or Settings shows
       // enabled with nothing deliverable after a successful disable.
@@ -988,76 +752,49 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
-  const SIGN_OUT_CLEANUP_TIMEOUT_MS = 5_000;
-  const deadline = Date.now() + SIGN_OUT_CLEANUP_TIMEOUT_MS;
-  const remainingMs = () => Math.max(0, deadline - Date.now());
-  // Mark before cancel so another tab's beginPushEnable cannot clear cancel in the gap.
+  const deadline = Date.now() + 5_000;
   const cleanupId = markPushSignOutCleanup();
   requestPushEnableCancel();
-  pushSignOutCleanupInProgress = true;
-  try {
-    // Leave disable a slice of the shared deadline — wait must not consume it all.
-    const waitBudget = Math.max(0, remainingMs() - SIGN_OUT_MIN_DISABLE_BUDGET_MS);
-    try {
-      await waitForActivePushEnableIdle(waitBudget);
-    } catch {
-      // Proceed with best-effort cleanup even if enable is stuck.
-    }
-    const budget = remainingMs();
-    try {
-      await Promise.race([
-        disableCurrentPushSubscription(disable, {
-          isCancelled: () => Date.now() >= deadline,
-          // Sign-out must still best-effort unbind remembered endpoints when the
-          // live lookup fails — Settings stays strict (no fallback).
-          rememberedFallbackOnLookupFailure: true,
-        }),
-        new Promise((_, reject) => {
-          window.setTimeout(
-            () => reject(new Error("push cleanup timeout")),
-            // Always attempt disable; 0 would reject before disable schedules work.
-            Math.max(budget, 1),
-          );
-        }),
-      ]);
-    } catch {
-      // Never block sign-out on Push cleanup.
-    }
-  } finally {
-    pushSignOutCleanupInProgress = false;
-  }
-
-  const heartbeatMs = Math.max(1_000, Math.floor(PUSH_SIGNOUT_CLEANUP_TTL_MS / 3));
-  const heartbeat = window.setInterval(() => {
-    touchPushSignOutCleanup(cleanupId);
-    // Refresh cancel timestamp too so stale-cancel sweep cannot outlive the mark.
-    try {
-      if (window.localStorage.getItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${cleanupId}`) != null) {
-        window.localStorage.setItem(PUSH_ENABLE_CANCEL_KEY, String(Date.now()));
-      }
-    } catch {
-      // ignore
-    }
-  }, heartbeatMs);
+  pushSignOutCleanupInProgress += 1;
+  const abort = new AbortController();
+  const cleanupDone = deferredValue<void>();
+  const signedOut = deferredValue<void>();
+  const heartbeat = window.setInterval(() => touchPushSignOutCleanup(cleanupId), 15_000);
   pushSignOutGuardHeartbeats.add(heartbeat);
-
+  const timer = window.setTimeout(() => {
+    abort.abort();
+    cleanupDone.resolve();
+  }, 5_000);
+  // Never release a lock around a still-running unsubscribe or mutation on timeout.
+  // The caller may finish sign-out, but later enables stay excluded until it settles.
+  void withPushSubscriptionLock(
+    async () => {
+      try {
+        if (Date.now() < deadline) {
+          await disableCurrentPushSubscription(disable, {
+            isCancelled: () => Date.now() >= deadline,
+            rememberedFallbackOnLookupFailure: true,
+          });
+        }
+      } finally {
+        cleanupDone.resolve();
+        await signedOut.promise;
+      }
+    },
+    { wait: true, signal: abort.signal },
+  ).catch(() => cleanupDone.resolve());
+  await cleanupDone.promise;
+  window.clearTimeout(timer);
   let released = false;
   return () => {
-    if (released) {
-      return;
-    }
+    if (released) return;
     released = true;
     window.clearInterval(heartbeat);
     pushSignOutGuardHeartbeats.delete(heartbeat);
     unmarkPushSignOutCleanup(cleanupId);
-    // Keep cancel while any tab still guards sign-out or still has an active enable.
-    if (
-      pushEnableInFlight <= 0 &&
-      !anyActiveCrossTabPushEnableLease() &&
-      !isPushSignOutCleanupMarked()
-    ) {
-      clearPushEnableCancel();
-    }
+    pushSignOutCleanupInProgress = Math.max(0, pushSignOutCleanupInProgress - 1);
+    signedOut.resolve();
+    if (pushEnableInFlight <= 0 && !isPushSignOutCleanupMarked()) clearPushEnableCancel();
   };
 }
 
@@ -1104,6 +841,7 @@ export async function disableCurrentPushSubscription(
     subscription = null;
   }
   const liveEndpoint = subscription?.endpoint ?? null;
+  const activeEndpoint = recalledPushEndpoint();
   // Snapshot once — do not re-read storage during awaits (cross-tab enable).
   const endpoints = [
     ...new Set(
@@ -1113,10 +851,12 @@ export async function disableCurrentPushSubscription(
   if (endpoints.length === 0) {
     return;
   }
+  // Persist before any await: timeout, tab closure, or response loss must retain all endpoints.
+  rememberPushEndpoints(endpoints);
   let unsubscribeFailed = false;
   if (subscription) {
     try {
-      await subscription.unsubscribe();
+      if (!(await subscription.unsubscribe())) throw new Error("Push unsubscribe failed");
     } catch {
       // Still clear server bindings below; retry local cleanup after success.
       unsubscribeFailed = true;
@@ -1125,7 +865,7 @@ export async function disableCurrentPushSubscription(
   if (cancelled()) {
     return;
   }
-  const failures: { endpoint: string; error: unknown }[] = [];
+  const failures: { endpoint: string; error?: unknown }[] = [];
   for (const endpoint of endpoints) {
     if (cancelled()) {
       return;
@@ -1134,7 +874,7 @@ export async function disableCurrentPushSubscription(
       const outcome = await disable({ endpoint });
       if (!disableRemovedOwnedBinding(outcome)) {
         // Foreign or unconfirmed — keep pending for the owning account.
-        failures.push({ endpoint, error: new Error("push binding not removed") });
+        failures.push({ endpoint });
       }
     } catch (error) {
       failures.push({ endpoint, error });
@@ -1147,16 +887,7 @@ export async function disableCurrentPushSubscription(
     rememberPushEndpoint(null);
     applyPendingCleanupFlushResult(endpoints, []);
     if (unsubscribeFailed) {
-      const lingering = await getCurrentPushSubscription();
-      if (cancelled()) {
-        return;
-      }
-      // Only touch the endpoint we started with — never a later session's sub.
-      if (lingering && liveEndpoint && lingering.endpoint === liveEndpoint) {
-        // Server unbound but browser sub remains — surface so Settings does
-        // not claim disabled while still showing enabled.
-        await lingering.unsubscribe();
-      }
+      if (liveEndpoint && !cancelled()) await unsubscribeLocalPushSubscription(liveEndpoint);
     }
     return;
   }
@@ -1167,7 +898,13 @@ export async function disableCurrentPushSubscription(
     endpoints,
     failures.map((failure) => failure.endpoint),
   );
-  throw failures[0]?.error;
+  if (unsubscribeFailed) throw new Error("Push unsubscribe failed");
+  const failure = failures.find(
+    (item) =>
+      item.error !== undefined &&
+      (item.endpoint === liveEndpoint || item.endpoint === activeEndpoint),
+  );
+  if (failure) throw failure.error;
 }
 
 function disableRemovedOwnedBinding(outcome: unknown) {

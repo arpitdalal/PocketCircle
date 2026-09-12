@@ -3,6 +3,7 @@
  * tests (issue #381). Stub only at the true boundary — never mock our hooks.
  */
 import { type Mock, vi } from "vitest";
+import { deferredValue } from "~/lib/deferred.js";
 
 type PushSubFake = {
   endpoint: string;
@@ -13,6 +14,7 @@ type PushSubFake = {
 
 type InstallPushEnvOptions = {
   secureContext?: boolean;
+  locks?: boolean;
   permission?: NotificationPermission;
   serviceWorker?: boolean;
   pushManager?: boolean;
@@ -49,7 +51,7 @@ function trackSubscription(
   const previous = sub.unsubscribe.getMockImplementation() ?? (async () => true);
   sub.unsubscribe = vi.fn(async () => {
     const result = await previous();
-    if (getCurrent() === sub) {
+    if (result && getCurrent() === sub) {
       setCurrent(null);
     }
     return result;
@@ -57,7 +59,47 @@ function trackSubscription(
   return sub;
 }
 
+/** Browser boundary model: exclusive locks outlive their callback's pending work. */
+export function installPushLocks() {
+  const held = new Map<string, Promise<void>>();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      async request<T>(
+        name: string,
+        options: { ifAvailable?: boolean; signal?: AbortSignal },
+        callback: (lock: { name: string } | null) => Promise<T>,
+      ) {
+        await Promise.resolve();
+        while (held.has(name)) {
+          if (options.ifAvailable) return callback(null);
+          options.signal?.throwIfAborted();
+          const aborted = deferredValue<void>();
+          const onAbort = () => aborted.reject(options.signal?.reason);
+          options.signal?.addEventListener("abort", onAbort, { once: true });
+          try {
+            await Promise.race([held.get(name), aborted.promise]);
+          } finally {
+            options.signal?.removeEventListener("abort", onAbort);
+          }
+        }
+        options.signal?.throwIfAborted();
+        const released = deferredValue<void>();
+        held.set(name, released.promise);
+        try {
+          return await callback({ name });
+        } finally {
+          held.delete(name);
+          released.resolve();
+        }
+      },
+    },
+  });
+}
+
 export function installPushEnv(options: InstallPushEnvOptions = {}) {
+  if (options.locks !== false) installPushLocks();
+  else Reflect.deleteProperty(navigator, "locks");
   const secureContext = options.secureContext ?? true;
   const permission = options.permission ?? "default";
   const withServiceWorker = options.serviceWorker ?? true;
@@ -165,6 +207,7 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
 }
 
 export function resetPushEnv() {
+  Reflect.deleteProperty(navigator, "locks");
   Reflect.deleteProperty(window, "Notification");
   Reflect.deleteProperty(window, "PushManager");
   Reflect.deleteProperty(navigator, "serviceWorker");
