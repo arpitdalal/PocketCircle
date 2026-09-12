@@ -8,6 +8,7 @@ type PushSubFake = {
   endpoint: string;
   unsubscribe: ReturnType<typeof vi.fn>;
   toJSON: () => { endpoint: string; keys: { p256dh: string; auth: string } };
+  options: { applicationServerKey?: ArrayBuffer };
 };
 
 type InstallPushEnvOptions = {
@@ -26,7 +27,7 @@ const DEFAULT_ENDPOINT = "https://push.example/test-endpoint";
 
 export function makeFakePushSubscription(
   over: Partial<{ endpoint: string; p256dh: string; auth: string }> = {},
-): PushSubFake {
+) {
   const endpoint = over.endpoint ?? DEFAULT_ENDPOINT;
   const p256dh = over.p256dh ?? "p256dh-test";
   const auth = over.auth ?? "auth-test";
@@ -34,6 +35,7 @@ export function makeFakePushSubscription(
     endpoint,
     unsubscribe: vi.fn().mockResolvedValue(true),
     toJSON: () => ({ endpoint, keys: { p256dh, auth } }),
+    options: {},
   };
 }
 
@@ -89,6 +91,9 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
       configurable: true,
       value: {
         register,
+        getRegistration: vi.fn().mockResolvedValue({
+          pushManager: { subscribe, getSubscription },
+        }),
         ready: Promise.resolve({
           pushManager: { subscribe, getSubscription },
         }),

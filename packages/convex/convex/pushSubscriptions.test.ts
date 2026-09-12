@@ -1,6 +1,7 @@
 import { MAX_PUSH_SUBSCRIPTIONS_PER_USER } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { makeUser, seedPersonalCircleOwner } from "../test/seed.js";
@@ -8,22 +9,12 @@ import { api } from "./_generated/api.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
-vi.mock("./auth.js", () => ({
-  getCurrentUserOrNull: mockCurrentUser,
-  requireCurrentUser: async (ctx: unknown) => {
-    const user = await mockCurrentUser(ctx);
-    if (!user) {
-      throw new Error("Not authenticated");
-    }
-    return user;
-  },
-}));
+vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
 
 const modules = import.meta.glob("./**/*.ts");
 
 beforeEach(() => {
-  mockCurrentUser.mockReset();
+  resetMockCurrentUser();
   vi.unstubAllEnvs();
 });
 
@@ -67,7 +58,7 @@ describe("pushSubscriptions", () => {
   it("enable binds a subscription to the current User", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
 
     await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
 
@@ -80,7 +71,7 @@ describe("pushSubscriptions", () => {
   it("rejects structurally invalid subscription material", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
 
     await expect(
       t.mutation(api.pushSubscriptions.enablePushSubscription, {
@@ -102,7 +93,7 @@ describe("pushSubscriptions", () => {
       }),
     );
 
-    mockCurrentUser.mockResolvedValue(bob);
+    signInAs(bob);
     await t.mutation(api.pushSubscriptions.enablePushSubscription, {
       ...VALID,
       p256dh: "p256dh-bob",
@@ -123,7 +114,7 @@ describe("pushSubscriptions", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
 
     await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
     const firstSeen = await t.run(async (ctx) => {
@@ -160,7 +151,7 @@ describe("pushSubscriptions", () => {
       }),
     );
 
-    mockCurrentUser.mockResolvedValue(bob);
+    signInAs(bob);
     vi.setSystemTime(new Date("2026-03-02T00:00:00Z"));
     await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
       subscription: VALID,
@@ -177,7 +168,7 @@ describe("pushSubscriptions", () => {
   it("reconcile with null does not wipe other device subscriptions", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
     await t.run((ctx) =>
       seedPushSubscription(ctx, {
         userId: owner._id,
@@ -196,7 +187,7 @@ describe("pushSubscriptions", () => {
   it("prunes invalid subscriptions before enforcing the ten-subscription cap", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
 
     await t.run(async (ctx) => {
       await seedPushSubscription(ctx, {
@@ -230,7 +221,7 @@ describe("pushSubscriptions", () => {
   it("replaces least recently seen when at cap after prune", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
-    mockCurrentUser.mockResolvedValue(owner);
+    signInAs(owner);
 
     await t.run(async (ctx) => {
       for (let i = 0; i < MAX_PUSH_SUBSCRIPTIONS_PER_USER; i += 1) {
@@ -267,7 +258,7 @@ describe("pushSubscriptions", () => {
       });
     });
 
-    mockCurrentUser.mockResolvedValue(alice);
+    signInAs(alice);
     await t.mutation(api.pushSubscriptions.disablePushSubscription, {
       endpoint: VALID.endpoint,
     });

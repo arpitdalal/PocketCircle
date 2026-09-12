@@ -15,7 +15,7 @@ export interface PushSubscriptionsState {
   reconcilePushSubscription?: Mock;
 }
 
-export function pushSubscriptionsDouble(state: PushSubscriptionsState): EntityDouble {
+export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
   const {
     pushVapidPublicKey,
     enablePushSubscription,
@@ -32,5 +32,5 @@ export function pushSubscriptionsDouble(state: PushSubscriptionsState): EntityDo
       [getFunctionName(api.pushSubscriptions.disablePushSubscription)]: disablePushSubscription,
       [getFunctionName(api.pushSubscriptions.reconcilePushSubscription)]: reconcilePushSubscription,
     },
-  };
+  } satisfies EntityDouble;
 }

@@ -166,6 +166,34 @@ describe("AccountMenu", () => {
   it("clears local Push subscription and binding before signOut", async () => {
     const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
     const sub = makeFakePushSubscription();
+    let releaseCleanup = () => {};
+    sub.unsubscribe.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseCleanup = () => resolve(true);
+        }),
+    );
+    installPushEnv({ permission: "granted", subscription: sub });
+    configureConvex({ disablePushSubscription });
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+    expect(signOutMock).not.toHaveBeenCalled();
+    releaseCleanup();
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+      expect(signOutMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("still signs out when Push cleanup fails", async () => {
+    const disablePushSubscription = vi.fn();
+    const sub = makeFakePushSubscription();
+    sub.unsubscribe.mockRejectedValueOnce(new Error("sw down"));
     installPushEnv({ permission: "granted", subscription: sub });
     configureConvex({ disablePushSubscription });
     const u = userEvent.setup();
@@ -177,22 +205,6 @@ describe("AccountMenu", () => {
     await waitFor(() => {
       expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
       expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
-      expect(signOutMock).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("still signs out when Push cleanup fails", async () => {
-    const sub = makeFakePushSubscription();
-    sub.unsubscribe.mockRejectedValueOnce(new Error("sw down"));
-    installPushEnv({ permission: "granted", subscription: sub });
-    configureConvex({ disablePushSubscription: vi.fn() });
-    const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
-    await openAccountMenu(u);
-    await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
-    await waitFor(() => {
       expect(signOutMock).toHaveBeenCalledTimes(1);
     });
   });

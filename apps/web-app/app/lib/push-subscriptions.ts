@@ -36,11 +36,12 @@ function hasPushApis() {
 
 /** Sync capability for Settings (subscription presence is async). */
 export function resolvePushNotificationsCapability() {
-  if (!hasPushApis()) {
-    return "unsupported" as const;
-  }
+  // iOS Safari tabs lack Push APIs until installed — check before capability probe.
   if (isIosDevice() && !isInstalledWebApp()) {
     return "needs_install" as const;
+  }
+  if (!hasPushApis()) {
+    return "unsupported" as const;
   }
   if (Notification.permission === "denied") {
     return "blocked" as const;
@@ -66,14 +67,37 @@ export async function registerPushServiceWorker() {
   if (!canRegisterPushServiceWorker()) {
     return null;
   }
-  return await navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL);
+  try {
+    return await navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL);
+  } catch {
+    return null;
+  }
 }
 
-export async function getCurrentPushSubscription() {
+/**
+ * Prefer an existing registration over `ready` (which can hang forever when
+ * registration never succeeds). Never log endpoints.
+ */
+async function resolvePushRegistration() {
   if (!hasPushApis()) {
     return null;
   }
-  const registration = await navigator.serviceWorker.ready;
+  try {
+    const existing = await navigator.serviceWorker.getRegistration(PUSH_SERVICE_WORKER_URL);
+    if (existing) {
+      return existing;
+    }
+  } catch {
+    // getRegistration can throw in locked-down contexts.
+  }
+  return await registerPushServiceWorker();
+}
+
+export async function getCurrentPushSubscription() {
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    return null;
+  }
   return await registration.pushManager.getSubscription();
 }
 
@@ -88,6 +112,28 @@ function urlBase64ToUint8Array(base64String: string) {
   return output;
 }
 
+function uint8ArraysEqual(a: Uint8Array, b: Uint8Array) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function applicationServerKeyMatches(subscription: PushSubscription, publicKey: string) {
+  const existing = subscription.options.applicationServerKey;
+  if (existing == null) {
+    return false;
+  }
+  const actual =
+    existing instanceof ArrayBuffer ? new Uint8Array(existing) : new Uint8Array(existing);
+  return uint8ArraysEqual(actual, urlBase64ToUint8Array(publicKey));
+}
+
 function readSubscriptionKeys(subscription: PushSubscription) {
   const json = subscription.toJSON();
   const p256dh = json.keys?.p256dh;
@@ -96,6 +142,23 @@ function readSubscriptionKeys(subscription: PushSubscription) {
     throw new Error("Push subscription missing encryption keys");
   }
   return { endpoint: subscription.endpoint, p256dh, auth };
+}
+
+async function subscribeWithVapid(
+  registration: ServiceWorkerRegistration,
+  vapid: { publicKey: string; keyId: string },
+) {
+  const existing = await registration.pushManager.getSubscription();
+  if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
+    return existing;
+  }
+  if (existing) {
+    await existing.unsubscribe();
+  }
+  return await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
+  });
 }
 
 /**
@@ -110,15 +173,11 @@ export async function subscribeForPushNotifications(vapid: { publicKey: string; 
   if (permission !== "granted") {
     throw new Error("Notification permission was not granted");
   }
-  await registerPushServiceWorker();
-  const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription =
-    existing ??
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
-    }));
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    throw new Error("Push service worker is not available");
+  }
+  const subscription = await subscribeWithVapid(registration, vapid);
   const keys = readSubscriptionKeys(subscription);
   return { ...keys, vapidKeyId: vapid.keyId };
 }
@@ -134,30 +193,49 @@ export async function unsubscribeLocalPushSubscription() {
   return endpoint;
 }
 
-export async function readPushSubscriptionMaterial(vapidKeyId: string) {
+/**
+ * Startup/focus material. If the browser sub is bound to a different VAPID
+ * public key (rotation), unsubscribe and return null so the User must re-enable.
+ */
+export async function readPushSubscriptionMaterial(vapid: { publicKey: string; keyId: string }) {
   const subscription = await getCurrentPushSubscription();
   if (!subscription) {
     return null;
   }
-  return { ...readSubscriptionKeys(subscription), vapidKeyId };
+  if (!applicationServerKeyMatches(subscription, vapid.publicKey)) {
+    try {
+      await subscription.unsubscribe();
+    } catch {
+      // Fall through to null — reconcile must not relabel with the new keyId.
+    }
+    return null;
+  }
+  return { ...readSubscriptionKeys(subscription), vapidKeyId: vapid.keyId };
 }
 
 /**
  * Sign-out / disable helper: unsubscribe locally then remove User binding.
- * Failures must not block sign-out. Never logs endpoint material.
+ * Failures must not block sign-out. Server unbind runs even when local
+ * unsubscribe rejects (endpoint already known). Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
   try {
-    const endpoint = await unsubscribeLocalPushSubscription();
-    if (!endpoint) {
+    const subscription = await getCurrentPushSubscription();
+    if (!subscription) {
       return;
+    }
+    const endpoint = subscription.endpoint;
+    try {
+      await subscription.unsubscribe();
+    } catch {
+      // Still clear the server binding below.
     }
     try {
       await disable({ endpoint });
     } catch {
-      // Binding clear is best-effort; local unsubscribe already happened.
+      // Binding clear is best-effort; local path already attempted.
     }
   } catch {
     // Never block sign-out on Push cleanup.

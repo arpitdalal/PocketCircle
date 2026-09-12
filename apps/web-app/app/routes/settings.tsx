@@ -361,14 +361,27 @@ function NotificationsSettingsCard() {
 
   useEffect(() => {
     let cancelled = false;
-    void resolvePushNotificationsUiState().then((state) => {
-      if (!cancelled) {
-        setUiState(state);
-        setReady(true);
+    const refresh = () => {
+      void resolvePushNotificationsUiState().then((state) => {
+        if (!cancelled) {
+          setUiState(state);
+          setReady(true);
+        }
+      });
+    };
+    refresh();
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
       }
-    });
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

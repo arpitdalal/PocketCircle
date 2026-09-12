@@ -8,7 +8,10 @@ import {
 } from "../push-subscriptions.js";
 
 export function usePushVapidPublicKey() {
-  return useQuery(api.pushSubscriptions.getPushVapidPublicKey, MOCKS ? "skip" : {});
+  const vapid = useQuery(api.pushSubscriptions.getPushVapidPublicKey, MOCKS ? "skip" : {});
+  // `skip` yields undefined; Settings treats undefined as still-loading. MOCKS
+  // has no Push SW — surface "unsupported" via null once the card can render.
+  return MOCKS ? null : vapid;
 }
 
 export function useEnablePushSubscription() {
@@ -45,7 +48,13 @@ export function useEnableNotifications() {
       throw new Error("Push notifications are not configured");
     }
     const material = await subscribeForPushNotifications(vapid);
-    await enable(material);
+    try {
+      await enable(material);
+    } catch (error) {
+      // Roll back local sub so the switch does not look enabled without a binding.
+      await unsubscribeLocalPushSubscription().catch(() => undefined);
+      throw error;
+    }
   };
 }
 

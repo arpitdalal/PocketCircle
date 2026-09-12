@@ -50,6 +50,18 @@ describe("resolvePushNotificationsCapability", () => {
     expect(resolvePushNotificationsCapability()).toBe("needs_install");
   });
 
+  it("returns needs_install on iOS even when Push APIs are absent", () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    installPushEnv({ serviceWorker: false, pushManager: false, notification: false });
+    expect(resolvePushNotificationsCapability()).toBe("needs_install");
+  });
+
   it("returns blocked when permission is denied", () => {
     installPushEnv({ permission: "denied" });
     expect(resolvePushNotificationsCapability()).toBe("blocked");

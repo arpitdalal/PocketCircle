@@ -18,7 +18,7 @@ export function PushSubscriptionLifecycle() {
     if (!vapid) {
       return;
     }
-    const material = await readPushSubscriptionMaterial(vapid.keyId);
+    const material = await readPushSubscriptionMaterial(vapid);
     await reconcile({ subscription: material });
   });
 
