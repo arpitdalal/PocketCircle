@@ -911,6 +911,8 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
  * stalled mutations must not block sign-out. If live `getSubscription()` fails,
  * falls back to the last remembered endpoint so server unbind still runs.
  * After the deadline, local side effects stop so a later session is untouched.
+ * Returns a release() the caller must run after `signOut()` settles so cancel
+ * spans session invalidation (cross-tab enable during the network round-trip).
  * Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
@@ -953,8 +955,16 @@ export async function clearLocalPushSubscriptionAndBinding(
     }
   } finally {
     pushSignOutCleanupInProgress = false;
+  }
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
     unmarkPushSignOutCleanup(cleanupId);
-    // Keep cancel while any tab still cleans up or still has an active enable.
+    // Keep cancel while any tab still guards sign-out or still has an active enable.
     if (
       pushEnableInFlight <= 0 &&
       !anyActiveCrossTabPushEnableLease() &&
@@ -962,7 +972,7 @@ export async function clearLocalPushSubscriptionAndBinding(
     ) {
       clearPushEnableCancel();
     }
-  }
+  };
 }
 
 /**

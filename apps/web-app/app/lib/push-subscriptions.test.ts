@@ -325,7 +325,8 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
     const done = clearLocalPushSubscriptionAndBinding(disable);
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(done).resolves.toBeUndefined();
+    const release = await done;
+    release();
     vi.useRealTimers();
   });
 
@@ -345,7 +346,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
     const done = clearLocalPushSubscriptionAndBinding(disable);
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(done).resolves.toBeUndefined();
+    const release = await done;
 
     // Later session enables Push before the stalled disable settles.
     const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
@@ -355,6 +356,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     releaseDisable();
     await vi.advanceTimersByTimeAsync(0);
     await Promise.resolve();
+    release();
 
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
       "https://push.example/next",
@@ -372,7 +374,8 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     rememberPushEndpoint("https://push.example/remembered");
     const disable = vi.fn().mockResolvedValue({ removed: true });
 
-    await clearLocalPushSubscriptionAndBinding(disable);
+    const release = await clearLocalPushSubscriptionAndBinding(disable);
+    release();
 
     expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/remembered" });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
@@ -398,9 +401,12 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     endPushEnable();
 
     endPushEnable();
-    await done;
+    const release = await done;
 
     expect(disable).toHaveBeenCalled();
+    // Cancel stays until caller releases after signOut settles.
+    expect(isPushEnableCancelRequested()).toBe(true);
+    release();
     expect(isPushEnableCancelRequested()).toBe(false);
   });
 
@@ -420,7 +426,8 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     expect(disable).not.toHaveBeenCalled();
 
     window.localStorage.removeItem("pocketcircle.pushEnableLease.other-tab");
-    await done;
+    const release = await done;
+    release();
 
     expect(disable).toHaveBeenCalled();
   });
@@ -481,7 +488,8 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(disable).toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1_500);
-    await expect(done).resolves.toBeUndefined();
+    const release = await done;
+    release();
     vi.useRealTimers();
   });
 
@@ -497,7 +505,8 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     const done = clearLocalPushSubscriptionAndBinding(disable);
     // Wait budget is 4s (5s - 1s reserved); advance past it while lease stays active.
     await vi.advanceTimersByTimeAsync(4_100);
-    await expect(done).resolves.toBeUndefined();
+    const release = await done;
+    release();
     expect(disable).toHaveBeenCalled();
     vi.useRealTimers();
   });

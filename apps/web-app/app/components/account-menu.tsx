@@ -58,17 +58,20 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
   // Either outcome unmounts this control, so the pending state never needs resetting and
   // the re-entry guard blocks a double-click while the request is in flight.
   // Clear local Push + User binding before signOut (#381); failures must not block.
+  // Keep enable-cancel until signOut settles so another tab cannot bind mid-logout.
   const handleSignOut = async () => {
     if (isSigningOut) {
       return;
     }
     setIsSigningOut(true);
-    await clearPushOnSignOut();
+    const releasePushSignOutGuard = await clearPushOnSignOut();
     try {
       await signOut();
     } catch (error) {
       console.error("signOut failed", error);
       void navigate("/signin", { replace: true });
+    } finally {
+      releasePushSignOutGuard();
     }
   };
 

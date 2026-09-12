@@ -234,6 +234,38 @@ describe("AccountMenu", () => {
     releaseSignOut();
   });
 
+  it("holds Push enable cancel until signOut settles", async () => {
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    configureConvex({ disablePushSubscription });
+    let releaseSignOut = () => {};
+    signOutMock.mockImplementationOnce(
+      () =>
+        new Promise<{ data: { success: true }; error: null }>((resolve) => {
+          releaseSignOut = () => resolve({ data: { success: true }, error: null });
+        }),
+    );
+    const u = userEvent.setup();
+    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+      initialEntries: ["/"],
+    });
+    await openAccountMenu(u);
+    await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledTimes(1);
+    });
+    expect(window.localStorage.getItem("pocketcircle.pushEnableCancel")).not.toBeNull();
+
+    releaseSignOut();
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.pushEnableCancel")).toBeNull();
+    });
+  });
+
   it("logs and still routes to /signin when sign-out fails", async () => {
     const u = userEvent.setup();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
