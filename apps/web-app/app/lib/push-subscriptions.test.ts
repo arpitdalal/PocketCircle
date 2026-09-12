@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canRegisterPushServiceWorker,
+  disableCurrentPushSubscription,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
   registerPushServiceWorker,
@@ -79,6 +80,30 @@ describe("resolvePushNotificationsCapability", () => {
     expect(resolvePushNotificationsCapability()).toBe("needs_install");
   });
 
+  it("returns unsupported on pre-16.4 iOS instead of needs_install", () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_3 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    installPushEnv({ serviceWorker: false, pushManager: false, notification: false });
+    expect(resolvePushNotificationsCapability()).toBe("unsupported");
+  });
+
+  it("returns needs_install on iOS 16.4", () => {
+    setNavigatorInstallProps({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X)",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    installPushEnv({ permission: "default" });
+    expect(resolvePushNotificationsCapability()).toBe("needs_install");
+  });
+
   it("returns blocked when permission is denied", () => {
     installPushEnv({ permission: "denied" });
     expect(resolvePushNotificationsCapability()).toBe("blocked");
@@ -139,5 +164,21 @@ describe("readPushSubscriptionMaterial", () => {
         vapidKeyId: "primary",
       },
     });
+  });
+});
+
+describe("disableCurrentPushSubscription", () => {
+  it("unbinds both live and remembered endpoints after a browser refresh", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint("https://push.example/old");
+    const disable = vi.fn().mockResolvedValue(undefined);
+
+    await disableCurrentPushSubscription(disable);
+
+    expect(sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/new" });
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 });

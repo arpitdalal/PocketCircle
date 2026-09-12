@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import {
   useDisablePushSubscription,
   usePushVapidPublicKey,
@@ -23,6 +23,8 @@ export function PushSubscriptionLifecycle() {
   const reconcile = useReconcilePushSubscription();
   const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
+  /** Serialize focus+visibility overlap so a second replace cannot orphan a successful first. */
+  const reconcileChain = useRef(Promise.resolve());
 
   const dropOrphanLocal = useEffectEvent(async (expectedEndpoint: string) => {
     await unsubscribeLocalPushSubscription(expectedEndpoint).catch(() => undefined);
@@ -54,12 +56,20 @@ export function PushSubscriptionLifecycle() {
           previousEndpoint: result.previousEndpoint,
           ...result.subscription,
         });
-        if (!outcome?.bound) {
-          await dropOrphanLocal(result.subscription.endpoint);
+        if (outcome?.bound) {
+          rememberPushEndpoint(result.subscription.endpoint);
+          notifyPushSubscriptionChanged();
           return;
         }
-        rememberPushEndpoint(result.subscription.endpoint);
-        notifyPushSubscriptionChanged();
+        // Parallel run may have already migrated — confirm via ordinary reconcile
+        // before treating the live endpoint as an orphan.
+        const confirmed = await reconcile({ subscription: result.subscription });
+        if (confirmed?.bound) {
+          rememberPushEndpoint(result.subscription.endpoint);
+          notifyPushSubscriptionChanged();
+          return;
+        }
+        await dropOrphanLocal(result.subscription.endpoint);
         return;
       }
       const outcome = await reconcile({ subscription: result.subscription });
@@ -72,17 +82,23 @@ export function PushSubscriptionLifecycle() {
     }
   });
 
+  const enqueueReconcile = useEffectEvent(() => {
+    reconcileChain.current = reconcileChain.current
+      .then(() => runReconcile())
+      .catch(() => undefined);
+  });
+
   useEffect(() => {
     if (MOCKS) {
       return;
     }
     void registerPushServiceWorker();
     const onFocus = () => {
-      void runReconcile();
+      enqueueReconcile();
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        void runReconcile();
+        enqueueReconcile();
       }
     };
     window.addEventListener("focus", onFocus);
@@ -97,7 +113,7 @@ export function PushSubscriptionLifecycle() {
     if (MOCKS || !vapid) {
       return;
     }
-    void runReconcile();
+    enqueueReconcile();
   }, [vapid]);
 
   return null;

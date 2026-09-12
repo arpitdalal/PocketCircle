@@ -72,8 +72,9 @@ function hasPushApis() {
 /** Sync capability for Settings (subscription presence is async). */
 export function resolvePushNotificationsCapability() {
   // iOS Safari tabs lack Push APIs until installed — check before capability probe.
+  // Web Push requires iOS/iPadOS 16.4+; older versions stay unsupported.
   if (isIosDevice() && !isInstalledWebApp()) {
-    return "needs_install" as const;
+    return iosSupportsWebPush() ? ("needs_install" as const) : ("unsupported" as const);
   }
   if (!hasPushApis()) {
     return "unsupported" as const;
@@ -82,6 +83,29 @@ export function resolvePushNotificationsCapability() {
     return "blocked" as const;
   }
   return "default" as const;
+}
+
+/**
+ * iOS/iPadOS 16.4+ supports Web Push in Home Screen apps. Unparseable UA
+ * (e.g. iPad desktop-class Safari) is treated as capable — those devices are
+ * recent enough; older releases always expose an OS version token.
+ */
+export function iosSupportsWebPush(userAgent = navigator.userAgent) {
+  const version = iosVersionFromUserAgent(userAgent);
+  if (!version) {
+    return true;
+  }
+  return version.major > 16 || (version.major === 16 && version.minor >= 4);
+}
+
+export function iosVersionFromUserAgent(userAgent: string) {
+  const match =
+    /(?:iPhone|iPad|iPod).*?OS (\d+)_(\d+)/i.exec(userAgent) ??
+    /CPU(?: iPhone)? OS (\d+)_(\d+)/i.exec(userAgent);
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+  return { major: Number(match[1]), minor: Number(match[2]) };
 }
 
 export async function resolvePushNotificationsUiState() {
@@ -304,6 +328,8 @@ export async function clearLocalPushSubscriptionAndBinding(
 /**
  * Settings disable: same steps as sign-out cleanup, but surfaces server unbind
  * failures so the UI can retry instead of claiming success with a live binding.
+ * Unbinds both the live subscription and any distinct remembered endpoint —
+ * browser refresh can leave the server on A while the live sub is already B.
  */
 export async function disableCurrentPushSubscription(
   disable: (args: { endpoint: string }) => Promise<unknown>,
@@ -317,17 +343,31 @@ export async function disableCurrentPushSubscription(
   } catch {
     // Transient lookup failure — fall back to remembered endpoint below.
   }
-  const endpoint = subscription?.endpoint ?? recalledPushEndpoint();
-  if (!endpoint) {
+  const liveEndpoint = subscription?.endpoint ?? null;
+  const rememberedEndpoint = recalledPushEndpoint();
+  const endpoints = [
+    ...new Set([liveEndpoint, rememberedEndpoint].filter((value) => value !== null)),
+  ];
+  if (endpoints.length === 0) {
     return;
   }
   if (subscription) {
     try {
       await subscription.unsubscribe();
     } catch {
-      // Still clear the server binding below.
+      // Still clear server bindings below.
     }
   }
-  await disable({ endpoint });
+  const failures: unknown[] = [];
+  for (const endpoint of endpoints) {
+    try {
+      await disable({ endpoint });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   rememberPushEndpoint(null);
+  if (failures[0] !== undefined) {
+    throw failures[0];
+  }
 }
