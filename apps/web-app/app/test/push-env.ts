@@ -8,7 +8,7 @@ type PushSubFake = {
   endpoint: string;
   unsubscribe: ReturnType<typeof vi.fn>;
   toJSON: () => { endpoint: string; keys: { p256dh: string; auth: string } };
-  options: { applicationServerKey?: ArrayBuffer };
+  options: { applicationServerKey?: ArrayBuffer | ArrayBufferView };
 };
 
 type InstallPushEnvOptions = {

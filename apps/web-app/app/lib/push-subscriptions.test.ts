@@ -7,6 +7,7 @@ import {
   registerPushServiceWorker,
   rememberPushEndpoint,
   resolvePushNotificationsCapability,
+  vapidPublicKeyBytes,
 } from "~/lib/push-subscriptions.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
 import {
@@ -17,17 +18,6 @@ import {
 
 const VAPID_PUBLIC_KEY = "AQID";
 const VAPID = { publicKey: VAPID_PUBLIC_KEY, keyId: "primary" };
-
-function applicationServerKeyFor(publicKey: string) {
-  const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
-  const base64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) {
-    bytes[i] = raw.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
 
 afterEach(() => {
   resetPushEnv();
@@ -104,6 +94,32 @@ describe("resolvePushNotificationsCapability", () => {
     expect(resolvePushNotificationsCapability()).toBe("needs_install");
   });
 
+  it("parses desktop-class iPadOS Version before promising Push", () => {
+    setNavigatorInstallProps({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.3 Safari/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    installPushEnv({ serviceWorker: false, pushManager: false, notification: false });
+    expect(resolvePushNotificationsCapability()).toBe("unsupported");
+  });
+
+  it("returns needs_install for desktop-class iPadOS 16.4+", () => {
+    setNavigatorInstallProps({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+      standalone: undefined,
+    });
+    installMatchMediaFake(false);
+    installPushEnv({ permission: "default" });
+    expect(resolvePushNotificationsCapability()).toBe("needs_install");
+  });
+
   it("returns blocked when permission is denied", () => {
     installPushEnv({ permission: "denied" });
     expect(resolvePushNotificationsCapability()).toBe("blocked");
@@ -118,7 +134,7 @@ describe("resolvePushNotificationsCapability", () => {
 describe("readPushSubscriptionMaterial", () => {
   it("unsubscribes on VAPID mismatch without resubscribing", async () => {
     const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
-    sub.options = { applicationServerKey: applicationServerKeyFor("BAQE") };
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     const { subscribe } = installPushEnv({ permission: "granted", subscription: sub });
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
@@ -131,7 +147,7 @@ describe("readPushSubscriptionMaterial", () => {
 
   it("reports previousEndpoint when the browser refreshes the endpoint", async () => {
     const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
-    sub.options = { applicationServerKey: applicationServerKeyFor(VAPID_PUBLIC_KEY) };
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://push.example/old");
 
@@ -152,7 +168,7 @@ describe("readPushSubscriptionMaterial", () => {
 
   it("returns matching material without previousEndpoint when unchanged", async () => {
     const sub = makeFakePushSubscription({ endpoint: "https://push.example/same" });
-    sub.options = { applicationServerKey: applicationServerKeyFor(VAPID_PUBLIC_KEY) };
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://push.example/same");
 
@@ -180,5 +196,20 @@ describe("disableCurrentPushSubscription", () => {
     expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/new" });
     expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+  });
+
+  it("retains a remembered endpoint when disable fails", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint("https://push.example/old");
+    const disable = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("server down"));
+
+    await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("server down");
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/old",
+    );
   });
 });

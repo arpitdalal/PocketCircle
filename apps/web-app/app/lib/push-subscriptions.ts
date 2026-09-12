@@ -42,6 +42,21 @@ export function recalledPushEndpoint() {
   }
 }
 
+/** True while Settings enable is mid-flight — lifecycle must not orphan the new sub. */
+let pushEnableInFlight = 0;
+
+export function beginPushEnable() {
+  pushEnableInFlight += 1;
+}
+
+export function endPushEnable() {
+  pushEnableInFlight = Math.max(0, pushEnableInFlight - 1);
+}
+
+export function isPushEnableInFlight() {
+  return pushEnableInFlight > 0;
+}
+
 export type PushNotificationsUiState =
   | "unsupported"
   | "needs_install"
@@ -86,26 +101,31 @@ export function resolvePushNotificationsCapability() {
 }
 
 /**
- * iOS/iPadOS 16.4+ supports Web Push in Home Screen apps. Unparseable UA
- * (e.g. iPad desktop-class Safari) is treated as capable — those devices are
- * recent enough; older releases always expose an OS version token.
+ * iOS/iPadOS 16.4+ supports Web Push in Home Screen apps. Desktop-class iPad
+ * Safari exposes `Version/X.Y` (maps to OS); without any version signal we do
+ * not promise Push.
  */
 export function iosSupportsWebPush(userAgent = navigator.userAgent) {
   const version = iosVersionFromUserAgent(userAgent);
   if (!version) {
-    return true;
+    return false;
   }
   return version.major > 16 || (version.major === 16 && version.minor >= 4);
 }
 
 export function iosVersionFromUserAgent(userAgent: string) {
-  const match =
+  const mobile =
     /(?:iPhone|iPad|iPod).*?OS (\d+)_(\d+)/i.exec(userAgent) ??
     /CPU(?: iPhone)? OS (\d+)_(\d+)/i.exec(userAgent);
-  if (!match?.[1] || !match[2]) {
-    return null;
+  if (mobile?.[1] && mobile[2]) {
+    return { major: Number(mobile[1]), minor: Number(mobile[2]) };
   }
-  return { major: Number(match[1]), minor: Number(match[2]) };
+  // Desktop-class iPadOS: Mac-like UA with Safari Version/X.Y ≈ OS major.minor.
+  const safari = /Version\/(\d+)\.(\d+)/i.exec(userAgent);
+  if (safari?.[1] && safari[2] && /Macintosh|Mac OS X/i.test(userAgent)) {
+    return { major: Number(safari[1]), minor: Number(safari[2]) };
+  }
+  return null;
 }
 
 export async function resolvePushNotificationsUiState() {
@@ -173,6 +193,11 @@ function urlBase64ToUint8Array(base64String: string) {
     output[i] = raw.charCodeAt(i);
   }
   return output;
+}
+
+/** Test/fixture helper — same decoder production uses for VAPID public keys. */
+export function vapidPublicKeyBytes(publicKey: string) {
+  return urlBase64ToUint8Array(publicKey);
 }
 
 function uint8ArraysEqual(a: Uint8Array, b: Uint8Array) {
@@ -358,16 +383,19 @@ export async function disableCurrentPushSubscription(
       // Still clear server bindings below.
     }
   }
-  const failures: unknown[] = [];
+  const failures: { endpoint: string; error: unknown }[] = [];
   for (const endpoint of endpoints) {
     try {
       await disable({ endpoint });
     } catch (error) {
-      failures.push(error);
+      failures.push({ endpoint, error });
     }
   }
-  rememberPushEndpoint(null);
-  if (failures[0] !== undefined) {
-    throw failures[0];
+  if (failures.length === 0) {
+    rememberPushEndpoint(null);
+    return;
   }
+  // Keep a failed endpoint remembered so Settings can retry unbind.
+  rememberPushEndpoint(failures[0]?.endpoint ?? null);
+  throw failures[0]?.error;
 }

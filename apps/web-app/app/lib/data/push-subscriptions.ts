@@ -3,8 +3,10 @@ import { useMutation, useQuery } from "convex/react";
 import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
+  beginPushEnable,
   clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
+  endPushEnable,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
 } from "../push-subscriptions.js";
@@ -58,20 +60,25 @@ export function useEnableNotifications() {
     if (!vapid) {
       throw new Error("Push notifications are not configured");
     }
-    const material = await subscribeForPushNotifications(vapid);
+    beginPushEnable();
     try {
-      await enable(material);
-      track("notifications_enabled", {});
-    } catch (error) {
-      // Ambiguous transport failures: clear server binding for this endpoint
-      // (covers committed-but-lost-response) then drop the local subscription.
+      const material = await subscribeForPushNotifications(vapid);
       try {
-        await disable({ endpoint: material.endpoint });
-      } catch {
-        // Best-effort compensation.
+        await enable(material);
+        track("notifications_enabled", {});
+      } catch (error) {
+        // Ambiguous transport failures: clear server binding for this endpoint
+        // (covers committed-but-lost-response) then drop the local subscription.
+        try {
+          await disable({ endpoint: material.endpoint });
+        } catch {
+          // Best-effort compensation.
+        }
+        await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
+        throw error;
       }
-      await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
-      throw error;
+    } finally {
+      endPushEnable();
     }
   };
 }

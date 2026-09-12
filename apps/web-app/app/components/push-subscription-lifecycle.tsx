@@ -7,8 +7,10 @@ import {
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
+  isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
+  recalledPushEndpoint,
   registerPushServiceWorker,
   rememberPushEndpoint,
   unsubscribeLocalPushSubscription,
@@ -27,9 +29,24 @@ export function PushSubscriptionLifecycle() {
   const reconcileChain = useRef(Promise.resolve());
 
   const dropOrphanLocal = useEffectEvent(async (expectedEndpoint: string) => {
+    if (isPushEnableInFlight()) {
+      return;
+    }
     await unsubscribeLocalPushSubscription(expectedEndpoint).catch(() => undefined);
     rememberPushEndpoint(null);
     notifyPushSubscriptionChanged();
+  });
+
+  const disableDistinctEndpoints = useEffectEvent(async (primary: string) => {
+    const remembered = recalledPushEndpoint();
+    const endpoints = [...new Set([primary, remembered].filter((value) => value !== null))];
+    for (const endpoint of endpoints) {
+      try {
+        await disable({ endpoint });
+      } catch {
+        // Best-effort — may no-op if another User owns the row.
+      }
+    }
   });
 
   const runReconcile = useEffectEvent(async () => {
@@ -39,11 +56,7 @@ export function PushSubscriptionLifecycle() {
     try {
       const result = await readPushSubscriptionMaterial(vapid);
       if (result.unboundEndpoint) {
-        try {
-          await disable({ endpoint: result.unboundEndpoint });
-        } catch {
-          // Best-effort — may no-op if another User owns the row.
-        }
+        await disableDistinctEndpoints(result.unboundEndpoint);
         rememberPushEndpoint(null);
         notifyPushSubscriptionChanged();
         return;
