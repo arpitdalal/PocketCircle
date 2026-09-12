@@ -164,7 +164,7 @@ describe("AccountMenu", () => {
   });
 
   it("clears local Push subscription and binding before signOut", async () => {
-    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     const sub = makeFakePushSubscription();
     let releaseCleanup = () => {};
     sub.unsubscribe.mockImplementationOnce(
@@ -191,7 +191,7 @@ describe("AccountMenu", () => {
   });
 
   it("still signs out when Push cleanup fails", async () => {
-    const disablePushSubscription = vi.fn();
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     const sub = makeFakePushSubscription();
     sub.unsubscribe.mockRejectedValueOnce(new Error("sw down"));
     installPushEnv({ permission: "granted", subscription: sub });

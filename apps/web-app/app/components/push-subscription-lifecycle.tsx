@@ -11,7 +11,6 @@ import {
   isPushEnableInFlight,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
-  recalledPushEndpoints,
   registerPushServiceWorker,
   rememberPushEndpoint,
   rememberPushEndpoints,
@@ -68,16 +67,27 @@ export function PushSubscriptionLifecycle() {
     },
   );
 
-  const disableDistinctEndpoints = useEffectEvent(async (primary: string, extra: string[] = []) => {
-    const endpoints = [
-      ...new Set(
-        [primary, ...extra, ...recalledPushEndpoints()].filter((value) => value.length > 0),
-      ),
-    ];
+  const disableCapturedEndpoints = useEffectEvent(async (endpoints: string[]) => {
+    // Use only the caller's snapshot — never re-read storage mid-cleanup
+    // (another tab may have enabled and remembered a new endpoint).
+    if (isPushEnableInFlight()) {
+      return [...new Set(endpoints.filter((value) => value.length > 0))];
+    }
+    const unique = [...new Set(endpoints.filter((value) => value.length > 0))];
     const failures: string[] = [];
-    for (const endpoint of endpoints) {
+    for (const endpoint of unique) {
       try {
-        await disable({ endpoint });
+        const outcome = await disable({ endpoint });
+        if (
+          !(
+            typeof outcome === "object" &&
+            outcome !== null &&
+            "removed" in outcome &&
+            outcome.removed === true
+          )
+        ) {
+          failures.push(endpoint);
+        }
       } catch {
         failures.push(endpoint);
       }
@@ -92,10 +102,13 @@ export function PushSubscriptionLifecycle() {
     try {
       const result = await readPushSubscriptionMaterial(vapid);
       if (result.unboundEndpoint) {
-        const failures = await disableDistinctEndpoints(
+        if (isPushEnableInFlight()) {
+          return;
+        }
+        const failures = await disableCapturedEndpoints([
           result.unboundEndpoint,
-          result.unboundEndpoints ?? [],
-        );
+          ...(result.unboundEndpoints ?? []),
+        ]);
         if (failures.length === 0) {
           clearRememberedPushEndpoints();
         } else {

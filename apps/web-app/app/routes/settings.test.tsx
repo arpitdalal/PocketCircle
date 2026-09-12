@@ -530,7 +530,7 @@ describe("Settings notifications", () => {
   });
 
   it("keeps disable available when VAPID is absent but this device is already subscribed", async () => {
-    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     const sub = makeFakePushSubscription();
     installPushEnv({ permission: "granted", subscription: sub });
     configureConvex({
@@ -599,7 +599,7 @@ describe("Settings notifications", () => {
 
   it("disables by unsubscribing without revoking permission", async () => {
     const sub = makeFakePushSubscription();
-    const disablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     installPushEnv({ permission: "granted", subscription: sub });
     configureConvex({
       currentUser: makeCurrentUserView(),

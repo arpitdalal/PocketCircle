@@ -99,6 +99,9 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     options.register ??
     vi.fn().mockResolvedValue({
       pushManager: { subscribe, getSubscription },
+      active: {},
+      installing: null,
+      waiting: null,
     });
 
   Object.defineProperty(window, "isSecureContext", {
@@ -134,9 +137,15 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
         register,
         getRegistration: vi.fn().mockResolvedValue({
           pushManager: { subscribe, getSubscription },
+          active: {},
+          installing: null,
+          waiting: null,
         }),
         ready: Promise.resolve({
           pushManager: { subscribe, getSubscription },
+          active: {},
+          installing: null,
+          waiting: null,
         }),
       },
     });

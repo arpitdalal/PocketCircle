@@ -342,13 +342,17 @@ describe("pushSubscriptions", () => {
     });
 
     signInAs(alice);
-    await t.mutation(api.pushSubscriptions.disablePushSubscription, {
-      endpoint: VALID.endpoint,
-    });
-    // No-op for Bob's endpoint.
-    await t.mutation(api.pushSubscriptions.disablePushSubscription, {
-      endpoint: "https://push.example/bob-only",
-    });
+    expect(
+      await t.mutation(api.pushSubscriptions.disablePushSubscription, {
+        endpoint: VALID.endpoint,
+      }),
+    ).toEqual({ removed: true });
+    // Foreign endpoint — do not clear caller's pending retry handle.
+    expect(
+      await t.mutation(api.pushSubscriptions.disablePushSubscription, {
+        endpoint: "https://push.example/bob-only",
+      }),
+    ).toEqual({ removed: false });
 
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(0);

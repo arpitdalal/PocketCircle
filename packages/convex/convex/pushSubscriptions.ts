@@ -56,10 +56,16 @@ export const disablePushSubscription = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const existing = await findByEndpoint(ctx, args.endpoint);
-    if (!existing || existing.userId !== user._id) {
-      return;
+    if (!existing) {
+      // Already gone — safe to drop local pending retry.
+      return { removed: true };
+    }
+    if (existing.userId !== user._id) {
+      // Another User owns this endpoint — keep the caller's pending handle.
+      return { removed: false };
     }
     await ctx.db.delete(existing._id);
+    return { removed: true };
   },
 });
 

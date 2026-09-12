@@ -154,6 +154,7 @@ describe("readPushSubscriptionMaterial", () => {
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
       unboundEndpoint: "https://push.example/old",
+      unboundEndpoints: ["https://push.example/old"],
     });
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
     expect(subscribe).not.toHaveBeenCalled();
@@ -335,7 +336,7 @@ describe("disableCurrentPushSubscription", () => {
     const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://push.example/old");
-    const disable = vi.fn().mockResolvedValue(undefined);
+    const disable = vi.fn().mockResolvedValue({ removed: true });
 
     await disableCurrentPushSubscription(disable);
 
@@ -351,12 +352,25 @@ describe("disableCurrentPushSubscription", () => {
     rememberPushEndpoint("https://push.example/old");
     const disable = vi
       .fn()
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ removed: true })
       .mockRejectedValueOnce(new Error("server down"));
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("server down");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
     expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBe("https://push.example/old");
+  });
+
+  it("keeps pending cleanup when disable does not remove a foreign binding", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+    rememberPushEndpoints(["https://push.example/alice-stale"]);
+    const disable = vi.fn().mockResolvedValue({ removed: false });
+
+    await expect(disableCurrentPushSubscription(disable)).rejects.toThrow(
+      "push binding not removed",
+    );
+    expect(window.localStorage.getItem(PENDING_PUSH_CLEANUP_KEY)).toBe(
+      "https://push.example/alice-stale",
+    );
   });
 
   it("retains every endpoint whose disable failed", async () => {

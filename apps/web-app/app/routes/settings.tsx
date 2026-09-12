@@ -1,5 +1,5 @@
 import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { href, Link } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
@@ -359,51 +359,55 @@ function NotificationsSettingsCard() {
   const [ready, setReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshGeneration = useRef(0);
+  const refreshRunner = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
-    let cancelled = false;
-    let generation = 0;
     const refresh = () => {
-      const requestId = ++generation;
-      void resolvePushNotificationsUiState()
+      const requestId = ++refreshGeneration.current;
+      return resolvePushNotificationsUiState()
         .then((state) => {
-          if (!cancelled && requestId === generation) {
+          if (requestId === refreshGeneration.current) {
             setUiState(state);
             setReady(true);
           }
         })
         .catch(() => {
-          if (!cancelled && requestId === generation) {
+          if (requestId === refreshGeneration.current) {
             setUiState("unsupported");
             setReady(true);
           }
         });
     };
-    refresh();
-    const onFocus = () => refresh();
+    refreshRunner.current = refresh;
+    void refresh();
+    const onFocus = () => {
+      void refresh();
+    };
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        refresh();
+        void refresh();
       }
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
     return () => {
-      cancelled = true;
+      // Invalidate in-flight refresh so a late resolve cannot overwrite toggle results.
+      refreshGeneration.current += 1;
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
     };
   }, []);
 
+  async function refreshState() {
+    await refreshRunner.current();
+  }
+
   // Null VAPID: hide enable/onboarding, but keep disable if already subscribed.
   const effectiveState =
     vapid === null ? (uiState === "enabled" ? "enabled" : "unsupported") : uiState;
-
-  async function refreshState() {
-    setUiState(await resolvePushNotificationsUiState());
-  }
 
   async function onToggle(nextEnabled: boolean) {
     if (submitting) {
@@ -500,8 +504,8 @@ function NotificationsSettingsCard() {
             Enable notifications on this device
           </FieldLabel>
           <FieldDescription>
-            Delivers PocketCircle alerts while the app is closed. Applies only to this browser or
-            installed app—not your other devices.
+            Registers this device for Push alerts on this browser or installed app—not your other
+            devices. Delivery of Notification Center rows lands in a follow-up.
           </FieldDescription>
         </FieldContent>
       </Field>

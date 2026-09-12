@@ -341,8 +341,47 @@ export async function registerPushServiceWorker() {
 
 /**
  * Prefer an existing registration over `ready` (which can hang forever when
- * registration never succeeds). Never log endpoints.
+ * registration never succeeds). Wait until the worker is active before
+ * returning — `pushManager.subscribe` requires an active worker.
  */
+async function waitForActiveServiceWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs = 10_000,
+) {
+  if (registration.active) {
+    return registration;
+  }
+  const candidate = registration.installing ?? registration.waiting;
+  if (!candidate) {
+    return null;
+  }
+  try {
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        const onStateChange = () => {
+          if (registration.active || candidate.state === "activated") {
+            candidate.removeEventListener("statechange", onStateChange);
+            resolve();
+            return;
+          }
+          if (candidate.state === "redundant") {
+            candidate.removeEventListener("statechange", onStateChange);
+            reject(new Error("service worker redundant"));
+          }
+        };
+        candidate.addEventListener("statechange", onStateChange);
+        onStateChange();
+      }),
+      new Promise<void>((_, reject) => {
+        window.setTimeout(() => reject(new Error("service worker activate timeout")), timeoutMs);
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+  return registration.active ? registration : null;
+}
+
 async function resolvePushRegistration() {
   if (!hasPushApis()) {
     return null;
@@ -350,12 +389,16 @@ async function resolvePushRegistration() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(PUSH_SERVICE_WORKER_URL);
     if (existing) {
-      return existing;
+      return await waitForActiveServiceWorker(existing);
     }
   } catch {
     // getRegistration can throw in locked-down contexts.
   }
-  return await registerPushServiceWorker();
+  const registered = await registerPushServiceWorker();
+  if (!registered) {
+    return null;
+  }
+  return await waitForActiveServiceWorker(registered);
 }
 
 export async function getCurrentPushSubscription() {
@@ -518,7 +561,11 @@ export async function readPushSubscriptionMaterial(vapid: { publicKey: string; k
       // enabled with nothing deliverable after a successful disable.
       return { subscription: null };
     }
-    return { subscription: null, unboundEndpoint };
+    return {
+      subscription: null,
+      unboundEndpoint,
+      unboundEndpoints: [...new Set([unboundEndpoint, ...recalledPushEndpoints()])],
+    };
   }
 
   const material = {
@@ -592,6 +639,7 @@ export async function disableCurrentPushSubscription(
     return;
   }
   const liveEndpoint = subscription?.endpoint ?? null;
+  // Snapshot once — do not re-read storage during awaits (cross-tab enable).
   const endpoints = [
     ...new Set(
       [liveEndpoint, ...recalledPushEndpoints()].filter((value): value is string => value !== null),
@@ -618,7 +666,11 @@ export async function disableCurrentPushSubscription(
       return;
     }
     try {
-      await disable({ endpoint });
+      const outcome = await disable({ endpoint });
+      if (!disableRemovedOwnedBinding(outcome)) {
+        // Foreign or unconfirmed — keep pending for the owning account.
+        failures.push({ endpoint, error: new Error("push binding not removed") });
+      }
     } catch (error) {
       failures.push({ endpoint, error });
     }
@@ -647,4 +699,13 @@ export async function disableCurrentPushSubscription(
   rememberPushEndpoint(null);
   rememberPushEndpoints(failures.map((failure) => failure.endpoint));
   throw failures[0]?.error;
+}
+
+function disableRemovedOwnedBinding(outcome: unknown) {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    "removed" in outcome &&
+    outcome.removed === true
+  );
 }
