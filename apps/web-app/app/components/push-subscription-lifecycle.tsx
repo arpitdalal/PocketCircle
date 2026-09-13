@@ -62,9 +62,15 @@ export function PushSubscriptionLifecycle() {
     if (!result.subscription) {
       if (result.staleKeyEndpoint) {
         // Old VAPID key still on the browser. Keep it only when this User owns
-        // the endpoint (dual-key delivery). Otherwise drop local so a later
-        // account cannot keep receiving Push for the previous User.
-        const owned = await ownsPushEndpoint(result.staleKeyEndpoint);
+        // the endpoint (dual-key delivery). Fail closed on ownership lookup
+        // errors — otherwise a transient Convex/network failure would leave a
+        // previous User's local sub delivering lock-screen Push after switch.
+        let owned = false;
+        try {
+          owned = await ownsPushEndpoint(result.staleKeyEndpoint);
+        } catch {
+          owned = false;
+        }
         if (isCancelled()) return;
         if (!owned) {
           const dropped = await unsubscribeLocalPushSubscription(

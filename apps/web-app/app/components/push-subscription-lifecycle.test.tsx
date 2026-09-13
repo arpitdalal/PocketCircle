@@ -229,4 +229,30 @@ describe("PushSubscriptionLifecycle", () => {
       expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
     });
   });
+
+  it("fail-closes and drops stale-key sub when ownership lookup errors", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/lookup-fail",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint: () => {
+        throw new Error("network");
+      },
+      reconcilePushSubscription: vi.fn(),
+      disablePushSubscription: vi.fn().mockResolvedValue({ removed: false }),
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+  });
 });

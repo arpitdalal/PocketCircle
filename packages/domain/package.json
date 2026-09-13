@@ -18,6 +18,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "ip-address": "^10.7.0",
     "zod": "^4.4.3"
   }
 }

@@ -46,6 +46,8 @@ describe("push-subscriptions", () => {
     expect(isPrivateOrReservedIpAddress("192.168.1.1")).toBe(true);
     expect(isPrivateOrReservedIpAddress("127.0.0.1")).toBe(true);
     expect(isPrivateOrReservedIpAddress("169.254.169.254")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("198.18.0.1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("100.64.0.1")).toBe(true);
     expect(isPrivateOrReservedIpAddress("8.8.8.8")).toBe(false);
     expect(isPrivateOrReservedIpAddress("::1")).toBe(true);
     expect(isPrivateOrReservedIpAddress("2001:4860:4860::8888")).toBe(false);
