@@ -757,37 +757,41 @@ export async function clearLocalPushSubscriptionAndBinding(
   const cleanupId = markPushSignOutCleanup();
   requestPushEnableCancel();
   pushSignOutCleanupInProgress += 1;
-  // Freeze cleanup targets before waiting on the lock. Aborting that wait was the
-  // root bug (queued cleanup discarded); scoping to this freeze is what keeps a
-  // later session safe when cleanup runs after the caller deadline.
+  // Freeze cleanup targets before lock work. Aborting the lock wait was the root
+  // bug (queued cleanup discarded); scoping to this freeze keeps a later session
+  // safe when cleanup runs after the caller deadline. The freeze must complete
+  // before lock work — racing live capture against lock acquisition left
+  // onlyEndpoints empty and skipped live-only cleanup.
   const rememberedAtSignOut = recalledPushEndpoints();
-  let liveCapturedBeforeDeadline: string | null = null;
+  const liveCapture = deferredValue<string | null>();
   void getCurrentPushSubscription()
     .then((subscription) => {
-      if (Date.now() < deadline && subscription) {
-        liveCapturedBeforeDeadline = subscription.endpoint;
-      }
+      liveCapture.resolve(Date.now() < deadline && subscription ? subscription.endpoint : null);
     })
-    .catch(() => undefined);
+    .catch(() => liveCapture.resolve(null));
+  const freezeTimer = window.setTimeout(() => liveCapture.resolve(null), 5_000);
+  const liveCapturedBeforeDeadline = await liveCapture.promise;
+  window.clearTimeout(freezeTimer);
+  const onlyEndpoints = [
+    ...new Set(
+      [...rememberedAtSignOut, liveCapturedBeforeDeadline].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      ),
+    ),
+  ];
   const cleanupDone = deferredValue<void>();
   const signedOut = deferredValue<void>();
   const heartbeat = window.setInterval(() => touchPushSignOutCleanup(cleanupId), 15_000);
   pushSignOutGuardHeartbeats.add(heartbeat);
+  const remainingMs = Math.max(0, deadline - Date.now());
   const timer = window.setTimeout(() => {
     cleanupDone.resolve();
-  }, 5_000);
+  }, remainingMs);
   // Never release a lock around a still-running unsubscribe or mutation on timeout.
   // The caller may finish sign-out, but later enables stay excluded until it settles.
   void withPushSubscriptionLock(
     async () => {
       try {
-        const onlyEndpoints = [
-          ...new Set(
-            [...rememberedAtSignOut, liveCapturedBeforeDeadline].filter(
-              (value): value is string => typeof value === "string" && value.length > 0,
-            ),
-          ),
-        ];
         await disableCurrentPushSubscription(disable, {
           // Freeze (`onlyEndpoints`) is what protects a later session — do not
           // cancel the whole unbind just because a newer active endpoint exists.

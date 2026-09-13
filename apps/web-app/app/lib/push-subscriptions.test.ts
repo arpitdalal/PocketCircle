@@ -466,6 +466,37 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     vi.useRealTimers();
   });
 
+  it("freezes a live-only endpoint before lock work (no remembered binding)", async () => {
+    // Regression: racing live capture against lock acquisition left onlyEndpoints
+    // empty, so account-menu sign-out skipped unsubscribe and called signOut early.
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/live-only" });
+    let releaseUnsubscribe = () => {};
+    sub.unsubscribe.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseUnsubscribe = () => resolve(true);
+        }),
+    );
+    installPushEnv({ permission: "granted", subscription: sub });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    let settled = false;
+    void done.then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalledTimes(1);
+    });
+    expect(settled).toBe(false);
+    expect(disable).not.toHaveBeenCalled();
+
+    releaseUnsubscribe();
+    const release = await done;
+    release();
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/live-only" });
+  });
+
   it("does not unsubscribe a later session endpoint after a deferred sign-out cleanup", async () => {
     vi.useFakeTimers();
     installPushEnv({
