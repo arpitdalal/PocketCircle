@@ -1,6 +1,7 @@
 "use node";
 
-import { DEFAULT_VAPID_KEY_ID } from "@pocketcircle/domain";
+import { createHash } from "node:crypto";
+import { DEFAULT_VAPID_KEY_ID, pushTtlSeconds } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
@@ -16,6 +17,11 @@ import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.j
  * `VAPID_SUBJECT` (mailto: or https: contact), optional `VAPID_KEY_ID`
  * (defaults to `"primary"`). Dev and prod use separate key pairs.
  */
+
+/** RFC 8030 Topic: ≤32 base64url chars — hash the NC id so retries coalesce safely. */
+export function pushTopicFromNotificationId(notificationId: string) {
+  return createHash("sha256").update(notificationId).digest("base64url").slice(0, 32);
+}
 
 export async function sendWebPushNotification(args: {
   endpoint: string;
@@ -45,8 +51,7 @@ export async function sendWebPushNotification(args: {
     {
       TTL: args.ttlSeconds,
       vapidDetails: args.vapidDetails,
-      // Collapse key for push-service dedupe on Workpool retry (max 32 octets).
-      topic: args.payload.tag.slice(0, 32),
+      topic: pushTopicFromNotificationId(args.payload.tag),
     },
   );
 }
@@ -57,20 +62,22 @@ function resolveVapidDetailsForKeyId(vapidKeyId: string) {
   const subject = process.env.VAPID_SUBJECT?.trim();
   const configuredKeyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
   if (!publicKey || !privateKey || !subject) {
-    return null;
+    return { kind: "missing_env" as const };
   }
   if (vapidKeyId !== configuredKeyId) {
-    // Subscription bound to a key we no longer hold — skip without retry/pruning.
-    return null;
+    return { kind: "key_mismatch" as const };
   }
-  return { publicKey, privateKey, subject };
+  return {
+    kind: "ok" as const,
+    details: { publicKey, privateKey, subject },
+  };
 }
 
 export const sendOne = internalAction({
   args: {
     notificationId: v.id("notifications"),
     subscriptionId: v.id("pushSubscriptions"),
-    ttlSeconds: v.number(),
+    invitationExpiresAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const prepared = await ctx.runQuery(internal.push.loadSendPayload, {
@@ -81,9 +88,27 @@ export const sendOne = internalAction({
       return;
     }
 
-    const vapidDetails = resolveVapidDetailsForKeyId(prepared.vapidKeyId);
-    if (!vapidDetails) {
-      console.error("VAPID env not configured or key id mismatch; skipping push send");
+    const ttlSeconds = pushTtlSeconds({
+      type: prepared.type,
+      nowMs: Date.now(),
+      invitationExpiresAtMs: args.invitationExpiresAtMs,
+    });
+    if (ttlSeconds <= 0) {
+      return;
+    }
+
+    const vapid = resolveVapidDetailsForKeyId(prepared.vapidKeyId);
+    if (vapid.kind !== "ok") {
+      const error =
+        vapid.kind === "missing_env"
+          ? "VAPID env not configured; skipping push send"
+          : "VAPID key id mismatch; skipping push send";
+      console.error(error);
+      await ctx.runMutation(internal.push.reportSendSkipped, {
+        notificationId: args.notificationId,
+        subscriptionId: args.subscriptionId,
+        error,
+      });
       return;
     }
 
@@ -97,15 +122,26 @@ export const sendOne = internalAction({
           body: prepared.body,
           tag: prepared.tag,
         },
-        ttlSeconds: args.ttlSeconds,
-        vapidDetails,
+        ttlSeconds,
+        vapidDetails: vapid.details,
       });
     } catch (error) {
       const statusCode = pushHttpStatusFromError(error);
-      if (statusCode !== undefined && classifyPushHttpStatus(statusCode) === "gone") {
-        await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
-          endpoint: prepared.endpoint,
-        });
+      if (statusCode === undefined) {
+        throw error;
+      }
+      const classification = classifyPushHttpStatus(statusCode);
+      if (classification === "gone") {
+        try {
+          await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
+            endpoint: prepared.endpoint,
+          });
+        } catch (removeError) {
+          console.error("Failed to prune invalid push subscription", removeError);
+        }
+        return;
+      }
+      if (classification === "permanent") {
         return;
       }
       throw error;

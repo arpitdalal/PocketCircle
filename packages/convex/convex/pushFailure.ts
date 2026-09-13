@@ -1,9 +1,16 @@
 /** Push-service HTTP outcome classification (#382) — shared by Node sender + tests. */
 
-/** 404/410 → prune without retry; anything else → Workpool retry. */
+/**
+ * 404/410 → prune without retry.
+ * Other 4xx (except 408/429) → fail closed without retry or prune.
+ * Else → Workpool retry.
+ */
 export function classifyPushHttpStatus(statusCode: number) {
   if (statusCode === 404 || statusCode === 410) {
     return "gone" as const;
+  }
+  if (statusCode >= 400 && statusCode < 500 && statusCode !== 408 && statusCode !== 429) {
+    return "permanent" as const;
   }
   return "transient" as const;
 }

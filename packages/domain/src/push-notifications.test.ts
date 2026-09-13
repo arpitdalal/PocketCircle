@@ -3,10 +3,16 @@ import {
   isInvitationPushType,
   PUSH_ACTIVITY_TTL_SECONDS,
   pushBodyForNotificationType,
+  pushTitleForNotificationType,
   pushTtlSeconds,
 } from "./push-notifications.js";
 
 describe("push-notifications", () => {
+  it("maps event-type titles without entity names", () => {
+    expect(pushTitleForNotificationType("transaction.paid_by")).toBe("Paid By updated");
+    expect(pushTitleForNotificationType("unknown")).toBe("PocketCircle");
+  });
+
   it("uses generic bodies with no entity names", () => {
     const body = pushBodyForNotificationType("transaction.paid_by");
     expect(body).toBe("Open PocketCircle for Transaction updates.");
@@ -19,6 +25,7 @@ describe("push-notifications", () => {
 
   it("classifies invitation types", () => {
     expect(isInvitationPushType("invitation.received")).toBe(true);
+    expect(isInvitationPushType("invitation.accepted")).toBe(true);
     expect(isInvitationPushType("transaction.archived")).toBe(false);
   });
 

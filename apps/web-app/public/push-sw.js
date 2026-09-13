@@ -26,11 +26,18 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title, {
-      body: payload.body,
-      tag: payload.tag,
-      data: payload.tag ? { notificationId: payload.tag } : undefined,
-    }),
+    self.registration
+      .showNotification(payload.title, {
+        body: payload.body,
+        tag: payload.tag,
+        data: payload.tag ? { notificationId: payload.tag } : undefined,
+      })
+      .catch(() =>
+        // Display failure must not leave a silent push (Chromium quiet-UI / Safari revoke).
+        self.registration.showNotification("PocketCircle", {
+          body: "Open PocketCircle for details.",
+        }),
+      ),
   );
 });
 

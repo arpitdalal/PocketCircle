@@ -3,6 +3,7 @@ import {
   isInvitationPushType,
   parseNotificationLinkPath,
   pushBodyForNotificationType,
+  pushTitleForNotificationType,
   pushTtlSeconds,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
@@ -43,6 +44,7 @@ export async function enqueuePushForNotification(
     recipientUserId: Id<"users">;
     type: string;
     link?: string;
+    invitationExpiresAt?: number;
   },
 ) {
   const subscriptions = await listPushSubscriptionsForUser(ctx, args.recipientUserId);
@@ -50,7 +52,8 @@ export async function enqueuePushForNotification(
     return;
   }
 
-  const invitationExpiresAtMs = await resolveInvitationExpiresAtMs(ctx, args.type, args.link);
+  const invitationExpiresAtMs =
+    args.invitationExpiresAt ?? (await resolveInvitationExpiresAtMs(ctx, args.type, args.link));
   const ttlSeconds = pushTtlSeconds({
     type: args.type,
     nowMs: Date.now(),
@@ -67,7 +70,7 @@ export async function enqueuePushForNotification(
       {
         notificationId: args.notificationId,
         subscriptionId: subscription._id,
-        ttlSeconds,
+        invitationExpiresAtMs,
       },
       {
         onComplete: internal.push.onSendComplete,
@@ -80,7 +83,7 @@ export async function enqueuePushForNotification(
   }
 }
 
-/** Payload for the Node sender — title from NC row, lock-screen-safe body. */
+/** Payload for the Node sender — lock-screen-safe title/body from event type. */
 export const loadSendPayload = internalQuery({
   args: {
     notificationId: v.id("notifications"),
@@ -96,7 +99,8 @@ export const loadSendPayload = internalQuery({
       return null;
     }
     return {
-      title: notification.title,
+      type: notification.type,
+      title: pushTitleForNotificationType(notification.type),
       body: pushBodyForNotificationType(notification.type),
       tag: notification._id,
       endpoint: subscription.endpoint,
@@ -122,6 +126,22 @@ export const onSendComplete = internalMutation({
         error: result.error,
       });
     }
+  },
+});
+
+/** VAPID skip / key mismatch — record once without Workpool retry. */
+export const reportSendSkipped = internalMutation({
+  args: {
+    notificationId: v.id("notifications"),
+    subscriptionId: v.id("pushSubscriptions"),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await reportTerminalFailure(ctx, {
+      kind: "push_delivery_exhausted",
+      entityId: `${args.notificationId}:${args.subscriptionId}`,
+      error: args.error,
+    });
   },
 });
 

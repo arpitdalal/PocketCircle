@@ -1,6 +1,6 @@
 /**
  * Lock-screen-safe Push copy and TTL (ADR 0033 / issue #382).
- * Titles match Notification Center event titles; bodies never name entities.
+ * Titles are the settled event-type strings; bodies never name entities.
  */
 
 /** Normal activity Push TTL — 24 hours. */
@@ -14,6 +14,44 @@ const INVITATION_PUSH_TYPES = new Set([
   "invitation.accepted",
   "invitation.revoked",
 ]);
+
+/** Event-type Push title — never free-form NC text that could include names. */
+export function pushTitleForNotificationType(type: string) {
+  switch (type) {
+    case "invitation.received":
+      return "Circle invitation";
+    case "invitation.resent":
+      return "Invitation resent";
+    case "invitation.expiring_soon":
+      return "Invitation expires in 3 days";
+    case "invitation.expiring_tomorrow":
+      return "Invitation expires in 1 day";
+    case "invitation.accepted":
+      return "Invitation accepted";
+    case "invitation.revoked":
+      return "Invitation revoked";
+    case "member.removed":
+      return "Removed from Circle";
+    case "ownership.transferred":
+      return "Ownership transferred";
+    case "circle.archived":
+      return "Circle archived";
+    case "circle.restored":
+      return "Circle restored";
+    case "transaction.paid_by":
+      return "Paid By updated";
+    case "transaction.archived":
+      return "Transaction archived";
+    case "transaction.restored":
+      return "Transaction restored";
+    case "category.archived":
+      return "Category archived";
+    case "category.restored":
+      return "Category restored";
+    default:
+      return "PocketCircle";
+  }
+}
 
 /** Generic Push body for a Notification Center type — no Member/Circle/txn/Category names. */
 export function pushBodyForNotificationType(type: string) {
@@ -54,7 +92,8 @@ export function isInvitationPushType(type: string) {
 /**
  * TTL in seconds for the push service. Activity = 24h. Invitation types with a
  * known deadline use remaining time until that deadline (never longer than the
- * invitation lives). Missing/expired deadline falls back to activity TTL.
+ * invitation lives). Missing deadline falls back to activity TTL; past deadline
+ * returns 0 so the sender skips.
  */
 export function pushTtlSeconds(args: {
   type: string;

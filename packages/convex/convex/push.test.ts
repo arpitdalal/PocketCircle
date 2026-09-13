@@ -1,17 +1,17 @@
 // @vitest-environment node
 
-import { pushBodyForNotificationType } from "@pocketcircle/domain";
+import { pushBodyForNotificationType, pushTitleForNotificationType } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain, mutateAndDrainRetries } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
-import { makeUser, seedCircle, seedInvitation } from "../test/seed.js";
+import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
 import { PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
-import { sendWebPushNotification } from "./pushSend.js";
+import { pushTopicFromNotificationId, sendWebPushNotification } from "./pushSend.js";
 import schema from "./schema.js";
 
 const { mockSendNotification } = vi.hoisted(() => ({
@@ -68,11 +68,14 @@ async function seedRecipientWithSubs(
 }
 
 describe("classifyPushHttpStatus", () => {
-  it("treats 404 and 410 as gone", () => {
+  it("classifies gone, permanent, and transient statuses", () => {
     expect(classifyPushHttpStatus(404)).toBe("gone");
     expect(classifyPushHttpStatus(410)).toBe("gone");
-    expect(classifyPushHttpStatus(500)).toBe("transient");
+    expect(classifyPushHttpStatus(400)).toBe("permanent");
+    expect(classifyPushHttpStatus(403)).toBe("permanent");
+    expect(classifyPushHttpStatus(408)).toBe("transient");
     expect(classifyPushHttpStatus(429)).toBe("transient");
+    expect(classifyPushHttpStatus(500)).toBe("transient");
   });
 
   it("reads statusCode from web-push errors", () => {
@@ -92,7 +95,7 @@ describe("Push mirror from Notification Center", () => {
         recipientUserId: recipient._id,
         actorUserId: owner._id,
         type: "transaction.paid_by",
-        title: "Paid By updated",
+        title: "Paid By updated — Ada Weekly shop",
         body: "Ada set you as Paid By on Weekly shop.",
         link: "/circles/family-c123/transactions/shop-t456",
       }),
@@ -131,13 +134,15 @@ describe("Push mirror from Notification Center", () => {
 
     for (const payload of payloads) {
       expect(payload.parsed).toEqual({
-        title: "Paid By updated",
+        title: pushTitleForNotificationType("transaction.paid_by"),
         body: pushBodyForNotificationType("transaction.paid_by"),
         tag: notificationId,
       });
+      expect(payload.parsed.title).not.toMatch(/Ada|Weekly shop/i);
       expect(payload.parsed.body).not.toMatch(/Ada|Weekly shop|family/i);
       expect(payload.options).toMatchObject({
         TTL: 24 * 60 * 60,
+        topic: pushTopicFromNotificationId(notificationId ?? ""),
         vapidDetails: {
           subject: "mailto:push@pocketcircle.test",
           publicKey: "test-public-key",
@@ -150,14 +155,33 @@ describe("Push mirror from Notification Center", () => {
   it("caps invitation Push TTL at the invitation deadline", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
-    const { owner, circleId, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
     const expiresAt = Date.now() + 2 * 60 * 60 * 1000;
-    const invitationId = await t.run(async (ctx) => {
-      return await seedInvitation(ctx, circleId, owner._id, {
-        email: recipient.email,
-        expiresAt,
-      });
-    });
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "invitation.accepted",
+        title: "Invitation accepted",
+        body: "Ada joined Family.",
+        invitationExpiresAt: expiresAt,
+      }),
+    );
+
+    expect(mockSendNotification).toHaveBeenCalledTimes(1);
+    const options = mockSendNotification.mock.calls[0]?.[2];
+    const ttl =
+      typeof options === "object" && options !== null && "TTL" in options ? options.TTL : undefined;
+    expect(typeof ttl).toBe("number");
+    expect(ttl).toBeGreaterThan(7000);
+    expect(ttl).toBeLessThanOrEqual(2 * 60 * 60);
+  });
+
+  it("skips Push when the invitation deadline already passed", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
 
     await mutateAndDrain(t, () =>
       t.mutation(internal.notify.deliverOne, {
@@ -165,21 +189,13 @@ describe("Push mirror from Notification Center", () => {
         actorUserId: owner._id,
         type: "invitation.received",
         title: "Circle invitation",
-        body: "You've been invited to Family.",
-        link: `/invitations/family-${invitationId}`,
+        invitationExpiresAt: Date.now() - 1_000,
       }),
     );
 
-    expect(mockSendNotification).toHaveBeenCalledTimes(1);
-    const options = mockSendNotification.mock.calls[0]?.[2];
-    expect(options).toMatchObject({
-      TTL: expect.any(Number),
-    });
-    const ttl =
-      typeof options === "object" && options !== null && "TTL" in options ? options.TTL : undefined;
-    expect(typeof ttl).toBe("number");
-    expect(ttl).toBeGreaterThan(7000);
-    expect(ttl).toBeLessThanOrEqual(2 * 60 * 60);
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
+    expect(rows).toHaveLength(1);
   });
 
   it("prunes the subscription on 410 without retrying", async () => {
@@ -203,6 +219,29 @@ describe("Push mirror from Notification Center", () => {
     expect(remaining).toHaveLength(0);
     const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
     expect(rows).toHaveLength(1);
+  });
+
+  it("does not retry permanent 4xx failures", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    mockSendNotification.mockRejectedValue({ statusCode: 403, body: "Forbidden" });
+
+    await mutateAndDrainRetries(
+      t,
+      () =>
+        t.mutation(internal.notify.deliverOne, {
+          recipientUserId: recipient._id,
+          actorUserId: owner._id,
+          type: "circle.restored",
+          title: "Circle restored",
+        }),
+      PUSH_RETRY_BEHAVIOR,
+    );
+
+    expect(mockSendNotification).toHaveBeenCalledTimes(1);
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(1);
   });
 
   it("retries transient failures then reports exhaustion", async () => {
@@ -277,9 +316,7 @@ describe("Push mirror from Notification Center", () => {
     );
 
     expect(mockSendNotification).not.toHaveBeenCalled();
-    expect(errSpy).toHaveBeenCalledWith(
-      "VAPID env not configured or key id mismatch; skipping push send",
-    );
+    expect(errSpy).toHaveBeenCalledWith("VAPID key id mismatch; skipping push send");
     errSpy.mockRestore();
   });
 
@@ -307,7 +344,7 @@ describe("Push mirror from Notification Center", () => {
 });
 
 describe("sendWebPushNotification", () => {
-  it("forwards subscription, payload, TTL, and VAPID details to web-push", async () => {
+  it("forwards subscription, payload, TTL, hashed topic, and VAPID details", async () => {
     await sendWebPushNotification({
       endpoint: ENDPOINT_A,
       p256dh: "p256",
@@ -334,7 +371,7 @@ describe("sendWebPushNotification", () => {
           publicKey: "pub",
           privateKey: "priv",
         },
-        topic: "tag-1",
+        topic: pushTopicFromNotificationId("tag-1"),
       },
     );
   });
