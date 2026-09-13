@@ -3,6 +3,12 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
+import {
+  TEST_PUSH_AUTH,
+  TEST_PUSH_AUTH_ALT,
+  TEST_PUSH_P256DH,
+  TEST_PUSH_P256DH_ALT,
+} from "../test/pushFixtures.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { makeUser, seedPersonalCircleOwner } from "../test/seed.js";
 import { api } from "./_generated/api.js";
@@ -24,9 +30,9 @@ afterEach(() => {
 });
 
 const VALID = {
-  endpoint: "https://push.example/endpoint-a",
-  p256dh: "p256dh-a",
-  auth: "auth-a",
+  endpoint: "https://fcm.googleapis.com/fcm/send/endpoint-a",
+  p256dh: TEST_PUSH_P256DH,
+  auth: TEST_PUSH_AUTH,
   vapidKeyId: "primary",
 } as const;
 
@@ -82,12 +88,12 @@ describe("pushSubscriptions", () => {
   });
 
   it.each([
-    { endpoint: `https://push.example/${"x".repeat(4096)}` },
+    { endpoint: `https://fcm.googleapis.com/fcm/send/${"x".repeat(4096)}` },
     { p256dh: "x".repeat(129) },
     { auth: "x".repeat(129) },
     { vapidKeyId: "x".repeat(129) },
     { vapidKeyId: " " },
-    { endpoint: "https://user:password@push.example/a" },
+    { endpoint: "https://user:password@fcm.googleapis.com/a" },
   ])(
     "rejects oversized or unusable material on every public binding path: case %#",
     async (invalid) => {
@@ -126,16 +132,16 @@ describe("pushSubscriptions", () => {
     signInAs(bob);
     await t.mutation(api.pushSubscriptions.enablePushSubscription, {
       ...VALID,
-      p256dh: "p256dh-bob",
-      auth: "auth-bob",
+      p256dh: TEST_PUSH_P256DH_ALT,
+      auth: TEST_PUSH_AUTH_ALT,
     });
 
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(0);
       const bobRows = await listPushSubscriptionsForUser(ctx, bob._id);
       expect(bobRows).toHaveLength(1);
-      expect(bobRows[0]?.p256dh).toBe("p256dh-bob");
-      expect(bobRows[0]?.auth).toBe("auth-bob");
+      expect(bobRows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+      expect(bobRows[0]?.auth).toBe(TEST_PUSH_AUTH_ALT);
     });
   });
 
@@ -155,14 +161,14 @@ describe("pushSubscriptions", () => {
     vi.setSystemTime(new Date("2026-01-02T00:00:00Z"));
     await t.mutation(api.pushSubscriptions.enablePushSubscription, {
       ...VALID,
-      p256dh: "p256dh-refreshed",
-      auth: "auth-refreshed",
+      p256dh: TEST_PUSH_P256DH_ALT,
+      auth: TEST_PUSH_AUTH_ALT,
     });
 
     await t.run(async (ctx) => {
       const rows = await listPushSubscriptionsForUser(ctx, owner._id);
       expect(rows).toHaveLength(1);
-      expect(rows[0]?.p256dh).toBe("p256dh-refreshed");
+      expect(rows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
       expect(rows[0]?.lastSeenAt).toBeGreaterThan(firstSeen ?? 0);
     });
   });
@@ -195,14 +201,18 @@ describe("pushSubscriptions", () => {
 
     signInAs(alice);
     const refreshed = await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
-      subscription: { ...VALID, p256dh: "p256dh-refreshed", auth: "auth-refreshed" },
+      subscription: {
+        ...VALID,
+        p256dh: TEST_PUSH_P256DH_ALT,
+        auth: TEST_PUSH_AUTH_ALT,
+      },
     });
     expect(refreshed).toEqual({ bound: true });
 
     await t.run(async (ctx) => {
       const aliceRows = await listPushSubscriptionsForUser(ctx, alice._id);
       expect(aliceRows).toHaveLength(1);
-      expect(aliceRows[0]?.p256dh).toBe("p256dh-refreshed");
+      expect(aliceRows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
       expect(aliceRows[0]?.lastSeenAt).toBe(Date.parse("2026-03-02T00:00:00Z"));
     });
   });
@@ -214,32 +224,32 @@ describe("pushSubscriptions", () => {
     await t.run((ctx) =>
       seedPushSubscription(ctx, {
         userId: alice._id,
-        endpoint: "https://push.example/old",
+        endpoint: "https://fcm.googleapis.com/fcm/send/old",
       }),
     );
 
     signInAs(bob);
     expect(
       await t.mutation(api.pushSubscriptions.replacePushSubscription, {
-        previousEndpoint: "https://push.example/old",
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
         ...VALID,
-        endpoint: "https://push.example/new",
+        endpoint: "https://fcm.googleapis.com/fcm/send/new",
       }),
     ).toEqual({ bound: false });
 
     signInAs(alice);
     expect(
       await t.mutation(api.pushSubscriptions.replacePushSubscription, {
-        previousEndpoint: "https://push.example/old",
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
         ...VALID,
-        endpoint: "https://push.example/new",
+        endpoint: "https://fcm.googleapis.com/fcm/send/new",
       }),
     ).toEqual({ bound: true });
 
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(1);
       expect((await listPushSubscriptionsForUser(ctx, alice._id))[0]?.endpoint).toBe(
-        "https://push.example/new",
+        "https://fcm.googleapis.com/fcm/send/new",
       );
     });
   });
@@ -251,29 +261,29 @@ describe("pushSubscriptions", () => {
     await t.run(async (ctx) => {
       await seedPushSubscription(ctx, {
         userId: alice._id,
-        endpoint: "https://push.example/alice-old",
+        endpoint: "https://fcm.googleapis.com/fcm/send/alice-old",
       });
       await seedPushSubscription(ctx, {
         userId: bob._id,
-        endpoint: "https://push.example/bob",
+        endpoint: "https://fcm.googleapis.com/fcm/send/bob",
       });
     });
 
     signInAs(alice);
     expect(
       await t.mutation(api.pushSubscriptions.replacePushSubscription, {
-        previousEndpoint: "https://push.example/alice-old",
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/alice-old",
         ...VALID,
-        endpoint: "https://push.example/bob",
+        endpoint: "https://fcm.googleapis.com/fcm/send/bob",
       }),
     ).toEqual({ bound: false });
 
     await t.run(async (ctx) => {
       expect((await listPushSubscriptionsForUser(ctx, alice._id))[0]?.endpoint).toBe(
-        "https://push.example/alice-old",
+        "https://fcm.googleapis.com/fcm/send/alice-old",
       );
       expect((await listPushSubscriptionsForUser(ctx, bob._id))[0]?.endpoint).toBe(
-        "https://push.example/bob",
+        "https://fcm.googleapis.com/fcm/send/bob",
       );
     });
   });
@@ -285,7 +295,7 @@ describe("pushSubscriptions", () => {
     await t.run((ctx) =>
       seedPushSubscription(ctx, {
         userId: owner._id,
-        endpoint: "https://push.example/other-device",
+        endpoint: "https://fcm.googleapis.com/fcm/send/other-device",
       }),
     );
 
@@ -313,7 +323,7 @@ describe("pushSubscriptions", () => {
       for (let i = 0; i < MAX_PUSH_SUBSCRIPTIONS_PER_USER; i += 1) {
         await seedPushSubscription(ctx, {
           userId: owner._id,
-          endpoint: `https://push.example/old-${i}`,
+          endpoint: `https://fcm.googleapis.com/fcm/send/old-${i}`,
           lastSeenAt: 100 + i,
         });
       }
@@ -327,7 +337,9 @@ describe("pushSubscriptions", () => {
       expect(rows.every((r) => r.endpoint.startsWith("https://"))).toBe(true);
       expect(rows.some((r) => r.endpoint === VALID.endpoint)).toBe(true);
       // Invalid pruned first; least recently seen among remaining valid was replaced.
-      expect(rows.some((r) => r.endpoint === "https://push.example/old-0")).toBe(false);
+      expect(rows.some((r) => r.endpoint === "https://fcm.googleapis.com/fcm/send/old-0")).toBe(
+        false,
+      );
     });
   });
 
@@ -340,7 +352,7 @@ describe("pushSubscriptions", () => {
       for (let i = 0; i < MAX_PUSH_SUBSCRIPTIONS_PER_USER; i += 1) {
         await seedPushSubscription(ctx, {
           userId: owner._id,
-          endpoint: `https://push.example/cap-${i}`,
+          endpoint: `https://fcm.googleapis.com/fcm/send/cap-${i}`,
           lastSeenAt: 1000 + i,
         });
       }
@@ -351,7 +363,9 @@ describe("pushSubscriptions", () => {
     await t.run(async (ctx) => {
       const rows = await listPushSubscriptionsForUser(ctx, owner._id);
       expect(rows).toHaveLength(MAX_PUSH_SUBSCRIPTIONS_PER_USER);
-      expect(rows.some((r) => r.endpoint === "https://push.example/cap-0")).toBe(false);
+      expect(rows.some((r) => r.endpoint === "https://fcm.googleapis.com/fcm/send/cap-0")).toBe(
+        false,
+      );
       expect(rows.some((r) => r.endpoint === VALID.endpoint)).toBe(true);
     });
   });
@@ -367,7 +381,7 @@ describe("pushSubscriptions", () => {
       });
       await seedPushSubscription(ctx, {
         userId: bob._id,
-        endpoint: "https://push.example/bob-only",
+        endpoint: "https://fcm.googleapis.com/fcm/send/bob-only",
       });
     });
 
@@ -380,7 +394,7 @@ describe("pushSubscriptions", () => {
     // Foreign endpoint — do not clear caller's pending retry handle.
     expect(
       await t.mutation(api.pushSubscriptions.disablePushSubscription, {
-        endpoint: "https://push.example/bob-only",
+        endpoint: "https://fcm.googleapis.com/fcm/send/bob-only",
       }),
     ).toEqual({ removed: false });
 
@@ -403,15 +417,15 @@ describe("pushSubscriptions", () => {
     await t.run(async (ctx) => {
       await seedPushSubscription(ctx, {
         userId: deleting.userId,
-        endpoint: "https://push.example/mine-1",
+        endpoint: "https://fcm.googleapis.com/fcm/send/mine-1",
       });
       await seedPushSubscription(ctx, {
         userId: deleting.userId,
-        endpoint: "https://push.example/mine-2",
+        endpoint: "https://fcm.googleapis.com/fcm/send/mine-2",
       });
       await seedPushSubscription(ctx, {
         userId: other._id,
-        endpoint: "https://push.example/theirs",
+        endpoint: "https://fcm.googleapis.com/fcm/send/theirs",
       });
     });
 

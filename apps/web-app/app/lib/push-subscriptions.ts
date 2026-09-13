@@ -680,11 +680,13 @@ export async function unsubscribeLocalPushSubscription(
 }
 
 /**
- * Startup/focus material for reconcile. VAPID key mismatch: unsubscribe locally
- * and report `unboundEndpoint` for best-effort server cleanup — does not
- * resubscribe (explicit Settings enable required; avoids cross-User auto-bind).
- * Same-key endpoint change vs last remembered endpoint → `previousEndpoint`
- * for owned migration via replacePushSubscription.
+ * Startup/focus material for reconcile. VAPID key mismatch on a returning
+ * device: unsubscribe the stale sub, subscribe under the current key, and
+ * return material (+ `previousEndpoint` when the browser rotates the URL) so
+ * replace/reconcile can migrate only when this User already owns the old row —
+ * never auto-creates a first binding. Subscribe failure falls back to
+ * `unboundEndpoint` cleanup. Same-key endpoint change vs last remembered
+ * endpoint → `previousEndpoint` for owned migration via replacePushSubscription.
  */
 export async function readPushSubscriptionMaterial(
   vapid: { publicKey: string; keyId: string },
@@ -717,7 +719,7 @@ export async function readPushSubscriptionMaterial(
     return { subscription: null };
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
-    const unboundEndpoint = existing.endpoint;
+    const previousEndpoint = existing.endpoint;
     // Snapshot before await — another tab may enable and remember a new endpoint.
     const rememberedBeforeUnsubscribe = recalledPushEndpoints();
     try {
@@ -727,11 +729,27 @@ export async function readPushSubscriptionMaterial(
       // enabled with nothing deliverable after a successful disable.
       return { subscription: null };
     }
-    return {
-      subscription: null,
-      unboundEndpoint,
-      unboundEndpoints: [...new Set([unboundEndpoint, ...rememberedBeforeUnsubscribe])],
-    };
+    if (isCancelled()) return { subscription: null };
+    try {
+      const next = await subscribeWithVapid(registration, vapid);
+      if (isCancelled()) return { subscription: null };
+      const material = {
+        ...readSubscriptionKeys(next),
+        vapidKeyId: vapid.keyId,
+      };
+      if (previousEndpoint !== material.endpoint) {
+        // Keep previous remembered until replace succeeds.
+        return { subscription: material, previousEndpoint };
+      }
+      rememberPushEndpoint(material.endpoint);
+      return { subscription: material };
+    } catch {
+      return {
+        subscription: null,
+        unboundEndpoint: previousEndpoint,
+        unboundEndpoints: [...new Set([previousEndpoint, ...rememberedBeforeUnsubscribe])],
+      };
+    }
   }
 
   const material = {

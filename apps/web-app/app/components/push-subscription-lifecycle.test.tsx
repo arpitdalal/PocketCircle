@@ -12,6 +12,7 @@ import {
 import { AppTestProviders } from "~/test/app-test-providers.js";
 import { configureConvex, convexReactMock } from "~/test/convex-react.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "~/test/push-fixtures.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -47,7 +48,7 @@ afterEach(() => {
 
 describe("PushSubscriptionLifecycle", () => {
   it("reconciles a matching live subscription on mount", async () => {
-    const sub = matchingSub("https://push.example/live");
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
@@ -62,8 +63,8 @@ describe("PushSubscriptionLifecycle", () => {
       expect(reconcilePushSubscription).toHaveBeenCalledWith({
         subscription: {
           endpoint: sub.endpoint,
-          p256dh: "p256dh-test",
-          auth: "auth-test",
+          p256dh: TEST_PUSH_P256DH,
+          auth: TEST_PUSH_AUTH,
           vapidKeyId: VAPID.keyId,
         },
       });
@@ -71,7 +72,7 @@ describe("PushSubscriptionLifecycle", () => {
   });
 
   it("disables and drops an unbound live subscription", async () => {
-    const sub = matchingSub("https://push.example/orphan");
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/orphan");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: false });
@@ -97,10 +98,10 @@ describe("PushSubscriptionLifecycle", () => {
   });
 
   it("retries pending cleanup while an active subscription stays bound", async () => {
-    const sub = matchingSub("https://push.example/live");
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
-    rememberPushEndpoints(["https://push.example/stale"]);
+    rememberPushEndpoints(["https://fcm.googleapis.com/fcm/send/stale"]);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
@@ -113,7 +114,7 @@ describe("PushSubscriptionLifecycle", () => {
 
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/stale",
+        endpoint: "https://fcm.googleapis.com/fcm/send/stale",
       });
     });
     await waitFor(() => {
@@ -125,7 +126,7 @@ describe("PushSubscriptionLifecycle", () => {
 
   it("disables the remembered active endpoint when the local subscription is absent", async () => {
     installPushEnv({ permission: "granted", subscription: null });
-    rememberPushEndpoint("https://push.example/absent");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/absent");
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
@@ -137,7 +138,7 @@ describe("PushSubscriptionLifecycle", () => {
 
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/absent",
+        endpoint: "https://fcm.googleapis.com/fcm/send/absent",
       });
     });
     await waitFor(() => {
@@ -146,8 +147,8 @@ describe("PushSubscriptionLifecycle", () => {
   });
 
   it("does not clear active remember when orphan drop finds a different live endpoint", async () => {
-    const a = matchingSub("https://push.example/a");
-    const b = matchingSub("https://push.example/b");
+    const a = matchingSub("https://fcm.googleapis.com/fcm/send/a");
+    const b = matchingSub("https://fcm.googleapis.com/fcm/send/b");
     let live: ReturnType<typeof matchingSub> | null = a;
     installPushEnv({
       permission: "granted",

@@ -9,6 +9,15 @@ export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 /** Default VAPID key identity when `VAPID_KEY_ID` env is unset (v1 single key). */
 export const DEFAULT_VAPID_KEY_ID = "primary";
 
+/** Known browser push-service host suffixes (SSRF guard for send + bind). */
+const TRUSTED_PUSH_HOST_SUFFIXES = [
+  ".googleapis.com",
+  ".push.services.mozilla.com",
+  ".push.apple.com",
+  ".notify.windows.com",
+  ".wns.windows.com",
+] as const;
+
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {
   const trimmed = endpoint.trim();
@@ -23,20 +32,66 @@ export function isValidPushEndpoint(endpoint: string) {
   }
 }
 
-/** Endpoint + encryption keys present and structurally usable. */
+/**
+ * HTTPS endpoint whose host is a known browser push service — not an arbitrary
+ * URL the action would POST to (SSRF).
+ */
+export function isTrustedPushEndpoint(endpoint: string) {
+  if (!isValidPushEndpoint(endpoint)) {
+    return false;
+  }
+  const host = new URL(endpoint).hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".local")) {
+    return false;
+  }
+  // Push services use DNS names; reject raw IPv4/IPv6 literals.
+  if (host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return false;
+  }
+  return TRUSTED_PUSH_HOST_SUFFIXES.some(
+    (suffix) => host === suffix.slice(1) || host.endsWith(suffix),
+  );
+}
+
+function decodeBase64Url(value: string) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length > 128) {
+    return null;
+  }
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (normalized.length % 4)) % 4;
+  try {
+    const binary = atob(normalized + "=".repeat(padLen));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/** Endpoint + encryption keys present and structurally usable for web-push encrypt. */
 export function isValidPushSubscriptionMaterial(input: {
   endpoint: string;
   p256dh: string;
   auth: string;
   vapidKeyId?: string;
 }) {
+  if (!isTrustedPushEndpoint(input.endpoint)) {
+    return false;
+  }
+  const p256dh = decodeBase64Url(input.p256dh.trim());
+  const auth = decodeBase64Url(input.auth.trim());
+  if (!p256dh || !auth) {
+    return false;
+  }
+  // Uncompressed (65) or compressed (33) P-256 public key; auth secret is 16 bytes.
+  if ((p256dh.length !== 65 && p256dh.length !== 33) || auth.length !== 16) {
+    return false;
+  }
   return (
-    isValidPushEndpoint(input.endpoint) &&
-    input.p256dh.trim().length > 0 &&
-    input.p256dh.length <= 128 &&
-    input.auth.trim().length > 0 &&
-    input.auth.length <= 128 &&
-    (input.vapidKeyId === undefined ||
-      (input.vapidKeyId.trim().length > 0 && input.vapidKeyId.length <= 128))
+    input.vapidKeyId === undefined ||
+    (input.vapidKeyId.trim().length > 0 && input.vapidKeyId.length <= 128)
   );
 }

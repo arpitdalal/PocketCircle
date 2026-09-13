@@ -12,6 +12,7 @@ import type { MutationCtx } from "./_generated/server.js";
 import { internalMutation } from "./_generated/server.js";
 import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
+import { enqueuePushForNotification } from "./push.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,6 +62,7 @@ const deliverOneArgsValidator = {
   title: v.string(),
   body: v.optional(v.string()),
   link: v.optional(v.string()),
+  invitationExpiresAt: v.optional(v.number()),
 };
 
 type DeliverOneArgs = {
@@ -70,6 +72,7 @@ type DeliverOneArgs = {
   title: string;
   body?: string;
   link?: string;
+  invitationExpiresAt?: number;
 };
 
 /** The single actor-skip rule: we never notify an actor of their own action. */
@@ -86,6 +89,7 @@ async function insertNotificationRow(
     title: string;
     body?: string;
     link?: string;
+    invitationExpiresAt?: number;
   },
 ) {
   const recipient = await ctx.db.get("users", args.recipientUserId);
@@ -93,7 +97,7 @@ async function insertNotificationRow(
     return false;
   }
 
-  await ctx.db.insert("notifications", {
+  const notificationId = await ctx.db.insert("notifications", {
     userId: args.recipientUserId,
     type: args.type,
     title: args.title,
@@ -102,9 +106,22 @@ async function insertNotificationRow(
     read: false,
     createdAt: Date.now(),
   });
+
+  // Best-effort Push mirror (#382) — never throws into the NC insert path.
+  try {
+    await enqueuePushForNotification(ctx, {
+      notificationId,
+      recipientUserId: args.recipientUserId,
+      type: args.type,
+      link: args.link,
+      invitationExpiresAt: args.invitationExpiresAt,
+    });
+  } catch (error) {
+    console.error("Push enqueue failed; Notification Center row kept", notificationId, error);
+  }
+
   return true;
 }
-
 /**
  * Single-recipient delivery seam (NTF-2 / ADR 0027). The sole writer of
  * `notifications` for actor-driven events — actor-skip is enforced at enqueue
@@ -206,6 +223,7 @@ export const deliverInvitationExpiryReminder = internalMutation({
       title,
       body: `Your invitation to ${circle.name} is waiting for a response.`,
       link: buildInvitationNotificationLink(invitationRef(circle, invitation._id)),
+      invitationExpiresAt: invitation.expiresAt,
     });
     if (!inserted) {
       return;
@@ -284,6 +302,7 @@ async function notifyInvitationOffer(
     actorUserId: Id<"users">;
     circle: Doc<"circles">;
     invitationId: Id<"invitations">;
+    invitationExpiresAt: number;
     type: "invitation.received" | "invitation.resent";
     title: string;
     body: string;
@@ -296,6 +315,7 @@ async function notifyInvitationOffer(
     title: opts.title,
     body: opts.body,
     link: buildInvitationNotificationLink(invitationRef(opts.circle, opts.invitationId)),
+    invitationExpiresAt: opts.invitationExpiresAt,
   });
 }
 
@@ -306,6 +326,7 @@ export async function notifyInvitationReceived(
     actorUserId: Id<"users">;
     circle: Doc<"circles">;
     invitationId: Id<"invitations">;
+    invitationExpiresAt: number;
   },
 ) {
   await notifyInvitationOffer(ctx, {
@@ -323,6 +344,7 @@ export async function notifyInvitationResent(
     actorUserId: Id<"users">;
     circle: Doc<"circles">;
     invitationId: Id<"invitations">;
+    invitationExpiresAt: number;
   },
 ) {
   await notifyInvitationOffer(ctx, {
@@ -340,6 +362,7 @@ export async function notifyInvitationAccepted(
     acceptorUserId: Id<"users">;
     acceptorDisplayName: string;
     circle: Doc<"circles">;
+    invitationExpiresAt: number;
   },
 ) {
   await scheduleDeliverOne(ctx, {
@@ -349,6 +372,7 @@ export async function notifyInvitationAccepted(
     title: "Invitation accepted",
     body: `${opts.acceptorDisplayName} joined ${opts.circle.name}.`,
     link: buildCircleNotificationLink(circleRef(opts.circle)),
+    invitationExpiresAt: opts.invitationExpiresAt,
   });
 }
 
@@ -358,6 +382,7 @@ export async function notifyInvitationRevoked(
     inviteeUserId: Id<"users">;
     actorUserId: Id<"users">;
     circleName: string;
+    invitationExpiresAt: number;
   },
 ) {
   await scheduleDeliverOne(ctx, {
@@ -366,6 +391,7 @@ export async function notifyInvitationRevoked(
     type: "invitation.revoked",
     title: "Invitation revoked",
     body: `Your invitation to ${opts.circleName} was revoked.`,
+    invitationExpiresAt: opts.invitationExpiresAt,
   });
 }
 

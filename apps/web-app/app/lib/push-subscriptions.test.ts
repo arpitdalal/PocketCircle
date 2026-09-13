@@ -27,6 +27,7 @@ import {
   withPushSubscriptionLock,
 } from "~/lib/push-subscriptions.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "~/test/push-fixtures.js";
 import {
   installMatchMediaFake,
   resetNavigatorInstallProps,
@@ -150,22 +151,50 @@ describe("resolvePushNotificationsCapability", () => {
 });
 
 describe("readPushSubscriptionMaterial", () => {
-  it("unsubscribes on VAPID mismatch without resubscribing", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
-    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    const { subscribe } = installPushEnv({ permission: "granted", subscription: sub });
+  it("resubscribes on VAPID mismatch for ownership-safe migrate", async () => {
+    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
+    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const next = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
+    next.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
+    const { subscribe } = installPushEnv({
+      permission: "granted",
+      subscription: old,
+      subscribe: vi.fn().mockResolvedValue(next),
+    });
+
+    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+      subscription: {
+        endpoint: "https://fcm.googleapis.com/fcm/send/new",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
+        vapidKeyId: "primary",
+      },
+      previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
+    });
+    expect(old.unsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to unbound cleanup when VAPID remigrate subscribe fails", async () => {
+    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
+    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const { subscribe } = installPushEnv({
+      permission: "granted",
+      subscription: old,
+      subscribe: vi.fn().mockRejectedValue(new Error("subscribe failed")),
+    });
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
-      unboundEndpoint: "https://push.example/old",
-      unboundEndpoints: ["https://push.example/old"],
+      unboundEndpoint: "https://fcm.googleapis.com/fcm/send/old",
+      unboundEndpoints: ["https://fcm.googleapis.com/fcm/send/old"],
     });
-    expect(sub.unsubscribe).toHaveBeenCalledOnce();
-    expect(subscribe).not.toHaveBeenCalled();
+    expect(old.unsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).toHaveBeenCalledOnce();
   });
 
   it("does not unbind the server when VAPID unsubscribe fails", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     sub.unsubscribe = vi.fn().mockRejectedValue(new Error("unsubscribe failed"));
     installPushEnv({ permission: "granted", subscription: sub });
@@ -176,37 +205,37 @@ describe("readPushSubscriptionMaterial", () => {
   });
 
   it("reports previousEndpoint when the browser refreshes the endpoint", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
     sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: {
-        endpoint: "https://push.example/new",
-        p256dh: "p256dh-test",
-        auth: "auth-test",
+        endpoint: "https://fcm.googleapis.com/fcm/send/new",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
       },
-      previousEndpoint: "https://push.example/old",
+      previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
     });
     // Keep old endpoint remembered until replace succeeds.
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/old",
+      "https://fcm.googleapis.com/fcm/send/old",
     );
   });
 
   it("returns matching material without previousEndpoint when unchanged", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/same" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/same" });
     sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/same");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/same");
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: {
-        endpoint: "https://push.example/same",
-        p256dh: "p256dh-test",
-        auth: "auth-test",
+        endpoint: "https://fcm.googleapis.com/fcm/send/same",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
       },
     });
@@ -214,12 +243,12 @@ describe("readPushSubscriptionMaterial", () => {
 
   it("unbinds a remembered endpoint when the browser has no subscription", async () => {
     installPushEnv({ permission: "granted", subscription: null });
-    rememberPushEndpoint("https://push.example/stale");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/stale");
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
-      unboundEndpoint: "https://push.example/stale",
-      unboundEndpoints: ["https://push.example/stale"],
+      unboundEndpoint: "https://fcm.googleapis.com/fcm/send/stale",
+      unboundEndpoints: ["https://fcm.googleapis.com/fcm/send/stale"],
     });
   });
 
@@ -229,13 +258,13 @@ describe("readPushSubscriptionMaterial", () => {
       subscription: null,
       getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
     });
-    rememberPushEndpoint("https://push.example/stale");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/stale");
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/stale",
+      "https://fcm.googleapis.com/fcm/send/stale",
     );
   });
 });
@@ -283,9 +312,11 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
   it("does not clear a later session after the sign-out cleanup times out", async () => {
     vi.useFakeTimers();
-    const oldSub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old",
+    });
     installPushEnv({ permission: "granted", subscription: oldSub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
 
     let releaseDisable = () => {};
     const disable = vi.fn().mockImplementation(
@@ -300,9 +331,11 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     const release = await done;
 
     // Later session enables Push before the stalled disable settles.
-    const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
+    const nextSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/next",
+    });
     installPushEnv({ permission: "granted", subscription: nextSub });
-    rememberPushEndpoint("https://push.example/next");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/next");
 
     releaseDisable();
     await vi.advanceTimersByTimeAsync(0);
@@ -310,7 +343,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     release();
 
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/next",
+      "https://fcm.googleapis.com/fcm/send/next",
     );
     expect(nextSub.unsubscribe).not.toHaveBeenCalled();
     vi.useRealTimers();
@@ -322,13 +355,15 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
       subscription: null,
       getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
     });
-    rememberPushEndpoint("https://push.example/remembered");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/remembered");
     const disable = vi.fn().mockResolvedValue({ removed: true });
 
     const release = await clearLocalPushSubscriptionAndBinding(disable);
     release();
 
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/remembered" });
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/remembered",
+    });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 
@@ -440,9 +475,9 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
   it("still unbinds the sign-out snapshot after a busy lock exceeds the wait", async () => {
     vi.useFakeTimers();
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
     const pending = deferredValue<void>();
     const started = deferredValue<void>();
     const active = withPushSubscriptionLock(async () => {
@@ -461,7 +496,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     await vi.advanceTimersByTimeAsync(0);
     await Promise.resolve();
     await Promise.resolve();
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
     expect(sub.unsubscribe).toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -469,7 +504,9 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
   it("freezes a live-only endpoint before lock work (no remembered binding)", async () => {
     // Regression: racing live capture against lock acquisition left onlyEndpoints
     // empty, so account-menu sign-out skipped unsubscribe and called signOut early.
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/live-only" });
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/live-only",
+    });
     let releaseUnsubscribe = () => {};
     sub.unsubscribe.mockImplementationOnce(
       () =>
@@ -494,15 +531,19 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     releaseUnsubscribe();
     const release = await done;
     release();
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/live-only" });
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/live-only",
+    });
   });
 
   it("does not unsubscribe a later session endpoint after a deferred sign-out cleanup", async () => {
     vi.useFakeTimers();
     installPushEnv({
-      subscription: makeFakePushSubscription({ endpoint: "https://push.example/old" }),
+      subscription: makeFakePushSubscription({
+        endpoint: "https://fcm.googleapis.com/fcm/send/old",
+      }),
     });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
     const pending = deferredValue<void>();
     const started = deferredValue<void>();
     const active = withPushSubscriptionLock(async () => {
@@ -516,10 +557,12 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     const release = await done;
     release();
 
-    const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
+    const nextSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/next",
+    });
     // Reinstalling Push env must preserve the held lock (real LockManager is a singleton).
     installPushEnv({ permission: "granted", subscription: nextSub });
-    rememberPushEndpoint("https://push.example/next");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/next");
     expect(disable).not.toHaveBeenCalled();
 
     pending.resolve();
@@ -528,11 +571,13 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
-    expect(disable).not.toHaveBeenCalledWith({ endpoint: "https://push.example/next" });
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
+    expect(disable).not.toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/next",
+    });
     expect(nextSub.unsubscribe).not.toHaveBeenCalled();
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/next",
+      "https://fcm.googleapis.com/fcm/send/next",
     );
     vi.useRealTimers();
   });
@@ -582,23 +627,23 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
 
 describe("disableCurrentPushSubscription", () => {
   it("unbinds both live and remembered endpoints after a browser refresh", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
     const disable = vi.fn().mockResolvedValue({ removed: true });
 
     await disableCurrentPushSubscription(disable);
 
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/new" });
-    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 
   it("retains a remembered endpoint when disable fails", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
     const disable = vi
       .fn()
       .mockResolvedValueOnce({ removed: true })
@@ -606,45 +651,51 @@ describe("disableCurrentPushSubscription", () => {
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("server down");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
-    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/old"]);
+    expect(recalledPendingPushCleanup()).toEqual(["https://fcm.googleapis.com/fcm/send/old"]);
   });
 
   it("keeps pending cleanup when disable does not remove a foreign binding", async () => {
     installPushEnv({ permission: "granted", subscription: null });
-    rememberPushEndpoints(["https://push.example/alice-stale"]);
+    rememberPushEndpoints(["https://fcm.googleapis.com/fcm/send/alice-stale"]);
     const disable = vi.fn().mockResolvedValue({ removed: false });
 
     await expect(disableCurrentPushSubscription(disable)).resolves.toBeUndefined();
-    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/alice-stale"]);
+    expect(recalledPendingPushCleanup()).toEqual([
+      "https://fcm.googleapis.com/fcm/send/alice-stale",
+    ]);
   });
 
   it("does not fail a successful current-device disable for an unrelated retry", async () => {
     const sub = makeFakePushSubscription();
     installPushEnv({ subscription: sub });
     rememberPushEndpoint(sub.endpoint);
-    rememberPushEndpoints(["https://push.example/foreign"]);
+    rememberPushEndpoints(["https://fcm.googleapis.com/fcm/send/foreign"]);
     const disable = vi.fn(async ({ endpoint }: { endpoint: string }) => ({
       removed: endpoint === sub.endpoint,
     }));
     await expect(disableCurrentPushSubscription(disable)).resolves.toBeUndefined();
-    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/foreign"]);
+    expect(recalledPendingPushCleanup()).toEqual(["https://fcm.googleapis.com/fcm/send/foreign"]);
   });
 
   it("cannot overwrite another endpoint inserted during cleanup storage writes", () => {
-    rememberPushEndpoints(["https://push.example/a", "https://push.example/b"]);
+    rememberPushEndpoints([
+      "https://fcm.googleapis.com/fcm/send/a",
+      "https://fcm.googleapis.com/fcm/send/b",
+    ]);
     const remove = window.localStorage.removeItem.bind(window.localStorage);
     const spy = vi.spyOn(window.localStorage, "removeItem").mockImplementation((key) => {
       remove(key);
-      if (key.endsWith("https://push.example/a")) rememberPushEndpoints(["https://push.example/c"]);
+      if (key.endsWith("https://fcm.googleapis.com/fcm/send/a"))
+        rememberPushEndpoints(["https://fcm.googleapis.com/fcm/send/c"]);
     });
     try {
       applyPendingCleanupFlushResult(
-        ["https://push.example/a", "https://push.example/b"],
-        ["https://push.example/b"],
+        ["https://fcm.googleapis.com/fcm/send/a", "https://fcm.googleapis.com/fcm/send/b"],
+        ["https://fcm.googleapis.com/fcm/send/b"],
       );
       expect(recalledPendingPushCleanup()).toEqual([
-        "https://push.example/b",
-        "https://push.example/c",
+        "https://fcm.googleapis.com/fcm/send/b",
+        "https://fcm.googleapis.com/fcm/send/c",
       ]);
     } finally {
       spy.mockRestore();
@@ -652,36 +703,39 @@ describe("disableCurrentPushSubscription", () => {
   });
 
   it("retains every endpoint whose disable failed", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/new" });
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
     installPushEnv({ permission: "granted", subscription: sub });
-    rememberPushEndpoint("https://push.example/old");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
     const disable = vi.fn().mockRejectedValue(new Error("offline"));
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow("offline");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
     expect(recalledPendingPushCleanup()).toEqual([
-      "https://push.example/new",
-      "https://push.example/old",
+      "https://fcm.googleapis.com/fcm/send/new",
+      "https://fcm.googleapis.com/fcm/send/old",
     ]);
   });
 
   it("keeps pending cleanup endpoints across re-enable", async () => {
-    rememberPushEndpoints(["https://push.example/stale-a", "https://push.example/stale-b"]);
+    rememberPushEndpoints([
+      "https://fcm.googleapis.com/fcm/send/stale-a",
+      "https://fcm.googleapis.com/fcm/send/stale-b",
+    ]);
     installPushEnv({ permission: "granted", subscription: null });
 
     await subscribeForPushNotifications(VAPID);
 
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/test-endpoint",
+      "https://fcm.googleapis.com/fcm/send/test-endpoint",
     );
     expect(recalledPushEndpoints()).toEqual([
-      "https://push.example/test-endpoint",
-      "https://push.example/stale-a",
-      "https://push.example/stale-b",
+      "https://fcm.googleapis.com/fcm/send/test-endpoint",
+      "https://fcm.googleapis.com/fcm/send/stale-a",
+      "https://fcm.googleapis.com/fcm/send/stale-b",
     ]);
     expect(recalledPendingPushCleanup()).toEqual([
-      "https://push.example/stale-a",
-      "https://push.example/stale-b",
+      "https://fcm.googleapis.com/fcm/send/stale-a",
+      "https://fcm.googleapis.com/fcm/send/stale-b",
     ]);
   });
 
@@ -691,7 +745,7 @@ describe("disableCurrentPushSubscription", () => {
       subscription: null,
       getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
     });
-    rememberPushEndpoint("https://push.example/remembered");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/remembered");
     const disable = vi.fn().mockResolvedValue({ removed: true });
 
     await expect(disableCurrentPushSubscription(disable)).rejects.toThrow(
@@ -699,12 +753,14 @@ describe("disableCurrentPushSubscription", () => {
     );
     expect(disable).not.toHaveBeenCalled();
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/remembered",
+      "https://fcm.googleapis.com/fcm/send/remembered",
     );
   });
 
   it("preserves the previous active endpoint when explicit enable replaces it", async () => {
-    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old-key" });
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     installPushEnv({ subscription: sub });
     rememberPushEndpoint(sub.endpoint);
@@ -713,33 +769,39 @@ describe("disableCurrentPushSubscription", () => {
   });
 
   it("removes an endpoint from pending when it becomes active again", () => {
-    rememberPushEndpoints(["https://push.example/a", "https://push.example/b"]);
-    rememberPushEndpoint("https://push.example/a");
-    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/b"]);
+    rememberPushEndpoints([
+      "https://fcm.googleapis.com/fcm/send/a",
+      "https://fcm.googleapis.com/fcm/send/b",
+    ]);
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/a");
+    expect(recalledPendingPushCleanup()).toEqual(["https://fcm.googleapis.com/fcm/send/b"]);
   });
 
   it("preserves foreign orphan endpoints as pending cleanup", () => {
-    rememberPushEndpoint("https://push.example/alice");
-    recordOrphanLocalDrop("https://push.example/alice");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/alice");
+    recordOrphanLocalDrop("https://fcm.googleapis.com/fcm/send/alice");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
-    expect(recalledPendingPushCleanup()).toEqual(["https://push.example/alice"]);
+    expect(recalledPendingPushCleanup()).toEqual(["https://fcm.googleapis.com/fcm/send/alice"]);
   });
 
   it("merges pending cleanup flush results without wiping newer endpoints", () => {
-    rememberPushEndpoints(["https://push.example/a", "https://push.example/b"]);
+    rememberPushEndpoints([
+      "https://fcm.googleapis.com/fcm/send/a",
+      "https://fcm.googleapis.com/fcm/send/b",
+    ]);
     // Simulate another tab adding C while A/B flush is in flight.
     rememberPushEndpoints([
-      "https://push.example/a",
-      "https://push.example/b",
-      "https://push.example/c",
+      "https://fcm.googleapis.com/fcm/send/a",
+      "https://fcm.googleapis.com/fcm/send/b",
+      "https://fcm.googleapis.com/fcm/send/c",
     ]);
     applyPendingCleanupFlushResult(
-      ["https://push.example/a", "https://push.example/b"],
-      ["https://push.example/b"],
+      ["https://fcm.googleapis.com/fcm/send/a", "https://fcm.googleapis.com/fcm/send/b"],
+      ["https://fcm.googleapis.com/fcm/send/b"],
     );
     expect(recalledPendingPushCleanup()).toEqual([
-      "https://push.example/b",
-      "https://push.example/c",
+      "https://fcm.googleapis.com/fcm/send/b",
+      "https://fcm.googleapis.com/fcm/send/c",
     ]);
   });
 });
@@ -751,13 +813,13 @@ describe("unsubscribeLocalPushSubscription", () => {
       subscription: null,
       getSubscription: vi.fn().mockRejectedValue(new Error("lookup failed")),
     });
-    rememberPushEndpoint("https://push.example/orphan");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/orphan");
 
-    await expect(unsubscribeLocalPushSubscription("https://push.example/orphan")).rejects.toThrow(
-      "push subscription lookup failed",
-    );
+    await expect(
+      unsubscribeLocalPushSubscription("https://fcm.googleapis.com/fcm/send/orphan"),
+    ).rejects.toThrow("push subscription lookup failed");
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/orphan",
+      "https://fcm.googleapis.com/fcm/send/orphan",
     );
   });
 
@@ -772,10 +834,12 @@ describe("unsubscribeLocalPushSubscription", () => {
   });
 
   it("reports mismatch without unsubscribing a different live endpoint", async () => {
-    const live = makeFakePushSubscription({ endpoint: "https://push.example/b" });
+    const live = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/b" });
     installPushEnv({ permission: "granted", subscription: live });
 
-    await expect(unsubscribeLocalPushSubscription("https://push.example/a")).resolves.toEqual({
+    await expect(
+      unsubscribeLocalPushSubscription("https://fcm.googleapis.com/fcm/send/a"),
+    ).resolves.toEqual({
       status: "mismatch",
     });
     expect(live.unsubscribe).not.toHaveBeenCalled();
@@ -784,7 +848,9 @@ describe("unsubscribeLocalPushSubscription", () => {
   it("reports absent when there is no live subscription", async () => {
     installPushEnv({ permission: "granted", subscription: null });
 
-    await expect(unsubscribeLocalPushSubscription("https://push.example/a")).resolves.toEqual({
+    await expect(
+      unsubscribeLocalPushSubscription("https://fcm.googleapis.com/fcm/send/a"),
+    ).resolves.toEqual({
       status: "absent",
     });
   });
@@ -800,7 +866,7 @@ describe("installPushEnv subscription persistence", () => {
     expect(await getCurrentPushSubscription()).toBeNull();
     await subscribeForPushNotifications(VAPID);
     const created = await getCurrentPushSubscription();
-    expect(created?.endpoint).toBe("https://push.example/test-endpoint");
+    expect(created?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
     if (!created) {
       throw new Error("expected push subscription after subscribe");
     }

@@ -66,6 +66,11 @@ pnpm --filter @pocketcircle/convex exec convex env set RESEND_API_KEY <resend-ap
 pnpm --filter @pocketcircle/convex exec convex env set RESEND_FROM_EMAIL <verified-from-address>
 # Feedback delivery recipient (set to the public support address unless intentionally routed elsewhere)
 pnpm --filter @pocketcircle/convex exec convex env set SUPPORT_EMAIL arpitdalalm@gmail.com
+# Web Push VAPID (separate key pairs for development and production)
+# pnpm --filter @pocketcircle/convex exec convex env set VAPID_PUBLIC_KEY <url-safe-base64-public>
+# pnpm --filter @pocketcircle/convex exec convex env set VAPID_PRIVATE_KEY <url-safe-base64-private>
+# pnpm --filter @pocketcircle/convex exec convex env set VAPID_SUBJECT mailto:<contact-email>
+# pnpm --filter @pocketcircle/convex exec convex env set VAPID_KEY_ID primary
 # Optional: log email subject + HTML to the Convex console on every send (also logs when Resend creds are unset)
 pnpm --filter @pocketcircle/convex exec convex env set EMAIL_DEV_LOG 1
 ```

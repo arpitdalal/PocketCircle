@@ -26,7 +26,8 @@ const subscriptionFields = {
 /**
  * VAPID public key for client subscribe(). Set `VAPID_PUBLIC_KEY` (URL-safe
  * base64) and optional `VAPID_KEY_ID` (defaults to `"primary"`) via
- * `convex env set`. Private key stays server-only for #382 delivery.
+ * `convex env set`. Private key + subject stay server-only (`VAPID_PRIVATE_KEY`,
+ * `VAPID_SUBJECT`) for Push delivery (#382).
  */
 export const getPushVapidPublicKey = query({
   args: {},
@@ -127,11 +128,27 @@ export const replacePushSubscription = mutation({
   },
 });
 
-/** Delete by endpoint after permanent push-service failure (#382). */
+/**
+ * Delete after permanent push-service / crypto failure (#382). Only removes the
+ * row when id + endpoint + keys still match the failed send snapshot — a
+ * concurrent reconcile/rebind that refreshed material is left alone.
+ */
 export const removeInvalidPushSubscription = internalMutation({
-  args: { endpoint: v.string() },
+  args: {
+    subscriptionId: v.id("pushSubscriptions"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+  },
   handler: async (ctx, args) => {
-    await deletePushSubscriptionByEndpoint(ctx, args.endpoint);
+    const row = await ctx.db.get(args.subscriptionId);
+    if (!row) {
+      return;
+    }
+    if (row.endpoint !== args.endpoint || row.p256dh !== args.p256dh || row.auth !== args.auth) {
+      return;
+    }
+    await ctx.db.delete(row._id);
   },
 });
 

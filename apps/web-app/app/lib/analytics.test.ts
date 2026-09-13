@@ -649,7 +649,7 @@ describe("track", () => {
     expect(
       sanitizeAnalyticsProps("notification_permission_result", {
         result: "granted",
-        ...{ endpoint: "https://push.example/x", url: "/settings" },
+        ...{ endpoint: "https://fcm.googleapis.com/fcm/send/x", url: "/settings" },
       }),
     ).toEqual({ result: "granted" });
     expect(
@@ -659,8 +659,11 @@ describe("track", () => {
     expect(sanitizeAnalyticsProps("notifications_enabled", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
     expect(
-      // @ts-expect-error intentional endpoint leak attempt — must be stripped
-      sanitizeAnalyticsProps("notifications_enabled", { endpoint: "https://push.example/x" }),
+      sanitizeAnalyticsProps(
+        "notifications_enabled",
+        // @ts-expect-error intentional endpoint leak attempt — must be stripped
+        { endpoint: "https://fcm.googleapis.com/fcm/send/x" },
+      ),
     ).toEqual({});
 
     track("notification_permission_result", { result: "denied" });
