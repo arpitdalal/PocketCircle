@@ -31,12 +31,17 @@ function isIosStandaloneNavigator(nav: Navigator) {
 }
 
 /** iPhone/iPad/iPod UA, plus iPadOS devices that report as MacIntel with touch. */
-function isIosDevice() {
+export function isIosDevice() {
   const { userAgent, platform, maxTouchPoints } = navigator;
   if (/iPhone|iPad|iPod/i.test(userAgent)) {
     return true;
   }
   return platform === "MacIntel" && maxTouchPoints > 1;
+}
+
+/** True when running as an installed Home Screen / standalone web app. */
+export function isInstalledWebApp() {
+  return isStandaloneDisplay() || isIosStandaloneNavigator(navigator);
 }
 
 const PROMPT_DISMISSED_KEY = "pocketcircle.pwaInstallPromptDismissed";

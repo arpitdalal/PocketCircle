@@ -20,6 +20,7 @@ import { type LedgerState, ledgerDouble } from "./ledger.js";
 import { type McpState, mcpDouble } from "./mcp.js";
 import { type MembersState, membersDouble } from "./members.js";
 import { type NotificationsState, notificationsDouble } from "./notifications.js";
+import { type PushSubscriptionsState, pushSubscriptionsDouble } from "./push-subscriptions.js";
 import { type TransactionsState, transactionsDouble } from "./transactions.js";
 import { type UsersState, usersDouble } from "./users.js";
 
@@ -33,6 +34,7 @@ export type ConvexState = CirclesState &
   HistoryState &
   UsersState &
   NotificationsState &
+  PushSubscriptionsState &
   FeedbackState &
   AccountDeletionState &
   ActivationState &
@@ -50,6 +52,7 @@ const ENTITY_DOUBLES: Array<(state: ConvexState) => EntityDouble> = [
   dashboardDouble,
   historyDouble,
   notificationsDouble,
+  pushSubscriptionsDouble,
   usersDouble,
   feedbackDouble,
   accountDeletionDouble,
