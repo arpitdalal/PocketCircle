@@ -332,6 +332,53 @@ describe("Push mirror from Notification Center", () => {
     errSpy.mockRestore();
   });
 
+  it("sends with the previous VAPID pair during rotation", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    stubVapidEnv({ keyId: "primary" });
+    vi.stubEnv("VAPID_KEY_ID_PREVIOUS", "legacy");
+    vi.stubEnv("VAPID_PUBLIC_KEY_PREVIOUS", "BPpreviousPublicKeyMat");
+    vi.stubEnv("VAPID_PRIVATE_KEY_PREVIOUS", "previousPrivateKeyMat");
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A], "legacy");
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "circle.archived",
+        title: "Circle archived",
+      }),
+    );
+
+    expect(mockSendNotification).toHaveBeenCalledTimes(1);
+    expect(mockSendNotification.mock.calls[0]?.[2]).toMatchObject({
+      vapidDetails: {
+        publicKey: "BPpreviousPublicKeyMat",
+        privateKey: "previousPrivateKeyMat",
+      },
+    });
+  });
+
+  it("prunes the subscription on local encryption failure without retrying", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    mockSendNotification.mockRejectedValue(new Error("Unable to encrypt with p256dh"));
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "member.removed",
+        title: "Removed from Circle",
+      }),
+    );
+
+    expect(mockSendNotification).toHaveBeenCalledTimes(1);
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(0);
+  });
+
   it("skips send when vapidKeyId does not match configured key", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);

@@ -1,4 +1,10 @@
-import { MAX_PUSH_SUBSCRIPTIONS_PER_USER } from "@pocketcircle/domain";
+import {
+  MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  TEST_PUSH_AUTH,
+  TEST_PUSH_AUTH_ALT,
+  TEST_PUSH_P256DH,
+  TEST_PUSH_P256DH_ALT,
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
@@ -25,8 +31,8 @@ afterEach(() => {
 
 const VALID = {
   endpoint: "https://push.example/endpoint-a",
-  p256dh: "p256dh-a",
-  auth: "auth-a",
+  p256dh: TEST_PUSH_P256DH,
+  auth: TEST_PUSH_AUTH,
   vapidKeyId: "primary",
 } as const;
 
@@ -126,16 +132,16 @@ describe("pushSubscriptions", () => {
     signInAs(bob);
     await t.mutation(api.pushSubscriptions.enablePushSubscription, {
       ...VALID,
-      p256dh: "p256dh-bob",
-      auth: "auth-bob",
+      p256dh: TEST_PUSH_P256DH_ALT,
+      auth: TEST_PUSH_AUTH_ALT,
     });
 
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(0);
       const bobRows = await listPushSubscriptionsForUser(ctx, bob._id);
       expect(bobRows).toHaveLength(1);
-      expect(bobRows[0]?.p256dh).toBe("p256dh-bob");
-      expect(bobRows[0]?.auth).toBe("auth-bob");
+      expect(bobRows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+      expect(bobRows[0]?.auth).toBe(TEST_PUSH_AUTH_ALT);
     });
   });
 
@@ -155,14 +161,14 @@ describe("pushSubscriptions", () => {
     vi.setSystemTime(new Date("2026-01-02T00:00:00Z"));
     await t.mutation(api.pushSubscriptions.enablePushSubscription, {
       ...VALID,
-      p256dh: "p256dh-refreshed",
-      auth: "auth-refreshed",
+      p256dh: TEST_PUSH_P256DH_ALT,
+      auth: TEST_PUSH_AUTH_ALT,
     });
 
     await t.run(async (ctx) => {
       const rows = await listPushSubscriptionsForUser(ctx, owner._id);
       expect(rows).toHaveLength(1);
-      expect(rows[0]?.p256dh).toBe("p256dh-refreshed");
+      expect(rows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
       expect(rows[0]?.lastSeenAt).toBeGreaterThan(firstSeen ?? 0);
     });
   });
@@ -195,14 +201,18 @@ describe("pushSubscriptions", () => {
 
     signInAs(alice);
     const refreshed = await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
-      subscription: { ...VALID, p256dh: "p256dh-refreshed", auth: "auth-refreshed" },
+      subscription: {
+        ...VALID,
+        p256dh: TEST_PUSH_P256DH_ALT,
+        auth: TEST_PUSH_AUTH_ALT,
+      },
     });
     expect(refreshed).toEqual({ bound: true });
 
     await t.run(async (ctx) => {
       const aliceRows = await listPushSubscriptionsForUser(ctx, alice._id);
       expect(aliceRows).toHaveLength(1);
-      expect(aliceRows[0]?.p256dh).toBe("p256dh-refreshed");
+      expect(aliceRows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
       expect(aliceRows[0]?.lastSeenAt).toBe(Date.parse("2026-03-02T00:00:00Z"));
     });
   });

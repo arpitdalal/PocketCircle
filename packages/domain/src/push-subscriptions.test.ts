@@ -4,6 +4,8 @@ import {
   isValidPushEndpoint,
   isValidPushSubscriptionMaterial,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  TEST_PUSH_AUTH,
+  TEST_PUSH_P256DH,
 } from "./push-subscriptions.js";
 
 describe("push-subscriptions", () => {
@@ -22,19 +24,26 @@ describe("push-subscriptions", () => {
     expect(isValidPushEndpoint("not-a-url")).toBe(false);
   });
 
-  it("requires non-empty keys with a valid endpoint", () => {
+  it("requires decoded key shapes usable by web-push", () => {
+    expect(
+      isValidPushSubscriptionMaterial({
+        endpoint: "https://push.example/sub",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
+      }),
+    ).toBe(true);
     expect(
       isValidPushSubscriptionMaterial({
         endpoint: "https://push.example/sub",
         p256dh: "key",
         auth: "auth",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isValidPushSubscriptionMaterial({
         endpoint: "https://push.example/sub",
         p256dh: "  ",
-        auth: "auth",
+        auth: TEST_PUSH_AUTH,
       }),
     ).toBe(false);
   });

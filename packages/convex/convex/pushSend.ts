@@ -15,7 +15,8 @@ import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.j
  *
  * Env (deployment secrets): `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
  * `VAPID_SUBJECT` (mailto: or https: contact), optional `VAPID_KEY_ID`
- * (defaults to `"primary"`). Dev and prod use separate key pairs.
+ * (defaults to `"primary"`). During rotation also set `VAPID_KEY_ID_PREVIOUS`,
+ * `VAPID_PUBLIC_KEY_PREVIOUS`, `VAPID_PRIVATE_KEY_PREVIOUS` (same subject).
  */
 
 /** Bound hung push-service sockets so Workpool slots are not stuck for minutes. */
@@ -33,6 +34,12 @@ export function isValidVapidSubject(subject: string) {
 /** Structural check before web-push — avoids retry loops on encode/JWT setup errors. */
 export function isValidVapidKeyMaterial(key: string) {
   return key.length >= 16 && /^[A-Za-z0-9_-]+$/.test(key);
+}
+
+/** Local encrypt/setup failures from bad subscription material (no HTTP status). */
+export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /p256dh|auth|encrypt|crypto|Invalid key|unsupported|asymmetric/i.test(message);
 }
 
 export async function sendWebPushNotification(args: {
@@ -69,13 +76,17 @@ export async function sendWebPushNotification(args: {
   );
 }
 
-function resolveVapidDetailsForKeyId(vapidKeyId: string) {
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
-  const subject = process.env.VAPID_SUBJECT?.trim();
-  const configuredKeyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
+function readVapidPair(args: {
+  keyId: string;
+  publicKey: string | undefined;
+  privateKey: string | undefined;
+  subject: string | undefined;
+}) {
+  const publicKey = args.publicKey?.trim();
+  const privateKey = args.privateKey?.trim();
+  const subject = args.subject?.trim();
   if (!publicKey || !privateKey || !subject) {
-    return { kind: "missing_env" as const };
+    return null;
   }
   if (
     !isValidVapidSubject(subject) ||
@@ -84,13 +95,50 @@ function resolveVapidDetailsForKeyId(vapidKeyId: string) {
   ) {
     return { kind: "invalid_env" as const };
   }
-  if (vapidKeyId !== configuredKeyId) {
-    return { kind: "key_mismatch" as const };
-  }
   return {
     kind: "ok" as const,
+    keyId: args.keyId,
     details: { publicKey, privateKey, subject },
   };
+}
+
+function resolveVapidDetailsForKeyId(vapidKeyId: string) {
+  const subject = process.env.VAPID_SUBJECT?.trim();
+  const currentKeyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
+  const current = readVapidPair({
+    keyId: currentKeyId,
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject,
+  });
+  if (!current) {
+    return { kind: "missing_env" as const };
+  }
+  if (current.kind === "invalid_env") {
+    return current;
+  }
+
+  const previousKeyId = process.env.VAPID_KEY_ID_PREVIOUS?.trim();
+  const previous =
+    previousKeyId === undefined || previousKeyId.length === 0
+      ? null
+      : readVapidPair({
+          keyId: previousKeyId,
+          publicKey: process.env.VAPID_PUBLIC_KEY_PREVIOUS,
+          privateKey: process.env.VAPID_PRIVATE_KEY_PREVIOUS,
+          subject,
+        });
+
+  if (vapidKeyId === current.keyId) {
+    return current;
+  }
+  if (previous?.kind === "ok" && vapidKeyId === previous.keyId) {
+    return previous;
+  }
+  if (previous?.kind === "invalid_env") {
+    return previous;
+  }
+  return { kind: "key_mismatch" as const };
 }
 
 export const sendOne = internalAction({
@@ -150,11 +198,16 @@ export const sendOne = internalAction({
     } catch (error) {
       const statusCode = pushHttpStatusFromError(error);
       if (statusCode === undefined) {
+        if (isLikelyInvalidSubscriptionCryptoError(error)) {
+          await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
+            endpoint: prepared.endpoint,
+          });
+          return;
+        }
         throw error;
       }
       const classification = classifyPushHttpStatus(statusCode);
       if (classification === "gone") {
-        // Propagate prune failures so Workpool retries cleanup; success stays non-retry.
         await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
           endpoint: prepared.endpoint,
         });

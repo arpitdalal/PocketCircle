@@ -798,14 +798,10 @@ describe("cleanup phases", () => {
       await seedPushSubscription(ctx, {
         userId: deleting.userId,
         endpoint: "https://push.example/mine",
-        p256dh: "p",
-        auth: "a",
       });
       await seedPushSubscription(ctx, {
         userId: other._id,
         endpoint: "https://push.example/theirs",
-        p256dh: "p",
-        auth: "a",
       });
       await seedFeedbackEmailEvent(ctx, {
         userId: deleting.userId,

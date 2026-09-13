@@ -1,7 +1,4 @@
-/**
- * Browser-API boundary fakes for Push / Notifications / Permissions / SW
- * tests (issue #381). Stub only at the true boundary — never mock our hooks.
- */
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "@pocketcircle/domain";
 import { type Mock, vi } from "vitest";
 import { deferredValue } from "~/lib/deferred.js";
 
@@ -32,8 +29,8 @@ export function makeFakePushSubscription(
   over: Partial<{ endpoint: string; p256dh: string; auth: string }> = {},
 ) {
   const endpoint = over.endpoint ?? DEFAULT_ENDPOINT;
-  const p256dh = over.p256dh ?? "p256dh-test";
-  const auth = over.auth ?? "auth-test";
+  const p256dh = over.p256dh ?? TEST_PUSH_P256DH;
+  const auth = over.auth ?? TEST_PUSH_AUTH;
   return {
     endpoint,
     unsubscribe: vi.fn(async () => true),

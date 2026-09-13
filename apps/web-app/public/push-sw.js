@@ -2,7 +2,18 @@
  * Production Push service worker (ADR 0033 / #381 / #382).
  * Push receipt + subscription change only. No fetch handler, cache, or offline
  * shell. Notification click routing → #384.
+ *
+ * skipWaiting + clients.claim so an updated worker (with the push handler)
+ * activates without requiring every controlled tab to close first.
  */
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   /** @type {{ title?: string, body?: string, tag?: string }} */
   let payload = {

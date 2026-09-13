@@ -1,3 +1,4 @@
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "@pocketcircle/domain";
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
@@ -62,8 +63,8 @@ describe("PushSubscriptionLifecycle", () => {
       expect(reconcilePushSubscription).toHaveBeenCalledWith({
         subscription: {
           endpoint: sub.endpoint,
-          p256dh: "p256dh-test",
-          auth: "auth-test",
+          p256dh: TEST_PUSH_P256DH,
+          auth: TEST_PUSH_AUTH,
           vapidKeyId: VAPID.keyId,
         },
       });

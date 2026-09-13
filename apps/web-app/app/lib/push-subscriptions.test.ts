@@ -1,3 +1,4 @@
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deferredValue } from "~/lib/deferred.js";
 import {
@@ -184,8 +185,8 @@ describe("readPushSubscriptionMaterial", () => {
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: {
         endpoint: "https://push.example/new",
-        p256dh: "p256dh-test",
-        auth: "auth-test",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
       },
       previousEndpoint: "https://push.example/old",
@@ -205,8 +206,8 @@ describe("readPushSubscriptionMaterial", () => {
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: {
         endpoint: "https://push.example/same",
-        p256dh: "p256dh-test",
-        auth: "auth-test",
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
       },
     });
