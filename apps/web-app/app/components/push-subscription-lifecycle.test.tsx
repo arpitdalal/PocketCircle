@@ -188,9 +188,10 @@ describe("PushSubscriptionLifecycle", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn();
+    const ownsPushEndpoint = vi.fn().mockReturnValue(true);
     configureConvex({
       pushVapidPublicKey: VAPID,
-      ownsPushEndpoint: true,
+      ownsPushEndpoint,
       reconcilePushSubscription,
       disablePushSubscription: vi.fn().mockResolvedValue({ removed: true }),
     });
@@ -198,8 +199,9 @@ describe("PushSubscriptionLifecycle", () => {
     renderLifecycle();
 
     await waitFor(() => {
-      expect(sub.unsubscribe).not.toHaveBeenCalled();
+      expect(ownsPushEndpoint).toHaveBeenCalledWith({ endpoint: sub.endpoint });
     });
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(reconcilePushSubscription).not.toHaveBeenCalled();
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
   });

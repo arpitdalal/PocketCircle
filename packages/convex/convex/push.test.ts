@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain, mutateAndDrainRetries } from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
+import { generateTestVapidKeyPair } from "../test/pushFixtures.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
 import { makeUser, seedCircle } from "../test/seed.js";
@@ -16,6 +17,8 @@ import {
   createPinnedHttpsAgent,
   endpointResolvesToPublicAddress,
   isLikelyInvalidSubscriptionCryptoError,
+  isMatchingVapidKeyPair,
+  isValidVapidSubject,
   PUSH_SEND_TIMEOUT_MS,
   pushTopicFromNotificationId,
   resolvePushEndpointAddresses,
@@ -38,22 +41,22 @@ const modules = import.meta.glob("./**/*.ts");
 const ENDPOINT_A = "https://fcm.googleapis.com/fcm/send/test-a";
 const ENDPOINT_B = "https://fcm.googleapis.com/fcm/send/test-b";
 
-/** Correct decoded lengths without committing detectable VAPID key literals. */
-function syntheticVapidPublicKey(fill: number) {
-  return Buffer.alloc(65, fill).toString("base64url");
-}
-function syntheticVapidPrivateKey(fill: number) {
-  return Buffer.alloc(32, fill).toString("base64url");
-}
+/** Real ECDH pairs so env validation rejects mismatched length-valid keys. */
+const PRIMARY_VAPID = generateTestVapidKeyPair();
+const PREVIOUS_VAPID = generateTestVapidKeyPair();
+const VAPID_PUBLIC = PRIMARY_VAPID.publicKey;
+const VAPID_PRIVATE = PRIMARY_VAPID.privateKey;
+const VAPID_PUBLIC_PREVIOUS = PREVIOUS_VAPID.publicKey;
+const VAPID_PRIVATE_PREVIOUS = PREVIOUS_VAPID.privateKey;
 
-const VAPID_PUBLIC = syntheticVapidPublicKey(1);
-const VAPID_PRIVATE = syntheticVapidPrivateKey(2);
-const VAPID_PUBLIC_PREVIOUS = syntheticVapidPublicKey(3);
-const VAPID_PRIVATE_PREVIOUS = syntheticVapidPrivateKey(4);
-
-function stubVapidEnv(opts?: { keyId?: string; subject?: string; publicKey?: string }) {
+function stubVapidEnv(opts?: {
+  keyId?: string;
+  subject?: string;
+  publicKey?: string;
+  privateKey?: string;
+}) {
   vi.stubEnv("VAPID_PUBLIC_KEY", opts?.publicKey ?? VAPID_PUBLIC);
-  vi.stubEnv("VAPID_PRIVATE_KEY", VAPID_PRIVATE);
+  vi.stubEnv("VAPID_PRIVATE_KEY", opts?.privateKey ?? VAPID_PRIVATE);
   vi.stubEnv("VAPID_SUBJECT", opts?.subject ?? "mailto:push@pocketcircle.test");
   vi.stubEnv("VAPID_KEY_ID", opts?.keyId ?? "primary");
 }
@@ -119,6 +122,23 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
     expect(isLikelyInvalidSubscriptionCryptoError(new Error("Invalid key for VAPID JWT"))).toBe(
       false,
     );
+  });
+});
+
+describe("VAPID env validation", () => {
+  it("accepts only parseable https/mailto subjects with a contact", () => {
+    expect(isValidVapidSubject("mailto:push@pocketcircle.test")).toBe(true);
+    expect(isValidVapidSubject("https://pocketcircle.app/contact")).toBe(true);
+    expect(isValidVapidSubject("https:")).toBe(false);
+    expect(isValidVapidSubject("mailto:")).toBe(false);
+    expect(isValidVapidSubject("not-a-contact-uri")).toBe(false);
+    expect(isValidVapidSubject("http://example.com")).toBe(false);
+  });
+
+  it("requires the public key to be derived from the private key", () => {
+    expect(isMatchingVapidKeyPair(VAPID_PUBLIC, VAPID_PRIVATE)).toBe(true);
+    expect(isMatchingVapidKeyPair(VAPID_PUBLIC, VAPID_PRIVATE_PREVIOUS)).toBe(false);
+    expect(isMatchingVapidKeyPair(VAPID_PUBLIC_PREVIOUS, VAPID_PRIVATE)).toBe(false);
   });
 });
 
@@ -401,7 +421,28 @@ describe("Push mirror from Notification Center", () => {
   it("skips send when VAPID subject is malformed", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
-    stubVapidEnv({ subject: "not-a-contact-uri" });
+    stubVapidEnv({ subject: "https:" });
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "category.restored",
+        title: "Category restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith("VAPID env malformed; skipping push send");
+    errSpy.mockRestore();
+  });
+
+  it("skips send when VAPID public and private keys are not a pair", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    stubVapidEnv({ publicKey: VAPID_PUBLIC, privateKey: VAPID_PRIVATE_PREVIOUS });
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

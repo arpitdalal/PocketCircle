@@ -78,5 +78,14 @@ describe("push-subscriptions", () => {
         auth: TEST_AUTH,
       }),
     ).toBe(false);
+    // Compressed 33-byte points are not valid for RFC 8291 user-agent keys.
+    const compressed = Buffer.alloc(33, 2).toString("base64url");
+    expect(
+      isValidPushSubscriptionMaterial({
+        endpoint: PUBLIC_ENDPOINT,
+        p256dh: compressed,
+        auth: TEST_AUTH,
+      }),
+    ).toBe(false);
   });
 });

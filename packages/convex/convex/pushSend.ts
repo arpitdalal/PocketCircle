@@ -1,6 +1,6 @@
 "use node";
 
-import { createHash } from "node:crypto";
+import { createECDH, createHash, timingSafeEqual } from "node:crypto";
 import { promises as dns } from "node:dns";
 import https from "node:https";
 import {
@@ -35,7 +35,18 @@ export function pushTopicFromNotificationId(notificationId: string) {
 }
 
 export function isValidVapidSubject(subject: string) {
-  return subject.startsWith("mailto:") || subject.startsWith("https:");
+  try {
+    const parsed = new URL(subject);
+    if (parsed.protocol === "https:") {
+      return parsed.hostname.length > 0;
+    }
+    if (parsed.protocol === "mailto:") {
+      return subject.slice("mailto:".length).trim().length > 0;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function decodeVapidKeyBytes(key: string) {
@@ -50,14 +61,45 @@ function decodeVapidKeyBytes(key: string) {
   }
 }
 
-/** Uncompressed P-256 public key (65 bytes) as URL-safe base64. */
+/** Uncompressed P-256 public key (65 bytes, 0x04 prefix) as URL-safe base64. */
 export function isValidVapidPublicKey(key: string) {
-  return decodeVapidKeyBytes(key)?.length === 65;
+  const bytes = decodeVapidKeyBytes(key);
+  return bytes?.length === 65 && bytes[0] === 0x04;
 }
 
 /** P-256 private key (32 bytes) as URL-safe base64. */
 export function isValidVapidPrivateKey(key: string) {
   return decodeVapidKeyBytes(key)?.length === 32;
+}
+
+/**
+ * True when `publicKey` is the P-256 point derived from `privateKey`.
+ * Length-valid but mismatched pairs would otherwise sign with one key and
+ * advertise another — permanent push-service rejections until env is fixed.
+ */
+export function isMatchingVapidKeyPair(publicKey: string, privateKey: string) {
+  const publicBytes = decodeVapidKeyBytes(publicKey);
+  const privateBytes = decodeVapidKeyBytes(privateKey);
+  if (
+    !publicBytes ||
+    publicBytes.length !== 65 ||
+    publicBytes[0] !== 0x04 ||
+    !privateBytes ||
+    privateBytes.length !== 32
+  ) {
+    return false;
+  }
+  try {
+    const curve = createECDH("prime256v1");
+    curve.setPrivateKey(privateBytes);
+    const derived = curve.getPublicKey();
+    if (derived.length !== publicBytes.length) {
+      return false;
+    }
+    return timingSafeEqual(derived, publicBytes);
+  } catch {
+    return false;
+  }
 }
 
 /** Local encrypt failures that name subscription key material (not VAPID/runtime). */
@@ -186,7 +228,8 @@ function readVapidPair(args: {
   if (
     !isValidVapidSubject(subject) ||
     !isValidVapidPublicKey(publicKey) ||
-    !isValidVapidPrivateKey(privateKey)
+    !isValidVapidPrivateKey(privateKey) ||
+    !isMatchingVapidKeyPair(publicKey, privateKey)
   ) {
     return { kind: "invalid_env" as const };
   }

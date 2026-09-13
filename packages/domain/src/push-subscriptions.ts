@@ -122,8 +122,8 @@ export function isValidPushSubscriptionMaterial(input: {
   if (!p256dh || !auth) {
     return false;
   }
-  // Uncompressed (65) or compressed (33) P-256 public key; auth secret is 16 bytes.
-  if ((p256dh.length !== 65 && p256dh.length !== 33) || auth.length !== 16) {
+  // RFC 8291: user-agent p256dh is 65-byte uncompressed (0x04 || X || Y); auth is 16 bytes.
+  if (p256dh.length !== 65 || p256dh[0] !== 0x04 || auth.length !== 16) {
     return false;
   }
   return (
