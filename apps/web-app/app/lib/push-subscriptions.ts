@@ -744,7 +744,8 @@ export async function readPushSubscriptionMaterial(
  * Sign-out helper: unsubscribe locally then remove User binding. Failures and
  * stalled mutations must not block sign-out. If live `getSubscription()` fails,
  * falls back to the last remembered endpoint so server unbind still runs.
- * After the deadline, local side effects stop so a later session is untouched.
+ * The 5s deadline only unblocks the caller — cleanup still runs when the Push
+ * lock is free, scoped to endpoints known at sign-out so a later session is safe.
  * Returns a release() the caller must run after `signOut()` settles so cancel
  * spans session invalidation (cross-tab enable during the network round-trip).
  * Never logs endpoint material.
@@ -756,8 +757,9 @@ export async function clearLocalPushSubscriptionAndBinding(
   const cleanupId = markPushSignOutCleanup();
   requestPushEnableCancel();
   pushSignOutCleanupInProgress += 1;
-  // Snapshot before any await — late lock acquisition must still unbind these,
-  // and must not touch a newer session's endpoint that appears after timeout.
+  // Freeze cleanup targets before waiting on the lock. Aborting that wait was the
+  // root bug (queued cleanup discarded); scoping to this freeze is what keeps a
+  // later session safe when cleanup runs after the caller deadline.
   const rememberedAtSignOut = recalledPushEndpoints();
   let liveCapturedBeforeDeadline: string | null = null;
   void getCurrentPushSubscription()
@@ -771,7 +773,6 @@ export async function clearLocalPushSubscriptionAndBinding(
   const signedOut = deferredValue<void>();
   const heartbeat = window.setInterval(() => touchPushSignOutCleanup(cleanupId), 15_000);
   pushSignOutGuardHeartbeats.add(heartbeat);
-  // Unblock sign-out only — do not abort the lock wait (that discarded cleanup).
   const timer = window.setTimeout(() => {
     cleanupDone.resolve();
   }, 5_000);
@@ -780,22 +781,19 @@ export async function clearLocalPushSubscriptionAndBinding(
   void withPushSubscriptionLock(
     async () => {
       try {
-        if (Date.now() < deadline) {
-          await disableCurrentPushSubscription(disable, {
-            isCancelled: () => Date.now() >= deadline,
-            rememberedFallbackOnLookupFailure: true,
-          });
-        }
-        // Lock was busy past the wait, or disable cancelled mid-flight — still
-        // unbind the pre-sign-out endpoints without touching a later session.
-        const endpointsAtSignOut = [
+        const onlyEndpoints = [
           ...new Set(
             [...rememberedAtSignOut, liveCapturedBeforeDeadline].filter(
               (value): value is string => typeof value === "string" && value.length > 0,
             ),
           ),
         ];
-        await unbindSignOutSnapshotEndpoints(disable, endpointsAtSignOut);
+        await disableCurrentPushSubscription(disable, {
+          // Freeze (`onlyEndpoints`) is what protects a later session — do not
+          // cancel the whole unbind just because a newer active endpoint exists.
+          rememberedFallbackOnLookupFailure: true,
+          onlyEndpoints,
+        });
       } finally {
         cleanupDone.resolve();
         await signedOut.promise;
@@ -819,46 +817,6 @@ export async function clearLocalPushSubscriptionAndBinding(
 }
 
 /**
- * Best-effort unbind for endpoints known at sign-out start. Safe after the
- * wait deadline: never unsubscribes a live sub outside the snapshot (new session).
- */
-async function unbindSignOutSnapshotEndpoints(
-  disable: (args: { endpoint: string }) => Promise<unknown>,
-  endpointsAtSignOut: readonly string[],
-) {
-  const targets = [...new Set(endpointsAtSignOut.filter((endpoint) => endpoint.length > 0))];
-  if (targets.length === 0) {
-    return;
-  }
-
-  const live = await getCurrentPushSubscription().catch(() => null);
-  if (live && targets.includes(live.endpoint)) {
-    try {
-      await live.unsubscribe();
-    } catch {
-      // Server unbind below still runs; retain pending on failure.
-    }
-  }
-
-  const failures: string[] = [];
-  for (const endpoint of targets) {
-    try {
-      const outcome = await disable({ endpoint });
-      if (!disableRemovedOwnedBinding(outcome)) {
-        failures.push(endpoint);
-      }
-    } catch {
-      failures.push(endpoint);
-    }
-  }
-  applyPendingCleanupFlushResult(targets, failures);
-  const active = recalledPushEndpoint();
-  if (active && targets.includes(active) && !failures.includes(active)) {
-    rememberPushEndpoint(null);
-  }
-}
-
-/**
  * Settings disable: same steps as sign-out cleanup, but surfaces server unbind
  * failures so the UI can retry instead of claiming success with a live binding.
  * Unbinds both the live subscription and any distinct remembered endpoint —
@@ -870,9 +828,16 @@ export async function disableCurrentPushSubscription(
     isCancelled?: () => boolean;
     /** Sign-out only — unbind recalled endpoints when live lookup fails. */
     rememberedFallbackOnLookupFailure?: boolean;
+    /**
+     * When set (including `[]`), only these endpoints are unbound. Used by
+     * sign-out so a deferred lock acquisition cannot adopt a later session's
+     * live subscription.
+     */
+    onlyEndpoints?: readonly string[];
   },
 ) {
   const cancelled = () => options?.isCancelled?.() === true;
+  const frozen = options?.onlyEndpoints;
   let subscription: PushSubscription | null = null;
   let lookupFailed = false;
   try {
@@ -903,11 +868,19 @@ export async function disableCurrentPushSubscription(
   const liveEndpoint = subscription?.endpoint ?? null;
   const activeEndpoint = recalledPushEndpoint();
   // Snapshot once — do not re-read storage during awaits (cross-tab enable).
-  const endpoints = [
-    ...new Set(
-      [liveEndpoint, ...recalledPushEndpoints()].filter((value): value is string => value !== null),
-    ),
-  ];
+  const endpoints = frozen
+    ? [...new Set(frozen.filter((endpoint) => endpoint.length > 0))]
+    : [
+        ...new Set(
+          [liveEndpoint, ...recalledPushEndpoints()].filter(
+            (value): value is string => value !== null,
+          ),
+        ),
+      ];
+  if (frozen && liveEndpoint && !endpoints.includes(liveEndpoint)) {
+    // Later session (or unrelated live sub) — never unsubscribe it.
+    subscription = null;
+  }
   if (endpoints.length === 0) {
     return;
   }
@@ -943,17 +916,26 @@ export async function disableCurrentPushSubscription(
   if (cancelled()) {
     return;
   }
+  // Re-read active: a later session may have remembered a new endpoint while we ran.
+  const activeNow = recalledPushEndpoint();
+  const clearActive = activeNow === null || endpoints.includes(activeNow);
   if (failures.length === 0) {
-    rememberPushEndpoint(null);
+    if (clearActive) {
+      rememberPushEndpoint(null);
+    }
     applyPendingCleanupFlushResult(endpoints, []);
     if (unsubscribeFailed) {
-      if (liveEndpoint && !cancelled()) await unsubscribeLocalPushSubscription(liveEndpoint);
+      if (liveEndpoint && !cancelled() && endpoints.includes(liveEndpoint)) {
+        await unsubscribeLocalPushSubscription(liveEndpoint);
+      }
     }
     return;
   }
   // Active sub is gone (or never cleared) — keep failures as pending cleanup
   // so a later enable cannot wipe them via rememberPushEndpoint.
-  rememberPushEndpoint(null);
+  if (clearActive) {
+    rememberPushEndpoint(null);
+  }
   applyPendingCleanupFlushResult(
     endpoints,
     failures.map((failure) => failure.endpoint),
