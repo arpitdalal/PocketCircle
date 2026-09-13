@@ -1,6 +1,7 @@
 /**
  * Per-device Web Push subscription constraints (ADR 0033 / issue #381).
  * Structural checks only — Convex re-validates at the mutation boundary.
+ * Node send path additionally resolves DNS and rejects private addresses.
  */
 
 /** Soft cap on active subscriptions per User; enable prunes then LRU-replaces. */
@@ -23,8 +24,12 @@ export function isValidPushEndpoint(endpoint: string) {
   }
 }
 
+function normalizeHostname(host: string) {
+  // `localhost.` and similar absolute forms should still fail local checks.
+  return host.replace(/\.+$/, "").toLowerCase();
+}
+
 function isIpLiteralHostname(host: string) {
-  // IPv6 URL hostnames are bracketed; IPv4 is dotted-decimal.
   if (host.startsWith("[") && host.endsWith("]")) {
     return true;
   }
@@ -34,18 +39,76 @@ function isIpLiteralHostname(host: string) {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
 }
 
+/** True when an IPv4/IPv6 literal is loopback, link-local, private, or reserved. */
+export function isPrivateOrReservedIpAddress(ip: string) {
+  const value = ip.trim().toLowerCase();
+  if (value.includes(":")) {
+    if (value === "::1" || value === "::" || value === "0:0:0:0:0:0:0:1") {
+      return true;
+    }
+    // IPv4-mapped IPv6.
+    if (value.startsWith("::ffff:")) {
+      return isPrivateOrReservedIpAddress(value.slice("::ffff:".length));
+    }
+    // Unique local fc00::/7 and link-local fe80::/10 (prefix check on first hextet).
+    const first = value.split(":", 1)[0] ?? "";
+    const firstNum = Number.parseInt(first || "0", 16);
+    if (!Number.isFinite(firstNum)) {
+      return true;
+    }
+    if ((firstNum & 0xfe00) === 0xfc00) {
+      return true;
+    }
+    if ((firstNum & 0xffc0) === 0xfe80) {
+      return true;
+    }
+    return false;
+  }
+
+  const parts = value.split(".").map((part) => Number(part));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    return true;
+  }
+  const [a, b] = parts;
+  if (a === undefined || b === undefined) {
+    return true;
+  }
+  if (a === 0 || a === 10 || a === 127) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 100 && b >= 64 && b <= 127) {
+    return true;
+  }
+  if (a >= 224) {
+    return true;
+  }
+  return false;
+}
+
 /**
- * HTTPS Push endpoint safe to POST from the server (SSRF).
+ * HTTPS Push endpoint structurally safe to attempt (SSRF hostname gate).
  *
- * Browsers pick opaque push-service hosts — do not require a vendor allowlist.
- * Reject loopback / link-local / internal hostnames and IP literals so the
- * Node sender cannot be aimed at private network destinations.
+ * Browsers pick opaque push-service hosts — no vendor allowlist. Reject
+ * loopback / link-local / internal hostnames and IP literals. The Node sender
+ * must still resolve DNS and reject private/reserved addresses before POST.
  */
 export function isSafePushEndpoint(endpoint: string) {
   if (!isValidPushEndpoint(endpoint)) {
     return false;
   }
-  const host = new URL(endpoint).hostname.toLowerCase();
+  const host = normalizeHostname(new URL(endpoint).hostname);
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||

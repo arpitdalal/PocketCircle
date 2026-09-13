@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { promises as dns } from "node:dns";
 import { pushBodyForNotificationType, pushTitleForNotificationType } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +13,7 @@ import { internal } from "./_generated/api.js";
 import { PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
+  endpointResolvesToPublicAddress,
   isLikelyInvalidSubscriptionCryptoError,
   PUSH_SEND_TIMEOUT_MS,
   pushTopicFromNotificationId,
@@ -64,6 +66,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 async function seedRecipientWithSubs(
@@ -114,6 +117,22 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
     expect(isLikelyInvalidSubscriptionCryptoError(new Error("Invalid key for VAPID JWT"))).toBe(
       false,
     );
+  });
+});
+
+describe("endpointResolvesToPublicAddress", () => {
+  it("rejects hosts that resolve to private addresses", async () => {
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "10.0.0.8", family: 4 }]);
+    await expect(
+      endpointResolvesToPublicAddress("https://push.attacker.test/wpush/v2/x"),
+    ).resolves.toBe(false);
+  });
+
+  it("accepts hosts that resolve to public addresses", async () => {
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+    await expect(
+      endpointResolvesToPublicAddress("https://push.example-browser.test/wpush/v2/x"),
+    ).resolves.toBe(true);
   });
 });
 
@@ -434,6 +453,28 @@ describe("Push mirror from Notification Center", () => {
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+  });
+
+  it("prunes endpoints whose DNS resolves to a private address", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [
+      "https://push.attacker.test/wpush/v2/x",
+    ]);
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "10.0.0.8", family: 4 }]);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "member.removed",
+        title: "Removed from Circle",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(0);
   });
 
   it("prunes private destinations without calling web-push", async () => {

@@ -151,105 +151,16 @@ describe("resolvePushNotificationsCapability", () => {
 });
 
 describe("readPushSubscriptionMaterial", () => {
-  it("resubscribes on VAPID mismatch for ownership-safe migrate", async () => {
-    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
-    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    const next = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
-    next.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
-    const { subscribe } = installPushEnv({
-      permission: "granted",
-      subscription: old,
-      subscribe: vi.fn().mockResolvedValue(next),
-    });
-
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
-      subscription: {
-        endpoint: "https://fcm.googleapis.com/fcm/send/new",
-        p256dh: TEST_PUSH_P256DH,
-        auth: TEST_PUSH_AUTH,
-        vapidKeyId: "primary",
-      },
-      previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
-    });
-    expect(old.unsubscribe).toHaveBeenCalledOnce();
-    expect(subscribe).toHaveBeenCalledOnce();
-  });
-
-  it("falls back to unbound cleanup when VAPID remigrate subscribe fails", async () => {
-    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
-    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    const { subscribe } = installPushEnv({
-      permission: "granted",
-      subscription: old,
-      subscribe: vi.fn().mockRejectedValue(new Error("subscribe failed")),
-    });
-
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
-      subscription: null,
-      unboundEndpoint: "https://fcm.googleapis.com/fcm/send/old",
-      unboundEndpoints: ["https://fcm.googleapis.com/fcm/send/old"],
-    });
-    expect(old.unsubscribe).toHaveBeenCalledOnce();
-    expect(subscribe).toHaveBeenCalledOnce();
-  });
-
-  it("unsubscribes the remigrated subscription when reconcile cancels mid-flight", async () => {
-    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
-    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    const next = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
-    next.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
-    let cancelled = false;
-    installPushEnv({
-      permission: "granted",
-      subscription: old,
-      subscribe: vi.fn().mockImplementation(async () => {
-        cancelled = true;
-        return next;
-      }),
-    });
-    await expect(readPushSubscriptionMaterial(VAPID, () => cancelled)).resolves.toEqual({
-      subscription: null,
-    });
-    expect(next.unsubscribe).toHaveBeenCalledOnce();
-  });
-
-  it("remembers the remigrated endpoint when cancel cleanup unsubscribe fails", async () => {
-    const old = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
-    old.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    const next = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/new" });
-    next.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
-    next.unsubscribe = vi.fn().mockRejectedValue(new Error("unsubscribe failed"));
-    let cancelled = false;
-    installPushEnv({
-      permission: "granted",
-      subscription: old,
-      subscribe: vi.fn().mockImplementation(async () => {
-        cancelled = true;
-        return next;
-      }),
-    });
-    await expect(readPushSubscriptionMaterial(VAPID, () => cancelled)).resolves.toEqual({
-      subscription: null,
-      unboundEndpoint: "https://fcm.googleapis.com/fcm/send/new",
-      unboundEndpoints: [
-        "https://fcm.googleapis.com/fcm/send/new",
-        "https://fcm.googleapis.com/fcm/send/old",
-      ],
-    });
-    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://fcm.googleapis.com/fcm/send/new",
-    );
-  });
-
-  it("does not unbind the server when VAPID unsubscribe fails", async () => {
+  it("preserves the old-key subscription on VAPID mismatch during reconcile", async () => {
     const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
-    sub.unsubscribe = vi.fn().mockRejectedValue(new Error("unsubscribe failed"));
-    installPushEnv({ permission: "granted", subscription: sub });
+    const { subscribe } = installPushEnv({ permission: "granted", subscription: sub });
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
     });
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(subscribe).not.toHaveBeenCalled();
   });
 
   it("reports previousEndpoint when the browser refreshes the endpoint", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_VAPID_KEY_ID,
+  isPrivateOrReservedIpAddress,
   isSafePushEndpoint,
   isValidPushEndpoint,
   isValidPushSubscriptionMaterial,
@@ -32,12 +33,22 @@ describe("push-subscriptions", () => {
   it("allows opaque public push hosts and rejects private destinations", () => {
     expect(isSafePushEndpoint(PUBLIC_ENDPOINT)).toBe(true);
     expect(isSafePushEndpoint("https://updates.push.services.mozilla.com/wpush/v2/x")).toBe(true);
-    // Vendor-agnostic: any public HTTPS DNS name is acceptable to the Push API.
     expect(isSafePushEndpoint("https://push.example-browser.test/wpush/v2/x")).toBe(true);
     expect(isSafePushEndpoint("https://127.0.0.1/push")).toBe(false);
     expect(isSafePushEndpoint("https://localhost/push")).toBe(false);
+    expect(isSafePushEndpoint("https://localhost./push")).toBe(false);
     expect(isSafePushEndpoint("https://host.local/push")).toBe(false);
     expect(isSafePushEndpoint("https://[::1]/push")).toBe(false);
+  });
+
+  it("classifies private and reserved IP addresses", () => {
+    expect(isPrivateOrReservedIpAddress("10.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("192.168.1.1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("127.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("169.254.169.254")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("8.8.8.8")).toBe(false);
+    expect(isPrivateOrReservedIpAddress("::1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("2001:4860:4860::8888")).toBe(false);
   });
 
   it("requires decoded key shapes usable by web-push", () => {

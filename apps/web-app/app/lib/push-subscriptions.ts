@@ -680,13 +680,12 @@ export async function unsubscribeLocalPushSubscription(
 }
 
 /**
- * Startup/focus material for reconcile. VAPID key mismatch on a returning
- * device: unsubscribe the stale sub, subscribe under the current key, and
- * return material (+ `previousEndpoint` when the browser rotates the URL) so
- * replace/reconcile can migrate only when this User already owns the old row —
- * never auto-creates a first binding. Subscribe failure falls back to
- * `unboundEndpoint` cleanup. Same-key endpoint change vs last remembered
- * endpoint → `previousEndpoint` for owned migration via replacePushSubscription.
+ * Startup/focus material for reconcile. VAPID key mismatch: leave the local
+ * subscription alone (no unsubscribe/resubscribe) — automatic remigrate is not
+ * gesture-safe on Firefox/iOS, and the previous VAPID pair still delivers.
+ * Explicit Settings enable migrates via subscribeForPushNotifications.
+ * Same-key endpoint change vs last remembered endpoint → `previousEndpoint`
+ * for owned migration via replacePushSubscription.
  */
 export async function readPushSubscriptionMaterial(
   vapid: { publicKey: string; keyId: string },
@@ -719,53 +718,11 @@ export async function readPushSubscriptionMaterial(
     return { subscription: null };
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
-    const previousEndpoint = existing.endpoint;
-    // Snapshot before await — another tab may enable and remember a new endpoint.
-    const rememberedBeforeUnsubscribe = recalledPushEndpoints();
-    try {
-      if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
-    } catch {
-      // Local sub still present — do not unbind server or Settings shows
-      // enabled with nothing deliverable after a successful disable.
-      return { subscription: null };
-    }
-    if (isCancelled()) return { subscription: null };
-    try {
-      const next = await subscribeWithVapid(registration, vapid);
-      if (isCancelled()) {
-        // Remigrate created a live sub — drop it or remember for cleanup so
-        // sign-out's endpoint snapshot cannot miss a rotated URL.
-        try {
-          if (!(await next.unsubscribe())) throw new Error("Push unsubscribe failed");
-        } catch {
-          rememberPushEndpoint(next.endpoint);
-          return {
-            subscription: null,
-            unboundEndpoint: next.endpoint,
-            unboundEndpoints: [
-              ...new Set([next.endpoint, previousEndpoint, ...rememberedBeforeUnsubscribe]),
-            ],
-          };
-        }
-        return { subscription: null };
-      }
-      const material = {
-        ...readSubscriptionKeys(next),
-        vapidKeyId: vapid.keyId,
-      };
-      if (previousEndpoint !== material.endpoint) {
-        // Keep previous remembered until replace succeeds.
-        return { subscription: material, previousEndpoint };
-      }
-      rememberPushEndpoint(material.endpoint);
-      return { subscription: material };
-    } catch {
-      return {
-        subscription: null,
-        unboundEndpoint: previousEndpoint,
-        unboundEndpoints: [...new Set([previousEndpoint, ...rememberedBeforeUnsubscribe])],
-      };
-    }
+    // Keep the old-key subscription intact during automatic reconcile.
+    // Firefox/iOS require a user gesture for subscribe(); unsubscribing here and
+    // failing remigrate would disable Push even while the previous VAPID pair
+    // can still deliver. Explicit Settings enable runs subscribeWithVapid.
+    return { subscription: null };
   }
 
   const material = {

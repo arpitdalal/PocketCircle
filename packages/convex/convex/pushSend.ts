@@ -1,7 +1,13 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { DEFAULT_VAPID_KEY_ID, isSafePushEndpoint, pushTtlSeconds } from "@pocketcircle/domain";
+import { promises as dns } from "node:dns";
+import {
+  DEFAULT_VAPID_KEY_ID,
+  isPrivateOrReservedIpAddress,
+  isSafePushEndpoint,
+  pushTtlSeconds,
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
@@ -63,6 +69,26 @@ export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
     message,
   );
   return namesSubscriptionKey && looksLikeEncryptFailure;
+}
+
+/**
+ * Resolve the endpoint host and reject private/reserved addresses (SSRF / rebinding).
+ * Hostname spelling alone is insufficient — DNS may point a public name at RFC1918.
+ */
+export async function endpointResolvesToPublicAddress(endpoint: string) {
+  if (!isSafePushEndpoint(endpoint)) {
+    return false;
+  }
+  const host = new URL(endpoint).hostname.replace(/\.+$/, "");
+  try {
+    const records = await dns.lookup(host, { all: true, verbatim: true });
+    if (records.length === 0) {
+      return false;
+    }
+    return records.every((record) => !isPrivateOrReservedIpAddress(record.address));
+  } catch {
+    return false;
+  }
 }
 
 export async function sendWebPushNotification(args: {
@@ -188,8 +214,8 @@ export const sendOne = internalAction({
       return;
     }
 
-    // Defense in depth: bind already requires safe public HTTPS; never POST private.
-    if (!isSafePushEndpoint(prepared.endpoint)) {
+    // Defense in depth: structural public HTTPS + resolved public addresses only.
+    if (!(await endpointResolvesToPublicAddress(prepared.endpoint))) {
       await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
         subscriptionId: args.subscriptionId,
         endpoint: prepared.endpoint,
