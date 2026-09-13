@@ -338,6 +338,7 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     const sub = makeFakePushSubscription();
     sub.unsubscribe.mockImplementation(() => pending.promise);
     const env = installPushEnv({ subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
     const disable = vi.fn();
     const done = clearLocalPushSubscriptionAndBinding(disable);
     await vi.advanceTimersByTimeAsync(5_000);
@@ -349,7 +350,9 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     await vi.advanceTimersByTimeAsync(0);
     await withPushSubscriptionLock(async () => {});
     expect(env.subscription).toBeNull();
-    expect(disable).not.toHaveBeenCalled();
+    // Snapshot unbind still attempts server disable after the wait; without
+    // `{ removed: true }` the endpoint stays pending for retry.
+    expect(disable).toHaveBeenCalledWith({ endpoint: sub.endpoint });
     expect(recalledPendingPushCleanup()).toContain(sub.endpoint);
     vi.useRealTimers();
   });
@@ -435,9 +438,11 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     }
   });
 
-  it("times out a queued cleanup without running it in a later session", async () => {
+  it("still unbinds the sign-out snapshot after a busy lock exceeds the wait", async () => {
     vi.useFakeTimers();
-    installPushEnv({ subscription: makeFakePushSubscription() });
+    const sub = makeFakePushSubscription({ endpoint: "https://push.example/old" });
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint("https://push.example/old");
     const pending = deferredValue<void>();
     const started = deferredValue<void>();
     const active = withPushSubscriptionLock(async () => {
@@ -445,14 +450,57 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
       await pending.promise;
     });
     await started.promise;
-    const disable = vi.fn();
+    const disable = vi.fn().mockResolvedValue({ removed: true });
     const done = clearLocalPushSubscriptionAndBinding(disable);
     await vi.advanceTimersByTimeAsync(5_000);
     const release = await done;
     release();
+    expect(disable).not.toHaveBeenCalled();
     pending.resolve();
     await active;
-    expect(disable).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
+    expect(sub.unsubscribe).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not unsubscribe a later session endpoint after a deferred sign-out cleanup", async () => {
+    vi.useFakeTimers();
+    installPushEnv({
+      subscription: makeFakePushSubscription({ endpoint: "https://push.example/old" }),
+    });
+    rememberPushEndpoint("https://push.example/old");
+    const pending = deferredValue<void>();
+    const started = deferredValue<void>();
+    const active = withPushSubscriptionLock(async () => {
+      started.resolve();
+      await pending.promise;
+    });
+    await started.promise;
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    const done = clearLocalPushSubscriptionAndBinding(disable);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const release = await done;
+    release();
+
+    const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
+    installPushEnv({ permission: "granted", subscription: nextSub });
+    rememberPushEndpoint("https://push.example/next");
+
+    pending.resolve();
+    await active;
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(disable).toHaveBeenCalledWith({ endpoint: "https://push.example/old" });
+    expect(disable).not.toHaveBeenCalledWith({ endpoint: "https://push.example/next" });
+    expect(nextSub.unsubscribe).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
+      "https://push.example/next",
+    );
     vi.useRealTimers();
   });
 
