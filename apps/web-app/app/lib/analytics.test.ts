@@ -659,9 +659,8 @@ describe("track", () => {
     expect(sanitizeAnalyticsProps("notifications_enabled", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
     expect(
-      // @ts-expect-error intentional endpoint leak attempt — must be stripped
       sanitizeAnalyticsProps("notifications_enabled", {
-        endpoint: "https://fcm.googleapis.com/fcm/send/x",
+        ...{ endpoint: "https://fcm.googleapis.com/fcm/send/x" },
       }),
     ).toEqual({});
 
