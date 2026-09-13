@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_VAPID_KEY_ID,
-  isTrustedPushEndpoint,
+  isSafePushEndpoint,
   isValidPushEndpoint,
   isValidPushSubscriptionMaterial,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
@@ -11,7 +11,7 @@ import {
 const TEST_P256DH =
   "BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
 const TEST_AUTH = "CQkJCQkJCQkJCQkJCQkJCQ";
-const TRUSTED_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-sub";
+const PUBLIC_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-sub";
 
 describe("push-subscriptions", () => {
   it("caps each User at ten subscriptions", () => {
@@ -23,39 +23,41 @@ describe("push-subscriptions", () => {
   });
 
   it("accepts https endpoints and rejects others", () => {
-    expect(isValidPushEndpoint(TRUSTED_ENDPOINT)).toBe(true);
+    expect(isValidPushEndpoint(PUBLIC_ENDPOINT)).toBe(true);
     expect(isValidPushEndpoint("http://insecure.example/push")).toBe(false);
     expect(isValidPushEndpoint("")).toBe(false);
     expect(isValidPushEndpoint("not-a-url")).toBe(false);
   });
 
-  it("trusts known push-service hosts only", () => {
-    expect(isTrustedPushEndpoint(TRUSTED_ENDPOINT)).toBe(true);
-    expect(isTrustedPushEndpoint("https://updates.push.services.mozilla.com/wpush/v2/x")).toBe(
-      true,
-    );
-    expect(isTrustedPushEndpoint("https://evil.example/collect")).toBe(false);
-    expect(isTrustedPushEndpoint("https://127.0.0.1/push")).toBe(false);
+  it("allows opaque public push hosts and rejects private destinations", () => {
+    expect(isSafePushEndpoint(PUBLIC_ENDPOINT)).toBe(true);
+    expect(isSafePushEndpoint("https://updates.push.services.mozilla.com/wpush/v2/x")).toBe(true);
+    // Vendor-agnostic: any public HTTPS DNS name is acceptable to the Push API.
+    expect(isSafePushEndpoint("https://push.example-browser.test/wpush/v2/x")).toBe(true);
+    expect(isSafePushEndpoint("https://127.0.0.1/push")).toBe(false);
+    expect(isSafePushEndpoint("https://localhost/push")).toBe(false);
+    expect(isSafePushEndpoint("https://host.local/push")).toBe(false);
+    expect(isSafePushEndpoint("https://[::1]/push")).toBe(false);
   });
 
   it("requires decoded key shapes usable by web-push", () => {
     expect(
       isValidPushSubscriptionMaterial({
-        endpoint: TRUSTED_ENDPOINT,
+        endpoint: PUBLIC_ENDPOINT,
         p256dh: TEST_P256DH,
         auth: TEST_AUTH,
       }),
     ).toBe(true);
     expect(
       isValidPushSubscriptionMaterial({
-        endpoint: TRUSTED_ENDPOINT,
+        endpoint: PUBLIC_ENDPOINT,
         p256dh: "key",
         auth: "auth",
       }),
     ).toBe(false);
     expect(
       isValidPushSubscriptionMaterial({
-        endpoint: "https://evil.example/sub",
+        endpoint: "https://127.0.0.1/sub",
         p256dh: TEST_P256DH,
         auth: TEST_AUTH,
       }),

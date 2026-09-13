@@ -9,15 +9,6 @@ export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 /** Default VAPID key identity when `VAPID_KEY_ID` env is unset (v1 single key). */
 export const DEFAULT_VAPID_KEY_ID = "primary";
 
-/** Known browser push-service host suffixes (SSRF guard for send + bind). */
-const TRUSTED_PUSH_HOST_SUFFIXES = [
-  ".googleapis.com",
-  ".push.services.mozilla.com",
-  ".push.apple.com",
-  ".notify.windows.com",
-  ".wns.windows.com",
-] as const;
-
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {
   const trimmed = endpoint.trim();
@@ -32,25 +23,45 @@ export function isValidPushEndpoint(endpoint: string) {
   }
 }
 
+function isIpLiteralHostname(host: string) {
+  // IPv6 URL hostnames are bracketed; IPv4 is dotted-decimal.
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return true;
+  }
+  if (host.includes(":")) {
+    return true;
+  }
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+}
+
 /**
- * HTTPS endpoint whose host is a known browser push service — not an arbitrary
- * URL the action would POST to (SSRF).
+ * HTTPS Push endpoint safe to POST from the server (SSRF).
+ *
+ * Browsers pick opaque push-service hosts — do not require a vendor allowlist.
+ * Reject loopback / link-local / internal hostnames and IP literals so the
+ * Node sender cannot be aimed at private network destinations.
  */
-export function isTrustedPushEndpoint(endpoint: string) {
+export function isSafePushEndpoint(endpoint: string) {
   if (!isValidPushEndpoint(endpoint)) {
     return false;
   }
   const host = new URL(endpoint).hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".local")) {
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".intranet") ||
+    host.endsWith(".corp") ||
+    host.endsWith(".lan") ||
+    host === "metadata.google.internal"
+  ) {
     return false;
   }
-  // Push services use DNS names; reject raw IPv4/IPv6 literals.
-  if (host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+  if (isIpLiteralHostname(host)) {
     return false;
   }
-  return TRUSTED_PUSH_HOST_SUFFIXES.some(
-    (suffix) => host === suffix.slice(1) || host.endsWith(suffix),
-  );
+  return true;
 }
 
 function decodeBase64Url(value: string) {
@@ -78,7 +89,7 @@ export function isValidPushSubscriptionMaterial(input: {
   auth: string;
   vapidKeyId?: string;
 }) {
-  if (!isTrustedPushEndpoint(input.endpoint)) {
+  if (!isSafePushEndpoint(input.endpoint)) {
     return false;
   }
   const p256dh = decodeBase64Url(input.p256dh.trim());

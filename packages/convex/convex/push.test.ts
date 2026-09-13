@@ -12,6 +12,7 @@ import { internal } from "./_generated/api.js";
 import { PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
+  isLikelyInvalidSubscriptionCryptoError,
   PUSH_SEND_TIMEOUT_MS,
   pushTopicFromNotificationId,
   sendWebPushNotification,
@@ -98,6 +99,21 @@ describe("classifyPushHttpStatus", () => {
   it("reads statusCode from web-push errors", () => {
     expect(pushHttpStatusFromError({ statusCode: 410 })).toBe(410);
     expect(pushHttpStatusFromError(new Error("network"))).toBeUndefined();
+  });
+});
+
+describe("isLikelyInvalidSubscriptionCryptoError", () => {
+  it("only matches encrypt failures that name subscription keys", () => {
+    expect(isLikelyInvalidSubscriptionCryptoError(new Error("Unable to encrypt with p256dh"))).toBe(
+      true,
+    );
+    expect(isLikelyInvalidSubscriptionCryptoError(new Error("auth encrypt failed"))).toBe(true);
+    expect(
+      isLikelyInvalidSubscriptionCryptoError(new Error("OpenSSL crypto asymmetric unsupported")),
+    ).toBe(false);
+    expect(isLikelyInvalidSubscriptionCryptoError(new Error("Invalid key for VAPID JWT"))).toBe(
+      false,
+    );
   });
 });
 
@@ -420,7 +436,7 @@ describe("Push mirror from Notification Center", () => {
     expect(remaining[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
   });
 
-  it("prunes untrusted endpoints without calling web-push", async () => {
+  it("prunes private destinations without calling web-push", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
@@ -428,7 +444,7 @@ describe("Push mirror from Notification Center", () => {
       const rows = await listPushSubscriptionsForUser(ctx, recipient._id);
       const row = rows[0];
       if (!row) throw new Error("missing subscription");
-      await ctx.db.patch(row._id, { endpoint: "https://evil.example/collect" });
+      await ctx.db.patch(row._id, { endpoint: "https://127.0.0.1/collect" });
     });
 
     await mutateAndDrain(t, () =>
@@ -463,6 +479,36 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).toHaveBeenCalledTimes(1);
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining).toHaveLength(0);
+  });
+
+  it("does not prune on generic crypto/VAPID runtime errors", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    mockSendNotification.mockRejectedValue(new Error("OpenSSL crypto asymmetric unsupported"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await mutateAndDrainRetries(
+      t,
+      () =>
+        t.mutation(internal.notify.deliverOne, {
+          recipientUserId: recipient._id,
+          actorUserId: owner._id,
+          type: "member.removed",
+          title: "Removed from Circle",
+        }),
+      PUSH_RETRY_BEHAVIOR,
+    );
+
+    expect(mockSendNotification.mock.calls.length).toBe(PUSH_RETRY_BEHAVIOR.maxAttempts);
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      "Push delivery exhausted all retries",
+      expect.any(String),
+      expect.stringMatching(/OpenSSL crypto asymmetric unsupported/i),
+    );
+    errSpy.mockRestore();
   });
 
   it("skips send when vapidKeyId does not match configured key", async () => {

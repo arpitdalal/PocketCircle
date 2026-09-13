@@ -94,6 +94,8 @@ describe("pushSubscriptions", () => {
     { vapidKeyId: "x".repeat(129) },
     { vapidKeyId: " " },
     { endpoint: "https://user:password@fcm.googleapis.com/a" },
+    { endpoint: "https://127.0.0.1/push" },
+    { endpoint: "https://localhost/push" },
   ])(
     "rejects oversized or unusable material on every public binding path: case %#",
     async (invalid) => {

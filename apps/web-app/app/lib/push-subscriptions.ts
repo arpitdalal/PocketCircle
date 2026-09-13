@@ -732,7 +732,23 @@ export async function readPushSubscriptionMaterial(
     if (isCancelled()) return { subscription: null };
     try {
       const next = await subscribeWithVapid(registration, vapid);
-      if (isCancelled()) return { subscription: null };
+      if (isCancelled()) {
+        // Remigrate created a live sub — drop it or remember for cleanup so
+        // sign-out's endpoint snapshot cannot miss a rotated URL.
+        try {
+          if (!(await next.unsubscribe())) throw new Error("Push unsubscribe failed");
+        } catch {
+          rememberPushEndpoint(next.endpoint);
+          return {
+            subscription: null,
+            unboundEndpoint: next.endpoint,
+            unboundEndpoints: [
+              ...new Set([next.endpoint, previousEndpoint, ...rememberedBeforeUnsubscribe]),
+            ],
+          };
+        }
+        return { subscription: null };
+      }
       const material = {
         ...readSubscriptionKeys(next),
         vapidKeyId: vapid.keyId,

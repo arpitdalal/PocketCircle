@@ -1,7 +1,7 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { DEFAULT_VAPID_KEY_ID, isTrustedPushEndpoint, pushTtlSeconds } from "@pocketcircle/domain";
+import { DEFAULT_VAPID_KEY_ID, isSafePushEndpoint, pushTtlSeconds } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
@@ -53,10 +53,16 @@ export function isValidVapidPrivateKey(key: string) {
   return decodeVapidKeyBytes(key)?.length === 32;
 }
 
-/** Local encrypt/setup failures from bad subscription material (no HTTP status). */
+/** Local encrypt failures that name subscription key material (not VAPID/runtime). */
 export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return /p256dh|auth|encrypt|crypto|Invalid key|unsupported|asymmetric/i.test(message);
+  // Require an explicit subscription-key token so OpenSSL/VAPID/"crypto" noise
+  // does not prune healthy bindings.
+  const namesSubscriptionKey = /\bp256dh\b/i.test(message) || /\bauth\b/i.test(message);
+  const looksLikeEncryptFailure = /encrypt|decrypt|Invalid key|bad key|unsupported key/i.test(
+    message,
+  );
+  return namesSubscriptionKey && looksLikeEncryptFailure;
 }
 
 export async function sendWebPushNotification(args: {
@@ -182,8 +188,8 @@ export const sendOne = internalAction({
       return;
     }
 
-    // Defense in depth: bind already requires trusted hosts; never POST elsewhere.
-    if (!isTrustedPushEndpoint(prepared.endpoint)) {
+    // Defense in depth: bind already requires safe public HTTPS; never POST private.
+    if (!isSafePushEndpoint(prepared.endpoint)) {
       await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
         subscriptionId: args.subscriptionId,
         endpoint: prepared.endpoint,
