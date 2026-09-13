@@ -1,7 +1,39 @@
 /**
- * Production Push service worker (#381 subscription lifecycle only).
- * No fetch handler, cache, or offline shell. Push display / click → #382 / #384.
+ * Production Push service worker (ADR 0033 / #381 / #382).
+ * Push receipt + subscription change only. No fetch handler, cache, or offline
+ * shell. Notification click routing → #384.
  */
+self.addEventListener("push", (event) => {
+  /** @type {{ title?: string, body?: string, tag?: string }} */
+  let payload = {
+    title: "PocketCircle",
+    body: "Open PocketCircle for details.",
+    tag: undefined,
+  };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === "object") {
+        payload = {
+          title: typeof parsed.title === "string" ? parsed.title : payload.title,
+          body: typeof parsed.body === "string" ? parsed.body : payload.body,
+          tag: typeof parsed.tag === "string" ? parsed.tag : payload.tag,
+        };
+      }
+    }
+  } catch {
+    // Malformed payload — still show a visible notification (Safari requirement).
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+      data: payload.tag ? { notificationId: payload.tag } : undefined,
+    }),
+  );
+});
+
 self.addEventListener("pushsubscriptionchange", () => {
   // Page reconcile on focus/startup rebinds; no endpoint material here.
 });

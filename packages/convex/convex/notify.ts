@@ -12,6 +12,7 @@ import type { MutationCtx } from "./_generated/server.js";
 import { internalMutation } from "./_generated/server.js";
 import { isInvitationBlockedByAccountDeletion } from "./accountDeletion.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
+import { enqueuePushForNotification } from "./push.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -93,7 +94,7 @@ async function insertNotificationRow(
     return false;
   }
 
-  await ctx.db.insert("notifications", {
+  const notificationId = await ctx.db.insert("notifications", {
     userId: args.recipientUserId,
     type: args.type,
     title: args.title,
@@ -102,9 +103,21 @@ async function insertNotificationRow(
     read: false,
     createdAt: Date.now(),
   });
+
+  // Best-effort Push mirror (#382) — never throws into the NC insert path.
+  try {
+    await enqueuePushForNotification(ctx, {
+      notificationId,
+      recipientUserId: args.recipientUserId,
+      type: args.type,
+      link: args.link,
+    });
+  } catch (error) {
+    console.error("Push enqueue failed; Notification Center row kept", notificationId, error);
+  }
+
   return true;
 }
-
 /**
  * Single-recipient delivery seam (NTF-2 / ADR 0027). The sole writer of
  * `notifications` for actor-driven events — actor-skip is enforced at enqueue

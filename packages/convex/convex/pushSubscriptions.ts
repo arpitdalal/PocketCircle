@@ -26,7 +26,8 @@ const subscriptionFields = {
 /**
  * VAPID public key for client subscribe(). Set `VAPID_PUBLIC_KEY` (URL-safe
  * base64) and optional `VAPID_KEY_ID` (defaults to `"primary"`) via
- * `convex env set`. Private key stays server-only for #382 delivery.
+ * `convex env set`. Private key + subject stay server-only (`VAPID_PRIVATE_KEY`,
+ * `VAPID_SUBJECT`) for Push delivery (#382).
  */
 export const getPushVapidPublicKey = query({
   args: {},
