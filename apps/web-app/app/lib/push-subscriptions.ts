@@ -248,8 +248,17 @@ function isPushSignOutCleanupMarked() {
   return false;
 }
 
+/** Cross-tab / in-tab coordination tokens — must not throw (sign-out path). */
+function pushCoordinationToken() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `pc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 function markPushSignOutCleanup() {
-  const id = crypto.randomUUID();
+  const id = pushCoordinationToken();
   try {
     window.localStorage.setItem(`${PUSH_SIGNOUT_CLEANUP_PREFIX}${id}`, String(Date.now()));
   } catch {
@@ -295,7 +304,7 @@ export function capturePushCancellation() {
 export function requestPushEnableCancel() {
   pushCancellationGeneration += 1;
   try {
-    window.localStorage.setItem(PUSH_CANCEL_GENERATION_KEY, crypto.randomUUID());
+    window.localStorage.setItem(PUSH_CANCEL_GENERATION_KEY, pushCoordinationToken());
   } catch {
     /* Same-tab generation still cancels pending work. */
   }
@@ -742,82 +751,110 @@ export async function readPushSubscriptionMaterial(
 
 /**
  * Sign-out helper: unsubscribe locally then remove User binding. Failures and
- * stalled mutations must not block sign-out. If live `getSubscription()` fails,
- * falls back to the last remembered endpoint so server unbind still runs.
- * The 5s deadline only unblocks the caller — cleanup still runs when the Push
- * lock is free, scoped to endpoints known at sign-out so a later session is safe.
- * Returns a release() the caller must run after `signOut()` settles so cancel
- * spans session invalidation (cross-tab enable during the network round-trip).
- * Never logs endpoint material.
+ * stalled mutations must not block sign-out — this function never rejects.
+ * If live `getSubscription()` fails, falls back to the last remembered endpoint
+ * so server unbind still runs. The 5s deadline only unblocks the caller —
+ * cleanup still runs when the Push lock is free, scoped to endpoints known at
+ * sign-out so a later session is safe. Returns a release() the caller must run
+ * after `signOut()` settles so cancel spans session invalidation (cross-tab
+ * enable during the network round-trip). Never logs endpoint material.
  */
 export async function clearLocalPushSubscriptionAndBinding(
   disable: (args: { endpoint: string }) => Promise<unknown>,
 ) {
-  const deadline = Date.now() + 5_000;
-  const cleanupId = markPushSignOutCleanup();
-  requestPushEnableCancel();
-  pushSignOutCleanupInProgress += 1;
-  // Freeze cleanup targets before lock work. Aborting the lock wait was the root
-  // bug (queued cleanup discarded); scoping to this freeze keeps a later session
-  // safe when cleanup runs after the caller deadline. The freeze must complete
-  // before lock work — racing live capture against lock acquisition left
-  // onlyEndpoints empty and skipped live-only cleanup.
-  const rememberedAtSignOut = recalledPushEndpoints();
-  const liveCapture = deferredValue<string | null>();
-  void getCurrentPushSubscription()
-    .then((subscription) => {
-      liveCapture.resolve(Date.now() < deadline && subscription ? subscription.endpoint : null);
-    })
-    .catch(() => liveCapture.resolve(null));
-  const freezeTimer = window.setTimeout(() => liveCapture.resolve(null), 5_000);
-  const liveCapturedBeforeDeadline = await liveCapture.promise;
-  window.clearTimeout(freezeTimer);
-  const onlyEndpoints = [
-    ...new Set(
-      [...rememberedAtSignOut, liveCapturedBeforeDeadline].filter(
-        (value): value is string => typeof value === "string" && value.length > 0,
+  let cleanupId: string | null = null;
+  let heartbeat: number | undefined;
+  let timer: number | undefined;
+  let freezeTimer: number | undefined;
+  let signedOut: ReturnType<typeof deferredValue<void>> | null = null;
+  let countedCleanup = false;
+  try {
+    const deadline = Date.now() + 5_000;
+    const activeCleanupId = markPushSignOutCleanup();
+    cleanupId = activeCleanupId;
+    requestPushEnableCancel();
+    pushSignOutCleanupInProgress += 1;
+    countedCleanup = true;
+    // Freeze cleanup targets before lock work. Aborting the lock wait was the root
+    // bug (queued cleanup discarded); scoping to this freeze keeps a later session
+    // safe when cleanup runs after the caller deadline. The freeze must complete
+    // before lock work — racing live capture against lock acquisition left
+    // onlyEndpoints empty and skipped live-only cleanup.
+    const rememberedAtSignOut = recalledPushEndpoints();
+    const liveCapture = deferredValue<string | null>();
+    void getCurrentPushSubscription()
+      .then((subscription) => {
+        liveCapture.resolve(Date.now() < deadline && subscription ? subscription.endpoint : null);
+      })
+      .catch(() => liveCapture.resolve(null));
+    freezeTimer = window.setTimeout(() => liveCapture.resolve(null), 5_000);
+    const liveCapturedBeforeDeadline = await liveCapture.promise;
+    window.clearTimeout(freezeTimer);
+    freezeTimer = undefined;
+    const onlyEndpoints = [
+      ...new Set(
+        [...rememberedAtSignOut, liveCapturedBeforeDeadline].filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        ),
       ),
-    ),
-  ];
-  const cleanupDone = deferredValue<void>();
-  const signedOut = deferredValue<void>();
-  const heartbeat = window.setInterval(() => touchPushSignOutCleanup(cleanupId), 15_000);
-  pushSignOutGuardHeartbeats.add(heartbeat);
-  const remainingMs = Math.max(0, deadline - Date.now());
-  const timer = window.setTimeout(() => {
-    cleanupDone.resolve();
-  }, remainingMs);
-  // Never release a lock around a still-running unsubscribe or mutation on timeout.
-  // The caller may finish sign-out, but later enables stay excluded until it settles.
-  void withPushSubscriptionLock(
-    async () => {
-      try {
-        await disableCurrentPushSubscription(disable, {
-          // Freeze (`onlyEndpoints`) is what protects a later session — do not
-          // cancel the whole unbind just because a newer active endpoint exists.
-          rememberedFallbackOnLookupFailure: true,
-          onlyEndpoints,
-        });
-      } finally {
-        cleanupDone.resolve();
-        await signedOut.promise;
-      }
-    },
-    { wait: true },
-  ).catch(() => cleanupDone.resolve());
-  await cleanupDone.promise;
-  window.clearTimeout(timer);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    window.clearInterval(heartbeat);
-    pushSignOutGuardHeartbeats.delete(heartbeat);
-    unmarkPushSignOutCleanup(cleanupId);
-    pushSignOutCleanupInProgress = Math.max(0, pushSignOutCleanupInProgress - 1);
-    signedOut.resolve();
+    ];
+    const cleanupDone = deferredValue<void>();
+    signedOut = deferredValue<void>();
+    heartbeat = window.setInterval(() => touchPushSignOutCleanup(activeCleanupId), 15_000);
+    pushSignOutGuardHeartbeats.add(heartbeat);
+    const remainingMs = Math.max(0, deadline - Date.now());
+    timer = window.setTimeout(() => {
+      cleanupDone.resolve();
+    }, remainingMs);
+    // Never release a lock around a still-running unsubscribe or mutation on timeout.
+    // The caller may finish sign-out, but later enables stay excluded until it settles.
+    const signedOutWait = signedOut;
+    void withPushSubscriptionLock(
+      async () => {
+        try {
+          await disableCurrentPushSubscription(disable, {
+            // Freeze (`onlyEndpoints`) is what protects a later session — do not
+            // cancel the whole unbind just because a newer active endpoint exists.
+            rememberedFallbackOnLookupFailure: true,
+            onlyEndpoints,
+          });
+        } finally {
+          cleanupDone.resolve();
+          await signedOutWait.promise;
+        }
+      },
+      { wait: true },
+    ).catch(() => cleanupDone.resolve());
+    await cleanupDone.promise;
+    window.clearTimeout(timer);
+    timer = undefined;
+    let released = false;
+    const releaseHeartbeat = heartbeat;
+    return () => {
+      if (released) return;
+      released = true;
+      window.clearInterval(releaseHeartbeat);
+      pushSignOutGuardHeartbeats.delete(releaseHeartbeat);
+      unmarkPushSignOutCleanup(activeCleanupId);
+      pushSignOutCleanupInProgress = Math.max(0, pushSignOutCleanupInProgress - 1);
+      signedOutWait.resolve();
+      if (pushEnableInFlight <= 0 && !isPushSignOutCleanupMarked()) clearPushEnableCancel();
+    };
+  } catch {
+    if (freezeTimer !== undefined) window.clearTimeout(freezeTimer);
+    if (timer !== undefined) window.clearTimeout(timer);
+    if (heartbeat !== undefined) {
+      window.clearInterval(heartbeat);
+      pushSignOutGuardHeartbeats.delete(heartbeat);
+    }
+    if (cleanupId !== null) unmarkPushSignOutCleanup(cleanupId);
+    if (countedCleanup) {
+      pushSignOutCleanupInProgress = Math.max(0, pushSignOutCleanupInProgress - 1);
+    }
+    signedOut?.resolve();
     if (pushEnableInFlight <= 0 && !isPushSignOutCleanupMarked()) clearPushEnableCancel();
-  };
+    return () => {};
+  }
 }
 
 /**
@@ -953,7 +990,7 @@ export async function disableCurrentPushSubscription(
   if (failure) throw failure.error;
 }
 
-function disableRemovedOwnedBinding(outcome: unknown) {
+export function disableRemovedOwnedBinding(outcome: unknown) {
   return (
     typeof outcome === "object" &&
     outcome !== null &&

@@ -60,11 +60,24 @@ function trackSubscription(
 }
 
 /** Browser boundary model: exclusive locks outlive their callback's pending work. */
+const PUSH_LOCKS_FAKE = Symbol.for("pocketcircle.pushLocksFake");
+
 export function installPushLocks() {
+  // Real LockManager is a singleton — reinstalling Push env must not drop held locks.
+  const existing = Reflect.get(navigator, "locks");
+  if (
+    existing !== undefined &&
+    existing !== null &&
+    typeof existing === "object" &&
+    Reflect.get(existing, PUSH_LOCKS_FAKE) === true
+  ) {
+    return;
+  }
   const held = new Map<string, Promise<void>>();
   Object.defineProperty(navigator, "locks", {
     configurable: true,
     value: {
+      [PUSH_LOCKS_FAKE]: true,
       async request<T>(
         name: string,
         options: { ifAvailable?: boolean; signal?: AbortSignal },

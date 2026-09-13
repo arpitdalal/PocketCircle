@@ -210,6 +210,31 @@ describe("AccountMenu", () => {
     });
   });
 
+  it("still signs out when Push cleanup setup throws", async () => {
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    configureConvex({ disablePushSubscription });
+    const randomUUID = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("randomUUID unavailable");
+    });
+    const u = userEvent.setup();
+    try {
+      renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
+        initialEntries: ["/"],
+      });
+      await openAccountMenu(u);
+      await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+      await waitFor(() => {
+        expect(signOutMock).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      randomUUID.mockRestore();
+    }
+  });
+
   it("shows a pending state while sign-out is in flight", async () => {
     const u = userEvent.setup();
     // Hold the network boundary open so the in-flight UI is observable until we release it.

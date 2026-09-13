@@ -517,8 +517,10 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
     release();
 
     const nextSub = makeFakePushSubscription({ endpoint: "https://push.example/next" });
+    // Reinstalling Push env must preserve the held lock (real LockManager is a singleton).
     installPushEnv({ permission: "granted", subscription: nextSub });
     rememberPushEndpoint("https://push.example/next");
+    expect(disable).not.toHaveBeenCalled();
 
     pending.resolve();
     await active;
@@ -533,6 +535,24 @@ describe("clearLocalPushSubscriptionAndBinding", () => {
       "https://push.example/next",
     );
     vi.useRealTimers();
+  });
+
+  it("still returns a release when crypto.randomUUID is unavailable", async () => {
+    installPushEnv({
+      permission: "granted",
+      subscription: makeFakePushSubscription(),
+    });
+    const randomUUID = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new Error("randomUUID unavailable");
+    });
+    try {
+      const disable = vi.fn().mockResolvedValue({ removed: true });
+      const release = await clearLocalPushSubscriptionAndBinding(disable);
+      release();
+      expect(disable).toHaveBeenCalled();
+    } finally {
+      randomUUID.mockRestore();
+    }
   });
 
   it("heartbeats the sign-out guard past the crash TTL until release", async () => {

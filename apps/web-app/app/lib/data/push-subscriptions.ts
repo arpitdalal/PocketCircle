@@ -8,6 +8,7 @@ import {
   capturePushCancellation,
   clearLocalPushSubscriptionAndBinding,
   disableCurrentPushSubscription,
+  disableRemovedOwnedBinding,
   endPushEnable,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
@@ -66,15 +67,6 @@ function assertEnableNotCancelled() {
   }
 }
 
-function outcomeRemoved(outcome: unknown) {
-  return (
-    typeof outcome === "object" &&
-    outcome !== null &&
-    "removed" in outcome &&
-    outcome.removed === true
-  );
-}
-
 /** Disable endpoint or retain a pending cleanup handle. */
 async function disableOrRememberPending(
   disable: (args: { endpoint: string }) => Promise<unknown>,
@@ -82,7 +74,7 @@ async function disableOrRememberPending(
 ) {
   let removed = false;
   try {
-    removed = outcomeRemoved(await disable({ endpoint }));
+    removed = disableRemovedOwnedBinding(await disable({ endpoint }));
   } catch {
     removed = false;
   }
@@ -161,7 +153,7 @@ async function enableNotifications(
         for (const endpoint of endpoints) {
           let removed = false;
           try {
-            removed = outcomeRemoved(await disable({ endpoint }));
+            removed = disableRemovedOwnedBinding(await disable({ endpoint }));
           } catch {
             removed = false;
           }

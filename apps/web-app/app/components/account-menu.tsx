@@ -64,7 +64,13 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
       return;
     }
     setIsSigningOut(true);
-    const releasePushSignOutGuard = await clearPushOnSignOut();
+    let releasePushSignOutGuard = () => {};
+    try {
+      releasePushSignOutGuard = await clearPushOnSignOut();
+    } catch (error) {
+      // clearLocal… never rejects by contract; keep UI resilient if that regresses.
+      console.error("signOut push cleanup failed", error);
+    }
     try {
       await signOut().finally(releasePushSignOutGuard);
     } catch (error) {

@@ -57,6 +57,27 @@ function renderSettings() {
   );
 }
 
+/** Shared enable-recovery scaffolding: sequential first/second endpoints + live drop. */
+function installSequentialPushSubscriptions() {
+  let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+  let subscribeCount = 0;
+  const subscribe = vi.fn(async () => {
+    subscribeCount += 1;
+    live = makeFakePushSubscription({
+      endpoint: subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+    });
+    return live;
+  });
+  const getSubscription = vi.fn(async () => live);
+  return {
+    subscribe,
+    getSubscription,
+    dropLive() {
+      live = null;
+    },
+  };
+}
+
 beforeEach(async () => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
   await primeAnalyticsForTests();
@@ -633,23 +654,13 @@ describe("Settings notifications", () => {
 
   it("disables the abandoned endpoint after enable recovery resubscribe", async () => {
     const requestPermission = vi.fn().mockResolvedValue("granted");
-    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
-    let subscribeCount = 0;
-    const subscribe = vi.fn(async () => {
-      subscribeCount += 1;
-      live = makeFakePushSubscription({
-        endpoint:
-          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
-      });
-      return live;
-    });
-    const getSubscription = vi.fn(async () => live);
+    const { subscribe, getSubscription, dropLive } = installSequentialPushSubscriptions();
     const enablePushSubscription = vi
       .fn()
       .mockImplementation(async (args: { endpoint: string }) => {
         if (args.endpoint === "https://push.example/first") {
           // Orphan drop removed the local sub after the first bind committed.
-          live = null;
+          dropLive();
         }
       });
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
@@ -690,21 +701,11 @@ describe("Settings notifications", () => {
 
   it("keeps pending cleanup for the first bind when recovery enable fails", async () => {
     const requestPermission = vi.fn().mockResolvedValue("granted");
-    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
-    let subscribeCount = 0;
-    const subscribe = vi.fn(async () => {
-      subscribeCount += 1;
-      live = makeFakePushSubscription({
-        endpoint:
-          subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
-      });
-      return live;
-    });
-    const getSubscription = vi.fn(async () => live);
+    const { subscribe, getSubscription, dropLive } = installSequentialPushSubscriptions();
     const enablePushSubscription = vi
       .fn()
       .mockImplementationOnce(async () => {
-        live = null;
+        dropLive();
       })
       .mockRejectedValueOnce(new Error("recovery bind failed"));
     const disablePushSubscription = vi.fn().mockRejectedValue(new Error("offline"));
