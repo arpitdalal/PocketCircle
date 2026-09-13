@@ -11,7 +11,11 @@ import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
 import { PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
-import { pushTopicFromNotificationId, sendWebPushNotification } from "./pushSend.js";
+import {
+  PUSH_SEND_TIMEOUT_MS,
+  pushTopicFromNotificationId,
+  sendWebPushNotification,
+} from "./pushSend.js";
 import schema from "./schema.js";
 
 const { mockSendNotification } = vi.hoisted(() => ({
@@ -29,10 +33,10 @@ const modules = import.meta.glob("./**/*.ts");
 const ENDPOINT_A = "https://push.example.test/sub/a";
 const ENDPOINT_B = "https://push.example.test/sub/b";
 
-function stubVapidEnv(opts?: { keyId?: string }) {
-  vi.stubEnv("VAPID_PUBLIC_KEY", "test-public-key");
-  vi.stubEnv("VAPID_PRIVATE_KEY", "test-private-key");
-  vi.stubEnv("VAPID_SUBJECT", "mailto:push@pocketcircle.test");
+function stubVapidEnv(opts?: { keyId?: string; subject?: string; publicKey?: string }) {
+  vi.stubEnv("VAPID_PUBLIC_KEY", opts?.publicKey ?? "BPtestPublicKeyMaterialXX");
+  vi.stubEnv("VAPID_PRIVATE_KEY", "testPrivateKeyMaterialXXX");
+  vi.stubEnv("VAPID_SUBJECT", opts?.subject ?? "mailto:push@pocketcircle.test");
   vi.stubEnv("VAPID_KEY_ID", opts?.keyId ?? "primary");
 }
 
@@ -143,10 +147,11 @@ describe("Push mirror from Notification Center", () => {
       expect(payload.options).toMatchObject({
         TTL: 24 * 60 * 60,
         topic: pushTopicFromNotificationId(notificationId ?? ""),
+        timeout: 30_000,
         vapidDetails: {
           subject: "mailto:push@pocketcircle.test",
-          publicKey: "test-public-key",
-          privateKey: "test-private-key",
+          publicKey: "BPtestPublicKeyMaterialXX",
+          privateKey: "testPrivateKeyMaterialXXX",
         },
       });
     }
@@ -221,11 +226,12 @@ describe("Push mirror from Notification Center", () => {
     expect(rows).toHaveLength(1);
   });
 
-  it("does not retry permanent 4xx failures", async () => {
+  it("does not retry permanent 4xx failures and reports them", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
     mockSendNotification.mockRejectedValue({ statusCode: 403, body: "Forbidden" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await mutateAndDrainRetries(
       t,
@@ -242,6 +248,12 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).toHaveBeenCalledTimes(1);
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining).toHaveLength(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      "Push delivery exhausted all retries",
+      expect.any(String),
+      expect.stringContaining("permanent rejection: 403"),
+    );
+    errSpy.mockRestore();
   });
 
   it("retries transient failures then reports exhaustion", async () => {
@@ -297,6 +309,27 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).toHaveBeenCalledTimes(2);
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining.map((row) => row.endpoint)).toEqual([ENDPOINT_B]);
+  });
+
+  it("skips send when VAPID subject is malformed", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    stubVapidEnv({ subject: "not-a-contact-uri" });
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "category.restored",
+        title: "Category restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith("VAPID env malformed; skipping push send");
+    errSpy.mockRestore();
   });
 
   it("skips send when vapidKeyId does not match configured key", async () => {
@@ -372,6 +405,7 @@ describe("sendWebPushNotification", () => {
           privateKey: "priv",
         },
         topic: pushTopicFromNotificationId("tag-1"),
+        timeout: PUSH_SEND_TIMEOUT_MS,
       },
     );
   });

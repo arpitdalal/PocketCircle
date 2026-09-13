@@ -18,9 +18,21 @@ import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.j
  * (defaults to `"primary"`). Dev and prod use separate key pairs.
  */
 
+/** Bound hung push-service sockets so Workpool slots are not stuck for minutes. */
+export const PUSH_SEND_TIMEOUT_MS = 30_000;
+
 /** RFC 8030 Topic: ≤32 base64url chars — hash the NC id so retries coalesce safely. */
 export function pushTopicFromNotificationId(notificationId: string) {
   return createHash("sha256").update(notificationId).digest("base64url").slice(0, 32);
+}
+
+export function isValidVapidSubject(subject: string) {
+  return subject.startsWith("mailto:") || subject.startsWith("https:");
+}
+
+/** Structural check before web-push — avoids retry loops on encode/JWT setup errors. */
+export function isValidVapidKeyMaterial(key: string) {
+  return key.length >= 16 && /^[A-Za-z0-9_-]+$/.test(key);
 }
 
 export async function sendWebPushNotification(args: {
@@ -52,6 +64,7 @@ export async function sendWebPushNotification(args: {
       TTL: args.ttlSeconds,
       vapidDetails: args.vapidDetails,
       topic: pushTopicFromNotificationId(args.payload.tag),
+      timeout: PUSH_SEND_TIMEOUT_MS,
     },
   );
 }
@@ -63,6 +76,13 @@ function resolveVapidDetailsForKeyId(vapidKeyId: string) {
   const configuredKeyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
   if (!publicKey || !privateKey || !subject) {
     return { kind: "missing_env" as const };
+  }
+  if (
+    !isValidVapidSubject(subject) ||
+    !isValidVapidKeyMaterial(publicKey) ||
+    !isValidVapidKeyMaterial(privateKey)
+  ) {
+    return { kind: "invalid_env" as const };
   }
   if (vapidKeyId !== configuredKeyId) {
     return { kind: "key_mismatch" as const };
@@ -102,7 +122,9 @@ export const sendOne = internalAction({
       const error =
         vapid.kind === "missing_env"
           ? "VAPID env not configured; skipping push send"
-          : "VAPID key id mismatch; skipping push send";
+          : vapid.kind === "invalid_env"
+            ? "VAPID env malformed; skipping push send"
+            : "VAPID key id mismatch; skipping push send";
       console.error(error);
       await ctx.runMutation(internal.push.reportSendSkipped, {
         notificationId: args.notificationId,
@@ -132,16 +154,18 @@ export const sendOne = internalAction({
       }
       const classification = classifyPushHttpStatus(statusCode);
       if (classification === "gone") {
-        try {
-          await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
-            endpoint: prepared.endpoint,
-          });
-        } catch (removeError) {
-          console.error("Failed to prune invalid push subscription", removeError);
-        }
+        // Propagate prune failures so Workpool retries cleanup; success stays non-retry.
+        await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
+          endpoint: prepared.endpoint,
+        });
         return;
       }
       if (classification === "permanent") {
+        await ctx.runMutation(internal.push.reportSendSkipped, {
+          notificationId: args.notificationId,
+          subscriptionId: args.subscriptionId,
+          error: `Push service permanent rejection: ${statusCode}`,
+        });
         return;
       }
       throw error;
