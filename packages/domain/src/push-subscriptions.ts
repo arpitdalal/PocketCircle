@@ -39,16 +39,44 @@ function isIpLiteralHostname(host: string) {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
 }
 
+/** Normalize `::ffff:127.0.0.1` and `::ffff:7f00:1` to dotted IPv4. */
+function ipv4FromMappedIpv6(ip: string) {
+  if (!ip.startsWith("::ffff:")) {
+    return null;
+  }
+  const rest = ip.slice("::ffff:".length);
+  if (rest.includes(".")) {
+    return rest;
+  }
+  const hextets = rest.split(":");
+  if (hextets.length !== 2) {
+    return null;
+  }
+  const high = Number.parseInt(hextets[0] ?? "", 16);
+  const low = Number.parseInt(hextets[1] ?? "", 16);
+  if (
+    !Number.isFinite(high) ||
+    !Number.isFinite(low) ||
+    high < 0 ||
+    low < 0 ||
+    high > 0xffff ||
+    low > 0xffff
+  ) {
+    return null;
+  }
+  return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+}
+
 /** True when an IPv4/IPv6 literal is loopback, link-local, private, or reserved. */
 export function isPrivateOrReservedIpAddress(ip: string) {
   const value = ip.trim().toLowerCase();
   if (value.includes(":")) {
+    const mappedV4 = ipv4FromMappedIpv6(value);
+    if (mappedV4 !== null) {
+      return isPrivateOrReservedIpAddress(mappedV4);
+    }
     if (value === "::1" || value === "::" || value === "0:0:0:0:0:0:0:1") {
       return true;
-    }
-    // IPv4-mapped IPv6.
-    if (value.startsWith("::ffff:")) {
-      return isPrivateOrReservedIpAddress(value.slice("::ffff:".length));
     }
     // Unique local fc00::/7 and link-local fe80::/10 (prefix check on first hextet).
     const first = value.split(":", 1)[0] ?? "";

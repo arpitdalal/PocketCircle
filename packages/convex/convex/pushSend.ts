@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { promises as dns } from "node:dns";
+import https from "node:https";
 import {
   DEFAULT_VAPID_KEY_ID,
   isPrivateOrReservedIpAddress,
@@ -72,23 +73,66 @@ export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
 }
 
 /**
- * Resolve the endpoint host and reject private/reserved addresses (SSRF / rebinding).
+ * Resolve the endpoint host and classify for SSRF / rebinding.
  * Hostname spelling alone is insufficient — DNS may point a public name at RFC1918.
+ * Callers must pin `public` addresses into the outbound request (custom Agent lookup).
  */
-export async function endpointResolvesToPublicAddress(endpoint: string) {
+export async function resolvePushEndpointAddresses(endpoint: string) {
   if (!isSafePushEndpoint(endpoint)) {
-    return false;
+    return { kind: "unsafe" as const };
   }
   const host = new URL(endpoint).hostname.replace(/\.+$/, "");
   try {
     const records = await dns.lookup(host, { all: true, verbatim: true });
     if (records.length === 0) {
-      return false;
+      return { kind: "unsafe" as const };
     }
-    return records.every((record) => !isPrivateOrReservedIpAddress(record.address));
-  } catch {
-    return false;
+    if (records.some((record) => isPrivateOrReservedIpAddress(record.address))) {
+      return { kind: "unsafe" as const };
+    }
+    return { kind: "public" as const, addresses: records };
+  } catch (cause) {
+    return { kind: "lookup_failed" as const, cause };
   }
+}
+
+/** Boolean helper used by unit tests; prefer {@link resolvePushEndpointAddresses}. */
+export async function endpointResolvesToPublicAddress(endpoint: string) {
+  const resolved = await resolvePushEndpointAddresses(endpoint);
+  return resolved.kind === "public";
+}
+
+/** Pin validated A/AAAA results so send cannot rebind after the SSRF check. */
+export function createPinnedHttpsAgent(addresses: { address: string; family: number }[]) {
+  const preferred = addresses[0];
+  if (!preferred) {
+    throw new Error("expected validated DNS addresses");
+  }
+  return new https.Agent({
+    lookup(hostname, options, callback) {
+      const cb = typeof options === "function" ? options : callback;
+      if (typeof cb !== "function") {
+        return;
+      }
+      const wantsAll = typeof options === "object" && options !== null && options.all === true;
+      if (wantsAll) {
+        cb(
+          null,
+          addresses.map((entry) => ({ address: entry.address, family: entry.family })),
+        );
+        return;
+      }
+      const family =
+        typeof options === "object" && options !== null && typeof options.family === "number"
+          ? options.family
+          : undefined;
+      const match =
+        family === undefined
+          ? preferred
+          : (addresses.find((entry) => entry.family === family) ?? preferred);
+      cb(null, match.address, match.family);
+    },
+  });
 }
 
 export async function sendWebPushNotification(args: {
@@ -106,6 +150,7 @@ export async function sendWebPushNotification(args: {
     publicKey: string;
     privateKey: string;
   };
+  agent?: https.Agent;
 }) {
   await webpush.sendNotification(
     {
@@ -121,6 +166,7 @@ export async function sendWebPushNotification(args: {
       vapidDetails: args.vapidDetails,
       topic: pushTopicFromNotificationId(args.payload.tag),
       timeout: PUSH_SEND_TIMEOUT_MS,
+      ...(args.agent ? { agent: args.agent } : {}),
     },
   );
 }
@@ -215,7 +261,14 @@ export const sendOne = internalAction({
     }
 
     // Defense in depth: structural public HTTPS + resolved public addresses only.
-    if (!(await endpointResolvesToPublicAddress(prepared.endpoint))) {
+    // Pin those addresses into the Agent so send cannot TOCTOU-rebind.
+    const resolved = await resolvePushEndpointAddresses(prepared.endpoint);
+    if (resolved.kind === "lookup_failed") {
+      throw resolved.cause instanceof Error
+        ? resolved.cause
+        : new Error("Push endpoint DNS lookup failed");
+    }
+    if (resolved.kind === "unsafe") {
       await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
         subscriptionId: args.subscriptionId,
         endpoint: prepared.endpoint,
@@ -224,6 +277,7 @@ export const sendOne = internalAction({
       });
       return;
     }
+    const agent = createPinnedHttpsAgent(resolved.addresses);
 
     const vapid = resolveVapidDetailsForKeyId(prepared.vapidKeyId);
     if (vapid.kind !== "ok") {
@@ -261,6 +315,7 @@ export const sendOne = internalAction({
         },
         ttlSeconds,
         vapidDetails: vapid.details,
+        agent,
       });
     } catch (error) {
       const statusCode = pushHttpStatusFromError(error);

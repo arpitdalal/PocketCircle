@@ -179,4 +179,54 @@ describe("PushSubscriptionLifecycle", () => {
     expect(b.unsubscribe).not.toHaveBeenCalled();
     expect(recalledPendingPushCleanup()).toEqual([a.endpoint]);
   });
+
+  it("keeps an owned old-key subscription on VAPID mismatch", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/stale-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    const reconcilePushSubscription = vi.fn();
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint: true,
+      reconcilePushSubscription,
+      disablePushSubscription: vi.fn().mockResolvedValue({ removed: true }),
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(sub.unsubscribe).not.toHaveBeenCalled();
+    });
+    expect(reconcilePushSubscription).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
+  });
+
+  it("drops a foreign old-key subscription on account switch without server disable", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/foreign-stale",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: false });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint: false,
+      reconcilePushSubscription: vi.fn(),
+      disablePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+    expect(disablePushSubscription).not.toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+  });
 });

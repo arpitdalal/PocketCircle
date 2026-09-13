@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent } from "react";
 import {
   useDisablePushSubscription,
+  useOwnsPushEndpoint,
   usePushVapidPublicKey,
   useReconcilePushSubscription,
   useReplacePushSubscription,
@@ -27,6 +28,7 @@ export function PushSubscriptionLifecycle() {
   const reconcile = useReconcilePushSubscription();
   const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
+  const ownsPushEndpoint = useOwnsPushEndpoint();
 
   const runReconcile = useEffectEvent(async (isCancelled: () => boolean) => {
     if (!vapid || isCancelled()) return;
@@ -58,6 +60,23 @@ export function PushSubscriptionLifecycle() {
       return;
     }
     if (!result.subscription) {
+      if (result.staleKeyEndpoint) {
+        // Old VAPID key still on the browser. Keep it only when this User owns
+        // the endpoint (dual-key delivery). Otherwise drop local so a later
+        // account cannot keep receiving Push for the previous User.
+        const owned = await ownsPushEndpoint(result.staleKeyEndpoint);
+        if (isCancelled()) return;
+        if (!owned) {
+          const dropped = await unsubscribeLocalPushSubscription(
+            result.staleKeyEndpoint,
+            isCancelled,
+          );
+          if (isCancelled() || dropped.status === "mismatch") return;
+          const active = recalledPushEndpoint();
+          if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
+          notifyPushSubscriptionChanged();
+        }
+      }
       await disableEndpoints(recalledPendingPushCleanup());
       return;
     }

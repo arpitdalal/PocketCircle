@@ -74,6 +74,28 @@ describe("pushSubscriptions", () => {
     expect(rows[0]?.userId).toBe(owner._id);
   });
 
+  it("ownsPushEndpoint is true only for the current User's binding", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    const other = await t.run((ctx) => makeUser(ctx, "b@example.com", "B"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+
+    expect(
+      await t.query(api.pushSubscriptions.ownsPushEndpoint, { endpoint: VALID.endpoint }),
+    ).toBe(true);
+    expect(
+      await t.query(api.pushSubscriptions.ownsPushEndpoint, {
+        endpoint: "https://fcm.googleapis.com/fcm/send/missing",
+      }),
+    ).toBe(false);
+
+    signInAs(other);
+    expect(
+      await t.query(api.pushSubscriptions.ownsPushEndpoint, { endpoint: VALID.endpoint }),
+    ).toBe(false);
+  });
+
   it("rejects structurally invalid subscription material", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));

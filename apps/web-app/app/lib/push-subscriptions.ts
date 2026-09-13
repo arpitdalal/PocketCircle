@@ -718,11 +718,12 @@ export async function readPushSubscriptionMaterial(
     return { subscription: null };
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
-    // Keep the old-key subscription intact during automatic reconcile.
-    // Firefox/iOS require a user gesture for subscribe(); unsubscribing here and
-    // failing remigrate would disable Push even while the previous VAPID pair
-    // can still deliver. Explicit Settings enable runs subscribeWithVapid.
-    return { subscription: null };
+    // Keep the old-key subscription intact during automatic reconcile when the
+    // current User owns the endpoint (dual-VAPID still delivers). Lifecycle
+    // drops a foreign old-key local sub after ownsPushEndpoint — otherwise a
+    // later account on the same browser would keep receiving Push for the
+    // previous User. Explicit Settings enable remigrates via subscribeWithVapid.
+    return { subscription: null, staleKeyEndpoint: existing.endpoint };
   }
 
   const material = {

@@ -13,10 +13,12 @@ import { internal } from "./_generated/api.js";
 import { PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
+  createPinnedHttpsAgent,
   endpointResolvesToPublicAddress,
   isLikelyInvalidSubscriptionCryptoError,
   PUSH_SEND_TIMEOUT_MS,
   pushTopicFromNotificationId,
+  resolvePushEndpointAddresses,
   sendWebPushNotification,
 } from "./pushSend.js";
 import schema from "./schema.js";
@@ -120,9 +122,12 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
   });
 });
 
-describe("endpointResolvesToPublicAddress", () => {
+describe("resolvePushEndpointAddresses", () => {
   it("rejects hosts that resolve to private addresses", async () => {
     vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "10.0.0.8", family: 4 }]);
+    await expect(
+      resolvePushEndpointAddresses("https://push.attacker.test/wpush/v2/x"),
+    ).resolves.toEqual({ kind: "unsafe" });
     await expect(
       endpointResolvesToPublicAddress("https://push.attacker.test/wpush/v2/x"),
     ).resolves.toBe(false);
@@ -131,8 +136,42 @@ describe("endpointResolvesToPublicAddress", () => {
   it("accepts hosts that resolve to public addresses", async () => {
     vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
     await expect(
-      endpointResolvesToPublicAddress("https://push.example-browser.test/wpush/v2/x"),
-    ).resolves.toBe(true);
+      resolvePushEndpointAddresses("https://push.example-browser.test/wpush/v2/x"),
+    ).resolves.toEqual({
+      kind: "public",
+      addresses: [{ address: "8.8.8.8", family: 4 }],
+    });
+  });
+
+  it("reports lookup_failed on transient DNS errors instead of unsafe", async () => {
+    const err = Object.assign(new Error("getaddrinfo EAI_AGAIN"), { code: "EAI_AGAIN" });
+    vi.spyOn(dns, "lookup").mockRejectedValue(err);
+    await expect(
+      resolvePushEndpointAddresses("https://push.example-browser.test/wpush/v2/x"),
+    ).resolves.toEqual({ kind: "lookup_failed", cause: err });
+  });
+});
+
+describe("createPinnedHttpsAgent", () => {
+  it("lookup returns only the validated addresses", () => {
+    const agent = createPinnedHttpsAgent([
+      { address: "8.8.8.8", family: 4 },
+      { address: "2001:4860:4860::8888", family: 6 },
+    ]);
+    const lookup = agent.options.lookup;
+    expect(lookup).toBeTypeOf("function");
+    if (typeof lookup !== "function") {
+      throw new Error("expected lookup");
+    }
+    let seen: { address: string; family: number } | undefined;
+    lookup("push.example-browser.test", {}, (err, address, family) => {
+      expect(err).toBeNull();
+      if (typeof address !== "string" || typeof family !== "number") {
+        throw new Error("expected single address");
+      }
+      seen = { address, family };
+    });
+    expect(seen).toEqual({ address: "8.8.8.8", family: 4 });
   });
 });
 
@@ -475,6 +514,54 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).not.toHaveBeenCalled();
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining).toHaveLength(0);
+  });
+
+  it("retries transient DNS failures without pruning the subscription", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const err = Object.assign(new Error("getaddrinfo EAI_AGAIN"), { code: "EAI_AGAIN" });
+    vi.spyOn(dns, "lookup").mockRejectedValue(err);
+
+    await mutateAndDrainRetries(
+      t,
+      () =>
+        t.mutation(internal.notify.deliverOne, {
+          recipientUserId: recipient._id,
+          actorUserId: owner._id,
+          type: "member.removed",
+          title: "Removed from Circle",
+        }),
+      PUSH_RETRY_BEHAVIOR,
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(1);
+  });
+
+  it("pins validated DNS addresses into the web-push Agent", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "member.removed",
+        title: "Removed from Circle",
+      }),
+    );
+
+    expect(mockSendNotification).toHaveBeenCalledTimes(1);
+    const options = mockSendNotification.mock.calls[0]?.[2];
+    expect(options).toEqual(
+      expect.objectContaining({
+        agent: expect.any(Object),
+      }),
+    );
   });
 
   it("prunes private destinations without calling web-push", async () => {

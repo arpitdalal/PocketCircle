@@ -1,5 +1,5 @@
 import { api } from "@pocketcircle/convex";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { track } from "../analytics.js";
 import { MOCKS } from "../env.js";
 import {
@@ -59,6 +59,15 @@ export function useReplacePushSubscription() {
     return async () => ({ bound: false });
   }
   return replace;
+}
+
+/** One-shot ownership check for VAPID-mismatch reconcile (account switch). */
+export function useOwnsPushEndpoint() {
+  const convex = useConvex();
+  if (MOCKS) {
+    return async (_endpoint: string) => false;
+  }
+  return (endpoint: string) => convex.query(api.pushSubscriptions.ownsPushEndpoint, { endpoint });
 }
 
 function assertEnableNotCancelled() {

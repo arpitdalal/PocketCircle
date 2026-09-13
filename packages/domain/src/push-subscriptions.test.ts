@@ -49,6 +49,9 @@ describe("push-subscriptions", () => {
     expect(isPrivateOrReservedIpAddress("8.8.8.8")).toBe(false);
     expect(isPrivateOrReservedIpAddress("::1")).toBe(true);
     expect(isPrivateOrReservedIpAddress("2001:4860:4860::8888")).toBe(false);
+    expect(isPrivateOrReservedIpAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("::ffff:7f00:1")).toBe(true);
+    expect(isPrivateOrReservedIpAddress("::ffff:0808:0808")).toBe(false);
   });
 
   it("requires decoded key shapes usable by web-push", () => {

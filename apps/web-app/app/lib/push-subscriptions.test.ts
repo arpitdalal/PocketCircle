@@ -158,6 +158,7 @@ describe("readPushSubscriptionMaterial", () => {
 
     await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
       subscription: null,
+      staleKeyEndpoint: "https://fcm.googleapis.com/fcm/send/old",
     });
     expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(subscribe).not.toHaveBeenCalled();

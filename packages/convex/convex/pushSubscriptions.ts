@@ -71,6 +71,20 @@ export const disablePushSubscription = mutation({
 });
 
 /**
+ * True when the current User owns this Push endpoint. Used on VAPID mismatch
+ * during reconcile: drop a foreign old-key local subscription without disabling
+ * another User's server row.
+ */
+export const ownsPushEndpoint = query({
+  args: { endpoint: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const existing = await findByEndpoint(ctx, args.endpoint);
+    return existing?.userId === user._id;
+  },
+});
+
+/**
  * Startup/focus reconcile: refresh lastSeenAt / keys only when this User already
  * owns the endpoint. Never steals another User's binding and never auto-creates
  * a first binding — that requires explicit enable (#381 / research §7).
