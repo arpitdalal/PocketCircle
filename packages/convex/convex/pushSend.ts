@@ -109,7 +109,7 @@ export function createPinnedHttpsAgent(addresses: { address: string; family: num
     throw new Error("expected validated DNS addresses");
   }
   return new https.Agent({
-    lookup(hostname, options, callback) {
+    lookup(_hostname, options, callback) {
       const cb = typeof options === "function" ? options : callback;
       if (typeof cb !== "function") {
         return;
