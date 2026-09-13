@@ -33,13 +33,18 @@ const modules = import.meta.glob("./**/*.ts");
 const ENDPOINT_A = "https://fcm.googleapis.com/fcm/send/test-a";
 const ENDPOINT_B = "https://fcm.googleapis.com/fcm/send/test-b";
 
-/** Real-length VAPID pair from web-push.generateVAPIDKeys() — not for production. */
-const VAPID_PUBLIC =
-  "BMZtg3KgVSuCjZawh-zgBctl_AcvK81eKhRZEtLKFh2vK8farjimuKt2dHySHvlSHibPgMxZlgrWronJv-iWtps";
-const VAPID_PRIVATE = "YcnG4wKwUoy5FyAghnCUBgfrqE-y5tBwPuo3y3G5x2M";
-const VAPID_PUBLIC_PREVIOUS =
-  "BKMAHwN2s5AO4SGd-VWtJVZuPzpG3L4za92NkWz7KZ3e2QCIxOpuBQt3XZ8CsOamiYzQXyvPAZtatDR8b8oRgOs";
-const VAPID_PRIVATE_PREVIOUS = "X7PiBb5y2GVP-tpXZr5Cav3u0eRFZjuZF0bhW2oln_g";
+/** Correct decoded lengths without committing detectable VAPID key literals. */
+function syntheticVapidPublicKey(fill: number) {
+  return Buffer.alloc(65, fill).toString("base64url");
+}
+function syntheticVapidPrivateKey(fill: number) {
+  return Buffer.alloc(32, fill).toString("base64url");
+}
+
+const VAPID_PUBLIC = syntheticVapidPublicKey(1);
+const VAPID_PRIVATE = syntheticVapidPrivateKey(2);
+const VAPID_PUBLIC_PREVIOUS = syntheticVapidPublicKey(3);
+const VAPID_PRIVATE_PREVIOUS = syntheticVapidPrivateKey(4);
 
 function stubVapidEnv(opts?: { keyId?: string; subject?: string; publicKey?: string }) {
   vi.stubEnv("VAPID_PUBLIC_KEY", opts?.publicKey ?? VAPID_PUBLIC);
