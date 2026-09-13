@@ -1,6 +1,6 @@
-import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "@pocketcircle/domain";
 import { type Mock, vi } from "vitest";
 import { deferredValue } from "~/lib/deferred.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "~/test/push-fixtures.js";
 
 type PushSubFake = {
   endpoint: string;
@@ -23,7 +23,7 @@ type InstallPushEnvOptions = {
   register?: Mock<() => Promise<{ pushManager: { subscribe: Mock; getSubscription: Mock } }>>;
 };
 
-const DEFAULT_ENDPOINT = "https://push.example/test-endpoint";
+const DEFAULT_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-endpoint";
 
 export function makeFakePushSubscription(
   over: Partial<{ endpoint: string; p256dh: string; auth: string }> = {},

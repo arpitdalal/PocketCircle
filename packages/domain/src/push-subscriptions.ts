@@ -9,17 +9,14 @@ export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 /** Default VAPID key identity when `VAPID_KEY_ID` env is unset (v1 single key). */
 export const DEFAULT_VAPID_KEY_ID = "primary";
 
-/**
- * Synthetic valid subscription key material for tests (not a real ECDH key —
- * correct decoded lengths so bind validation accepts the fixture).
- */
-export const TEST_PUSH_P256DH =
-  "BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
-export const TEST_PUSH_AUTH = "CQkJCQkJCQkJCQkJCQkJCQ";
-/** Second synthetic pair for refresh/rebind tests. */
-export const TEST_PUSH_P256DH_ALT =
-  "BAoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo";
-export const TEST_PUSH_AUTH_ALT = "CwsLCwsLCwsLCwsLCwsLCw";
+/** Known browser push-service host suffixes (SSRF guard for send + bind). */
+const TRUSTED_PUSH_HOST_SUFFIXES = [
+  ".googleapis.com",
+  ".push.services.mozilla.com",
+  ".push.apple.com",
+  ".notify.windows.com",
+  ".wns.windows.com",
+] as const;
 
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {
@@ -33,6 +30,27 @@ export function isValidPushEndpoint(endpoint: string) {
   } catch {
     return false;
   }
+}
+
+/**
+ * HTTPS endpoint whose host is a known browser push service — not an arbitrary
+ * URL the action would POST to (SSRF).
+ */
+export function isTrustedPushEndpoint(endpoint: string) {
+  if (!isValidPushEndpoint(endpoint)) {
+    return false;
+  }
+  const host = new URL(endpoint).hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".local")) {
+    return false;
+  }
+  // Push services use DNS names; reject raw IPv4/IPv6 literals.
+  if (host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return false;
+  }
+  return TRUSTED_PUSH_HOST_SUFFIXES.some(
+    (suffix) => host === suffix.slice(1) || host.endsWith(suffix),
+  );
 }
 
 function decodeBase64Url(value: string) {
@@ -60,7 +78,7 @@ export function isValidPushSubscriptionMaterial(input: {
   auth: string;
   vapidKeyId?: string;
 }) {
-  if (!isValidPushEndpoint(input.endpoint)) {
+  if (!isTrustedPushEndpoint(input.endpoint)) {
     return false;
   }
   const p256dh = decodeBase64Url(input.p256dh.trim());

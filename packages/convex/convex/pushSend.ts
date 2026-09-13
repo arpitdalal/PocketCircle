@@ -1,7 +1,7 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { DEFAULT_VAPID_KEY_ID, pushTtlSeconds } from "@pocketcircle/domain";
+import { DEFAULT_VAPID_KEY_ID, isTrustedPushEndpoint, pushTtlSeconds } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
@@ -31,9 +31,26 @@ export function isValidVapidSubject(subject: string) {
   return subject.startsWith("mailto:") || subject.startsWith("https:");
 }
 
-/** Structural check before web-push — avoids retry loops on encode/JWT setup errors. */
-export function isValidVapidKeyMaterial(key: string) {
-  return key.length >= 16 && /^[A-Za-z0-9_-]+$/.test(key);
+function decodeVapidKeyBytes(key: string) {
+  if (!/^[A-Za-z0-9_-]+$/.test(key) || key.length > 128) {
+    return null;
+  }
+  try {
+    const bytes = Buffer.from(key, "base64url");
+    return bytes.length > 0 ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Uncompressed P-256 public key (65 bytes) as URL-safe base64. */
+export function isValidVapidPublicKey(key: string) {
+  return decodeVapidKeyBytes(key)?.length === 65;
+}
+
+/** P-256 private key (32 bytes) as URL-safe base64. */
+export function isValidVapidPrivateKey(key: string) {
+  return decodeVapidKeyBytes(key)?.length === 32;
 }
 
 /** Local encrypt/setup failures from bad subscription material (no HTTP status). */
@@ -90,8 +107,8 @@ function readVapidPair(args: {
   }
   if (
     !isValidVapidSubject(subject) ||
-    !isValidVapidKeyMaterial(publicKey) ||
-    !isValidVapidKeyMaterial(privateKey)
+    !isValidVapidPublicKey(publicKey) ||
+    !isValidVapidPrivateKey(privateKey)
   ) {
     return { kind: "invalid_env" as const };
   }
@@ -165,6 +182,17 @@ export const sendOne = internalAction({
       return;
     }
 
+    // Defense in depth: bind already requires trusted hosts; never POST elsewhere.
+    if (!isTrustedPushEndpoint(prepared.endpoint)) {
+      await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
+        subscriptionId: args.subscriptionId,
+        endpoint: prepared.endpoint,
+        p256dh: prepared.p256dh,
+        auth: prepared.auth,
+      });
+      return;
+    }
+
     const vapid = resolveVapidDetailsForKeyId(prepared.vapidKeyId);
     if (vapid.kind !== "ok") {
       const error =
@@ -181,6 +209,13 @@ export const sendOne = internalAction({
       });
       return;
     }
+
+    const pruneArgs = {
+      subscriptionId: args.subscriptionId,
+      endpoint: prepared.endpoint,
+      p256dh: prepared.p256dh,
+      auth: prepared.auth,
+    };
 
     try {
       await sendWebPushNotification({
@@ -199,18 +234,17 @@ export const sendOne = internalAction({
       const statusCode = pushHttpStatusFromError(error);
       if (statusCode === undefined) {
         if (isLikelyInvalidSubscriptionCryptoError(error)) {
-          await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
-            endpoint: prepared.endpoint,
-          });
+          await ctx.runMutation(
+            internal.pushSubscriptions.removeInvalidPushSubscription,
+            pruneArgs,
+          );
           return;
         }
         throw error;
       }
       const classification = classifyPushHttpStatus(statusCode);
       if (classification === "gone") {
-        await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
-          endpoint: prepared.endpoint,
-        });
+        await ctx.runMutation(internal.pushSubscriptions.removeInvalidPushSubscription, pruneArgs);
         return;
       }
       if (classification === "permanent") {

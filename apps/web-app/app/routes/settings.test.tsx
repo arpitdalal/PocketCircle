@@ -64,7 +64,10 @@ function installSequentialPushSubscriptions() {
   const subscribe = vi.fn(async () => {
     subscribeCount += 1;
     live = makeFakePushSubscription({
-      endpoint: subscribeCount === 1 ? "https://push.example/first" : "https://push.example/second",
+      endpoint:
+        subscribeCount === 1
+          ? "https://fcm.googleapis.com/fcm/send/first"
+          : "https://fcm.googleapis.com/fcm/send/second",
     });
     return live;
   });
@@ -617,7 +620,7 @@ describe("Settings notifications", () => {
       expect(requestPermission).toHaveBeenCalledTimes(1);
       expect(enablePushSubscription).toHaveBeenCalledWith(
         expect.objectContaining({
-          endpoint: "https://push.example/test-endpoint",
+          endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
           vapidKeyId: "primary",
         }),
       );
@@ -643,11 +646,13 @@ describe("Settings notifications", () => {
     );
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/test-endpoint",
+        endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
       });
     });
     await waitFor(() => {
-      expect(recalledPendingPushCleanup()).toEqual(["https://push.example/test-endpoint"]);
+      expect(recalledPendingPushCleanup()).toEqual([
+        "https://fcm.googleapis.com/fcm/send/test-endpoint",
+      ]);
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
@@ -658,7 +663,7 @@ describe("Settings notifications", () => {
     const enablePushSubscription = vi
       .fn()
       .mockImplementation(async (args: { endpoint: string }) => {
-        if (args.endpoint === "https://push.example/first") {
+        if (args.endpoint === "https://fcm.googleapis.com/fcm/send/first") {
           // Orphan drop removed the local sub after the first bind committed.
           dropLive();
         }
@@ -685,17 +690,17 @@ describe("Settings notifications", () => {
     );
     await waitFor(() => {
       expect(enablePushSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({ endpoint: "https://push.example/first" }),
+        expect.objectContaining({ endpoint: "https://fcm.googleapis.com/fcm/send/first" }),
       );
       expect(enablePushSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({ endpoint: "https://push.example/second" }),
+        expect.objectContaining({ endpoint: "https://fcm.googleapis.com/fcm/send/second" }),
       );
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/first",
+        endpoint: "https://fcm.googleapis.com/fcm/send/first",
       });
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
-      "https://push.example/second",
+      "https://fcm.googleapis.com/fcm/send/second",
     );
   });
 
@@ -730,15 +735,18 @@ describe("Settings notifications", () => {
     );
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/first",
+        endpoint: "https://fcm.googleapis.com/fcm/send/first",
       });
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/second",
+        endpoint: "https://fcm.googleapis.com/fcm/send/second",
       });
     });
     await waitFor(() => {
       expect(new Set(recalledPendingPushCleanup())).toEqual(
-        new Set(["https://push.example/second", "https://push.example/first"]),
+        new Set([
+          "https://fcm.googleapis.com/fcm/send/second",
+          "https://fcm.googleapis.com/fcm/send/first",
+        ]),
       );
     });
   });

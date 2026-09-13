@@ -30,12 +30,20 @@ vi.mock("web-push", () => ({
 
 const modules = import.meta.glob("./**/*.ts");
 
-const ENDPOINT_A = "https://push.example.test/sub/a";
-const ENDPOINT_B = "https://push.example.test/sub/b";
+const ENDPOINT_A = "https://fcm.googleapis.com/fcm/send/test-a";
+const ENDPOINT_B = "https://fcm.googleapis.com/fcm/send/test-b";
+
+/** Real-length VAPID pair from web-push.generateVAPIDKeys() — not for production. */
+const VAPID_PUBLIC =
+  "BMZtg3KgVSuCjZawh-zgBctl_AcvK81eKhRZEtLKFh2vK8farjimuKt2dHySHvlSHibPgMxZlgrWronJv-iWtps";
+const VAPID_PRIVATE = "YcnG4wKwUoy5FyAghnCUBgfrqE-y5tBwPuo3y3G5x2M";
+const VAPID_PUBLIC_PREVIOUS =
+  "BKMAHwN2s5AO4SGd-VWtJVZuPzpG3L4za92NkWz7KZ3e2QCIxOpuBQt3XZ8CsOamiYzQXyvPAZtatDR8b8oRgOs";
+const VAPID_PRIVATE_PREVIOUS = "X7PiBb5y2GVP-tpXZr5Cav3u0eRFZjuZF0bhW2oln_g";
 
 function stubVapidEnv(opts?: { keyId?: string; subject?: string; publicKey?: string }) {
-  vi.stubEnv("VAPID_PUBLIC_KEY", opts?.publicKey ?? "BPtestPublicKeyMaterialXX");
-  vi.stubEnv("VAPID_PRIVATE_KEY", "testPrivateKeyMaterialXXX");
+  vi.stubEnv("VAPID_PUBLIC_KEY", opts?.publicKey ?? VAPID_PUBLIC);
+  vi.stubEnv("VAPID_PRIVATE_KEY", VAPID_PRIVATE);
   vi.stubEnv("VAPID_SUBJECT", opts?.subject ?? "mailto:push@pocketcircle.test");
   vi.stubEnv("VAPID_KEY_ID", opts?.keyId ?? "primary");
 }
@@ -150,8 +158,8 @@ describe("Push mirror from Notification Center", () => {
         timeout: 30_000,
         vapidDetails: {
           subject: "mailto:push@pocketcircle.test",
-          publicKey: "BPtestPublicKeyMaterialXX",
-          privateKey: "testPrivateKeyMaterialXXX",
+          publicKey: VAPID_PUBLIC,
+          privateKey: VAPID_PRIVATE,
         },
       });
     }
@@ -337,8 +345,8 @@ describe("Push mirror from Notification Center", () => {
     registerPushWorkpool(t);
     stubVapidEnv({ keyId: "primary" });
     vi.stubEnv("VAPID_KEY_ID_PREVIOUS", "legacy");
-    vi.stubEnv("VAPID_PUBLIC_KEY_PREVIOUS", "BPpreviousPublicKeyMat");
-    vi.stubEnv("VAPID_PRIVATE_KEY_PREVIOUS", "previousPrivateKeyMat");
+    vi.stubEnv("VAPID_PUBLIC_KEY_PREVIOUS", VAPID_PUBLIC_PREVIOUS);
+    vi.stubEnv("VAPID_PRIVATE_KEY_PREVIOUS", VAPID_PRIVATE_PREVIOUS);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A], "legacy");
 
     await mutateAndDrain(t, () =>
@@ -353,10 +361,83 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).toHaveBeenCalledTimes(1);
     expect(mockSendNotification.mock.calls[0]?.[2]).toMatchObject({
       vapidDetails: {
-        publicKey: "BPpreviousPublicKeyMat",
-        privateKey: "previousPrivateKeyMat",
+        publicKey: VAPID_PUBLIC_PREVIOUS,
+        privateKey: VAPID_PRIVATE_PREVIOUS,
       },
     });
+  });
+
+  it("skips send when VAPID public key length is wrong", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    stubVapidEnv({ publicKey: "BPshortLookingButWrongLen" });
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "category.restored",
+        title: "Category restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith("VAPID env malformed; skipping push send");
+    errSpy.mockRestore();
+  });
+
+  it("does not prune when subscription material changed since the send snapshot", async () => {
+    const t = convexTest(schema, modules);
+    const { recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const { TEST_PUSH_AUTH, TEST_PUSH_AUTH_ALT, TEST_PUSH_P256DH, TEST_PUSH_P256DH_ALT } =
+      await import("../test/pushFixtures.js");
+    const rows = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    const row = rows[0];
+    if (!row) throw new Error("missing subscription");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row._id, {
+        p256dh: TEST_PUSH_P256DH_ALT,
+        auth: TEST_PUSH_AUTH_ALT,
+      });
+    });
+
+    await t.mutation(internal.pushSubscriptions.removeInvalidPushSubscription, {
+      subscriptionId: row._id,
+      endpoint: ENDPOINT_A,
+      p256dh: TEST_PUSH_P256DH,
+      auth: TEST_PUSH_AUTH,
+    });
+
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+  });
+
+  it("prunes untrusted endpoints without calling web-push", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, recipient._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing subscription");
+      await ctx.db.patch(row._id, { endpoint: "https://evil.example/collect" });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "member.removed",
+        title: "Removed from Circle",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
+    expect(remaining).toHaveLength(0);
   });
 
   it("prunes the subscription on local encryption failure without retrying", async () => {
