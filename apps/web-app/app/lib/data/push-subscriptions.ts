@@ -137,7 +137,7 @@ async function bindPushSubscription(
 /** One ownership probe: true / false / unknown (query failure — do not compensate). */
 async function probePushEndpointOwnership(owns: OwnsPush, endpoint: string) {
   try {
-    return (await owns(endpoint)) ? true : false;
+    return !!(await owns(endpoint));
   } catch {
     return "unknown" as const;
   }
