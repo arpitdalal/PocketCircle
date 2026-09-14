@@ -1,6 +1,14 @@
 import { tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { XIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useId, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { href, Link } from "react-router";
 import { isInstalledWebApp, isIosDevice, usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
@@ -105,7 +113,7 @@ export function NotificationAnnouncementStrip({
   // Genuine visibility for analytics / live region — install modal + background tabs.
   const liveVisible = visible && !installSurfaceOpen && documentVisible;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!visible) {
       reportOwnsTopSafeArea(false);
       return;
@@ -115,6 +123,8 @@ export function NotificationAnnouncementStrip({
       reportOwnsTopSafeArea(false);
       return;
     }
+    // Assume top ownership on show (eligible strip mounts at scroll top); scroll/IO correct it.
+    reportOwnsTopSafeArea(true);
     const update = () => {
       // Own notch inset only while the strip's top edge is still at the viewport top.
       reportOwnsTopSafeArea(el.getBoundingClientRect().top <= 0.5);
