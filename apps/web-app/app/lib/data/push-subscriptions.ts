@@ -10,6 +10,7 @@ import {
   disableCurrentPushSubscription,
   disableRemovedOwnedBinding,
   endPushEnable,
+  ensureActivePushServiceWorker,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
   type PushSubscriptionMaterial,
@@ -177,7 +178,9 @@ async function enableNotifications(
   };
   // Invoke in the click stack; acquiring a Web Lock crosses a task boundary and
   // drops user activation (Safari iOS / Firefox). Subscribe before the lock.
+  // Kick permission + display-SW update together so remigrate keeps gesture budget.
   const permission = requestPushNotificationPermission();
+  const ensuredPending = ensureActivePushServiceWorker();
   // A busy lock can reject before the permission promise settles.
   void permission.catch(() => undefined);
   beginPushEnable();
@@ -190,6 +193,7 @@ async function enableNotifications(
       vapid,
       permission,
       assertCurrentOperation,
+      ensuredPending,
     );
     material = subscribed.material;
     previousEndpoint = subscribed.previousEndpoint;

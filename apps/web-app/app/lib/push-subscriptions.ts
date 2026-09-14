@@ -707,12 +707,15 @@ export async function subscribeForPushNotifications(
   vapid: { publicKey: string; keyId: string },
   permission = requestPushNotificationPermission(),
   assertCurrentOperation = () => {},
+  ensuredPending = ensureActivePushServiceWorker(),
 ) {
+  // `ensuredPending` starts in the click stack (caller may pass a shared promise
+  // started alongside permission) so remigrate keeps gesture budget for subscribe.
   await permission;
   assertCurrentOperation();
   // Same display-SW gate as reconcile: enable/remigrate must not bump lastSeenAt
   // while a pre-display worker is still active (Safari silent-push revoke).
-  const ensured = await ensureActivePushServiceWorker();
+  const ensured = await ensuredPending;
   if (ensured.kind !== "ready") {
     throw new Error(
       ensured.kind === "update_failed"

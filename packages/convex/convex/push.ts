@@ -1,6 +1,7 @@
 import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
 import {
   isInvitationPushType,
+  PUSH_ACTIVITY_TTL_SECONDS,
   parseNotificationLinkPath,
   pushBodyForNotificationType,
   pushTitleForNotificationType,
@@ -137,12 +138,18 @@ export const deferSendWhileDeliveryPaused = internalMutation({
     if (!notification) {
       return;
     }
-    const ttlSeconds = pushTtlSeconds({
-      type: notification.type,
-      nowMs: Date.now(),
-      invitationExpiresAtMs: args.invitationExpiresAtMs,
-    });
-    if (ttlSeconds <= 0) {
+    // Bound pause polling: invitations by deadline; activity by NC row age
+    // (pushTtlSeconds for activity is a fresh 24h window — not useful here).
+    if (isInvitationPushType(notification.type)) {
+      const ttlSeconds = pushTtlSeconds({
+        type: notification.type,
+        nowMs: Date.now(),
+        invitationExpiresAtMs: args.invitationExpiresAtMs,
+      });
+      if (ttlSeconds <= 0) {
+        return;
+      }
+    } else if (Date.now() - notification._creationTime >= PUSH_ACTIVITY_TTL_SECONDS * 1000) {
       return;
     }
     if (isPushDeliveryEnabled()) {
