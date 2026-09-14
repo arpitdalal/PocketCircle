@@ -551,6 +551,8 @@ export default defineSchema({
     p256dh: v.string(),
     auth: v.string(),
     vapidKeyId: v.string(),
+    /** Probed display-capable push-sw.js version; absent on pre-#382 rows. */
+    pushSwVersion: v.optional(v.number()),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })

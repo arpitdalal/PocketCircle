@@ -2,6 +2,7 @@
  * Per-device Push subscription lifecycle (#381). Browser APIs only — Convex
  * mutations live in `~/lib/data/push-subscriptions.ts`. Never log endpoints.
  */
+import { PUSH_DISPLAY_SW_VERSION } from "@pocketcircle/domain";
 import { isInstalledWebApp, isIosDevice } from "~/components/pwa-install.js";
 import { track } from "~/lib/analytics.js";
 import { deferredValue } from "~/lib/deferred.js";
@@ -399,6 +400,7 @@ export type PushSubscriptionMaterial = {
   p256dh: string;
   auth: string;
   vapidKeyId: string;
+  pushSwVersion: number;
 };
 
 function hasSecureContext() {
@@ -526,7 +528,37 @@ export async function ensureActivePushServiceWorker() {
   if (ready.installing || ready.waiting) {
     return { kind: "activation_pending" as const };
   }
-  return { kind: "ready" as const, registration: ready };
+  const pushSwVersion = await probePushSwVersion(ready);
+  if (pushSwVersion === null || pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return { kind: "pre_display" as const };
+  }
+  return { kind: "ready" as const, registration: ready, pushSwVersion };
+}
+
+/** Ask the active worker for its display-capable version (MessageChannel). */
+function probePushSwVersion(registration: ServiceWorkerRegistration) {
+  const worker = registration.active;
+  if (!worker) {
+    return Promise.resolve(null);
+  }
+  return new Promise<number | null>((resolve) => {
+    const channel = new MessageChannel();
+    const finish = (version: number | null) => {
+      window.clearTimeout(timer);
+      channel.port1.onmessage = null;
+      resolve(version);
+    };
+    const timer = window.setTimeout(() => finish(null), 2_000);
+    channel.port1.onmessage = (event) => {
+      const version = event.data?.version;
+      finish(typeof version === "number" && Number.isFinite(version) ? version : null);
+    };
+    try {
+      worker.postMessage("pocketcircle:push-sw-version", [channel.port2]);
+    } catch {
+      finish(null);
+    }
+  });
 }
 
 /**
@@ -680,6 +712,20 @@ async function subscribeWithVapid(
     if (!(await existing.unsubscribe())) {
       throw new Error("Push unsubscribe failed");
     }
+    // Replacement subscribe may fail — keep the old endpoint as pending cleanup
+    // so lifecycle/disable can remove the server row (avoid dual rows / enable-only bind).
+    rememberPushEndpoints([
+      ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== previousEndpoint),
+      previousEndpoint,
+    ]);
+    try {
+      const active = recalledPushEndpoint();
+      if (active === previousEndpoint) {
+        rememberPushEndpoint(null);
+      }
+    } catch {
+      // Storage restricted.
+    }
     return {
       subscription: await registration.pushManager.subscribe(options),
       previousEndpoint,
@@ -722,7 +768,9 @@ export async function subscribeForPushNotifications(
         ? "Push service worker update failed"
         : ensured.kind === "activation_pending"
           ? "Push service worker is still activating"
-          : "Push service worker is not available",
+          : ensured.kind === "pre_display"
+            ? "Push service worker is not display-capable"
+            : "Push service worker is not available",
     );
   }
   assertCurrentOperation();
@@ -730,7 +778,11 @@ export async function subscribeForPushNotifications(
   const keys = readSubscriptionKeys(subscription);
   rememberPushEndpoint(keys.endpoint);
   return {
-    material: { ...keys, vapidKeyId: vapid.keyId },
+    material: {
+      ...keys,
+      vapidKeyId: vapid.keyId,
+      pushSwVersion: ensured.pushSwVersion,
+    },
     previousEndpoint,
   };
 }
@@ -779,6 +831,7 @@ export async function unsubscribeLocalPushSubscription(
 export async function readPushSubscriptionMaterial(
   vapid: { publicKey: string; keyId: string },
   isCancelled = () => false,
+  pushSwVersion = PUSH_DISPLAY_SW_VERSION,
 ) {
   const registration = await resolvePushRegistration();
   if (!registration) {
@@ -818,6 +871,7 @@ export async function readPushSubscriptionMaterial(
   const material = {
     ...readSubscriptionKeys(existing),
     vapidKeyId: vapid.keyId,
+    pushSwVersion,
   };
   const active = recalledPushEndpoint();
   const previousEndpoint = active && active !== material.endpoint ? active : undefined;

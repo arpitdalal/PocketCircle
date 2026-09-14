@@ -87,7 +87,11 @@ export async function enqueuePushForNotification(
   },
 ) {
   const subscriptions = (await listPushSubscriptionsForUser(ctx, args.recipientUserId)).filter(
-    (subscription) => isSubscriptionEligibleForPushDelivery(subscription.lastSeenAt),
+    (subscription) =>
+      isSubscriptionEligibleForPushDelivery({
+        lastSeenAt: subscription.lastSeenAt,
+        pushSwVersion: subscription.pushSwVersion,
+      }),
   );
   if (subscriptions.length === 0) {
     return;
@@ -185,6 +189,7 @@ export const loadSendPayload = internalQuery({
       auth: subscription.auth,
       vapidKeyId: subscription.vapidKeyId,
       lastSeenAt: subscription.lastSeenAt,
+      pushSwVersion: subscription.pushSwVersion,
     };
   },
 });

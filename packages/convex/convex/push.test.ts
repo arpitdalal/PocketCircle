@@ -250,8 +250,15 @@ describe("Push mirror from Notification Center", () => {
   it("skips subscriptions lastSeen before PUSH_DELIVERY_SINCE_MS", async () => {
     const floor = Date.now() + 60_000;
     vi.stubEnv("PUSH_DELIVERY_SINCE_MS", String(floor));
-    expect(isSubscriptionEligibleForPushDelivery(floor - 1)).toBe(false);
-    expect(isSubscriptionEligibleForPushDelivery(floor)).toBe(true);
+    expect(isSubscriptionEligibleForPushDelivery({ lastSeenAt: floor - 1, pushSwVersion: 1 })).toBe(
+      false,
+    );
+    expect(isSubscriptionEligibleForPushDelivery({ lastSeenAt: floor, pushSwVersion: 1 })).toBe(
+      true,
+    );
+    expect(isSubscriptionEligibleForPushDelivery({ lastSeenAt: floor, pushSwVersion: 0 })).toBe(
+      false,
+    );
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);

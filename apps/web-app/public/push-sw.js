@@ -55,3 +55,17 @@ self.addEventListener("push", (event) => {
 self.addEventListener("pushsubscriptionchange", () => {
   // Page reconcile on focus/startup rebinds; no endpoint material here.
 });
+
+/** Probed by the page after update/activate — proves display-capable push-sw.js. */
+const POCKETCIRCLE_PUSH_SW_VERSION = 1;
+
+self.addEventListener("message", (event) => {
+  if (event.data !== "pocketcircle:push-sw-version") {
+    return;
+  }
+  const port = event.ports[0];
+  if (!port) {
+    return;
+  }
+  port.postMessage({ version: POCKETCIRCLE_PUSH_SW_VERSION });
+});

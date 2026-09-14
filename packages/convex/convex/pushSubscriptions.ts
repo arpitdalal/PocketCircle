@@ -2,6 +2,7 @@ import {
   DEFAULT_VAPID_KEY_ID,
   isValidPushSubscriptionMaterial,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -21,6 +22,7 @@ const subscriptionFields = {
   p256dh: v.string(),
   auth: v.string(),
   vapidKeyId: v.string(),
+  pushSwVersion: v.number(),
 };
 
 /**
@@ -90,14 +92,24 @@ export const ownsPushEndpoint = query({
  * still need LRU freshness so active devices are not evicted at the ten-cap.
  */
 export const touchPushSubscription = mutation({
-  args: { endpoint: v.string() },
+  args: {
+    endpoint: v.string(),
+    /** Required after display-SW rollout — old-key rows still need version proof. */
+    pushSwVersion: v.number(),
+  },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const existing = await findByEndpoint(ctx, args.endpoint);
     if (!existing || existing.userId !== user._id) {
       return { touched: false };
     }
-    await ctx.db.patch(existing._id, { lastSeenAt: Date.now() });
+    if (args.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+      return { touched: false };
+    }
+    await ctx.db.patch(existing._id, {
+      lastSeenAt: Date.now(),
+      pushSwVersion: args.pushSwVersion,
+    });
     return { touched: true };
   },
 });
@@ -126,6 +138,7 @@ export const reconcilePushSubscription = mutation({
       p256dh: args.subscription.p256dh,
       auth: args.subscription.auth,
       vapidKeyId: args.subscription.vapidKeyId,
+      pushSwVersion: args.subscription.pushSwVersion,
       lastSeenAt: Date.now(),
     });
     return { bound: true };
@@ -207,8 +220,9 @@ function assertValidSubscription(input: {
   p256dh: string;
   auth: string;
   vapidKeyId: string;
+  pushSwVersion: number;
 }) {
-  if (!isValidPushSubscriptionMaterial(input)) {
+  if (!isValidPushSubscriptionMaterial(input) || input.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
     throw new Error(INVALID_SUBSCRIPTION);
   }
 }
@@ -272,8 +286,12 @@ async function bindPushSubscription(
     p256dh: string;
     auth: string;
     vapidKeyId: string;
+    pushSwVersion: number;
   },
 ) {
+  if (args.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    throw new Error(INVALID_SUBSCRIPTION);
+  }
   await pruneInvalidSubscriptionsForUser(ctx, userId);
   const now = Date.now();
   const existing = await findByEndpoint(ctx, args.endpoint);
@@ -284,6 +302,7 @@ async function bindPushSubscription(
         p256dh: args.p256dh,
         auth: args.auth,
         vapidKeyId: args.vapidKeyId,
+        pushSwVersion: args.pushSwVersion,
         lastSeenAt: now,
       });
       return;
@@ -295,6 +314,7 @@ async function bindPushSubscription(
       p256dh: args.p256dh,
       auth: args.auth,
       vapidKeyId: args.vapidKeyId,
+      pushSwVersion: args.pushSwVersion,
       lastSeenAt: now,
     });
     return;
@@ -307,6 +327,7 @@ async function bindPushSubscription(
     p256dh: args.p256dh,
     auth: args.auth,
     vapidKeyId: args.vapidKeyId,
+    pushSwVersion: args.pushSwVersion,
     createdAt: now,
     lastSeenAt: now,
   });

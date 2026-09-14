@@ -3,6 +3,8 @@
  * Kept free of Workpool / Node imports so isolate + Node send can both use it.
  */
 
+import { PUSH_DISPLAY_SW_VERSION } from "@pocketcircle/domain";
+
 /** True only when ops explicitly enabled delivery after the display SW is live. */
 export function isPushDeliveryEnabled() {
   return process.env.PUSH_DELIVERY_ENABLED === "1";
@@ -22,7 +24,21 @@ export function pushDeliverySinceMs() {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-export function isSubscriptionEligibleForPushDelivery(lastSeenAt: number) {
+/**
+ * Delivery eligibility after the display-SW rollout floor.
+ * Recency alone is insufficient: a cached parent-release tab can still bump
+ * `lastSeenAt` without a visible push handler. Require a probed SW version too.
+ */
+export function isSubscriptionEligibleForPushDelivery(args: {
+  lastSeenAt: number;
+  pushSwVersion?: number;
+}) {
   const since = pushDeliverySinceMs();
-  return since === null || lastSeenAt >= since;
+  if (since === null) {
+    return true;
+  }
+  if ((args.pushSwVersion ?? 0) < PUSH_DISPLAY_SW_VERSION) {
+    return false;
+  }
+  return args.lastSeenAt >= since;
 }

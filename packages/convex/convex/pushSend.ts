@@ -319,7 +319,12 @@ export const sendOne = internalAction({
     if (!prepared) {
       return;
     }
-    if (!isSubscriptionEligibleForPushDelivery(prepared.lastSeenAt)) {
+    if (
+      !isSubscriptionEligibleForPushDelivery({
+        lastSeenAt: prepared.lastSeenAt,
+        pushSwVersion: prepared.pushSwVersion,
+      })
+    ) {
       return;
     }
 

@@ -85,6 +85,7 @@ describe("PushSubscriptionLifecycle", () => {
           p256dh: TEST_PUSH_P256DH,
           auth: TEST_PUSH_AUTH,
           vapidKeyId: VAPID.keyId,
+          pushSwVersion: 1,
         },
       });
     });
@@ -223,7 +224,10 @@ describe("PushSubscriptionLifecycle", () => {
       expect(ownsPushEndpoint).toHaveBeenCalledWith({ endpoint: sub.endpoint });
     });
     await waitFor(() => {
-      expect(touchPushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+      expect(touchPushSubscription).toHaveBeenCalledWith({
+        endpoint: sub.endpoint,
+        pushSwVersion: 1,
+      });
     });
     expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(reconcilePushSubscription).not.toHaveBeenCalled();

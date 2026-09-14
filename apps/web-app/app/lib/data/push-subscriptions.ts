@@ -138,6 +138,7 @@ async function bindPushSubscription(
 async function compensateFailedBind(
   disable: (args: { endpoint: string }) => Promise<unknown>,
   endpoints: string[],
+  localEndpoint: string,
 ) {
   const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
   const failures: string[] = [];
@@ -154,10 +155,8 @@ async function compensateFailedBind(
   }
   rememberPushEndpoint(null);
   applyPendingCleanupFlushResult(unique, failures);
-  const local = unique[unique.length - 1];
-  if (local) {
-    await unsubscribeLocalPushSubscription(local).catch(() => undefined);
-  }
+  // Always target the live local endpoint — cleanup-array order is not the sub.
+  await unsubscribeLocalPushSubscription(localEndpoint).catch(() => undefined);
 }
 
 /** One complete enable transaction; the hook only supplies the network boundary. */
@@ -253,7 +252,11 @@ async function enableNotifications(
           }
           // Ambiguous transport failures: clear server binding for this endpoint
           // (covers committed-but-lost-response) then drop the local subscription.
-          await compensateFailedBind(disable, [binding.endpoint, abandonedEndpoint ?? ""]);
+          await compensateFailedBind(
+            disable,
+            [binding.endpoint, abandonedEndpoint ?? ""],
+            binding.endpoint,
+          );
           throw error;
         }
       },

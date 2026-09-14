@@ -32,7 +32,7 @@ export function PushSubscriptionLifecycle() {
   const ownsPushEndpoint = useOwnsPushEndpoint();
   const touch = useTouchPushSubscription();
 
-  const runReconcile = useEffectEvent(async (isCancelled: () => boolean) => {
+  const runReconcile = useEffectEvent(async (isCancelled: () => boolean, pushSwVersion: number) => {
     if (!vapid || isCancelled()) return;
 
     const disableEndpoints = async (endpoints: string[]) => {
@@ -50,7 +50,7 @@ export function PushSubscriptionLifecycle() {
       }
     };
 
-    const result = await readPushSubscriptionMaterial(vapid, isCancelled);
+    const result = await readPushSubscriptionMaterial(vapid, isCancelled, pushSwVersion);
     if (isCancelled()) return;
     if (result.unboundEndpoint) {
       const endpoints = result.unboundEndpoints;
@@ -79,7 +79,7 @@ export function PushSubscriptionLifecycle() {
           // Do not reconcile with the current key id — that would break dual-VAPID
           // send for this row. Only refresh LRU so active devices stay.
           try {
-            await touch({ endpoint: result.staleKeyEndpoint });
+            await touch({ endpoint: result.staleKeyEndpoint, pushSwVersion });
           } catch {
             // Soft: next focus retries; delivery still works on the old key.
           }
@@ -150,7 +150,7 @@ export function PushSubscriptionLifecycle() {
             scheduled = false;
             return;
           }
-          return withPushSubscriptionLock(() => runReconcile(isCancelled), {
+          return withPushSubscriptionLock(() => runReconcile(isCancelled, result.pushSwVersion), {
             wait: true,
             signal: abort.signal,
           });

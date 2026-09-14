@@ -181,9 +181,24 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
   const getSubscription =
     options.getSubscription ?? vi.fn().mockImplementation(async () => currentSubscription);
   const update = vi.fn().mockResolvedValue(undefined);
+  const activeWorker = {
+    postMessage(message: unknown, transfer?: Transferable[]) {
+      const port = transfer?.[0];
+      if (
+        message === "pocketcircle:push-sw-version" &&
+        port &&
+        typeof port === "object" &&
+        "postMessage" in port
+      ) {
+        queueMicrotask(() => {
+          port.postMessage({ version: 1 });
+        });
+      }
+    },
+  };
   const registration = {
     pushManager: { subscribe, getSubscription },
-    active: {},
+    active: activeWorker,
     installing: null,
     waiting: null,
     update,

@@ -67,6 +67,7 @@ describe("ensureActivePushServiceWorker", () => {
     await expect(ensureActivePushServiceWorker()).resolves.toEqual({
       kind: "ready",
       registration: env.registration,
+      pushSwVersion: 1,
     });
     expect(env.update).toHaveBeenCalledOnce();
   });
@@ -195,6 +196,7 @@ describe("readPushSubscriptionMaterial", () => {
         p256dh: TEST_PUSH_P256DH,
         auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
+        pushSwVersion: 1,
       },
       previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
     });
@@ -216,6 +218,7 @@ describe("readPushSubscriptionMaterial", () => {
         p256dh: TEST_PUSH_P256DH,
         auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
+        pushSwVersion: 1,
       },
     });
   });
@@ -792,6 +795,28 @@ describe("disableCurrentPushSubscription", () => {
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
     expect(env.subscribe.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(env.subscription?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
+  });
+
+  it("records pending cleanup when remigrate unsubscribe succeeds but resubscribe fails", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    rememberPushEndpoint(sub.endpoint);
+    const env = installPushEnv({ subscription: sub });
+    env.subscribe
+      .mockRejectedValueOnce(
+        new DOMException(
+          "Registration failed - A subscription with a different applicationServerKey already exists.",
+          "InvalidStateError",
+        ),
+      )
+      .mockRejectedValueOnce(new Error("subscribe failed after unsub"));
+    await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
+      "subscribe failed after unsub",
+    );
+    expect(sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(recalledPendingPushCleanup()).toContain("https://fcm.googleapis.com/fcm/send/old-key");
   });
 
   it("removes an endpoint from pending when it becomes active again", () => {

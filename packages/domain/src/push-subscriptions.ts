@@ -13,6 +13,14 @@ export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 /** Default VAPID key identity when `VAPID_KEY_ID` env is unset (v1 single key). */
 export const DEFAULT_VAPID_KEY_ID = "primary";
 
+/**
+ * push-sw.js must report at least this version before a subscription is
+ * delivery-eligible after `PUSH_DELIVERY_SINCE_MS` is set. Parent-release tabs
+ * can bump `lastSeenAt` without a visible `push` handler — version proof closes
+ * that Safari silent-push hole.
+ */
+export const PUSH_DISPLAY_SW_VERSION = 1;
+
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {
   const trimmed = endpoint.trim();

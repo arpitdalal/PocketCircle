@@ -34,6 +34,7 @@ const VALID = {
   p256dh: TEST_PUSH_P256DH,
   auth: TEST_PUSH_AUTH,
   vapidKeyId: "primary",
+  pushSwVersion: 1,
 } as const;
 
 describe("pushSubscriptions", () => {
@@ -110,6 +111,7 @@ describe("pushSubscriptions", () => {
 
     const touched = await t.mutation(api.pushSubscriptions.touchPushSubscription, {
       endpoint: VALID.endpoint,
+      pushSwVersion: 1,
     });
     expect(touched).toEqual({ touched: true });
 
@@ -130,6 +132,7 @@ describe("pushSubscriptions", () => {
     expect(
       await t.mutation(api.pushSubscriptions.touchPushSubscription, {
         endpoint: VALID.endpoint,
+        pushSwVersion: 1,
       }),
     ).toEqual({ touched: false });
   });

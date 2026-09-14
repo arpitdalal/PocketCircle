@@ -653,6 +653,7 @@ describe("Settings notifications", () => {
         expect.objectContaining({
           endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
           vapidKeyId: "primary",
+          pushSwVersion: 1,
         }),
       );
     });

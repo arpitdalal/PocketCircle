@@ -18,6 +18,7 @@ type PushSubscriptionSeed = {
   vapidKeyId?: string;
   createdAt?: number;
   lastSeenAt?: number;
+  pushSwVersion?: number;
 };
 
 /** Insert a pushSubscriptions row for tests (incl. intentionally invalid material). */
@@ -31,5 +32,6 @@ export async function seedPushSubscription(ctx: MutationCtx, seed: PushSubscript
     vapidKeyId: seed.vapidKeyId ?? "primary",
     createdAt: seed.createdAt ?? now,
     lastSeenAt: seed.lastSeenAt ?? now,
+    pushSwVersion: seed.pushSwVersion ?? 1,
   });
 }
