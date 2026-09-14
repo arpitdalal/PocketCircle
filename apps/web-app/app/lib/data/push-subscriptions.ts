@@ -7,17 +7,20 @@ import {
   beginPushEnable,
   capturePushCancellation,
   clearLocalPushSubscriptionAndBinding,
+  clearPushEnableInProgress,
   disableCurrentPushSubscription,
   disableRemovedOwnedBinding,
   endPushEnable,
   ensureActivePushServiceWorker,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
+  markPushEnableInProgress,
   type PushSubscriptionMaterial,
   recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
   requestPushNotificationPermission,
+  setPushEnableInProgressEndpoint,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
   withPushSubscriptionLock,
@@ -211,6 +214,7 @@ async function enableNotifications(
   let material: PushSubscriptionMaterial | undefined;
   let previousEndpoint: string | undefined;
   let bound = false;
+  let enableProgressId: string | null = null;
   try {
     assertCurrentOperation();
     const subscribed = await subscribeForPushNotifications(
@@ -222,6 +226,8 @@ async function enableNotifications(
     material = subscribed.material;
     previousEndpoint = subscribed.previousEndpoint;
     let binding = material;
+    // Peer-tab reconcile must not orphan this unbound sub before we bind.
+    enableProgressId = markPushEnableInProgress(binding.endpoint);
     // Wait for the lock — do not use ifAvailable after a successful local
     // subscribe (that would orphan an unbound sub or race another tab's unsub).
     await withPushSubscriptionLock(
@@ -257,6 +263,9 @@ async function enableNotifications(
             binding = recovered.material;
             material = binding;
             previousEndpoint = recovered.previousEndpoint ?? firstEndpoint;
+            if (enableProgressId) {
+              setPushEnableInProgressEndpoint(enableProgressId, binding.endpoint);
+            }
             assertCurrentOperation();
             const ownedSecond = await probePushEndpointOwnership(owns, binding.endpoint);
             assertCurrentOperation();
@@ -315,6 +324,7 @@ async function enableNotifications(
     }
     throw error;
   } finally {
+    clearPushEnableInProgress(enableProgressId);
     endPushEnable();
   }
 }

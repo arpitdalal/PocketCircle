@@ -12,6 +12,7 @@ import {
   applyPendingCleanupFlushResult,
   capturePushCancellation,
   ensureActivePushServiceWorker,
+  isPushEnableInProgressForEndpoint,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
   recalledPendingPushCleanup,
@@ -119,6 +120,11 @@ export function PushSubscriptionLifecycle() {
       if (isCancelled()) return;
     }
     if (!outcome?.bound) {
+      // Peer tab may have subscribed under gesture and be waiting on this lock
+      // to bind — do not unsubscribe (Firefox/iOS cannot recover without gesture).
+      if (isPushEnableInProgressForEndpoint(subscription.endpoint)) {
+        return;
+      }
       const dropped = await unsubscribeLocalPushSubscription(subscription.endpoint, isCancelled);
       if (isCancelled() || dropped.status === "mismatch") return;
       recordOrphanLocalDrop(subscription.endpoint);

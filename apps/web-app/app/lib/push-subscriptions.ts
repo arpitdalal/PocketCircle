@@ -209,8 +209,11 @@ let pushSignOutCleanupInProgress = 0;
 const PUSH_CANCEL_GENERATION_KEY = "pocketcircle.pushCancelGeneration";
 const PUSH_ENABLE_CANCEL_KEY = "pocketcircle.pushEnableCancel";
 const PUSH_SIGNOUT_CLEANUP_PREFIX = "pocketcircle.pushSignOutCleanup.";
+/** Cross-tab: pre-lock enable subscribe — reconcile must not orphan it. */
+const PUSH_ENABLE_IN_PROGRESS_PREFIX = "pocketcircle.pushEnableInProgress.";
 /** Crash recovery — stuck marks/cancel must not block enable forever. */
 const PUSH_SIGNOUT_CLEANUP_TTL_MS = 60_000;
+const PUSH_ENABLE_IN_PROGRESS_TTL_MS = 60_000;
 
 function sweepExpiredSignOutCleanupMarks() {
   try {
@@ -286,6 +289,117 @@ function unmarkPushSignOutCleanup(id: string) {
   } catch {
     // ignore
   }
+}
+
+function sweepExpiredPushEnableInProgressMarks() {
+  try {
+    const now = Date.now();
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)) {
+        continue;
+      }
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        stale.push(key);
+        continue;
+      }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          !("at" in parsed) ||
+          typeof parsed.at !== "number" ||
+          !Number.isFinite(parsed.at) ||
+          now - parsed.at > PUSH_ENABLE_IN_PROGRESS_TTL_MS
+        ) {
+          stale.push(key);
+        }
+      } catch {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Mark a pre-lock enable subscription so peer-tab reconcile does not unsubscribe
+ * it before bind (Firefox/iOS cannot recover subscribe without a fresh gesture).
+ */
+export function markPushEnableInProgress(endpoint: string) {
+  const id = pushCoordinationToken();
+  try {
+    window.localStorage.setItem(
+      `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`,
+      JSON.stringify({ endpoint, at: Date.now() }),
+    );
+  } catch {
+    // ignore
+  }
+  return id;
+}
+
+export function setPushEnableInProgressEndpoint(id: string, endpoint: string) {
+  try {
+    const key = `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`;
+    if (window.localStorage.getItem(key) == null) {
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify({ endpoint, at: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearPushEnableInProgress(id: string | null | undefined) {
+  if (!id) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(`${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`);
+  } catch {
+    // ignore
+  }
+}
+
+/** True when another tab (or this one) is mid-enable for `endpoint`. */
+export function isPushEnableInProgressForEndpoint(endpoint: string) {
+  sweepExpiredPushEnableInProgressMarks();
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)) {
+        continue;
+      }
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        continue;
+      }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "endpoint" in parsed &&
+          parsed.endpoint === endpoint
+        ) {
+          return true;
+        }
+      } catch {
+        // ignore bad mark
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 /** Captures cancellation even if a later explicit enable clears the sign-out flag. */
@@ -380,7 +494,12 @@ export function resetPushOperationState() {
     window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
     const keys = Object.keys(window.localStorage);
     for (const key of keys) {
-      if (key.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)) window.localStorage.removeItem(key);
+      if (
+        key.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX) ||
+        key.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)
+      ) {
+        window.localStorage.removeItem(key);
+      }
     }
   } catch {
     // Restricted storage.

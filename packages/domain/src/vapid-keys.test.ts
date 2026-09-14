@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { TEST_PUSH_P256DH } from "./push-test-fixtures.js";
 import { isValidVapidPublicKey, tryDecodeVapidKeyBytes } from "./vapid-keys.js";
+
+/** 65-byte 0x04 blob that is not a P-256 point. */
+const OFF_CURVE_VAPID =
+  "BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
 
 describe("tryDecodeVapidKeyBytes", () => {
   it("returns null for malformed base64url", () => {
@@ -19,18 +24,11 @@ describe("isValidVapidPublicKey", () => {
     expect(isValidVapidPublicKey("BPtestPublicKey")).toBe(false);
   });
 
-  it("accepts an uncompressed P-256 public key", () => {
-    // 65 bytes starting with 0x04, URL-safe base64.
-    const bytes = new Uint8Array(65);
-    bytes[0] = 0x04;
-    for (let i = 1; i < 65; i += 1) {
-      bytes[i] = i;
-    }
-    let binary = "";
-    for (const byte of bytes) {
-      binary += String.fromCharCode(byte);
-    }
-    const key = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    expect(isValidVapidPublicKey(key)).toBe(true);
+  it("rejects length-valid off-curve points", () => {
+    expect(isValidVapidPublicKey(OFF_CURVE_VAPID)).toBe(false);
+  });
+
+  it("accepts an on-curve uncompressed P-256 public key", () => {
+    expect(isValidVapidPublicKey(TEST_PUSH_P256DH)).toBe(true);
   });
 });

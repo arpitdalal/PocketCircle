@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import {
   clearRememberedPushEndpoints,
+  markPushEnableInProgress,
   recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
@@ -115,6 +116,28 @@ describe("PushSubscriptionLifecycle", () => {
     // Foreign/unbound — keep pending retry handle after local drop.
     expect(recalledPendingPushCleanup()).toEqual([sub.endpoint]);
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+  });
+
+  it("defers orphan drop while a peer tab has enable in progress for the endpoint", async () => {
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/enabling");
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    markPushEnableInProgress(sub.endpoint);
+    const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: false });
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: false });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      reconcilePushSubscription,
+      disablePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(reconcilePushSubscription.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
   });
 
   it("retries pending cleanup while an active subscription stays bound", async () => {
