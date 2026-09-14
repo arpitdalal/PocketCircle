@@ -410,10 +410,19 @@ function NotificationsSettingsCard() {
   // Null VAPID: hide enable/onboarding, but keep disable if already subscribed.
   const effectiveState =
     vapid === null
-      ? uiState === "enabled" || uiState === "needs_migration"
+      ? uiState === "enabled" ||
+        uiState === "needs_migration" ||
+        uiState === "needs_remigrate_finish"
         ? "enabled"
         : "unsupported"
       : uiState;
+
+  function notificationsErrorMessage(caught: unknown, fallback: string) {
+    if (caught instanceof PushRemigrateNeedsGestureError) {
+      return PUSH_REMIGRATE_NEEDS_SECOND_GESTURE;
+    }
+    return mutationErrorMessageForUser(caught, fallback);
+  }
 
   async function onToggle(nextEnabled: boolean) {
     if (submitting) {
@@ -436,15 +445,12 @@ function NotificationsSettingsCard() {
       await refreshState();
     } catch (caught) {
       setError(
-        caught instanceof PushRemigrateNeedsGestureError ||
-          (caught instanceof Error && caught.message === PUSH_REMIGRATE_NEEDS_SECOND_GESTURE)
-          ? PUSH_REMIGRATE_NEEDS_SECOND_GESTURE
-          : mutationErrorMessageForUser(
-              caught,
-              nextEnabled
-                ? "Couldn't enable notifications. Please try again."
-                : "Couldn't disable notifications. Please try again.",
-            ),
+        notificationsErrorMessage(
+          caught,
+          nextEnabled
+            ? "Couldn't enable notifications. Please try again."
+            : "Couldn't disable notifications. Please try again.",
+        ),
       );
       await refreshState();
     }
@@ -463,10 +469,7 @@ function NotificationsSettingsCard() {
       await refreshState();
     } catch (caught) {
       setError(
-        caught instanceof PushRemigrateNeedsGestureError ||
-          (caught instanceof Error && caught.message === PUSH_REMIGRATE_NEEDS_SECOND_GESTURE)
-          ? PUSH_REMIGRATE_NEEDS_SECOND_GESTURE
-          : mutationErrorMessageForUser(caught, "Couldn't update notifications. Please try again."),
+        notificationsErrorMessage(caught, "Couldn't update notifications. Please try again."),
       );
       await refreshState();
     }
@@ -515,16 +518,19 @@ function NotificationsSettingsCard() {
     );
   }
 
-  if (effectiveState === "needs_migration") {
+  if (effectiveState === "needs_migration" || effectiveState === "needs_remigrate_finish") {
+    const finishingSecondTap = effectiveState === "needs_remigrate_finish";
     return (
       <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
         <Field orientation="horizontal">
           <Switch
             id="settings-notifications-enabled"
-            checked
-            disabled={submitting}
+            checked={!finishingSecondTap}
+            disabled={submitting || finishingSecondTap}
             aria-labelledby="settings-notifications-enabled-label"
-            onClick={() => void onToggle(false)}
+            onClick={() => {
+              if (!finishingSecondTap) void onToggle(false);
+            }}
           />
           <FieldContent>
             <FieldLabel
@@ -534,9 +540,9 @@ function NotificationsSettingsCard() {
               Enable notifications on this device
             </FieldLabel>
             <FieldDescription>
-              Still delivering with a previous key. Update this device so it uses the current key —
-              required before the previous key is retired. Some browsers need a second tap after
-              Update starts the migration.
+              {finishingSecondTap
+                ? "Migration started on this device. Tap Update again to finish — required on some browsers after the previous key is removed."
+                : "Still delivering with a previous key. Update this device so it uses the current key — required before the previous key is retired. Some browsers need a second tap after Update starts the migration."}
             </FieldDescription>
           </FieldContent>
         </Field>

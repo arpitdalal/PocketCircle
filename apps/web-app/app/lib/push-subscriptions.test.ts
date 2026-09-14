@@ -277,7 +277,7 @@ describe("resolvePushNotificationsUiState", () => {
     await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("default");
   });
 
-  it("returns needs_migration while a remigrate subscribe arm is pending", async () => {
+  it("returns needs_remigrate_finish while a remigrate subscribe arm is pending", async () => {
     installPushEnv({ permission: "granted", subscription: null });
     window.sessionStorage.setItem(
       "pocketcircle.pushRemigrateArm",
@@ -286,7 +286,7 @@ describe("resolvePushNotificationsUiState", () => {
         vapidKeyId: VAPID.keyId,
       }),
     );
-    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("needs_migration");
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("needs_remigrate_finish");
   });
 });
 
@@ -847,7 +847,7 @@ describe("disableCurrentPushSubscription", () => {
       PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
     );
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
-    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_migration");
+    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_remigrate_finish");
     const result = await subscribeForPushNotifications(VAPID);
     expect(result.previousEndpoint).toBe("https://fcm.googleapis.com/fcm/send/old-key");
     expect(result.material.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
@@ -866,7 +866,7 @@ describe("disableCurrentPushSubscription", () => {
     await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
       PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
     );
-    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_migration");
+    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_remigrate_finish");
   });
 
   it("subscribes before SW update settles when already display-capable", async () => {

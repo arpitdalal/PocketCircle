@@ -398,7 +398,9 @@ export type PushNotificationsUiState =
   | "blocked"
   | "default"
   | "enabled"
-  | "needs_migration";
+  | "needs_migration"
+  /** Remigrate unsub done; second Settings tap must finish subscribe. */
+  | "needs_remigrate_finish";
 
 export type PushSubscriptionMaterial = {
   endpoint: string;
@@ -479,7 +481,7 @@ export async function resolvePushNotificationsUiState(
   // After remigrate unsub + activation loss: no local sub, but second tap still
   // required — keep the Update CTA while the arm is live.
   if (vapid?.keyId && peekPushRemigrateArm(vapid.keyId)) {
-    return "needs_migration" as const;
+    return "needs_remigrate_finish" as const;
   }
   const sub = await getCurrentPushSubscription();
   if (!sub) {
@@ -913,9 +915,55 @@ export async function subscribeForPushNotifications(
   }
 
   const armed = peekPushRemigrateArm(vapid.keyId) !== undefined;
+
+  // Armed remigrate: subscribe immediately under this gesture — do not await
+  // version probe first (MessageChannel can burn Firefox/iOS activation).
+  if (armed) {
+    assertCurrentOperation();
+    const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
+    const keys = readSubscriptionKeys(subscription);
+    rememberPushEndpoint(keys.endpoint);
+    const [ensured, displayVersion] = await Promise.all([
+      ensuredPending,
+      probeDisplayCapablePushSw(registration),
+    ]);
+    if (ensured.kind === "ready") {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: ensured.pushSwVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    if (displayVersion !== null) {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: displayVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    await subscription.unsubscribe().catch(() => undefined);
+    try {
+      if (recalledPushEndpoint() === keys.endpoint) {
+        rememberPushEndpoint(null);
+      }
+    } catch {
+      // Storage restricted.
+    }
+    if (previousEndpoint) {
+      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
+    }
+    throw new Error(ensuredFailureMessage(ensured.kind));
+  }
+
   const displayVersion = await probeDisplayCapablePushSw(registration);
 
-  if (armed || displayVersion !== null) {
+  if (displayVersion !== null) {
     assertCurrentOperation();
     const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
     const keys = readSubscriptionKeys(subscription);
@@ -931,32 +979,16 @@ export async function subscribeForPushNotifications(
         previousEndpoint,
       };
     }
-    if (displayVersion !== null) {
-      // Already proved display-capable at click time — update flake must not
-      // strand a successful remigrate/enable subscribe.
-      return {
-        material: {
-          ...keys,
-          vapidKeyId: vapid.keyId,
-          pushSwVersion: displayVersion,
-        },
-        previousEndpoint,
-      };
-    }
-    // Armed without a prior probe and update did not become ready — drop the
-    // unbound local sub and keep the arm for another tap.
-    await subscription.unsubscribe().catch(() => undefined);
-    try {
-      if (recalledPushEndpoint() === keys.endpoint) {
-        rememberPushEndpoint(null);
-      }
-    } catch {
-      // Storage restricted.
-    }
-    if (previousEndpoint) {
-      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
-    }
-    throw new Error(ensuredFailureMessage(ensured.kind));
+    // Already proved display-capable at click time — update flake must not
+    // strand a successful remigrate/enable subscribe.
+    return {
+      material: {
+        ...keys,
+        vapidKeyId: vapid.keyId,
+        pushSwVersion: displayVersion,
+      },
+      previousEndpoint,
+    };
   }
 
   const ensured = await ensuredPending;
