@@ -658,6 +658,8 @@ describe("track", () => {
     ).toBeNull();
     expect(sanitizeAnalyticsProps("notifications_enabled", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notification_announcement_impression", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notification_announcement_dismissed", {})).toEqual({});
     expect(
       sanitizeAnalyticsProps(
         "notifications_enabled",
@@ -669,11 +671,15 @@ describe("track", () => {
     track("notification_permission_result", { result: "denied" });
     track("notifications_enabled", {});
     track("notifications_disabled", {});
+    track("notification_announcement_impression", {});
+    track("notification_announcement_dismissed", {});
     expect(posthogSdk.capture).toHaveBeenCalledWith("notification_permission_result", {
       result: "denied",
     });
     expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_enabled", {});
     expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_disabled", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_impression", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_dismissed", {});
   });
 
   it("does not throw when PostHog capture rejects", async () => {

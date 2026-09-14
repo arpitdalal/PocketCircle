@@ -8,6 +8,7 @@ import {
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
 import { MarketingHome } from "~/components/marketing-home.js";
+import { NotificationAnnouncementStrip } from "~/components/notification-announcement-strip.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
@@ -104,7 +105,8 @@ export default function ProtectedLayout() {
     <div className="flex min-h-dvh flex-col bg-background">
       {/* First tab stop: bypass the sticky header (WCAG 2.4.1 / issue #312). */}
       <SkipNavigation />
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md">
+      <NotificationAnnouncementStrip />
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md [[data-testid=notification-announcement-strip]+&]:pt-3">
         <div className="flex items-center gap-3">
           <Link
             to="/"
