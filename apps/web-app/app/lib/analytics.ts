@@ -44,6 +44,8 @@ let loadPromise: Promise<PostHogClient | null> | null = null;
 let initEpoch = 0;
 /** Test-only gate so races during PostHog chunk load can be asserted. */
 let postHogLoadHold: Promise<void> | null = null;
+/** Test-only: next `loadPostHog` returns null (chunk import failure). */
+let forcePostHogLoadFailure = false;
 const captureReadyListeners = new Set<() => void>();
 
 function notifyAnalyticsCaptureReady() {
@@ -192,6 +194,9 @@ async function loadPostHog() {
   if (postHogLoadHold) {
     await postHogLoadHold;
   }
+  if (forcePostHogLoadFailure) {
+    return null;
+  }
   if (posthog) {
     return posthog;
   }
@@ -286,7 +291,13 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
   const epoch = ++initEpoch;
   notifyAnalyticsCaptureReady();
   const client = await loadPostHog();
-  if (epoch !== initEpoch || !client) {
+  if (epoch !== initEpoch) {
+    return;
+  }
+  if (!client) {
+    // Chunk failed — settle as unavailable so phase leaves deferred.
+    initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
@@ -295,6 +306,7 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
   if (pendingEnabled === false) {
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
@@ -389,10 +401,16 @@ export function resetAnalyticsStateForTests() {
   loadPromise = null;
   initEpoch = 0;
   postHogLoadHold = null;
+  forcePostHogLoadFailure = false;
   notifyAnalyticsCaptureReady();
 }
 
 /** Test-only: pause loadPostHog until `hold` settles (consent/teardown race coverage). */
 export function holdPostHogLoadForTests(hold: Promise<void> | null) {
   postHogLoadHold = hold;
+}
+
+/** Test-only: next loadPostHog returns null (failed chunk import). */
+export function forcePostHogLoadFailureForTests(force: boolean) {
+  forcePostHogLoadFailure = force;
 }

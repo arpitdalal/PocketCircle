@@ -12,8 +12,7 @@ const IMPRESSION_KEY_PREFIX = "pocketcircle.notificationAnnouncementImpression:"
 
 /** Survives blocked Web Storage for the JS realm (private mode / ITP). */
 let dismissedMemory = false;
-let impressionMemoryUserId: string | null = null;
-let impressionMemory = false;
+const impressionMemoryUserIds = new Set<string>();
 /** Dismiss analytics queued until capture is ready (cold-load race only). */
 let pendingDismissTrackUserId: string | null = null;
 
@@ -50,8 +49,7 @@ function ensureDismissStorageListener() {
 /** Test isolation for module-local dismiss / impression fallbacks. */
 export function resetNotificationAnnouncementMemory() {
   dismissedMemory = false;
-  impressionMemory = false;
-  impressionMemoryUserId = null;
+  impressionMemoryUserIds.clear();
   pendingDismissTrackUserId = null;
   emitDismissChange();
 }
@@ -92,7 +90,7 @@ export function subscribeNotificationAnnouncementDismissed(onStoreChange: () => 
 }
 
 export function hasRecordedNotificationAnnouncementImpression(userId: string) {
-  if (impressionMemoryUserId === userId && impressionMemory) {
+  if (impressionMemoryUserIds.has(userId)) {
     return true;
   }
   try {
@@ -103,12 +101,11 @@ export function hasRecordedNotificationAnnouncementImpression(userId: string) {
 }
 
 export function markNotificationAnnouncementImpressionRecorded(userId: string) {
-  impressionMemoryUserId = userId;
-  impressionMemory = true;
+  impressionMemoryUserIds.add(userId);
   try {
     window.sessionStorage.setItem(impressionStorageKey(userId), "1");
   } catch {
-    // Memory flag still de-dupes for this realm.
+    // Memory set still de-dupes per user for this realm.
   }
 }
 

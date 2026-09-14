@@ -13,6 +13,8 @@ import {
 } from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
+  forcePostHogLoadFailureForTests,
+  getAnalyticsCapturePhase,
   initAnalytics,
   isAnalyticsCaptureDeferred,
   retiredPostHogStorageKeys,
@@ -695,6 +697,14 @@ describe("track", () => {
     await initAnalytics({ ...readyUser, analyticsEnabled: false });
     expect(isAnalyticsCaptureDeferred()).toBe(false);
     expect(track("notification_announcement_dismissed", {})).toBe(false);
+  });
+
+  it("settles capture phase off when PostHog chunk load fails", async () => {
+    stubPosthogEnvForTests();
+    forcePostHogLoadFailureForTests(true);
+    await initAnalytics(readyUser);
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+    expect(getAnalyticsCapturePhase()).toBe("off");
   });
 });
 

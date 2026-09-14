@@ -110,6 +110,21 @@ describe("notification announcement dismiss storage", () => {
     expect(hasRecordedNotificationAnnouncementImpression("user-b")).toBe(false);
   });
 
+  it("keeps every user's impression in memory when sessionStorage throws", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    markNotificationAnnouncementImpressionRecorded("user-a");
+    markNotificationAnnouncementImpressionRecorded("user-b");
+    expect(hasRecordedNotificationAnnouncementImpression("user-a")).toBe(true);
+    expect(hasRecordedNotificationAnnouncementImpression("user-b")).toBe(true);
+    setItem.mockRestore();
+    getItem.mockRestore();
+  });
+
   it("syncs dismiss across tabs via the storage event", () => {
     const seen: boolean[] = [];
     const unsubscribe = subscribeNotificationAnnouncementDismissed(() => {
