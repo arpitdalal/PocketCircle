@@ -17,12 +17,13 @@ import { requireCurrentUser } from "./auth.js";
 
 const INVALID_SUBSCRIPTION = "Invalid push subscription";
 
+/** Expand-contract: parent tabs omit pushSwVersion; new clients send it. */
 const subscriptionFields = {
   endpoint: v.string(),
   p256dh: v.string(),
   auth: v.string(),
   vapidKeyId: v.string(),
-  pushSwVersion: v.number(),
+  pushSwVersion: v.optional(v.number()),
 };
 
 /**
@@ -94,8 +95,8 @@ export const ownsPushEndpoint = query({
 export const touchPushSubscription = mutation({
   args: {
     endpoint: v.string(),
-    /** Required after display-SW rollout — old-key rows still need version proof. */
-    pushSwVersion: v.number(),
+    /** Expand-contract: omitted by parent tabs — no touch without display proof. */
+    pushSwVersion: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
@@ -103,12 +104,13 @@ export const touchPushSubscription = mutation({
     if (!existing || existing.userId !== user._id) {
       return { touched: false };
     }
-    if (args.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    const pushSwVersion = displayCapablePushSwVersion(args.pushSwVersion);
+    if (pushSwVersion === undefined) {
       return { touched: false };
     }
     await ctx.db.patch(existing._id, {
       lastSeenAt: Date.now(),
-      pushSwVersion: args.pushSwVersion,
+      pushSwVersion,
     });
     return { touched: true };
   },
@@ -138,8 +140,9 @@ export const reconcilePushSubscription = mutation({
       p256dh: args.subscription.p256dh,
       auth: args.subscription.auth,
       vapidKeyId: args.subscription.vapidKeyId,
-      pushSwVersion: args.subscription.pushSwVersion,
       lastSeenAt: Date.now(),
+      // Preserve an existing display version when a parent tab omits the field.
+      ...pushSwVersionPatch(args.subscription.pushSwVersion),
     });
     return { bound: true };
   },
@@ -220,11 +223,26 @@ function assertValidSubscription(input: {
   p256dh: string;
   auth: string;
   vapidKeyId: string;
-  pushSwVersion: number;
+  pushSwVersion?: number;
 }) {
-  if (!isValidPushSubscriptionMaterial(input) || input.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+  // Endpoint/keys only — pushSwVersion is optional (expand-contract). Delivery
+  // eligibility still requires a display-capable version on the stored row.
+  if (!isValidPushSubscriptionMaterial(input)) {
     throw new Error(INVALID_SUBSCRIPTION);
   }
+}
+
+/** Display-capable version only; omit/low → undefined (no eligibility grant). */
+function displayCapablePushSwVersion(pushSwVersion: number | undefined) {
+  if (pushSwVersion === undefined || pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return undefined;
+  }
+  return pushSwVersion;
+}
+
+function pushSwVersionPatch(pushSwVersion: number | undefined) {
+  const version = displayCapablePushSwVersion(pushSwVersion);
+  return version === undefined ? {} : { pushSwVersion: version };
 }
 
 async function findByEndpoint(ctx: QueryCtx | MutationCtx, endpoint: string) {
@@ -286,12 +304,12 @@ async function bindPushSubscription(
     p256dh: string;
     auth: string;
     vapidKeyId: string;
-    pushSwVersion: number;
+    pushSwVersion?: number;
   },
 ) {
-  if (args.pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
-    throw new Error(INVALID_SUBSCRIPTION);
-  }
+  // Missing/low version: still bind (parent-tab expand-contract) but do not
+  // write a display-capable pushSwVersion — eligibility stays closed.
+  const versionFields = pushSwVersionPatch(args.pushSwVersion);
   await pruneInvalidSubscriptionsForUser(ctx, userId);
   const now = Date.now();
   const existing = await findByEndpoint(ctx, args.endpoint);
@@ -302,8 +320,8 @@ async function bindPushSubscription(
         p256dh: args.p256dh,
         auth: args.auth,
         vapidKeyId: args.vapidKeyId,
-        pushSwVersion: args.pushSwVersion,
         lastSeenAt: now,
+        ...versionFields,
       });
       return;
     }
@@ -314,8 +332,8 @@ async function bindPushSubscription(
       p256dh: args.p256dh,
       auth: args.auth,
       vapidKeyId: args.vapidKeyId,
-      pushSwVersion: args.pushSwVersion,
       lastSeenAt: now,
+      ...versionFields,
     });
     return;
   }
@@ -327,8 +345,8 @@ async function bindPushSubscription(
     p256dh: args.p256dh,
     auth: args.auth,
     vapidKeyId: args.vapidKeyId,
-    pushSwVersion: args.pushSwVersion,
     createdAt: now,
     lastSeenAt: now,
+    ...versionFields,
   });
 }

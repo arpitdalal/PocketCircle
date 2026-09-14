@@ -98,6 +98,25 @@ describe("enable operation ownership", () => {
     expect(disable).not.toHaveBeenCalled();
   });
 
+  it("does not compensate when pre-bind ownership lookup fails", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const enable = vi.fn().mockRejectedValue(new Error("transport lost"));
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      ownsPushEndpoint: () => {
+        throw new Error("owns query failed");
+      },
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow("transport lost");
+    expect(enable).toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalled();
+    expect(env.subscription).not.toBeNull();
+  });
+
   it("uses replacePushSubscription when Chromium forces a VAPID remigrate", async () => {
     const oldSub = makeFakePushSubscription({
       endpoint: "https://fcm.googleapis.com/fcm/send/old-key",

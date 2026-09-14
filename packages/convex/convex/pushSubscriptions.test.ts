@@ -13,6 +13,7 @@ import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/push
 import { makeUser, seedPersonalCircleOwner } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
+import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import schema from "./schema.js";
 
 vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
@@ -148,6 +149,63 @@ describe("pushSubscriptions", () => {
         endpoint: "http://insecure.example/x",
       }),
     ).rejects.toThrow("Invalid push subscription");
+  });
+
+  it("accepts parent-tab enable without pushSwVersion but does not grant delivery eligibility", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    const { pushSwVersion: _omit, ...legacy } = VALID;
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, legacy);
+    const row = await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, owner._id);
+      return rows[0];
+    });
+    expect(row?.endpoint).toBe(VALID.endpoint);
+    expect(row?.pushSwVersion).toBeUndefined();
+    expect(
+      isSubscriptionEligibleForPushDelivery({
+        lastSeenAt: row?.lastSeenAt ?? 0,
+        pushSwVersion: row?.pushSwVersion,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves display pushSwVersion when parent-tab reconcile omits it", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+    const { pushSwVersion: _omit, ...legacy } = VALID;
+    await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
+      subscription: { ...legacy, p256dh: TEST_PUSH_P256DH_ALT },
+    });
+    const row = await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, owner._id);
+      return rows[0];
+    });
+    expect(row?.pushSwVersion).toBe(1);
+    expect(row?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+  });
+
+  it("touchPushSubscription no-ops when pushSwVersion is omitted", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+    await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, owner._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing row");
+      await ctx.db.patch(row._id, { lastSeenAt: 1_000 });
+    });
+    expect(
+      await t.mutation(api.pushSubscriptions.touchPushSubscription, {
+        endpoint: VALID.endpoint,
+      }),
+    ).toEqual({ touched: false });
+    const after = await t.run((ctx) => listPushSubscriptionsForUser(ctx, owner._id));
+    expect(after[0]?.lastSeenAt).toBe(1_000);
   });
 
   it.each([

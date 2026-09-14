@@ -259,6 +259,7 @@ jobs:
           wranglerVersion: "4.121.0"
 
       - name: Enable Push delivery
+        id: push_enable
         if: success()
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -272,8 +273,8 @@ jobs:
           fi
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 
-      - name: Restore Push delivery after failed rollout
-        if: failure() && steps.push_gate.outcome == 'success'
+      - name: Restore Push delivery after failed or cancelled rollout
+        if: (failure() || cancelled()) && steps.push_gate.outcome == 'success' && steps.push_enable.outcome != 'success'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |

@@ -212,12 +212,22 @@ async function enableNotifications(
         assertCurrentOperation();
         /** First bind that recovery abandoned — catch must unbind it too. */
         let abandonedEndpoint: string | undefined;
-        /** Peer/prior already owns this endpoint — never destroy their bind. */
-        let ownedBeforeEnable = false;
+        /**
+         * Pre-bind ownership: true → peer/prior owns (never compensate);
+         * false → unbound (compensate after a failed bind attempt);
+         * unknown → owns() failed (do not destroy a possibly-shared sub).
+         */
+        let ownedBeforeEnable: boolean | "unknown" = "unknown";
+        let bindAttempted = false;
         try {
           assertCurrentOperation();
-          ownedBeforeEnable = await owns(binding.endpoint);
+          try {
+            ownedBeforeEnable = await owns(binding.endpoint);
+          } catch {
+            ownedBeforeEnable = "unknown";
+          }
           assertCurrentOperation();
+          bindAttempted = true;
           await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
@@ -235,8 +245,13 @@ async function enableNotifications(
             material = binding;
             previousEndpoint = recovered.previousEndpoint ?? firstEndpoint;
             assertCurrentOperation();
-            ownedBeforeEnable = await owns(binding.endpoint);
+            try {
+              ownedBeforeEnable = await owns(binding.endpoint);
+            } catch {
+              ownedBeforeEnable = "unknown";
+            }
             assertCurrentOperation();
+            bindAttempted = true;
             await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
             assertCurrentOperation();
             const after = await getCurrentPushSubscription();
@@ -253,8 +268,11 @@ async function enableNotifications(
           bound = true;
           track("notifications_enabled", {});
         } catch (error) {
-          if (ownedBeforeEnable) {
-            // Concurrent peer already bound this endpoint — leave their sub alone.
+          if (ownedBeforeEnable === true || ownedBeforeEnable === "unknown") {
+            // Peer may own the endpoint, or ownership lookup failed — leave alone.
+            throw error;
+          }
+          if (!bindAttempted) {
             throw error;
           }
           // Ambiguous transport failures: clear server binding for this endpoint
@@ -275,8 +293,10 @@ async function enableNotifications(
     // lock owns that teardown. Sign-out/cancel is different: cleanup may have
     // snapshotted before subscribe resolved, so tear down the unbound local sub.
     if (!bound && material) {
-      const owned = await owns(material.endpoint).catch(() => false);
-      if (!owned) {
+      // Soft-clear / cancel unsub only when ownership is confirmed false.
+      // owns() failure → unknown → leave the shared local sub alone.
+      const owned = await owns(material.endpoint).catch(() => null);
+      if (owned === false) {
         rememberPushEndpoint(null);
         if (cancelled() || isPushEnableCancelRequested()) {
           await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
