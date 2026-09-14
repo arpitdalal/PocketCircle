@@ -328,7 +328,11 @@ export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEvent
   }
 
   try {
-    posthog?.capture(event, sanitized);
+    const client = posthog;
+    if (!client) {
+      return false;
+    }
+    client.capture(event, sanitized);
     return true;
   } catch {
     // Product analytics are best-effort and must not affect user flows.

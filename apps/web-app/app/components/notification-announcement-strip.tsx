@@ -118,12 +118,8 @@ export function NotificationAnnouncementStrip() {
     }
   }, [analyticsReady, pendingDismissTrack]);
 
-  const dismissStrip = () => {
-    writeNotificationAnnouncementDismissed();
-  };
-
   const onDismiss = () => {
-    dismissStrip();
+    writeNotificationAnnouncementDismissed();
     if (!track("notification_announcement_dismissed", {})) {
       setPendingDismissTrack(true);
     }
@@ -137,12 +133,12 @@ export function NotificationAnnouncementStrip() {
     void (async () => {
       try {
         await enableNotifications();
-        dismissStrip();
+        writeNotificationAnnouncementDismissed();
         show("Notifications enabled on this device.");
       } catch (caught) {
         // One-time strip: after Enable settles, Settings is the retry path —
         // including native prompt dismissed with permission still `default`.
-        dismissStrip();
+        writeNotificationAnnouncementDismissed();
         show(
           mutationErrorMessageForUser(
             caught,

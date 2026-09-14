@@ -106,7 +106,16 @@ export default function ProtectedLayout() {
       {/* First tab stop: bypass the sticky header (WCAG 2.4.1 / issue #312). */}
       <SkipNavigation />
       <NotificationAnnouncementStrip />
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md">
+      {/*
+        Notch scrim + sticky top at safe-area: header no longer pads safe-area itself.
+        The strip (when present) owns the in-flow top inset once; without this split,
+        strip + header both applied --safe-area-top and doubled the notch gap.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 z-30 h-[var(--safe-area-top)] bg-background/80 backdrop-blur-md"
+      />
+      <header className="sticky top-[var(--safe-area-top)] z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-3 pb-3 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <Link
             to="/"

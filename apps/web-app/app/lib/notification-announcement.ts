@@ -62,7 +62,8 @@ export function writeNotificationAnnouncementDismissed() {
   try {
     window.localStorage.setItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY, "1");
   } catch {
-    // Memory flag still suppresses for this realm.
+    // ponytail: blocked/quota storage → realm-only suppress until reload.
+    // Upgrade: durable server-side announcement ack if private-mode durability matters.
   }
   emitDismissChange();
 }
