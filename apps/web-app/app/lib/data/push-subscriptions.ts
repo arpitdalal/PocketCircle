@@ -130,6 +130,7 @@ async function enableNotifications(
   try {
     assertCurrentOperation();
     material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
+    let binding = material;
     // Wait for the lock — do not use ifAvailable after a successful local
     // subscribe (that would orphan an unbound sub or race another tab's unsub).
     await withPushSubscriptionLock(
@@ -140,28 +141,29 @@ async function enableNotifications(
         let abandonedEndpoint: string | undefined;
         try {
           assertCurrentOperation();
-          await enable(material);
+          await enable(binding);
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
           const live = await getCurrentPushSubscription();
-          if (!live || live.endpoint !== material.endpoint) {
-            const previousEndpoint = material.endpoint;
+          if (!live || live.endpoint !== binding.endpoint) {
+            const previousEndpoint = binding.endpoint;
             // First bind may have committed — catch must unbind it if recovery fails.
             abandonedEndpoint = previousEndpoint;
-            material = await subscribeForPushNotifications(
+            binding = await subscribeForPushNotifications(
               vapid,
               permission,
               assertCurrentOperation,
             );
+            material = binding;
             assertCurrentOperation();
-            await enable(material);
+            await enable(binding);
             assertCurrentOperation();
             const recovered = await getCurrentPushSubscription();
-            if (!recovered || recovered.endpoint !== material.endpoint) {
+            if (!recovered || recovered.endpoint !== binding.endpoint) {
               throw new Error("Push subscription was removed during enable");
             }
             // Drop the abandoned first endpoint (or keep pending on failure).
-            if (previousEndpoint !== material.endpoint) {
+            if (previousEndpoint !== binding.endpoint) {
               await disableOrRememberPending(disable, previousEndpoint);
             }
             abandonedEndpoint = undefined;
@@ -174,7 +176,7 @@ async function enableNotifications(
           // (covers committed-but-lost-response) then drop the local subscription.
           const endpoints = [
             ...new Set(
-              [material.endpoint, abandonedEndpoint].filter(
+              [binding.endpoint, abandonedEndpoint].filter(
                 (endpoint): endpoint is string =>
                   typeof endpoint === "string" && endpoint.length > 0,
               ),
@@ -194,7 +196,7 @@ async function enableNotifications(
           }
           rememberPushEndpoint(null);
           applyPendingCleanupFlushResult(endpoints, failures);
-          await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
+          await unsubscribeLocalPushSubscription(binding.endpoint).catch(() => undefined);
           throw error;
         }
       },
