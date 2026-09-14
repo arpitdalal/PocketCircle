@@ -28,10 +28,12 @@ import {
   markNotificationAnnouncementImpressionRecorded,
   readNotificationAnnouncementDismissed,
   shouldSuppressNotificationAnnouncementForUiState,
+  stripOwnsTopSafeArea,
   subscribeNotificationAnnouncementDismissed,
   trackNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
+import { useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 import { usePushNotificationsUiState } from "~/lib/use-push-notifications-ui-state.js";
 import { cn } from "~/lib/utils.js";
@@ -66,6 +68,8 @@ export function NotificationAnnouncementStrip({
   const enableNotifications = useEnableNotifications();
   const { available, showInstallPrompt, installSurfaceOpen } = usePwaInstall();
   const { uiState } = usePushNotificationsUiState(vapid);
+  const session = useAppSession();
+  const userId = session.state === "ready" ? session.user.id : null;
   const { show } = useSnackbar();
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
@@ -127,8 +131,7 @@ export function NotificationAnnouncementStrip({
     // Assume top ownership on show (eligible strip mounts at scroll top); scroll/IO correct it.
     reportOwnsTopSafeArea(true);
     const update = () => {
-      // Own notch inset only while the strip's top edge is still at the viewport top.
-      reportOwnsTopSafeArea(el.getBoundingClientRect().top <= 0.5);
+      reportOwnsTopSafeArea(stripOwnsTopSafeArea(el.getBoundingClientRect()));
     };
     update();
     const io = new IntersectionObserver(update, { threshold: [0, 1] });
@@ -142,28 +145,30 @@ export function NotificationAnnouncementStrip({
   }, [visible]);
 
   useEffect(() => {
-    if (!liveVisible || !analyticsReady) {
+    if (!liveVisible || !analyticsReady || userId === null) {
       return;
     }
-    if (hasRecordedNotificationAnnouncementImpression()) {
+    if (hasRecordedNotificationAnnouncementImpression(userId)) {
       return;
     }
     // Mark only after capture succeeds so a cold-load race can retry.
     if (track("notification_announcement_impression", {})) {
-      markNotificationAnnouncementImpressionRecorded();
+      markNotificationAnnouncementImpressionRecorded(userId);
     }
-  }, [liveVisible, analyticsReady]);
+  }, [liveVisible, analyticsReady, userId]);
 
   useEffect(() => {
-    if (!analyticsReady) {
+    if (!analyticsReady || userId === null) {
       return;
     }
-    flushPendingNotificationAnnouncementDismissTrack();
-  }, [analyticsReady]);
+    flushPendingNotificationAnnouncementDismissTrack(userId);
+  }, [analyticsReady, userId]);
 
   const onDismiss = () => {
     writeNotificationAnnouncementDismissed();
-    trackNotificationAnnouncementDismissed();
+    if (userId !== null) {
+      trackNotificationAnnouncementDismissed(userId);
+    }
   };
 
   const onEnable = () => {

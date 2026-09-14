@@ -2,22 +2,27 @@
  * One-time notification announcement strip (#383). Per-device dismiss only —
  * Settings remains the retry path. Visibility is enableable Push only.
  */
-import { track } from "~/lib/analytics.js";
+import { isAnalyticsCaptureDeferred, track } from "~/lib/analytics.js";
 import type { PushNotificationsUiState } from "~/lib/push-subscriptions.js";
 
 export const NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY =
   "pocketcircle.notificationAnnouncementDismissed";
 
-const IMPRESSION_KEY = "pocketcircle.notificationAnnouncementImpression";
+const IMPRESSION_KEY_PREFIX = "pocketcircle.notificationAnnouncementImpression:";
 
 /** Survives blocked Web Storage for the JS realm (private mode / ITP). */
 let dismissedMemory = false;
+let impressionMemoryUserId: string | null = null;
 let impressionMemory = false;
-/** Dismiss analytics queued until capture is ready (cold-load race). */
-let pendingDismissTrack = false;
+/** Dismiss analytics queued until capture is ready (cold-load race only). */
+let pendingDismissTrackUserId: string | null = null;
 
 const dismissListeners = new Set<() => void>();
 let detachStorageListener: (() => void) | null = null;
+
+function impressionStorageKey(userId: string) {
+  return `${IMPRESSION_KEY_PREFIX}${userId}`;
+}
 
 function emitDismissChange() {
   for (const listener of dismissListeners) {
@@ -46,7 +51,8 @@ function ensureDismissStorageListener() {
 export function resetNotificationAnnouncementMemory() {
   dismissedMemory = false;
   impressionMemory = false;
-  pendingDismissTrack = false;
+  impressionMemoryUserId = null;
+  pendingDismissTrackUserId = null;
   emitDismissChange();
 }
 
@@ -85,44 +91,65 @@ export function subscribeNotificationAnnouncementDismissed(onStoreChange: () => 
   };
 }
 
-export function hasRecordedNotificationAnnouncementImpression() {
-  if (impressionMemory) {
+export function hasRecordedNotificationAnnouncementImpression(userId: string) {
+  if (impressionMemoryUserId === userId && impressionMemory) {
     return true;
   }
   try {
-    return window.sessionStorage.getItem(IMPRESSION_KEY) === "1";
+    return window.sessionStorage.getItem(impressionStorageKey(userId)) === "1";
   } catch {
     return false;
   }
 }
 
-export function markNotificationAnnouncementImpressionRecorded() {
+export function markNotificationAnnouncementImpressionRecorded(userId: string) {
+  impressionMemoryUserId = userId;
   impressionMemory = true;
   try {
-    window.sessionStorage.setItem(IMPRESSION_KEY, "1");
+    window.sessionStorage.setItem(impressionStorageKey(userId), "1");
   } catch {
     // Memory flag still de-dupes for this realm.
   }
 }
 
-/** Capture dismiss analytics, or queue until capture is ready. */
-export function trackNotificationAnnouncementDismissed() {
+/**
+ * Capture dismiss analytics, or queue only while capture is deferred (cold load).
+ * Opt-out / unavailable → no queue (must not flush after a later opt-in).
+ */
+export function trackNotificationAnnouncementDismissed(userId: string) {
   if (track("notification_announcement_dismissed", {})) {
-    pendingDismissTrack = false;
+    pendingDismissTrackUserId = null;
     return true;
   }
-  pendingDismissTrack = true;
+  if (isAnalyticsCaptureDeferred()) {
+    pendingDismissTrackUserId = userId;
+  } else {
+    pendingDismissTrackUserId = null;
+  }
   return false;
 }
 
-/** Flush a dismiss event queued before analytics initialized. */
-export function flushPendingNotificationAnnouncementDismissTrack() {
-  if (!pendingDismissTrack) {
+/** Flush a dismiss event queued before analytics initialized for this user. */
+export function flushPendingNotificationAnnouncementDismissTrack(userId: string) {
+  if (pendingDismissTrackUserId !== userId) {
     return;
   }
   if (track("notification_announcement_dismissed", {})) {
-    pendingDismissTrack = false;
+    pendingDismissTrackUserId = null;
+    return;
   }
+  // Still deferred → keep; opted out / unavailable → drop.
+  if (!isAnalyticsCaptureDeferred()) {
+    pendingDismissTrackUserId = null;
+  }
+}
+
+/**
+ * Strip owns the notch inset while it still covers the viewport top edge.
+ * `top <= 0.5` alone stays true after the strip scrolls fully away (top ≪ 0).
+ */
+export function stripOwnsTopSafeArea(rect: { top: number; bottom: number }) {
+  return rect.top <= 0.5 && rect.bottom > 0;
 }
 
 /**

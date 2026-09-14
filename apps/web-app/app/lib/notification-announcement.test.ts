@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
+
 import {
+  holdPostHogLoadForTests,
+  initAnalytics,
+  resetAnalyticsStateForTests,
+} from "~/lib/analytics.js";
+import {
+  flushPendingNotificationAnnouncementDismissTrack,
   hasRecordedNotificationAnnouncementImpression,
   isIosInstallPrerequisiteDismissed,
   isNotificationAnnouncementVisible,
@@ -8,14 +17,59 @@ import {
   readNotificationAnnouncementDismissed,
   resetNotificationAnnouncementMemory,
   shouldSuppressNotificationAnnouncementForUiState,
+  stripOwnsTopSafeArea,
   subscribeNotificationAnnouncementDismissed,
+  trackNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
+import { posthogSdk, stubPosthogEnvForTests } from "~/test/posthog-boundary.js";
 
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   resetNotificationAnnouncementMemory();
+  holdPostHogLoadForTests(null);
+  resetAnalyticsStateForTests();
+  vi.unstubAllEnvs();
+  posthogSdk.capture.mockClear();
+});
+
+describe("notification announcement dismiss analytics queue", () => {
+  it("queues dismiss only while capture is deferred, not when opted out", async () => {
+    stubPosthogEnvForTests();
+    await initAnalytics({
+      id: "user-1",
+      analyticsEnabled: false,
+    });
+    trackNotificationAnnouncementDismissed("user-1");
+    posthogSdk.capture.mockClear();
+    await initAnalytics({
+      id: "user-1",
+      analyticsEnabled: true,
+    });
+    flushPendingNotificationAnnouncementDismissTrack("user-1");
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
+  it("flushes a dismiss queued during cold-load init", async () => {
+    stubPosthogEnvForTests();
+    let releaseHold: () => void = () => {};
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    holdPostHogLoadForTests(hold);
+    const pending = initAnalytics({
+      id: "user-1",
+      analyticsEnabled: true,
+    });
+    trackNotificationAnnouncementDismissed("user-1");
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+    releaseHold();
+    await pending;
+    holdPostHogLoadForTests(null);
+    flushPendingNotificationAnnouncementDismissTrack("user-1");
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_dismissed", {});
+  });
 });
 
 describe("notification announcement dismiss storage", () => {
@@ -39,10 +93,11 @@ describe("notification announcement dismiss storage", () => {
     getItem.mockRestore();
   });
 
-  it("records one impression flag per tab session", () => {
-    expect(hasRecordedNotificationAnnouncementImpression()).toBe(false);
-    markNotificationAnnouncementImpressionRecorded();
-    expect(hasRecordedNotificationAnnouncementImpression()).toBe(true);
+  it("records one impression flag per tab session per user", () => {
+    expect(hasRecordedNotificationAnnouncementImpression("user-a")).toBe(false);
+    markNotificationAnnouncementImpressionRecorded("user-a");
+    expect(hasRecordedNotificationAnnouncementImpression("user-a")).toBe(true);
+    expect(hasRecordedNotificationAnnouncementImpression("user-b")).toBe(false);
   });
 
   it("syncs dismiss across tabs via the storage event", () => {
@@ -151,5 +206,17 @@ describe("shouldSuppressNotificationAnnouncementForUiState", () => {
     expect(shouldSuppressNotificationAnnouncementForUiState("default")).toBe(false);
     expect(shouldSuppressNotificationAnnouncementForUiState("blocked")).toBe(false);
     expect(shouldSuppressNotificationAnnouncementForUiState(null)).toBe(false);
+  });
+});
+
+describe("stripOwnsTopSafeArea", () => {
+  it("is true while the strip covers the viewport top edge", () => {
+    expect(stripOwnsTopSafeArea({ top: 0, bottom: 80 })).toBe(true);
+    expect(stripOwnsTopSafeArea({ top: -20, bottom: 40 })).toBe(true);
+  });
+
+  it("is false once the strip has scrolled fully above the viewport", () => {
+    expect(stripOwnsTopSafeArea({ top: -120, bottom: -10 })).toBe(false);
+    expect(stripOwnsTopSafeArea({ top: 40, bottom: 120 })).toBe(false);
   });
 });

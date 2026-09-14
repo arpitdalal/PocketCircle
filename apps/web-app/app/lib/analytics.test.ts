@@ -14,6 +14,7 @@ import {
   buildPostHogInitOptions,
   holdPostHogLoadForTests,
   initAnalytics,
+  isAnalyticsCaptureDeferred,
   retiredPostHogStorageKeys,
   revertPendingAnalyticsEnabled,
   setAnalyticsEnabled,
@@ -689,6 +690,25 @@ describe("track", () => {
     });
 
     expect(() => track("feedback_submitted", { type: "bug" })).not.toThrow();
+  });
+
+  it("marks capture deferred only while an opted-in init is in flight", async () => {
+    stubPosthogEnvForTests();
+    let releaseHold: () => void = () => {};
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    holdPostHogLoadForTests(hold);
+    const pending = initAnalytics(readyUser);
+    expect(isAnalyticsCaptureDeferred()).toBe(true);
+    releaseHold();
+    await pending;
+    holdPostHogLoadForTests(null);
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+    expect(track("notification_announcement_dismissed", {})).toBe(false);
   });
 });
 

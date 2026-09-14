@@ -64,6 +64,25 @@ export function getAnalyticsCaptureReady() {
   return Boolean(posthogKey() && isBrowser && clientInitialized && captureEnabled && posthog);
 }
 
+/**
+ * Capture should become ready soon (init / chunk load in flight). False when
+ * analytics are unavailable or intentionally opted out — callers must not queue
+ * events that would flush after a later opt-in.
+ */
+export function isAnalyticsCaptureDeferred() {
+  if (!posthogKey() || !isBrowser || getAnalyticsCaptureReady()) {
+    return false;
+  }
+  if (pendingEnabled === false) {
+    return false;
+  }
+  // Settled for this user without capture (opt-out init or capture stopped).
+  if (initializedForUserId !== null && !captureEnabled) {
+    return false;
+  }
+  return lastAnalyticsUserId !== null;
+}
+
 function invalidatePendingInits() {
   initEpoch += 1;
 }
