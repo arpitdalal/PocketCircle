@@ -15,7 +15,7 @@ import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import {
   getAnalyticsCapturePhase,
-  subscribeAnalyticsCaptureReady,
+  subscribeAnalyticsCapturePhase,
   track,
 } from "~/lib/analytics.js";
 import { useEnableNotifications, usePushVapidPublicKey } from "~/lib/data.js";
@@ -84,7 +84,7 @@ export function NotificationAnnouncementStrip({
     () => true,
   );
   const capturePhase = useSyncExternalStore(
-    subscribeAnalyticsCaptureReady,
+    subscribeAnalyticsCapturePhase,
     getAnalyticsCapturePhase,
     () => "off",
   );

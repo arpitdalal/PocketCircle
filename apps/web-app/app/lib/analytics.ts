@@ -54,8 +54,8 @@ function notifyAnalyticsCaptureReady() {
   }
 }
 
-/** `useSyncExternalStore` — true when `track()` can capture. */
-export function subscribeAnalyticsCaptureReady(onStoreChange: () => void) {
+/** `useSyncExternalStore` — fires when capture phase (ready / deferred / off) may change. */
+export function subscribeAnalyticsCapturePhase(onStoreChange: () => void) {
   captureReadyListeners.add(onStoreChange);
   return () => {
     captureReadyListeners.delete(onStoreChange);
@@ -65,8 +65,6 @@ export function subscribeAnalyticsCaptureReady(onStoreChange: () => void) {
 export function getAnalyticsCaptureReady() {
   return Boolean(posthogKey() && isBrowser && clientInitialized && captureEnabled && posthog);
 }
-
-export type AnalyticsCapturePhase = "ready" | "deferred" | "off";
 
 /**
  * Capture should become ready soon (init / chunk load in flight). False when
@@ -88,14 +86,14 @@ export function isAnalyticsCaptureDeferred() {
 }
 
 /** Ready / still-loading / unavailable-or-opted-out — for `useSyncExternalStore`. */
-export function getAnalyticsCapturePhase(): AnalyticsCapturePhase {
+export function getAnalyticsCapturePhase() {
   if (getAnalyticsCaptureReady()) {
-    return "ready";
+    return "ready" as const;
   }
   if (isAnalyticsCaptureDeferred()) {
-    return "deferred";
+    return "deferred" as const;
   }
-  return "off";
+  return "off" as const;
 }
 
 function invalidatePendingInits() {
