@@ -237,20 +237,21 @@ describe("PushSubscriptionLifecycle", () => {
     });
   });
 
-  it("fail-closes and drops stale-key sub when ownership lookup errors", async () => {
+  it("fail-closes and queues pending cleanup when ownership lookup errors", async () => {
     const sub = makeFakePushSubscription({
       endpoint: "https://fcm.googleapis.com/fcm/send/lookup-fail",
     });
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
       ownsPushEndpoint: () => {
         throw new Error("network");
       },
       reconcilePushSubscription: vi.fn(),
-      disablePushSubscription: vi.fn().mockResolvedValue({ removed: false }),
+      disablePushSubscription,
     });
 
     renderLifecycle();
@@ -260,6 +261,9 @@ describe("PushSubscriptionLifecycle", () => {
     });
     await waitFor(() => {
       expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
     });
   });
 });

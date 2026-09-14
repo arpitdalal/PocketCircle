@@ -105,6 +105,17 @@ export function isMatchingVapidKeyPair(publicKey: string, privateKey: string) {
 /** Local encrypt failures that name subscription key material (not VAPID/runtime). */
 export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  const code =
+    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+      ? error.code
+      : null;
+  // Node rejects off-curve p256dh during ECDH without naming "p256dh" in the message.
+  if (
+    code === "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY" ||
+    /not valid for specified curve/i.test(message)
+  ) {
+    return true;
+  }
   // Require an explicit subscription-key token so OpenSSL/VAPID/"crypto" noise
   // does not prune healthy bindings.
   const namesSubscriptionKey = /\bp256dh\b/i.test(message) || /\bauth\b/i.test(message);
@@ -112,6 +123,17 @@ export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
     message,
   );
   return namesSubscriptionKey && looksLikeEncryptFailure;
+}
+
+/** Permanent DNS failures — prune; do not burn Workpool retries. */
+function isPermanentDnsLookupFailure(cause: unknown) {
+  if (typeof cause !== "object" || cause === null || !("code" in cause)) {
+    return false;
+  }
+  const code = cause.code;
+  return (
+    code === "ENOTFOUND" || code === "EAI_NONAME" || code === "ENODATA" || code === "EAI_NODATA"
+  );
 }
 
 /**
@@ -134,6 +156,9 @@ export async function resolvePushEndpointAddresses(endpoint: string) {
     }
     return { kind: "public" as const, addresses: records };
   } catch (cause) {
+    if (isPermanentDnsLookupFailure(cause)) {
+      return { kind: "unsafe" as const };
+    }
     return { kind: "lookup_failed" as const, cause };
   }
 }

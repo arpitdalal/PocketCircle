@@ -8,11 +8,14 @@ import {
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
 } from "./push-subscriptions.js";
 
-/** Synthetic valid key material for domain unit tests only. */
+/** Synthetic valid key material for domain unit tests only (on-curve P-256). */
 const TEST_P256DH =
-  "BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
+  "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU";
 const TEST_AUTH = "CQkJCQkJCQkJCQkJCQkJCQ";
 const PUBLIC_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-sub";
+/** 65-byte 0x04 blob that is not a P-256 point. */
+const OFF_CURVE_P256DH =
+  "BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
 
 describe("push-subscriptions", () => {
   it("caps each User at ten subscriptions", () => {
@@ -84,6 +87,14 @@ describe("push-subscriptions", () => {
       isValidPushSubscriptionMaterial({
         endpoint: PUBLIC_ENDPOINT,
         p256dh: compressed,
+        auth: TEST_AUTH,
+      }),
+    ).toBe(false);
+    // Length-valid but off-curve points must not bind.
+    expect(
+      isValidPushSubscriptionMaterial({
+        endpoint: PUBLIC_ENDPOINT,
+        p256dh: OFF_CURVE_P256DH,
         auth: TEST_AUTH,
       }),
     ).toBe(false);

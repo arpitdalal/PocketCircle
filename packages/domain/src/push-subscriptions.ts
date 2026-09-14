@@ -4,6 +4,7 @@
  * Node send path additionally resolves DNS and rejects private addresses.
  */
 
+import { p256 } from "@noble/curves/nist.js";
 import { Address4, Address6 } from "ip-address";
 
 /** Soft cap on active subscriptions per User; enable prunes then LRU-replaces. */
@@ -107,6 +108,19 @@ function decodeBase64Url(value: string) {
   }
 }
 
+/** RFC 8291 user-agent p256dh: uncompressed P-256 point that lies on the curve. */
+function isUncompressedP256Point(bytes: Uint8Array) {
+  if (bytes.length !== 65 || bytes[0] !== 0x04) {
+    return false;
+  }
+  try {
+    p256.Point.fromBytes(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Endpoint + encryption keys present and structurally usable for web-push encrypt. */
 export function isValidPushSubscriptionMaterial(input: {
   endpoint: string;
@@ -122,8 +136,8 @@ export function isValidPushSubscriptionMaterial(input: {
   if (!p256dh || !auth) {
     return false;
   }
-  // RFC 8291: user-agent p256dh is 65-byte uncompressed (0x04 || X || Y); auth is 16 bytes.
-  if (p256dh.length !== 65 || p256dh[0] !== 0x04 || auth.length !== 16) {
+  // RFC 8291: uncompressed on-curve p256dh; 16-byte auth.
+  if (!isUncompressedP256Point(p256dh) || auth.length !== 16) {
     return false;
   }
   return (

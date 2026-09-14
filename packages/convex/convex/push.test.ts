@@ -123,6 +123,13 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
       false,
     );
   });
+
+  it("treats off-curve ECDH public key errors as invalid subscription crypto", () => {
+    const err = Object.assign(new Error("Public key is not valid for specified curve"), {
+      code: "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY",
+    });
+    expect(isLikelyInvalidSubscriptionCryptoError(err)).toBe(true);
+  });
 });
 
 describe("VAPID env validation", () => {
@@ -169,6 +176,16 @@ describe("resolvePushEndpointAddresses", () => {
     await expect(
       resolvePushEndpointAddresses("https://push.example-browser.test/wpush/v2/x"),
     ).resolves.toEqual({ kind: "lookup_failed", cause: err });
+  });
+
+  it("treats permanent DNS name failures as unsafe (prune, do not retry)", async () => {
+    for (const code of ["ENOTFOUND", "EAI_NONAME", "ENODATA", "EAI_NODATA"] as const) {
+      const err = Object.assign(new Error(`getaddrinfo ${code}`), { code });
+      vi.spyOn(dns, "lookup").mockRejectedValue(err);
+      await expect(
+        resolvePushEndpointAddresses("https://no-such-push.invalid/wpush/v2/x"),
+      ).resolves.toEqual({ kind: "unsafe" });
+    }
   });
 });
 

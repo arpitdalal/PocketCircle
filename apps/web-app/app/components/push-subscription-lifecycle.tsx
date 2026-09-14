@@ -65,25 +65,17 @@ export function PushSubscriptionLifecycle() {
       if (result.staleKeyEndpoint) {
         // Old VAPID key still on the browser. Keep it only when this User owns
         // the endpoint (dual-key delivery). Fail closed on ownership lookup
-        // errors — otherwise a transient Convex/network failure would leave a
-        // previous User's local sub delivering lock-screen Push after switch.
-        let owned = false;
+        // errors — drop local so a previous User's sub cannot keep delivering
+        // after switch, but remember pending cleanup so *our* server row is not
+        // orphaned when the lookup was only transiently broken.
+        let ownership: "owned" | "foreign" | "unknown" = "unknown";
         try {
-          owned = await ownsPushEndpoint(result.staleKeyEndpoint);
+          ownership = (await ownsPushEndpoint(result.staleKeyEndpoint)) ? "owned" : "foreign";
         } catch {
-          owned = false;
+          ownership = "unknown";
         }
         if (isCancelled()) return;
-        if (!owned) {
-          const dropped = await unsubscribeLocalPushSubscription(
-            result.staleKeyEndpoint,
-            isCancelled,
-          );
-          if (isCancelled() || dropped.status === "mismatch") return;
-          const active = recalledPushEndpoint();
-          if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
-          notifyPushSubscriptionChanged();
-        } else {
+        if (ownership === "owned") {
           // Do not reconcile with the current key id — that would break dual-VAPID
           // send for this row. Only refresh LRU so active devices stay.
           try {
@@ -93,6 +85,19 @@ export function PushSubscriptionLifecycle() {
           }
           if (isCancelled()) return;
           rememberPushEndpoint(result.staleKeyEndpoint);
+          notifyPushSubscriptionChanged();
+        } else {
+          const dropped = await unsubscribeLocalPushSubscription(
+            result.staleKeyEndpoint,
+            isCancelled,
+          );
+          if (isCancelled() || dropped.status === "mismatch") return;
+          if (ownership === "unknown") {
+            recordOrphanLocalDrop(result.staleKeyEndpoint);
+          } else {
+            const active = recalledPushEndpoint();
+            if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
+          }
           notifyPushSubscriptionChanged();
         }
       }

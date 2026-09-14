@@ -18,6 +18,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@noble/curves": "^2.4.0",
     "ip-address": "^10.7.0",
     "zod": "^4.4.3"
   }
