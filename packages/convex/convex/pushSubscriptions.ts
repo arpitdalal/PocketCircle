@@ -266,9 +266,19 @@ function displayCapablePushSwVersion(pushSwVersion: number | undefined) {
   return pushSwVersion;
 }
 
+/**
+ * Expand-contract patch: omitted field preserves stored eligibility; an
+ * explicit low/zero report clears it so delivery cannot keep using a stale
+ * display-capable version.
+ */
 function pushSwVersionPatch(pushSwVersion: number | undefined) {
-  const version = displayCapablePushSwVersion(pushSwVersion);
-  return version === undefined ? {} : { pushSwVersion: version };
+  if (pushSwVersion === undefined) {
+    return {};
+  }
+  if (pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return { pushSwVersion: undefined };
+  }
+  return { pushSwVersion };
 }
 
 async function findByEndpoint(ctx: QueryCtx | MutationCtx, endpoint: string) {

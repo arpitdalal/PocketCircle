@@ -203,6 +203,27 @@ describe("pushSubscriptions", () => {
     expect(row?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
   });
 
+  it("clears stored pushSwVersion when reconcile reports an explicit low version", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+    await t.mutation(api.pushSubscriptions.reconcilePushSubscription, {
+      subscription: { ...VALID, pushSwVersion: 0 },
+    });
+    const row = await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, owner._id);
+      return rows[0];
+    });
+    expect(row?.pushSwVersion).toBeUndefined();
+    expect(
+      isSubscriptionEligibleForPushDelivery({
+        lastSeenAt: row?.lastSeenAt ?? 0,
+        pushSwVersion: row?.pushSwVersion,
+      }),
+    ).toBe(false);
+  });
+
   it("touchPushSubscription no-ops when pushSwVersion is omitted", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
