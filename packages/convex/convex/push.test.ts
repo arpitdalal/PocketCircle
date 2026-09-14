@@ -259,6 +259,15 @@ describe("Push mirror from Notification Center", () => {
     expect(isSubscriptionEligibleForPushDelivery({ lastSeenAt: floor, pushSwVersion: 0 })).toBe(
       false,
     );
+    // Without SINCE, version is still required (parent-release silent-push hole).
+    vi.stubEnv("PUSH_DELIVERY_SINCE_MS", "");
+    expect(
+      isSubscriptionEligibleForPushDelivery({ lastSeenAt: Date.now(), pushSwVersion: 0 }),
+    ).toBe(false);
+    expect(
+      isSubscriptionEligibleForPushDelivery({ lastSeenAt: Date.now(), pushSwVersion: 1 }),
+    ).toBe(true);
+    vi.stubEnv("PUSH_DELIVERY_SINCE_MS", String(floor));
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
@@ -267,6 +276,31 @@ describe("Push mirror from Notification Center", () => {
       const row = rows[0];
       if (!row) throw new Error("missing row");
       await ctx.db.patch(row._id, { lastSeenAt: floor - 1 });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "circle.restored",
+        title: "Circle restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("skips subscriptions lacking display push-sw version even when lastSeen is fresh", async () => {
+    const floor = Date.now() - 60_000;
+    vi.stubEnv("PUSH_DELIVERY_SINCE_MS", String(floor));
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, recipient._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing row");
+      await ctx.db.patch(row._id, { lastSeenAt: Date.now(), pushSwVersion: 0 });
     });
 
     await mutateAndDrain(t, () =>

@@ -176,7 +176,7 @@ describe("readPushSubscriptionMaterial", () => {
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     const { subscribe } = installPushEnv({ permission: "granted", subscription: sub });
 
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 1)).resolves.toEqual({
       subscription: null,
       staleKeyEndpoint: "https://fcm.googleapis.com/fcm/send/old",
     });
@@ -190,7 +190,7 @@ describe("readPushSubscriptionMaterial", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
 
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 1)).resolves.toEqual({
       subscription: {
         endpoint: "https://fcm.googleapis.com/fcm/send/new",
         p256dh: TEST_PUSH_P256DH,
@@ -212,7 +212,7 @@ describe("readPushSubscriptionMaterial", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/same");
 
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 1)).resolves.toEqual({
       subscription: {
         endpoint: "https://fcm.googleapis.com/fcm/send/same",
         p256dh: TEST_PUSH_P256DH,
@@ -227,7 +227,7 @@ describe("readPushSubscriptionMaterial", () => {
     installPushEnv({ permission: "granted", subscription: null });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/stale");
 
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 1)).resolves.toEqual({
       subscription: null,
       unboundEndpoint: "https://fcm.googleapis.com/fcm/send/stale",
       unboundEndpoints: ["https://fcm.googleapis.com/fcm/send/stale"],
@@ -242,7 +242,7 @@ describe("readPushSubscriptionMaterial", () => {
     });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/stale");
 
-    await expect(readPushSubscriptionMaterial(VAPID)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 1)).resolves.toEqual({
       subscription: null,
     });
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(

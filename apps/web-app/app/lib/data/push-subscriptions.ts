@@ -155,8 +155,15 @@ async function compensateFailedBind(
   }
   rememberPushEndpoint(null);
   applyPendingCleanupFlushResult(unique, failures);
-  // Always target the live local endpoint — cleanup-array order is not the sub.
-  await unsubscribeLocalPushSubscription(localEndpoint).catch(() => undefined);
+  // Prefer the known live bind endpoint; if a concurrent tab already replaced
+  // it, only drop the live sub when it is still one of our compensate targets.
+  const dropped = await unsubscribeLocalPushSubscription(localEndpoint).catch(() => undefined);
+  if (dropped?.status === "mismatch") {
+    const live = await getCurrentPushSubscription();
+    if (live && unique.includes(live.endpoint)) {
+      await unsubscribeLocalPushSubscription(live.endpoint).catch(() => undefined);
+    }
+  }
 }
 
 /** One complete enable transaction; the hook only supplies the network boundary. */

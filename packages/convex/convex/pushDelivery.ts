@@ -25,20 +25,18 @@ export function pushDeliverySinceMs() {
 }
 
 /**
- * Delivery eligibility after the display-SW rollout floor.
- * Recency alone is insufficient: a cached parent-release tab can still bump
- * `lastSeenAt` without a visible push handler. Require a probed SW version too.
+ * Delivery eligibility for Safari-safe Push.
+ * Always require a probed display-capable push-sw version — parent-release tabs
+ * can bump `lastSeenAt` without a visible push handler. Optional SINCE is an
+ * additional recency floor after the display-SW rollout.
  */
 export function isSubscriptionEligibleForPushDelivery(args: {
   lastSeenAt: number;
   pushSwVersion?: number;
 }) {
-  const since = pushDeliverySinceMs();
-  if (since === null) {
-    return true;
-  }
   if ((args.pushSwVersion ?? 0) < PUSH_DISPLAY_SW_VERSION) {
     return false;
   }
-  return args.lastSeenAt >= since;
+  const since = pushDeliverySinceMs();
+  return since === null || args.lastSeenAt >= since;
 }

@@ -831,7 +831,7 @@ export async function unsubscribeLocalPushSubscription(
 export async function readPushSubscriptionMaterial(
   vapid: { publicKey: string; keyId: string },
   isCancelled = () => false,
-  pushSwVersion = PUSH_DISPLAY_SW_VERSION,
+  pushSwVersion: number,
 ) {
   const registration = await resolvePushRegistration();
   if (!registration) {
