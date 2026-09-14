@@ -325,13 +325,18 @@ async function bindPushSubscription(
       });
       return;
     }
-    // Rebind from another User — counts toward this User's cap.
+    // Rebind from another User — counts toward this User's cap. Replace the
+    // row so we never inherit the prior owner's pushSwVersion (parent-tab
+    // omit must not grant delivery eligibility).
     await makeRoomForOneSubscription(ctx, userId);
-    await ctx.db.patch(existing._id, {
+    await ctx.db.delete(existing._id);
+    await ctx.db.insert("pushSubscriptions", {
       userId,
+      endpoint: args.endpoint,
       p256dh: args.p256dh,
       auth: args.auth,
       vapidKeyId: args.vapidKeyId,
+      createdAt: now,
       lastSeenAt: now,
       ...versionFields,
     });

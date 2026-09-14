@@ -134,6 +134,15 @@ async function bindPushSubscription(
   await enable(material);
 }
 
+/** One ownership probe: true / false / unknown (query failure — do not compensate). */
+async function probePushEndpointOwnership(owns: OwnsPush, endpoint: string) {
+  try {
+    return (await owns(endpoint)) ? true : false;
+  } catch {
+    return "unknown" as const;
+  }
+}
+
 /** Compensate only endpoints this attempt may have uniquely bound. */
 async function compensateFailedBind(
   disable: (args: { endpoint: string }) => Promise<unknown>,
@@ -221,11 +230,7 @@ async function enableNotifications(
         let bindAttempted = false;
         try {
           assertCurrentOperation();
-          try {
-            ownedBeforeEnable = await owns(binding.endpoint);
-          } catch {
-            ownedBeforeEnable = "unknown";
-          }
+          ownedBeforeEnable = await probePushEndpointOwnership(owns, binding.endpoint);
           assertCurrentOperation();
           bindAttempted = true;
           await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
@@ -245,11 +250,7 @@ async function enableNotifications(
             material = binding;
             previousEndpoint = recovered.previousEndpoint ?? firstEndpoint;
             assertCurrentOperation();
-            try {
-              ownedBeforeEnable = await owns(binding.endpoint);
-            } catch {
-              ownedBeforeEnable = "unknown";
-            }
+            ownedBeforeEnable = await probePushEndpointOwnership(owns, binding.endpoint);
             assertCurrentOperation();
             bindAttempted = true;
             await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
@@ -295,7 +296,7 @@ async function enableNotifications(
     if (!bound && material) {
       // Soft-clear / cancel unsub only when ownership is confirmed false.
       // owns() failure → unknown → leave the shared local sub alone.
-      const owned = await owns(material.endpoint).catch(() => null);
+      const owned = await probePushEndpointOwnership(owns, material.endpoint);
       if (owned === false) {
         rememberPushEndpoint(null);
         if (cancelled() || isPushEnableCancelRequested()) {

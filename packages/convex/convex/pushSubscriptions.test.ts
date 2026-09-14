@@ -240,6 +240,42 @@ describe("pushSubscriptions", () => {
     },
   );
 
+  it("rebinds an endpoint from another User without inheriting their pushSwVersion", async () => {
+    const t = convexTest(schema, modules);
+    const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));
+    const bob = await t.run((ctx) => makeUser(ctx, "bob@example.com", "Bob"));
+    await t.run((ctx) =>
+      seedPushSubscription(ctx, {
+        userId: alice._id,
+        endpoint: VALID.endpoint,
+        lastSeenAt: 1000,
+        pushSwVersion: 1,
+      }),
+    );
+
+    signInAs(bob);
+    const { pushSwVersion: _omit, ...legacy } = VALID;
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, {
+      ...legacy,
+      p256dh: TEST_PUSH_P256DH_ALT,
+      auth: TEST_PUSH_AUTH_ALT,
+    });
+
+    await t.run(async (ctx) => {
+      expect(await listPushSubscriptionsForUser(ctx, alice._id)).toHaveLength(0);
+      const bobRows = await listPushSubscriptionsForUser(ctx, bob._id);
+      expect(bobRows).toHaveLength(1);
+      expect(bobRows[0]?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
+      expect(bobRows[0]?.pushSwVersion).toBeUndefined();
+      expect(
+        isSubscriptionEligibleForPushDelivery({
+          lastSeenAt: bobRows[0]?.lastSeenAt ?? 0,
+          pushSwVersion: bobRows[0]?.pushSwVersion,
+        }),
+      ).toBe(false);
+    });
+  });
+
   it("rebinds an endpoint from another User on account switch", async () => {
     const t = convexTest(schema, modules);
     const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));

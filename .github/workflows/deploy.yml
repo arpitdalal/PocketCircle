@@ -274,7 +274,7 @@ jobs:
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 
       - name: Restore Push delivery after failed or cancelled rollout
-        if: (failure() || cancelled()) && steps.push_gate.outcome == 'success' && steps.push_enable.outcome != 'success'
+        if: (failure() || cancelled()) && steps.push_gate.outcome != 'skipped' && steps.push_enable.outcome != 'success'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
