@@ -124,9 +124,27 @@ describe("enable operation ownership", () => {
     expect(enable).not.toHaveBeenCalled();
   });
 
-  it("refuses enable when the display service worker cannot update", async () => {
-    const env = installPushEnv();
+  it("enables when SW update fails but the active worker is already display-capable", async () => {
+    const env = installPushEnv({ permission: "granted" });
     env.update.mockRejectedValue(new Error("offline"));
+    const enable = vi.fn().mockResolvedValue(undefined);
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(enable).toHaveBeenCalled();
+  });
+
+  it("refuses enable when SW update fails and the worker is not display-capable", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    env.update.mockRejectedValue(new Error("offline"));
+    // No version probe reply — cannot prove display capability before update.
+    env.registration.active = {
+      postMessage() {},
+    };
     const enable = vi.fn();
     configureConvex({
       pushVapidPublicKey: VAPID,
@@ -134,7 +152,9 @@ describe("enable operation ownership", () => {
       disablePushSubscription: vi.fn(),
     });
     const hook = renderHook(() => useEnableNotifications());
-    await expect(hook.result.current()).rejects.toThrow(/update failed/);
+    await expect(hook.result.current()).rejects.toThrow(
+      /update failed|not display-capable|not available/,
+    );
     expect(enable).not.toHaveBeenCalled();
   });
 

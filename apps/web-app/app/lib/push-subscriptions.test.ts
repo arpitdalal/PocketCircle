@@ -37,6 +37,9 @@ import {
   setNavigatorInstallProps,
 } from "~/test/pwa-install-env.js";
 
+async function waitFor(assertion: () => void) {
+  await vi.waitFor(assertion);
+}
 const VAPID_PUBLIC_KEY = "AQID";
 const VAPID = { publicKey: VAPID_PUBLIC_KEY, keyId: "primary" };
 
@@ -272,6 +275,18 @@ describe("resolvePushNotificationsUiState", () => {
   it("returns default when there is no local subscription", async () => {
     installPushEnv({ permission: "granted", subscription: null });
     await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("default");
+  });
+
+  it("returns needs_migration while a remigrate subscribe arm is pending", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+    window.sessionStorage.setItem(
+      "pocketcircle.pushRemigrateArm",
+      JSON.stringify({
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+        vapidKeyId: VAPID.keyId,
+      }),
+    );
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("needs_migration");
   });
 });
 
@@ -832,9 +847,48 @@ describe("disableCurrentPushSubscription", () => {
       PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
     );
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_migration");
     const result = await subscribeForPushNotifications(VAPID);
     expect(result.previousEndpoint).toBe("https://fcm.googleapis.com/fcm/send/old-key");
     expect(result.material.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
+  });
+
+  it("keeps the remigrate arm when the second subscribe also loses activation", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const env = installPushEnv({ subscription: sub });
+    env.subscribe.mockRejectedValue(new DOMException("No gesture", "NotAllowedError"));
+    await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
+      PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
+    );
+    await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
+      PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
+    );
+    expect(await resolvePushNotificationsUiState(VAPID)).toBe("needs_migration");
+  });
+
+  it("subscribes before SW update settles when already display-capable", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const updateGate = deferredValue<void>();
+    const order: string[] = [];
+    env.update.mockImplementation(async () => {
+      order.push("update-start");
+      await updateGate.promise;
+      order.push("update-done");
+    });
+    const originalSubscribe = env.subscribe.getMockImplementation();
+    env.subscribe.mockImplementation(async (...args) => {
+      order.push("subscribe");
+      return originalSubscribe?.(...args);
+    });
+    const pending = subscribeForPushNotifications(VAPID);
+    await waitFor(() => expect(order).toContain("subscribe"));
+    expect(order).not.toContain("update-done");
+    updateGate.resolve();
+    await pending;
+    expect(order.indexOf("subscribe")).toBeLessThan(order.indexOf("update-done"));
   });
 
   it("removes an endpoint from pending when it becomes active again", () => {

@@ -466,10 +466,20 @@ export function iosVersionFromUserAgent(userAgent: string) {
   return null;
 }
 
-export async function resolvePushNotificationsUiState(vapid?: { publicKey: string } | null) {
+export async function resolvePushNotificationsUiState(
+  vapid?: {
+    publicKey: string;
+    keyId?: string;
+  } | null,
+) {
   const capability = resolvePushNotificationsCapability();
   if (capability !== "default") {
     return capability;
+  }
+  // After remigrate unsub + activation loss: no local sub, but second tap still
+  // required — keep the Update CTA while the arm is live.
+  if (vapid?.keyId && peekPushRemigrateArm(vapid.keyId)) {
+    return "needs_migration" as const;
   }
   const sub = await getCurrentPushSubscription();
   if (!sub) {
@@ -696,6 +706,13 @@ const PUSH_REMIGRATE_ARM_KEY = "pocketcircle.pushRemigrateArm";
 export const PUSH_REMIGRATE_NEEDS_SECOND_GESTURE =
   "Tap Update again to finish notification migration";
 
+export class PushRemigrateNeedsGestureError extends Error {
+  constructor() {
+    super(PUSH_REMIGRATE_NEEDS_SECOND_GESTURE);
+    this.name = "PushRemigrateNeedsGestureError";
+  }
+}
+
 function armPushRemigrateSubscribe(arm: { previousEndpoint: string; vapidKeyId: string }) {
   try {
     window.sessionStorage.setItem(PUSH_REMIGRATE_ARM_KEY, JSON.stringify(arm));
@@ -704,13 +721,20 @@ function armPushRemigrateSubscribe(arm: { previousEndpoint: string; vapidKeyId: 
   }
 }
 
-function takePushRemigrateArm(vapidKeyId: string) {
+function clearPushRemigrateArm() {
+  try {
+    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
+  } catch {
+    // Restricted storage.
+  }
+}
+
+function parsePushRemigrateArm(vapidKeyId: string) {
   try {
     const raw = window.sessionStorage.getItem(PUSH_REMIGRATE_ARM_KEY);
     if (!raw) {
       return undefined;
     }
-    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
     const parsed: unknown = JSON.parse(raw);
     if (
       typeof parsed !== "object" ||
@@ -729,6 +753,11 @@ function takePushRemigrateArm(vapidKeyId: string) {
   } catch {
     return undefined;
   }
+}
+
+/** Peek only — clear after subscribe succeeds so a failed second tap stays armed. */
+function peekPushRemigrateArm(vapidKeyId: string) {
+  return parsePushRemigrateArm(vapidKeyId);
 }
 
 async function remigrateUnsubThenSubscribe(
@@ -769,7 +798,7 @@ async function remigrateUnsubThenSubscribe(
     // platform constraints). Chromium usually succeeds in one gesture.
     if (isPushSubscribeActivationLost(error)) {
       armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
-      throw new Error(PUSH_REMIGRATE_NEEDS_SECOND_GESTURE);
+      throw new PushRemigrateNeedsGestureError();
     }
     throw error;
   }
@@ -800,12 +829,21 @@ async function subscribeWithVapid(
 
   // Second Settings tap after arm: old sub already gone.
   if (!existing) {
-    const arm = takePushRemigrateArm(vapid.keyId);
+    const arm = peekPushRemigrateArm(vapid.keyId);
     if (arm) {
-      return {
-        subscription: await subscribe(options),
-        previousEndpoint: arm.previousEndpoint,
-      };
+      try {
+        const subscription = await subscribe(options);
+        clearPushRemigrateArm();
+        return {
+          subscription,
+          previousEndpoint: arm.previousEndpoint,
+        };
+      } catch (error) {
+        if (isPushSubscribeActivationLost(error)) {
+          throw new PushRemigrateNeedsGestureError();
+        }
+        throw error;
+      }
     }
     return { subscription: await subscribe(options) };
   }
@@ -830,29 +868,100 @@ export function requestPushNotificationPermission() {
   });
 }
 
+function ensuredFailureMessage(
+  kind: "unavailable" | "update_failed" | "activation_pending" | "pre_display",
+) {
+  return kind === "update_failed"
+    ? "Push service worker update failed"
+    : kind === "activation_pending"
+      ? "Push service worker is still activating"
+      : kind === "pre_display"
+        ? "Push service worker is not display-capable"
+        : "Push service worker is not available";
+}
+
+/**
+ * Probe whether the active worker is already display-capable without waiting
+ * on `registration.update()` (which burns user activation on Firefox/iOS).
+ */
+async function probeDisplayCapablePushSw(registration: ServiceWorkerRegistration) {
+  if (!registration.active || registration.installing || registration.waiting) {
+    return null;
+  }
+  const version = await probePushSwVersion(registration);
+  if (version === null || version < PUSH_DISPLAY_SW_VERSION) {
+    return null;
+  }
+  return version;
+}
+
 export async function subscribeForPushNotifications(
   vapid: { publicKey: string; keyId: string },
   permission = requestPushNotificationPermission(),
   assertCurrentOperation = () => {},
   ensuredPending = ensureActivePushServiceWorker(),
 ) {
-  // `ensuredPending` starts in the click stack (caller may pass a shared promise
-  // started alongside permission) so remigrate keeps gesture budget for subscribe.
+  // Kick `ensuredPending` in the click stack (caller may share it with
+  // permission). Prefer subscribe under gesture when already display-capable
+  // or finishing a remigrate arm — do not await `update()` first.
   await permission;
   assertCurrentOperation();
-  // Same display-SW gate as reconcile: enable/remigrate must not bump lastSeenAt
-  // while a pre-display worker is still active (Safari silent-push revoke).
+
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    throw new Error("Push service worker is not available");
+  }
+
+  const armed = peekPushRemigrateArm(vapid.keyId) !== undefined;
+  const displayVersion = await probeDisplayCapablePushSw(registration);
+
+  if (armed || displayVersion !== null) {
+    assertCurrentOperation();
+    const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
+    const keys = readSubscriptionKeys(subscription);
+    rememberPushEndpoint(keys.endpoint);
+    const ensured = await ensuredPending;
+    if (ensured.kind === "ready") {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: ensured.pushSwVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    if (displayVersion !== null) {
+      // Already proved display-capable at click time — update flake must not
+      // strand a successful remigrate/enable subscribe.
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: displayVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    // Armed without a prior probe and update did not become ready — drop the
+    // unbound local sub and keep the arm for another tap.
+    await subscription.unsubscribe().catch(() => undefined);
+    try {
+      if (recalledPushEndpoint() === keys.endpoint) {
+        rememberPushEndpoint(null);
+      }
+    } catch {
+      // Storage restricted.
+    }
+    if (previousEndpoint) {
+      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
+    }
+    throw new Error(ensuredFailureMessage(ensured.kind));
+  }
+
   const ensured = await ensuredPending;
   if (ensured.kind !== "ready") {
-    throw new Error(
-      ensured.kind === "update_failed"
-        ? "Push service worker update failed"
-        : ensured.kind === "activation_pending"
-          ? "Push service worker is still activating"
-          : ensured.kind === "pre_display"
-            ? "Push service worker is not display-capable"
-            : "Push service worker is not available",
-    );
+    throw new Error(ensuredFailureMessage(ensured.kind));
   }
   assertCurrentOperation();
   const { subscription, previousEndpoint } = await subscribeWithVapid(ensured.registration, vapid);

@@ -28,8 +28,10 @@ import {
 } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
+  PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
   PUSH_SUBSCRIPTION_CHANGED_EVENT,
   type PushNotificationsUiState,
+  PushRemigrateNeedsGestureError,
   resolvePushNotificationsUiState,
 } from "~/lib/push-subscriptions.js";
 import { type SessionUser, useAppSession } from "~/lib/session.js";
@@ -434,12 +436,15 @@ function NotificationsSettingsCard() {
       await refreshState();
     } catch (caught) {
       setError(
-        mutationErrorMessageForUser(
-          caught,
-          nextEnabled
-            ? "Couldn't enable notifications. Please try again."
-            : "Couldn't disable notifications. Please try again.",
-        ),
+        caught instanceof PushRemigrateNeedsGestureError ||
+          (caught instanceof Error && caught.message === PUSH_REMIGRATE_NEEDS_SECOND_GESTURE)
+          ? PUSH_REMIGRATE_NEEDS_SECOND_GESTURE
+          : mutationErrorMessageForUser(
+              caught,
+              nextEnabled
+                ? "Couldn't enable notifications. Please try again."
+                : "Couldn't disable notifications. Please try again.",
+            ),
       );
       await refreshState();
     }
@@ -458,7 +463,10 @@ function NotificationsSettingsCard() {
       await refreshState();
     } catch (caught) {
       setError(
-        mutationErrorMessageForUser(caught, "Couldn't update notifications. Please try again."),
+        caught instanceof PushRemigrateNeedsGestureError ||
+          (caught instanceof Error && caught.message === PUSH_REMIGRATE_NEEDS_SECOND_GESTURE)
+          ? PUSH_REMIGRATE_NEEDS_SECOND_GESTURE
+          : mutationErrorMessageForUser(caught, "Couldn't update notifications. Please try again."),
       );
       await refreshState();
     }
