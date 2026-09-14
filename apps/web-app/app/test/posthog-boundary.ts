@@ -1,5 +1,9 @@
 import { vi } from "vitest";
-import { initAnalytics, resetAnalyticsStateForTests } from "~/lib/analytics.js";
+import {
+  holdPostHogLoadForTests,
+  initAnalytics,
+  resetAnalyticsStateForTests,
+} from "~/lib/analytics.js";
 import type { SessionUser } from "~/lib/session.js";
 import { resetPostHogSdkMocks } from "./posthog-mock.js";
 
@@ -28,9 +32,23 @@ export async function primeAnalyticsForTests(user: SessionUser = defaultAnalytic
   await initAnalytics(user);
 }
 
+/** Pause `loadPostHog` until the returned release runs (consent / cold-load races). */
+export function holdPostHogLoad() {
+  let release = () => {};
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  holdPostHogLoadForTests(hold);
+  return () => {
+    release();
+    holdPostHogLoadForTests(null);
+  };
+}
+
 export function resetPostHogBoundary() {
   resetPostHogSdkMocks();
   resetAnalyticsStateForTests();
+  holdPostHogLoadForTests(null);
   vi.unstubAllEnvs();
 }
 

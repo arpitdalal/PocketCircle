@@ -2,11 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
 
-import {
-  holdPostHogLoadForTests,
-  initAnalytics,
-  resetAnalyticsStateForTests,
-} from "~/lib/analytics.js";
+import { initAnalytics, setAnalyticsEnabled } from "~/lib/analytics.js";
 import {
   flushPendingNotificationAnnouncementDismissTrack,
   hasRecordedNotificationAnnouncementImpression,
@@ -22,15 +18,18 @@ import {
   trackNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
-import { posthogSdk, stubPosthogEnvForTests } from "~/test/posthog-boundary.js";
+import {
+  holdPostHogLoad,
+  posthogSdk,
+  resetPostHogBoundary,
+  stubPosthogEnvForTests,
+} from "~/test/posthog-boundary.js";
 
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   resetNotificationAnnouncementMemory();
-  holdPostHogLoadForTests(null);
-  resetAnalyticsStateForTests();
-  vi.unstubAllEnvs();
+  resetPostHogBoundary();
   posthogSdk.capture.mockClear();
 });
 
@@ -53,11 +52,7 @@ describe("notification announcement dismiss analytics queue", () => {
 
   it("flushes a dismiss queued during cold-load init", async () => {
     stubPosthogEnvForTests();
-    let releaseHold: () => void = () => {};
-    const hold = new Promise<void>((resolve) => {
-      releaseHold = resolve;
-    });
-    holdPostHogLoadForTests(hold);
+    const releaseHold = holdPostHogLoad();
     const pending = initAnalytics({
       id: "user-1",
       analyticsEnabled: true,
@@ -66,9 +61,24 @@ describe("notification announcement dismiss analytics queue", () => {
     expect(posthogSdk.capture).not.toHaveBeenCalled();
     releaseHold();
     await pending;
-    holdPostHogLoadForTests(null);
     flushPendingNotificationAnnouncementDismissTrack("user-1");
     expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_dismissed", {});
+  });
+
+  it("drops a deferred dismiss queue when the user opts out before flush", async () => {
+    stubPosthogEnvForTests();
+    const releaseHold = holdPostHogLoad();
+    const pending = initAnalytics({
+      id: "user-1",
+      analyticsEnabled: true,
+    });
+    trackNotificationAnnouncementDismissed("user-1");
+    setAnalyticsEnabled(false);
+    releaseHold();
+    await pending;
+    posthogSdk.capture.mockClear();
+    flushPendingNotificationAnnouncementDismissTrack("user-1");
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 });
 

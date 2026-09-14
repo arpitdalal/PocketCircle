@@ -6,13 +6,13 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 import type { CaptureResult } from "posthog-js";
 import {
+  holdPostHogLoad,
   posthogSdk,
   resetPostHogBoundary,
   stubPosthogEnvForTests,
 } from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
-  holdPostHogLoadForTests,
   initAnalytics,
   isAnalyticsCaptureDeferred,
   retiredPostHogStorageKeys,
@@ -30,15 +30,6 @@ const readyUser = {
   onboardingComplete: true,
   analyticsEnabled: true,
 };
-
-function holdPostHogLoad() {
-  let release = () => {};
-  const hold = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  holdPostHogLoadForTests(hold);
-  return () => release();
-}
 
 function beforeSend(event: CaptureResult) {
   const { before_send } = buildPostHogInitOptions();
@@ -694,16 +685,11 @@ describe("track", () => {
 
   it("marks capture deferred only while an opted-in init is in flight", async () => {
     stubPosthogEnvForTests();
-    let releaseHold: () => void = () => {};
-    const hold = new Promise<void>((resolve) => {
-      releaseHold = resolve;
-    });
-    holdPostHogLoadForTests(hold);
+    const releaseHold = holdPostHogLoad();
     const pending = initAnalytics(readyUser);
     expect(isAnalyticsCaptureDeferred()).toBe(true);
     releaseHold();
     await pending;
-    holdPostHogLoadForTests(null);
     expect(isAnalyticsCaptureDeferred()).toBe(false);
 
     await initAnalytics({ ...readyUser, analyticsEnabled: false });

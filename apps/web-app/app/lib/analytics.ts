@@ -64,6 +64,8 @@ export function getAnalyticsCaptureReady() {
   return Boolean(posthogKey() && isBrowser && clientInitialized && captureEnabled && posthog);
 }
 
+export type AnalyticsCapturePhase = "ready" | "deferred" | "off";
+
 /**
  * Capture should become ready soon (init / chunk load in flight). False when
  * analytics are unavailable or intentionally opted out — callers must not queue
@@ -81,6 +83,17 @@ export function isAnalyticsCaptureDeferred() {
     return false;
   }
   return lastAnalyticsUserId !== null;
+}
+
+/** Ready / still-loading / unavailable-or-opted-out — for `useSyncExternalStore`. */
+export function getAnalyticsCapturePhase(): AnalyticsCapturePhase {
+  if (getAnalyticsCaptureReady()) {
+    return "ready";
+  }
+  if (isAnalyticsCaptureDeferred()) {
+    return "deferred";
+  }
+  return "off";
 }
 
 function invalidatePendingInits() {
@@ -266,10 +279,12 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
     invalidatePendingInits();
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
   const epoch = ++initEpoch;
+  notifyAnalyticsCaptureReady();
   const client = await loadPostHog();
   if (epoch !== initEpoch || !client) {
     return;
@@ -306,6 +321,8 @@ export function setAnalyticsEnabled(enabled: boolean) {
   if (enabled) {
     restartInitIfCaptureStillOff();
   }
+  // Phase can move deferred↔off without ready flipping — always notify subscribers.
+  notifyAnalyticsCaptureReady();
 }
 
 /** Restore capture from the persisted preference without keeping the optimistic override. */
@@ -318,6 +335,7 @@ export function revertPendingAnalyticsEnabled(enabled: boolean) {
   if (enabled) {
     restartInitIfCaptureStillOff();
   }
+  notifyAnalyticsCaptureReady();
 }
 
 export function teardownAnalytics() {
@@ -331,6 +349,7 @@ export function teardownAnalytics() {
   lastAnalyticsUserId = null;
   pendingEnabled = null;
   clearRetiredPostHogBrowserStorage();
+  notifyAnalyticsCaptureReady();
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {

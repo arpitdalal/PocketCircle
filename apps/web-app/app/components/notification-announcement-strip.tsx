@@ -14,7 +14,7 @@ import { isInstalledWebApp, isIosDevice, usePwaInstall } from "~/components/pwa-
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import {
-  getAnalyticsCaptureReady,
+  getAnalyticsCapturePhase,
   subscribeAnalyticsCaptureReady,
   track,
 } from "~/lib/analytics.js";
@@ -83,11 +83,12 @@ export function NotificationAnnouncementStrip({
     getDocumentVisible,
     () => true,
   );
-  const analyticsReady = useSyncExternalStore(
+  const capturePhase = useSyncExternalStore(
     subscribeAnalyticsCaptureReady,
-    getAnalyticsCaptureReady,
-    () => false,
+    getAnalyticsCapturePhase,
+    () => "off",
   );
+  const analyticsReady = capturePhase === "ready";
   const [submitting, setSubmitting] = useState(false);
   const reportOwnsTopSafeArea = useEffectEvent((owns: boolean) => {
     onOwnsTopSafeAreaChange?.(owns);
@@ -158,11 +159,14 @@ export function NotificationAnnouncementStrip({
   }, [liveVisible, analyticsReady, userId]);
 
   useEffect(() => {
-    if (!analyticsReady || userId === null) {
+    if (userId === null) {
       return;
     }
-    flushPendingNotificationAnnouncementDismissTrack(userId);
-  }, [analyticsReady, userId]);
+    // Ready → capture; off (opt-out / teardown) → drop queue so it cannot survive re-opt-in.
+    if (capturePhase !== "deferred") {
+      flushPendingNotificationAnnouncementDismissTrack(userId);
+    }
+  }, [capturePhase, userId]);
 
   const onDismiss = () => {
     writeNotificationAnnouncementDismissed();
