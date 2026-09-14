@@ -1,5 +1,5 @@
 import { LIMITS, parseProfileUpdate, tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { href, Link } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
@@ -29,13 +29,11 @@ import {
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
   PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
-  PUSH_SUBSCRIPTION_CHANGED_EVENT,
-  type PushNotificationsUiState,
   PushRemigrateNeedsGestureError,
-  resolvePushNotificationsUiState,
 } from "~/lib/push-subscriptions.js";
 import { type SessionUser, useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
+import { usePushNotificationsUiState } from "~/lib/use-push-notifications-ui-state.js";
 
 /** Exact confirmation phrase for Account Deletion (USR-3); case-sensitive UI friction. */
 const DELETE_ACCOUNT_PHRASE = "DELETE MY ACCOUNT";
@@ -357,55 +355,12 @@ function NotificationsSettingsCard() {
   const disableNotifications = useDisableNotifications();
   const { install } = usePwaInstall();
   const { show } = useSnackbar();
-  const [uiState, setUiState] = useState<PushNotificationsUiState>("unsupported");
-  const [ready, setReady] = useState(false);
+  const { uiState: resolvedUiState, refresh: refreshState } = usePushNotificationsUiState(vapid);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refreshGeneration = useRef(0);
-  const refreshRunner = useRef<() => Promise<void>>(async () => {});
 
-  useEffect(() => {
-    const refresh = () => {
-      const requestId = ++refreshGeneration.current;
-      return resolvePushNotificationsUiState(vapid)
-        .then((state) => {
-          if (requestId === refreshGeneration.current) {
-            setUiState(state);
-            setReady(true);
-          }
-        })
-        .catch(() => {
-          if (requestId === refreshGeneration.current) {
-            setUiState("unsupported");
-            setReady(true);
-          }
-        });
-    };
-    refreshRunner.current = refresh;
-    void refresh();
-    const onFocus = () => {
-      void refresh();
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void refresh();
-      }
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
-    return () => {
-      // Invalidate in-flight refresh so a late resolve cannot overwrite toggle results.
-      refreshGeneration.current += 1;
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
-    };
-  }, [vapid]);
-
-  async function refreshState() {
-    await refreshRunner.current();
-  }
+  const ready = resolvedUiState !== null;
+  const uiState = resolvedUiState ?? "unsupported";
 
   // Null / undecodable VAPID: hide enable/onboarding, but keep disable if already subscribed.
   const usableVapid =

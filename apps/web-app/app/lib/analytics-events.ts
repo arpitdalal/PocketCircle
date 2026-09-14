@@ -118,6 +118,9 @@ export type AnalyticsEventMap = {
   notification_permission_result: { result: NotificationPermission };
   notifications_enabled: Record<string, never>;
   notifications_disabled: Record<string, never>;
+  /** One-time notification announcement strip (#383) — no copy or IDs. */
+  notification_announcement_impression: Record<string, never>;
+  notification_announcement_dismissed: Record<string, never>;
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -158,6 +161,8 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   notification_permission_result: new Set(["result"]),
   notifications_enabled: new Set(),
   notifications_disabled: new Set(),
+  notification_announcement_impression: new Set(),
+  notification_announcement_dismissed: new Set(),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -301,6 +306,8 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
       return key === "result" && isNotificationPermissionResult(value);
     case "notifications_enabled":
     case "notifications_disabled":
+    case "notification_announcement_impression":
+    case "notification_announcement_dismissed":
       return false;
     default:
       return false;
@@ -527,6 +534,14 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["notifications_disabled"] | null;
 function toValidatedPayload(
+  event: "notification_announcement_impression",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notification_announcement_impression"] | null;
+function toValidatedPayload(
+  event: "notification_announcement_dismissed",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notification_announcement_dismissed"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -564,6 +579,8 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
       return isNotificationPermissionResultPayload(sanitized) ? sanitized : null;
     case "notifications_enabled":
     case "notifications_disabled":
+    case "notification_announcement_impression":
+    case "notification_announcement_dismissed":
       return isEmptyNotificationsPreferencePayload(sanitized) ? sanitized : null;
     default:
       return null;

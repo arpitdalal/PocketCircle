@@ -44,6 +44,57 @@ let loadPromise: Promise<PostHogClient | null> | null = null;
 let initEpoch = 0;
 /** Test-only gate so races during PostHog chunk load can be asserted. */
 let postHogLoadHold: Promise<void> | null = null;
+/** Test-only: next `loadPostHog` returns null (chunk import failure). */
+let forcePostHogLoadFailure = false;
+const captureReadyListeners = new Set<() => void>();
+
+function notifyAnalyticsCaptureReady() {
+  for (const listener of captureReadyListeners) {
+    listener();
+  }
+}
+
+/** `useSyncExternalStore` — fires when capture phase (ready / deferred / off) may change. */
+export function subscribeAnalyticsCapturePhase(onStoreChange: () => void) {
+  captureReadyListeners.add(onStoreChange);
+  return () => {
+    captureReadyListeners.delete(onStoreChange);
+  };
+}
+
+export function getAnalyticsCaptureReady() {
+  return Boolean(posthogKey() && isBrowser && clientInitialized && captureEnabled && posthog);
+}
+
+/**
+ * Capture should become ready soon (init / chunk load in flight). False when
+ * analytics are unavailable or intentionally opted out — callers must not queue
+ * events that would flush after a later opt-in.
+ */
+export function isAnalyticsCaptureDeferred() {
+  if (!posthogKey() || !isBrowser || getAnalyticsCaptureReady()) {
+    return false;
+  }
+  if (pendingEnabled === false) {
+    return false;
+  }
+  // Settled for this user without capture (opt-out init or capture stopped).
+  if (initializedForUserId !== null && !captureEnabled) {
+    return false;
+  }
+  return lastAnalyticsUserId !== null;
+}
+
+/** Ready / still-loading / unavailable-or-opted-out — for `useSyncExternalStore`. */
+export function getAnalyticsCapturePhase() {
+  if (getAnalyticsCaptureReady()) {
+    return "ready" as const;
+  }
+  if (isAnalyticsCaptureDeferred()) {
+    return "deferred" as const;
+  }
+  return "off" as const;
+}
 
 function invalidatePendingInits() {
   initEpoch += 1;
@@ -141,6 +192,9 @@ async function loadPostHog() {
   if (postHogLoadHold) {
     await postHogLoadHold;
   }
+  if (forcePostHogLoadFailure) {
+    return null;
+  }
   if (posthog) {
     return posthog;
   }
@@ -159,10 +213,14 @@ async function loadPostHog() {
 }
 
 function stopCaptureAndResetIdentity() {
+  const wasCapturing = captureEnabled;
   captureEnabled = false;
   if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     posthog.reset(true);
+  }
+  if (wasCapturing) {
+    notifyAnalyticsCaptureReady();
   }
 }
 
@@ -174,6 +232,7 @@ function applyCaptureEnabled(enabled: boolean) {
   if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     captureEnabled = true;
+    notifyAnalyticsCaptureReady();
   }
 }
 
@@ -223,12 +282,20 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
     invalidatePendingInits();
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
   const epoch = ++initEpoch;
+  notifyAnalyticsCaptureReady();
   const client = await loadPostHog();
-  if (epoch !== initEpoch || !client) {
+  if (epoch !== initEpoch) {
+    return;
+  }
+  if (!client) {
+    // Chunk failed — settle as unavailable so phase leaves deferred.
+    initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
@@ -237,6 +304,7 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
   if (pendingEnabled === false) {
     stopCaptureAndResetIdentity();
     initializedForUserId = user.id;
+    notifyAnalyticsCaptureReady();
     return;
   }
 
@@ -248,6 +316,7 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
 
   initializedForUserId = user.id;
   captureEnabled = true;
+  notifyAnalyticsCaptureReady();
 }
 
 export function setAnalyticsEnabled(enabled: boolean) {
@@ -262,6 +331,8 @@ export function setAnalyticsEnabled(enabled: boolean) {
   if (enabled) {
     restartInitIfCaptureStillOff();
   }
+  // Phase can move deferred↔off without ready flipping — always notify subscribers.
+  notifyAnalyticsCaptureReady();
 }
 
 /** Restore capture from the persisted preference without keeping the optimistic override. */
@@ -274,6 +345,7 @@ export function revertPendingAnalyticsEnabled(enabled: boolean) {
   if (enabled) {
     restartInitIfCaptureStillOff();
   }
+  notifyAnalyticsCaptureReady();
 }
 
 export function teardownAnalytics() {
@@ -287,25 +359,32 @@ export function teardownAnalytics() {
   lastAnalyticsUserId = null;
   pendingEnabled = null;
   clearRetiredPostHogBrowserStorage();
+  notifyAnalyticsCaptureReady();
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {
-  if (!posthogKey() || !isBrowser || !clientInitialized || !captureEnabled || !posthog) {
-    return;
+  if (!getAnalyticsCaptureReady()) {
+    return false;
   }
   if (!isAnalyticsEvent(event)) {
-    return;
+    return false;
   }
 
   const sanitized = sanitizeAnalyticsProps(event, props);
   if (!sanitized) {
-    return;
+    return false;
   }
 
   try {
-    posthog.capture(event, sanitized);
+    const client = posthog;
+    if (!client) {
+      return false;
+    }
+    client.capture(event, sanitized);
+    return true;
   } catch {
     // Product analytics are best-effort and must not affect user flows.
+    return false;
   }
 }
 
@@ -320,9 +399,16 @@ export function resetAnalyticsStateForTests() {
   loadPromise = null;
   initEpoch = 0;
   postHogLoadHold = null;
+  forcePostHogLoadFailure = false;
+  notifyAnalyticsCaptureReady();
 }
 
 /** Test-only: pause loadPostHog until `hold` settles (consent/teardown race coverage). */
 export function holdPostHogLoadForTests(hold: Promise<void> | null) {
   postHogLoadHold = hold;
+}
+
+/** Test-only: next loadPostHog returns null (failed chunk import). */
+export function forcePostHogLoadFailureForTests(force: boolean) {
+  forcePostHogLoadFailure = force;
 }

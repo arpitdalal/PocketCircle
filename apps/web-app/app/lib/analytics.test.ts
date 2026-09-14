@@ -6,14 +6,17 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 import type { CaptureResult } from "posthog-js";
 import {
+  holdPostHogLoad,
   posthogSdk,
   resetPostHogBoundary,
   stubPosthogEnvForTests,
 } from "~/test/posthog-boundary.js";
 import {
   buildPostHogInitOptions,
-  holdPostHogLoadForTests,
+  forcePostHogLoadFailureForTests,
+  getAnalyticsCapturePhase,
   initAnalytics,
+  isAnalyticsCaptureDeferred,
   retiredPostHogStorageKeys,
   revertPendingAnalyticsEnabled,
   setAnalyticsEnabled,
@@ -29,15 +32,6 @@ const readyUser = {
   onboardingComplete: true,
   analyticsEnabled: true,
 };
-
-function holdPostHogLoad() {
-  let release = () => {};
-  const hold = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  holdPostHogLoadForTests(hold);
-  return () => release();
-}
 
 function beforeSend(event: CaptureResult) {
   const { before_send } = buildPostHogInitOptions();
@@ -658,6 +652,8 @@ describe("track", () => {
     ).toBeNull();
     expect(sanitizeAnalyticsProps("notifications_enabled", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notification_announcement_impression", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notification_announcement_dismissed", {})).toEqual({});
     expect(
       sanitizeAnalyticsProps(
         "notifications_enabled",
@@ -669,11 +665,15 @@ describe("track", () => {
     track("notification_permission_result", { result: "denied" });
     track("notifications_enabled", {});
     track("notifications_disabled", {});
+    track("notification_announcement_impression", {});
+    track("notification_announcement_dismissed", {});
     expect(posthogSdk.capture).toHaveBeenCalledWith("notification_permission_result", {
       result: "denied",
     });
     expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_enabled", {});
     expect(posthogSdk.capture).toHaveBeenCalledWith("notifications_disabled", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_impression", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_dismissed", {});
   });
 
   it("does not throw when PostHog capture rejects", async () => {
@@ -683,6 +683,28 @@ describe("track", () => {
     });
 
     expect(() => track("feedback_submitted", { type: "bug" })).not.toThrow();
+  });
+
+  it("marks capture deferred only while an opted-in init is in flight", async () => {
+    stubPosthogEnvForTests();
+    const releaseHold = holdPostHogLoad();
+    const pending = initAnalytics(readyUser);
+    expect(isAnalyticsCaptureDeferred()).toBe(true);
+    releaseHold();
+    await pending;
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+
+    await initAnalytics({ ...readyUser, analyticsEnabled: false });
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+    expect(track("notification_announcement_dismissed", {})).toBe(false);
+  });
+
+  it("settles capture phase off when PostHog chunk load fails", async () => {
+    stubPosthogEnvForTests();
+    forcePostHogLoadFailureForTests(true);
+    await initAnalytics(readyUser);
+    expect(isAnalyticsCaptureDeferred()).toBe(false);
+    expect(getAnalyticsCapturePhase()).toBe("off");
   });
 });
 

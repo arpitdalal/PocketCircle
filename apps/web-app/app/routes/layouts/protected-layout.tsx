@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { href, Link, Navigate, Outlet, useLocation, useNavigation } from "react-router";
 import { AccountMenu } from "~/components/account-menu.js";
 import {
@@ -8,6 +8,7 @@ import {
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
 import { MarketingHome } from "~/components/marketing-home.js";
+import { NotificationAnnouncementStrip } from "~/components/notification-announcement-strip.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
@@ -63,6 +64,8 @@ export default function ProtectedLayout() {
   const analyticsUserId = analyticsSession?.id;
   const analyticsEnabled = analyticsSession?.analyticsEnabled;
   const readyUserEmail = session.state === "ready" ? session.user.email : undefined;
+  // Strip reports when it covers the viewport top so header drops duplicate safe-area.
+  const [notificationStripOwnsTopSafeArea, setNotificationStripOwnsTopSafeArea] = useState(false);
 
   useEffect(() => {
     if (analyticsUserId === undefined || analyticsEnabled === undefined) {
@@ -104,7 +107,17 @@ export default function ProtectedLayout() {
     <div className="flex min-h-dvh flex-col bg-background">
       {/* First tab stop: bypass the sticky header (WCAG 2.4.1 / issue #312). */}
       <SkipNavigation />
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 backdrop-blur-md">
+      <NotificationAnnouncementStrip
+        onOwnsTopSafeAreaChange={setNotificationStripOwnsTopSafeArea}
+      />
+      <header
+        className={cn(
+          "sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 pb-3 backdrop-blur-md",
+          // Strip owns the notch inset while it covers the top edge; otherwise the
+          // sticky header must (MDN sticky + env(safe-area) prior art).
+          notificationStripOwnsTopSafeArea ? "pt-3" : "pt-[calc(0.75rem+var(--safe-area-top))]",
+        )}
+      >
         <div className="flex items-center gap-3">
           <Link
             to="/"
