@@ -9,7 +9,20 @@ export const NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY =
 
 const IMPRESSION_KEY = "pocketcircle.notificationAnnouncementImpression";
 
+/** Survives blocked Web Storage for the JS realm (private mode / ITP). */
+let dismissedMemory = false;
+let impressionMemory = false;
+
+/** Test isolation for module-local dismiss / impression fallbacks. */
+export function resetNotificationAnnouncementMemory() {
+  dismissedMemory = false;
+  impressionMemory = false;
+}
+
 export function readNotificationAnnouncementDismissed() {
+  if (dismissedMemory) {
+    return true;
+  }
   try {
     return window.localStorage.getItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY) === "1";
   } catch {
@@ -18,14 +31,18 @@ export function readNotificationAnnouncementDismissed() {
 }
 
 export function writeNotificationAnnouncementDismissed() {
+  dismissedMemory = true;
   try {
     window.localStorage.setItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY, "1");
   } catch {
-    // Private mode / blocked storage — strip may reappear until storage works.
+    // Memory flag still suppresses for this realm.
   }
 }
 
 export function hasRecordedNotificationAnnouncementImpression() {
+  if (impressionMemory) {
+    return true;
+  }
   try {
     return window.sessionStorage.getItem(IMPRESSION_KEY) === "1";
   } catch {
@@ -34,11 +51,25 @@ export function hasRecordedNotificationAnnouncementImpression() {
 }
 
 export function markNotificationAnnouncementImpressionRecorded() {
+  impressionMemory = true;
   try {
     window.sessionStorage.setItem(IMPRESSION_KEY, "1");
   } catch {
-    // Best-effort; analytics remain optional.
+    // Memory flag still de-dupes for this realm.
   }
+}
+
+/**
+ * Uninstalled iPhone/iPad after soft install dismiss — strip is unusable in
+ * the browser tab; standalone apps are a separate surface.
+ */
+export function isIosInstallPrerequisiteDismissed(args: {
+  isIos: boolean;
+  installed: boolean;
+  installAvailable: boolean;
+  showInstallPrompt: boolean;
+}) {
+  return args.isIos && !args.installed && args.installAvailable && !args.showInstallPrompt;
 }
 
 /**

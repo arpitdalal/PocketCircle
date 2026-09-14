@@ -1,16 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   hasRecordedNotificationAnnouncementImpression,
+  isIosInstallPrerequisiteDismissed,
   isNotificationAnnouncementVisible,
   markNotificationAnnouncementImpressionRecorded,
   NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY,
   readNotificationAnnouncementDismissed,
+  resetNotificationAnnouncementMemory,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
 
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  resetNotificationAnnouncementMemory();
 });
 
 describe("notification announcement dismiss storage", () => {
@@ -21,10 +24,77 @@ describe("notification announcement dismiss storage", () => {
     expect(window.localStorage.getItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY)).toBe("1");
   });
 
+  it("keeps dismiss in memory when localStorage throws", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    writeNotificationAnnouncementDismissed();
+    expect(readNotificationAnnouncementDismissed()).toBe(true);
+    setItem.mockRestore();
+    getItem.mockRestore();
+  });
+
   it("records one impression flag per tab session", () => {
     expect(hasRecordedNotificationAnnouncementImpression()).toBe(false);
     markNotificationAnnouncementImpressionRecorded();
     expect(hasRecordedNotificationAnnouncementImpression()).toBe(true);
+  });
+
+  it("de-dupes impression in memory when sessionStorage throws", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(hasRecordedNotificationAnnouncementImpression()).toBe(false);
+    markNotificationAnnouncementImpressionRecorded();
+    expect(hasRecordedNotificationAnnouncementImpression()).toBe(true);
+    setItem.mockRestore();
+    getItem.mockRestore();
+  });
+});
+
+describe("isIosInstallPrerequisiteDismissed", () => {
+  it("is true only for uninstalled iOS after soft install dismiss", () => {
+    expect(
+      isIosInstallPrerequisiteDismissed({
+        isIos: true,
+        installed: false,
+        installAvailable: true,
+        showInstallPrompt: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for Chromium install dismiss, installed iOS, or open install prompt", () => {
+    expect(
+      isIosInstallPrerequisiteDismissed({
+        isIos: false,
+        installed: false,
+        installAvailable: true,
+        showInstallPrompt: false,
+      }),
+    ).toBe(false);
+    expect(
+      isIosInstallPrerequisiteDismissed({
+        isIos: true,
+        installed: true,
+        installAvailable: false,
+        showInstallPrompt: false,
+      }),
+    ).toBe(false);
+    expect(
+      isIosInstallPrerequisiteDismissed({
+        isIos: true,
+        installed: false,
+        installAvailable: true,
+        showInstallPrompt: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -59,15 +129,7 @@ describe("isNotificationAnnouncementVisible", () => {
     }
   });
 
-  it("hides on iOS browser-tab after install-prompt dismiss", () => {
-    expect(
-      isNotificationAnnouncementVisible({
-        ...base,
-        uiState: "needs_install",
-        iosInstallPrerequisiteDismissed: true,
-      }),
-    ).toBe(false);
-    // Even if state were wrongly reported as default, install-dismiss still suppresses.
+  it("hides on iOS browser-tab after install-prompt dismiss even if state is default", () => {
     expect(
       isNotificationAnnouncementVisible({
         ...base,

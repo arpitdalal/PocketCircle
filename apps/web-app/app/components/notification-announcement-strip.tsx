@@ -1,6 +1,6 @@
 import { tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { XIcon } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { href, Link } from "react-router";
 import { isInstalledWebApp, isIosDevice, usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
@@ -10,17 +10,14 @@ import { useEnableNotifications, usePushVapidPublicKey } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
   hasRecordedNotificationAnnouncementImpression,
+  isIosInstallPrerequisiteDismissed,
   isNotificationAnnouncementVisible,
   markNotificationAnnouncementImpressionRecorded,
   readNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
-import {
-  PUSH_SUBSCRIPTION_CHANGED_EVENT,
-  type PushNotificationsUiState,
-  resolvePushNotificationsUiState,
-} from "~/lib/push-subscriptions.js";
 import { useSnackbar } from "~/lib/snackbar.js";
+import { usePushNotificationsUiState } from "~/lib/use-push-notifications-ui-state.js";
 import { cn } from "~/lib/utils.js";
 
 const TITLE = "Enable notifications on this device";
@@ -36,51 +33,19 @@ export function NotificationAnnouncementStrip() {
   const vapid = usePushVapidPublicKey();
   const enableNotifications = useEnableNotifications();
   const { available, showInstallPrompt, installSurfaceOpen } = usePwaInstall();
+  const { uiState } = usePushNotificationsUiState(vapid);
   const { show } = useSnackbar();
   const titleId = useId();
   const [dismissed, setDismissed] = useState(readNotificationAnnouncementDismissed);
-  const [uiState, setUiState] = useState<PushNotificationsUiState | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const refreshGeneration = useRef(0);
 
   const vapidUsable = Boolean(vapid && tryDecodeVapidKeyBytes(vapid.publicKey));
-  const iosInstallPrerequisiteDismissed =
-    isIosDevice() && !isInstalledWebApp() && available && !showInstallPrompt;
-
-  useEffect(() => {
-    const refresh = () => {
-      const requestId = ++refreshGeneration.current;
-      return resolvePushNotificationsUiState(vapid)
-        .then((state) => {
-          if (requestId === refreshGeneration.current) {
-            setUiState(state);
-          }
-        })
-        .catch(() => {
-          if (requestId === refreshGeneration.current) {
-            setUiState("unsupported");
-          }
-        });
-    };
-    void refresh();
-    const onFocus = () => {
-      void refresh();
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void refresh();
-      }
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
-    return () => {
-      refreshGeneration.current += 1;
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
-    };
-  }, [vapid]);
+  const iosInstallPrerequisiteDismissed = isIosInstallPrerequisiteDismissed({
+    isIos: isIosDevice(),
+    installed: isInstalledWebApp(),
+    installAvailable: available,
+    showInstallPrompt,
+  });
 
   const visible = isNotificationAnnouncementVisible({
     dismissed,

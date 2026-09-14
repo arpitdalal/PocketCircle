@@ -4,7 +4,10 @@ import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
 import { NotificationAnnouncementStrip } from "~/components/notification-announcement-strip.js";
-import { NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY } from "~/lib/notification-announcement.js";
+import {
+  NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY,
+  resetNotificationAnnouncementMemory,
+} from "~/lib/notification-announcement.js";
 import { clearRememberedPushEndpoints, resetPushOperationState } from "~/lib/push-subscriptions.js";
 import {
   configureConvex,
@@ -36,6 +39,7 @@ const STRIP_TITLE = /Enable notifications on this device/i;
 beforeEach(async () => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  resetNotificationAnnouncementMemory();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();
   installMatchMediaFake(false);
@@ -50,6 +54,7 @@ beforeEach(async () => {
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  resetNotificationAnnouncementMemory();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();
   resetPushEnv();
