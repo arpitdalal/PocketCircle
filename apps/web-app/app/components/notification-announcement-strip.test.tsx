@@ -96,6 +96,13 @@ function renderStrip(
   );
 }
 
+async function expectStripAbsentAfterProbe() {
+  await waitFor(() => {
+    expect(screen.getByTestId("notification-announcement-probe")).toBeInTheDocument();
+  });
+  expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
+}
+
 describe("NotificationAnnouncementStrip", () => {
   it("shows above enableable Push and does not request permission on load", async () => {
     const requestPermission = vi.fn().mockResolvedValue("granted");
@@ -111,25 +118,24 @@ describe("NotificationAnnouncementStrip", () => {
     installPushEnv({ permission: "default", subscription: null });
     window.localStorage.setItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY, "1");
     const dismissed = renderStrip();
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
     dismissed.unmount();
     window.localStorage.clear();
+    resetNotificationAnnouncementMemory();
 
     installPushEnv({ permission: "denied", subscription: null });
     const blocked = renderStrip();
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
     blocked.unmount();
 
     installPushEnv({ permission: "granted", subscription: makeFakePushSubscription() });
     const enabled = renderStrip();
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
+    // Opted-in state permanently dismisses so a later disable does not re-announce.
+    expect(window.localStorage.getItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY)).toBe("1");
     enabled.unmount();
+    window.localStorage.clear();
+    resetNotificationAnnouncementMemory();
 
     installPushEnv({
       permission: "default",
@@ -139,16 +145,24 @@ describe("NotificationAnnouncementStrip", () => {
       subscription: null,
     });
     const unsupported = renderStrip();
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
     unsupported.unmount();
 
     installPushEnv({ permission: "default", subscription: null });
     renderStrip({ pushVapidPublicKey: null });
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
+  });
+
+  it("does not re-announce after an opted-in device disables Push", async () => {
+    installPushEnv({ permission: "granted", subscription: makeFakePushSubscription() });
+    const first = renderStrip();
+    await expectStripAbsentAfterProbe();
+    expect(window.localStorage.getItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY)).toBe("1");
+    first.unmount();
+
+    installPushEnv({ permission: "default", subscription: null });
+    renderStrip();
+    await expectStripAbsentAfterProbe();
   });
 
   it("hides on iPhone browser-tab after install-prompt dismiss; Chromium dismiss does not", async () => {
@@ -162,9 +176,7 @@ describe("NotificationAnnouncementStrip", () => {
     seedPwaInstallPromptDismissed();
     installPushEnv({ permission: "default", subscription: null });
     const ios = renderStrip();
-    await waitFor(() => {
-      expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
-    });
+    await expectStripAbsentAfterProbe();
     ios.unmount();
     clearPwaInstallPromptDismissal();
     resetNavigatorInstallProps();

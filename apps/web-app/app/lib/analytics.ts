@@ -44,6 +44,25 @@ let loadPromise: Promise<PostHogClient | null> | null = null;
 let initEpoch = 0;
 /** Test-only gate so races during PostHog chunk load can be asserted. */
 let postHogLoadHold: Promise<void> | null = null;
+const captureReadyListeners = new Set<() => void>();
+
+function notifyAnalyticsCaptureReady() {
+  for (const listener of captureReadyListeners) {
+    listener();
+  }
+}
+
+/** `useSyncExternalStore` — true when `track()` can capture. */
+export function subscribeAnalyticsCaptureReady(onStoreChange: () => void) {
+  captureReadyListeners.add(onStoreChange);
+  return () => {
+    captureReadyListeners.delete(onStoreChange);
+  };
+}
+
+export function getAnalyticsCaptureReady() {
+  return Boolean(posthogKey() && isBrowser && clientInitialized && captureEnabled && posthog);
+}
 
 function invalidatePendingInits() {
   initEpoch += 1;
@@ -159,10 +178,14 @@ async function loadPostHog() {
 }
 
 function stopCaptureAndResetIdentity() {
+  const wasCapturing = captureEnabled;
   captureEnabled = false;
   if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     posthog.reset(true);
+  }
+  if (wasCapturing) {
+    notifyAnalyticsCaptureReady();
   }
 }
 
@@ -174,6 +197,7 @@ function applyCaptureEnabled(enabled: boolean) {
   if (clientInitialized && posthog) {
     posthog.stopSessionRecording();
     captureEnabled = true;
+    notifyAnalyticsCaptureReady();
   }
 }
 
@@ -248,6 +272,7 @@ export async function initAnalytics(user: Pick<SessionUser, "id" | "analyticsEna
 
   initializedForUserId = user.id;
   captureEnabled = true;
+  notifyAnalyticsCaptureReady();
 }
 
 export function setAnalyticsEnabled(enabled: boolean) {
@@ -290,22 +315,24 @@ export function teardownAnalytics() {
 }
 
 export function track<E extends AnalyticsEvent>(event: E, props?: AnalyticsEventMap[E]) {
-  if (!posthogKey() || !isBrowser || !clientInitialized || !captureEnabled || !posthog) {
-    return;
+  if (!getAnalyticsCaptureReady()) {
+    return false;
   }
   if (!isAnalyticsEvent(event)) {
-    return;
+    return false;
   }
 
   const sanitized = sanitizeAnalyticsProps(event, props);
   if (!sanitized) {
-    return;
+    return false;
   }
 
   try {
-    posthog.capture(event, sanitized);
+    posthog?.capture(event, sanitized);
+    return true;
   } catch {
     // Product analytics are best-effort and must not affect user flows.
+    return false;
   }
 }
 
@@ -320,6 +347,7 @@ export function resetAnalyticsStateForTests() {
   loadPromise = null;
   initEpoch = 0;
   postHogLoadHold = null;
+  notifyAnalyticsCaptureReady();
 }
 
 /** Test-only: pause loadPostHog until `hold` settles (consent/teardown race coverage). */

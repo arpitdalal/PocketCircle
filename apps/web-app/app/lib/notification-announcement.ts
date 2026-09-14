@@ -13,10 +13,37 @@ const IMPRESSION_KEY = "pocketcircle.notificationAnnouncementImpression";
 let dismissedMemory = false;
 let impressionMemory = false;
 
+const dismissListeners = new Set<() => void>();
+let detachStorageListener: (() => void) | null = null;
+
+function emitDismissChange() {
+  for (const listener of dismissListeners) {
+    listener();
+  }
+}
+
+function ensureDismissStorageListener() {
+  if (detachStorageListener != null || typeof window === "undefined") {
+    return;
+  }
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY || event.newValue !== "1") {
+      return;
+    }
+    dismissedMemory = true;
+    emitDismissChange();
+  };
+  window.addEventListener("storage", onStorage);
+  detachStorageListener = () => {
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 /** Test isolation for module-local dismiss / impression fallbacks. */
 export function resetNotificationAnnouncementMemory() {
   dismissedMemory = false;
   impressionMemory = false;
+  emitDismissChange();
 }
 
 export function readNotificationAnnouncementDismissed() {
@@ -37,6 +64,20 @@ export function writeNotificationAnnouncementDismissed() {
   } catch {
     // Memory flag still suppresses for this realm.
   }
+  emitDismissChange();
+}
+
+/** Cross-tab + same-tab dismiss via `useSyncExternalStore`. */
+export function subscribeNotificationAnnouncementDismissed(onStoreChange: () => void) {
+  ensureDismissStorageListener();
+  dismissListeners.add(onStoreChange);
+  return () => {
+    dismissListeners.delete(onStoreChange);
+    if (dismissListeners.size === 0 && detachStorageListener != null) {
+      detachStorageListener();
+      detachStorageListener = null;
+    }
+  };
 }
 
 export function hasRecordedNotificationAnnouncementImpression() {
@@ -72,6 +113,15 @@ export function isIosInstallPrerequisiteDismissed(args: {
   return args.isIos && !args.installed && args.installAvailable && !args.showInstallPrompt;
 }
 
+/** Device already opted into Push — never re-announce after they later disable. */
+export function shouldSuppressNotificationAnnouncementForUiState(
+  uiState: PushNotificationsUiState | null,
+) {
+  return (
+    uiState === "enabled" || uiState === "needs_migration" || uiState === "needs_remigrate_finish"
+  );
+}
+
 /**
  * Show only when Enable can succeed on this surface. iOS browser-tab after
  * install-prompt dismiss stays hidden even if Push APIs later appear.
@@ -92,6 +142,9 @@ export function isNotificationAnnouncementVisible(args: {
     return false;
   }
   if (!args.vapidUsable || args.uiState === null) {
+    return false;
+  }
+  if (shouldSuppressNotificationAnnouncementForUiState(args.uiState)) {
     return false;
   }
   return args.uiState === "default";

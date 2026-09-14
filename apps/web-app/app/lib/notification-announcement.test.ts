@@ -7,6 +7,8 @@ import {
   NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY,
   readNotificationAnnouncementDismissed,
   resetNotificationAnnouncementMemory,
+  shouldSuppressNotificationAnnouncementForUiState,
+  subscribeNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
 
@@ -43,18 +45,20 @@ describe("notification announcement dismiss storage", () => {
     expect(hasRecordedNotificationAnnouncementImpression()).toBe(true);
   });
 
-  it("de-dupes impression in memory when sessionStorage throws", () => {
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("blocked");
+  it("syncs dismiss across tabs via the storage event", () => {
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeNotificationAnnouncementDismissed(() => {
+      seen.push(readNotificationAnnouncementDismissed());
     });
-    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
-    expect(hasRecordedNotificationAnnouncementImpression()).toBe(false);
-    markNotificationAnnouncementImpressionRecorded();
-    expect(hasRecordedNotificationAnnouncementImpression()).toBe(true);
-    setItem.mockRestore();
-    getItem.mockRestore();
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY,
+        newValue: "1",
+      }),
+    );
+    expect(readNotificationAnnouncementDismissed()).toBe(true);
+    expect(seen.at(-1)).toBe(true);
+    unsubscribe();
   });
 });
 
@@ -136,5 +140,16 @@ describe("isNotificationAnnouncementVisible", () => {
         iosInstallPrerequisiteDismissed: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldSuppressNotificationAnnouncementForUiState", () => {
+  it("suppresses opted-in device states so disable does not re-announce", () => {
+    expect(shouldSuppressNotificationAnnouncementForUiState("enabled")).toBe(true);
+    expect(shouldSuppressNotificationAnnouncementForUiState("needs_migration")).toBe(true);
+    expect(shouldSuppressNotificationAnnouncementForUiState("needs_remigrate_finish")).toBe(true);
+    expect(shouldSuppressNotificationAnnouncementForUiState("default")).toBe(false);
+    expect(shouldSuppressNotificationAnnouncementForUiState("blocked")).toBe(false);
+    expect(shouldSuppressNotificationAnnouncementForUiState(null)).toBe(false);
   });
 });
