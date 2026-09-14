@@ -247,6 +247,42 @@ describe("Push mirror from Notification Center", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("stops pause-defer polling when the subscription row is deleted", async () => {
+    vi.stubEnv("PUSH_DELIVERY_ENABLED", "0");
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    const subscriptionId = await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, recipient._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing row");
+      return row._id;
+    });
+
+    vi.useFakeTimers();
+    try {
+      await t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "circle.restored",
+        title: "Circle restored",
+      });
+      await drainScheduledFunctions(t);
+      expect(mockSendNotification).not.toHaveBeenCalled();
+
+      await t.run(async (ctx) => {
+        await ctx.db.delete(subscriptionId);
+      });
+      vi.advanceTimersByTime(PUSH_DELIVERY_PAUSE_POLL_MS);
+      await drainScheduledFunctions(t);
+      vi.advanceTimersByTime(PUSH_DELIVERY_PAUSE_POLL_MS);
+      await drainScheduledFunctions(t);
+      expect(mockSendNotification).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips subscriptions lastSeen before PUSH_DELIVERY_SINCE_MS", async () => {
     const floor = Date.now() + 60_000;
     vi.stubEnv("PUSH_DELIVERY_SINCE_MS", String(floor));

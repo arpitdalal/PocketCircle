@@ -147,7 +147,7 @@ async function probePushEndpointOwnership(owns: OwnsPush, endpoint: string) {
 async function compensateFailedBind(
   disable: (args: { endpoint: string }) => Promise<unknown>,
   endpoints: string[],
-  localEndpoint: string,
+  localEndpoint: string | undefined,
 ) {
   const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
   const failures: string[] = [];
@@ -164,6 +164,9 @@ async function compensateFailedBind(
   }
   rememberPushEndpoint(null);
   applyPendingCleanupFlushResult(unique, failures);
+  if (!localEndpoint || !unique.includes(localEndpoint)) {
+    return;
+  }
   // Prefer the known live bind endpoint; if a concurrent tab already replaced
   // it, only drop the live sub when it is still one of our compensate targets.
   const dropped = await unsubscribeLocalPushSubscription(localEndpoint).catch(() => undefined);
@@ -219,28 +222,24 @@ async function enableNotifications(
       async () => {
         if (cancelled()) throw new Error("push enable cancelled");
         assertCurrentOperation();
-        /** First bind that recovery abandoned — catch must unbind it too. */
-        let abandonedEndpoint: string | undefined;
-        /**
-         * Pre-bind ownership: true → peer/prior owns (never compensate);
-         * false → unbound (compensate after a failed bind attempt);
-         * unknown → owns() failed (do not destroy a possibly-shared sub).
-         */
-        let ownedBeforeEnable: boolean | "unknown" = "unknown";
+        /** Endpoints this attempt uniquely bound — compensate these even if a
+         * later recovery endpoint is peer-owned / ownership-unknown. */
+        const toCompensate = new Set<string>();
         let bindAttempted = false;
         try {
           assertCurrentOperation();
-          ownedBeforeEnable = await probePushEndpointOwnership(owns, binding.endpoint);
+          const ownedFirst = await probePushEndpointOwnership(owns, binding.endpoint);
           assertCurrentOperation();
           bindAttempted = true;
           await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
+          if (ownedFirst === false) {
+            toCompensate.add(binding.endpoint);
+          }
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
           const live = await getCurrentPushSubscription();
           if (!live || live.endpoint !== binding.endpoint) {
             const firstEndpoint = binding.endpoint;
-            // First bind may have committed — catch must unbind it if recovery fails.
-            abandonedEndpoint = firstEndpoint;
             const recovered = await subscribeForPushNotifications(
               vapid,
               permission,
@@ -250,10 +249,13 @@ async function enableNotifications(
             material = binding;
             previousEndpoint = recovered.previousEndpoint ?? firstEndpoint;
             assertCurrentOperation();
-            ownedBeforeEnable = await probePushEndpointOwnership(owns, binding.endpoint);
+            const ownedSecond = await probePushEndpointOwnership(owns, binding.endpoint);
             assertCurrentOperation();
             bindAttempted = true;
             await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
+            if (ownedSecond === false) {
+              toCompensate.add(binding.endpoint);
+            }
             assertCurrentOperation();
             const after = await getCurrentPushSubscription();
             if (!after || after.endpoint !== binding.endpoint) {
@@ -262,26 +264,23 @@ async function enableNotifications(
             // Drop the abandoned first endpoint (or keep pending on failure).
             if (firstEndpoint !== binding.endpoint) {
               await disableOrRememberPending(disable, firstEndpoint);
+              toCompensate.delete(firstEndpoint);
             }
-            abandonedEndpoint = undefined;
           }
           assertCurrentOperation();
           bound = true;
           track("notifications_enabled", {});
         } catch (error) {
-          if (ownedBeforeEnable === true || ownedBeforeEnable === "unknown") {
-            // Peer may own the endpoint, or ownership lookup failed — leave alone.
+          if (!bindAttempted || toCompensate.size === 0) {
             throw error;
           }
-          if (!bindAttempted) {
-            throw error;
-          }
-          // Ambiguous transport failures: clear server binding for this endpoint
-          // (covers committed-but-lost-response) then drop the local subscription.
+          // Ambiguous transport failures: clear server bindings we uniquely
+          // attempted, then drop the local sub only if it is one of those.
+          const local = binding.endpoint;
           await compensateFailedBind(
             disable,
-            [binding.endpoint, abandonedEndpoint ?? ""],
-            binding.endpoint,
+            [...toCompensate],
+            toCompensate.has(local) ? local : undefined,
           );
           throw error;
         }

@@ -413,6 +413,28 @@ describe("pushSubscriptions", () => {
     });
   });
 
+  it("replace preserves subscription row id so in-flight sends keep resolving", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    const oldId = await t.run((ctx) =>
+      seedPushSubscription(ctx, {
+        userId: owner._id,
+        endpoint: "https://fcm.googleapis.com/fcm/send/old",
+      }),
+    );
+    await t.mutation(api.pushSubscriptions.replacePushSubscription, {
+      previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
+      ...VALID,
+      endpoint: "https://fcm.googleapis.com/fcm/send/new",
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(oldId);
+      expect(row?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/new");
+      expect(row?.p256dh).toBe(VALID.p256dh);
+    });
+  });
+
   it("replace refuses a next endpoint owned by another User", async () => {
     const t = convexTest(schema, modules);
     const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));

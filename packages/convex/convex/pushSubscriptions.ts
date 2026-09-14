@@ -170,8 +170,30 @@ export const replacePushSubscription = mutation({
     if (nextExisting && nextExisting.userId !== user._id) {
       return { bound: false };
     }
-    await ctx.db.delete(previous._id);
-    await bindPushSubscription(ctx, user._id, next);
+    const now = Date.now();
+    const versionFields = pushSwVersionPatch(next.pushSwVersion);
+    if (nextExisting && nextExisting._id !== previous._id) {
+      // Next endpoint already ours — drop previous; keep next's row id.
+      await ctx.db.delete(previous._id);
+      await ctx.db.patch(nextExisting._id, {
+        p256dh: next.p256dh,
+        auth: next.auth,
+        vapidKeyId: next.vapidKeyId,
+        lastSeenAt: now,
+        ...versionFields,
+      });
+      return { bound: true };
+    }
+    // Same-user endpoint refresh / VAPID remigrate: patch in place so in-flight
+    // Push jobs keyed by subscriptionId still resolve to this device.
+    await ctx.db.patch(previous._id, {
+      endpoint: next.endpoint,
+      p256dh: next.p256dh,
+      auth: next.auth,
+      vapidKeyId: next.vapidKeyId,
+      lastSeenAt: now,
+      ...versionFields,
+    });
     return { bound: true };
   },
 });

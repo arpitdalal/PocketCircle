@@ -478,12 +478,18 @@ export async function resolvePushNotificationsUiState(
   if (capability !== "default") {
     return capability;
   }
-  // After remigrate unsub + activation loss: no local sub, but second tap still
-  // required — keep the Update CTA while the arm is live.
+  const sub = await getCurrentPushSubscription();
+  // Matching current-key sub means remigrate finished (possibly on another tab)
+  // — consume a stale arm so Settings does not stick on needs_remigrate_finish.
+  if (sub && vapid && applicationServerKeyMatches(sub, vapid.publicKey)) {
+    if (vapid.keyId) {
+      clearPushRemigrateArm();
+    }
+    return "enabled" as const;
+  }
   if (vapid?.keyId && peekPushRemigrateArm(vapid.keyId)) {
     return "needs_remigrate_finish" as const;
   }
-  const sub = await getCurrentPushSubscription();
   if (!sub) {
     return "default" as const;
   }
@@ -817,6 +823,17 @@ async function subscribeWithVapid(
 ) {
   const existing = await registration.pushManager.getSubscription();
   if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
+    // Peer/other tab already remigrated — consume arm and surface previous
+    // endpoint so bind can replace the server row when needed.
+    const arm = peekPushRemigrateArm(vapid.keyId);
+    if (arm) {
+      clearPushRemigrateArm();
+      return {
+        subscription: existing,
+        previousEndpoint:
+          arm.previousEndpoint !== existing.endpoint ? arm.previousEndpoint : undefined,
+      };
+    }
     return { subscription: existing, previousEndpoint: undefined };
   }
   const options = {

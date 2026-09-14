@@ -146,6 +146,10 @@ export const deferSendWhileDeliveryPaused = internalMutation({
     if (!notification) {
       return;
     }
+    const subscription = await ctx.db.get(args.subscriptionId);
+    if (!subscription) {
+      return;
+    }
     // Bound pause polling with the same TTL the sender would put on the wire.
     const ttlSeconds = pushTtlSeconds({
       type: notification.type,

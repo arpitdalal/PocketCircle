@@ -117,6 +117,48 @@ describe("enable operation ownership", () => {
     expect(env.subscription).not.toBeNull();
   });
 
+  it("compensates the abandoned first endpoint when recovery peer-owns the second", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const first = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/first",
+    });
+    const second = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/second",
+    });
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    env.subscribe.mockImplementation(async () => {
+      subscribeCount += 1;
+      live = subscribeCount === 1 ? first : second;
+      return live;
+    });
+    env.getSubscription.mockImplementation(async () => live);
+    const enable = vi.fn().mockImplementation(async () => {
+      if (enable.mock.calls.length === 1) {
+        // Browser drops the first endpoint before recovery completes.
+        live = null;
+        return;
+      }
+      throw new Error("second bind lost");
+    });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      ownsPushEndpoint: (args: { endpoint: string }) =>
+        args.endpoint === "https://fcm.googleapis.com/fcm/send/second",
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow("second bind lost");
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/first",
+    });
+    expect(disable).not.toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/second",
+    });
+  });
+
   it("uses replacePushSubscription when Chromium forces a VAPID remigrate", async () => {
     const oldSub = makeFakePushSubscription({
       endpoint: "https://fcm.googleapis.com/fcm/send/old-key",

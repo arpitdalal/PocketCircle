@@ -242,8 +242,15 @@ jobs:
         run: |
           PREV=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>/dev/null || true)
           PREV=$(printf '%s' "$PREV" | tr -d '[:space:]')
-          if [ -z "$PREV" ]; then PREV=0; fi
-          echo "previous=$PREV" >> "$GITHUB_OUTPUT"
+          if [ -n "$PREV" ]; then
+            echo "previous_captured=true" >> "$GITHUB_OUTPUT"
+            echo "previous=$PREV" >> "$GITHUB_OUTPUT"
+          else
+            # Unset or unreadable — pause as 0 but do not claim a restore value
+            # (restoring unknown as 0 can force-disable a previously enabled prod).
+            echo "previous_captured=false" >> "$GITHUB_OUTPUT"
+            PREV=0
+          fi
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
 
       - name: Deploy Convex production backend
@@ -274,12 +281,11 @@ jobs:
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 
       - name: Restore Push delivery after failed or cancelled rollout
-        if: (failure() || cancelled()) && steps.push_gate.outcome != 'skipped' && steps.push_enable.outcome != 'success'
+        if: (failure() || cancelled()) && steps.push_gate.outputs.previous_captured == 'true' && steps.push_enable.outcome != 'success'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
           PREV="${{ steps.push_gate.outputs.previous }}"
-          if [ -z "$PREV" ]; then PREV=0; fi
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED "$PREV"
       - name: Bind MCP Worker production config
         working-directory: packages/mcp-worker

@@ -288,6 +288,21 @@ describe("resolvePushNotificationsUiState", () => {
     );
     await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("needs_remigrate_finish");
   });
+
+  it("clears a stale remigrate arm when a matching subscription already exists", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/ok" });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
+    installPushEnv({ permission: "granted", subscription: sub });
+    window.sessionStorage.setItem(
+      "pocketcircle.pushRemigrateArm",
+      JSON.stringify({
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+        vapidKeyId: VAPID.keyId,
+      }),
+    );
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("enabled");
+    expect(window.sessionStorage.getItem("pocketcircle.pushRemigrateArm")).toBeNull();
+  });
 });
 
 describe("push operation serialization", () => {
