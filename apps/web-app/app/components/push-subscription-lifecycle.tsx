@@ -5,6 +5,7 @@ import {
   usePushVapidPublicKey,
   useReconcilePushSubscription,
   useReplacePushSubscription,
+  useTouchPushSubscription,
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
@@ -29,6 +30,7 @@ export function PushSubscriptionLifecycle() {
   const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
   const ownsPushEndpoint = useOwnsPushEndpoint();
+  const touch = useTouchPushSubscription();
 
   const runReconcile = useEffectEvent(async (isCancelled: () => boolean) => {
     if (!vapid || isCancelled()) return;
@@ -80,6 +82,17 @@ export function PushSubscriptionLifecycle() {
           if (isCancelled() || dropped.status === "mismatch") return;
           const active = recalledPushEndpoint();
           if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
+          notifyPushSubscriptionChanged();
+        } else {
+          // Do not reconcile with the current key id — that would break dual-VAPID
+          // send for this row. Only refresh LRU so active devices stay.
+          try {
+            await touch({ endpoint: result.staleKeyEndpoint });
+          } catch {
+            // Soft: next focus retries; delivery still works on the old key.
+          }
+          if (isCancelled()) return;
+          rememberPushEndpoint(result.staleKeyEndpoint);
           notifyPushSubscriptionChanged();
         }
       }

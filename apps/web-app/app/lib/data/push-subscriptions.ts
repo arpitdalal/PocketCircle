@@ -70,6 +70,15 @@ export function useOwnsPushEndpoint() {
   return (endpoint: string) => convex.query(api.pushSubscriptions.ownsPushEndpoint, { endpoint });
 }
 
+/** Refresh lastSeenAt for an owned endpoint (old-key reconcile path). */
+export function useTouchPushSubscription() {
+  const touch = useMutation(api.pushSubscriptions.touchPushSubscription);
+  if (MOCKS) {
+    return async () => ({ touched: false });
+  }
+  return touch;
+}
+
 function assertEnableNotCancelled() {
   if (isPushEnableCancelRequested()) {
     throw new Error("push enable cancelled");

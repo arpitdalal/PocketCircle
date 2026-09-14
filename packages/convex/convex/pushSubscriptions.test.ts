@@ -96,6 +96,45 @@ describe("pushSubscriptions", () => {
     ).toBe(false);
   });
 
+  it("touchPushSubscription refreshes lastSeenAt without changing keys", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+    const before = await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, owner._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing row");
+      await ctx.db.patch(row._id, { lastSeenAt: 1_000 });
+      return row;
+    });
+
+    const touched = await t.mutation(api.pushSubscriptions.touchPushSubscription, {
+      endpoint: VALID.endpoint,
+    });
+    expect(touched).toEqual({ touched: true });
+
+    const after = await t.run((ctx) => listPushSubscriptionsForUser(ctx, owner._id));
+    expect(after).toHaveLength(1);
+    expect(after[0]?.lastSeenAt).toBeGreaterThan(before.lastSeenAt);
+    expect(after[0]?.vapidKeyId).toBe("primary");
+    expect(after[0]?.p256dh).toBe(VALID.p256dh);
+  });
+
+  it("touchPushSubscription does not touch another User's endpoint", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    const other = await t.run((ctx) => makeUser(ctx, "b@example.com", "B"));
+    signInAs(owner);
+    await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
+    signInAs(other);
+    expect(
+      await t.mutation(api.pushSubscriptions.touchPushSubscription, {
+        endpoint: VALID.endpoint,
+      }),
+    ).toEqual({ touched: false });
+  });
+
   it("rejects structurally invalid subscription material", async () => {
     const t = convexTest(schema, modules);
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));

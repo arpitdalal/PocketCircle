@@ -189,9 +189,11 @@ describe("PushSubscriptionLifecycle", () => {
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn();
     const ownsPushEndpoint = vi.fn().mockReturnValue(true);
+    const touchPushSubscription = vi.fn().mockResolvedValue({ touched: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
       ownsPushEndpoint,
+      touchPushSubscription,
       reconcilePushSubscription,
       disablePushSubscription: vi.fn().mockResolvedValue({ removed: true }),
     });
@@ -200,6 +202,9 @@ describe("PushSubscriptionLifecycle", () => {
 
     await waitFor(() => {
       expect(ownsPushEndpoint).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    });
+    await waitFor(() => {
+      expect(touchPushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
     });
     expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(reconcilePushSubscription).not.toHaveBeenCalled();

@@ -85,6 +85,24 @@ export const ownsPushEndpoint = query({
 });
 
 /**
+ * Bump lastSeenAt for an owned endpoint without changing keys / vapidKeyId.
+ * Owned old-key subscriptions skip reconcile (would write the new key id) but
+ * still need LRU freshness so active devices are not evicted at the ten-cap.
+ */
+export const touchPushSubscription = mutation({
+  args: { endpoint: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const existing = await findByEndpoint(ctx, args.endpoint);
+    if (!existing || existing.userId !== user._id) {
+      return { touched: false };
+    }
+    await ctx.db.patch(existing._id, { lastSeenAt: Date.now() });
+    return { touched: true };
+  },
+});
+
+/**
  * Startup/focus reconcile: refresh lastSeenAt / keys only when this User already
  * owns the endpoint. Never steals another User's binding and never auto-creates
  * a first binding — that requires explicit enable (#381 / research §7).

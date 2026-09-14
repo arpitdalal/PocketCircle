@@ -15,6 +15,7 @@ export interface PushSubscriptionsState {
   disablePushSubscription?: Mock;
   reconcilePushSubscription?: Mock;
   replacePushSubscription?: Mock;
+  touchPushSubscription?: Mock;
 }
 
 export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
@@ -25,6 +26,7 @@ export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
     disablePushSubscription,
     reconcilePushSubscription,
     replacePushSubscription,
+    touchPushSubscription,
   } = state;
   return {
     queries: {
@@ -38,6 +40,7 @@ export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
       [getFunctionName(api.pushSubscriptions.disablePushSubscription)]: disablePushSubscription,
       [getFunctionName(api.pushSubscriptions.reconcilePushSubscription)]: reconcilePushSubscription,
       [getFunctionName(api.pushSubscriptions.replacePushSubscription)]: replacePushSubscription,
+      [getFunctionName(api.pushSubscriptions.touchPushSubscription)]: touchPushSubscription,
     },
   } satisfies EntityDouble;
 }

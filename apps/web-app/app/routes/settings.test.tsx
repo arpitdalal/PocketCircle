@@ -44,7 +44,11 @@ vi.mock("better-auth/react", () => ({
 }));
 
 import { initAnalytics, track } from "~/lib/analytics.js";
-import { clearRememberedPushEndpoints, resetPushOperationState } from "~/lib/push-subscriptions.js";
+import {
+  clearRememberedPushEndpoints,
+  resetPushOperationState,
+  vapidPublicKeyBytes,
+} from "~/lib/push-subscriptions.js";
 import Settings from "./settings.js";
 
 function renderSettings() {
@@ -595,6 +599,33 @@ describe("Settings notifications", () => {
     expect(
       screen.queryByRole("switch", { name: /Enable notifications on this device/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("exposes a gesture-driven update when the local subscription uses a previous VAPID key", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const enablePushSubscription = vi.fn().mockResolvedValue(undefined);
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/stale-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", requestPermission, subscription: sub });
+    configureConvex({
+      currentUser: makeCurrentUserView(),
+      pushVapidPublicKey: { publicKey: "BPtestPublicKey", keyId: "primary" },
+      enablePushSubscription,
+    });
+    const user = userEvent.setup();
+    renderSettings();
+
+    expect(
+      await screen.findByRole("button", { name: /Update notifications on this device/i }),
+    ).toBeInTheDocument();
+    expect(enablePushSubscription).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Update notifications on this device/i }));
+    await waitFor(() => {
+      expect(enablePushSubscription).toHaveBeenCalled();
+    });
   });
 
   it("enables notifications only from the switch (never on load)", async () => {

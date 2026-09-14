@@ -391,7 +391,8 @@ export type PushNotificationsUiState =
   | "needs_install"
   | "blocked"
   | "default"
-  | "enabled";
+  | "enabled"
+  | "needs_migration";
 
 export type PushSubscriptionMaterial = {
   endpoint: string;
@@ -458,13 +459,22 @@ export function iosVersionFromUserAgent(userAgent: string) {
   return null;
 }
 
-export async function resolvePushNotificationsUiState() {
+export async function resolvePushNotificationsUiState(vapid?: { publicKey: string } | null) {
   const capability = resolvePushNotificationsCapability();
   if (capability !== "default") {
     return capability;
   }
   const sub = await getCurrentPushSubscription();
-  return sub ? ("enabled" as const) : ("default" as const);
+  if (!sub) {
+    return "default" as const;
+  }
+  // Local sub still on a previous VAPID key — still delivering via dual-key
+  // env, but Settings must offer a gesture-driven remigrate (auto remigrate
+  // is not gesture-safe on Firefox/iOS).
+  if (vapid && !applicationServerKeyMatches(sub, vapid.publicKey)) {
+    return "needs_migration" as const;
+  }
+  return "enabled" as const;
 }
 
 /** Register Push SW outside mock env (MSW owns the root scope under MOCKS). */

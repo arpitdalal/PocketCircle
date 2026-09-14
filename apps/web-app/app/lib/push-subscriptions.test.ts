@@ -21,6 +21,7 @@ import {
   rememberPushEndpoints,
   resetPushOperationState,
   resolvePushNotificationsCapability,
+  resolvePushNotificationsUiState,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
   vapidPublicKeyBytes,
@@ -226,6 +227,29 @@ describe("readPushSubscriptionMaterial", () => {
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(
       "https://fcm.googleapis.com/fcm/send/stale",
     );
+  });
+});
+
+describe("resolvePushNotificationsUiState", () => {
+  it("returns needs_migration when the local subscription uses a previous VAPID key", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/old" });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("needs_migration");
+  });
+
+  it("returns enabled when the local subscription matches the current VAPID key", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/ok" });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
+    installPushEnv({ permission: "granted", subscription: sub });
+
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("enabled");
+  });
+
+  it("returns default when there is no local subscription", async () => {
+    installPushEnv({ permission: "granted", subscription: null });
+    await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("default");
   });
 });
 

@@ -66,11 +66,12 @@ pnpm --filter @pocketcircle/convex exec convex env set RESEND_API_KEY <resend-ap
 pnpm --filter @pocketcircle/convex exec convex env set RESEND_FROM_EMAIL <verified-from-address>
 # Feedback delivery recipient (set to the public support address unless intentionally routed elsewhere)
 pnpm --filter @pocketcircle/convex exec convex env set SUPPORT_EMAIL arpitdalalm@gmail.com
-# Web Push VAPID (separate key pairs for development and production)
-# pnpm --filter @pocketcircle/convex exec convex env set VAPID_PUBLIC_KEY <url-safe-base64-public>
-# pnpm --filter @pocketcircle/convex exec convex env set VAPID_PRIVATE_KEY <url-safe-base64-private>
-# pnpm --filter @pocketcircle/convex exec convex env set VAPID_SUBJECT mailto:<contact-email>
-# pnpm --filter @pocketcircle/convex exec convex env set VAPID_KEY_ID primary
+# Web Push VAPID (separate key pairs for development and production — required for Push)
+# Generate with: node -e "console.log(require('web-push').generateVAPIDKeys())"
+pnpm --filter @pocketcircle/convex exec convex env set VAPID_PUBLIC_KEY <url-safe-base64-public>
+pnpm --filter @pocketcircle/convex exec convex env set VAPID_PRIVATE_KEY <url-safe-base64-private>
+pnpm --filter @pocketcircle/convex exec convex env set VAPID_SUBJECT mailto:<contact-email>
+pnpm --filter @pocketcircle/convex exec convex env set VAPID_KEY_ID primary
 # Optional: log email subject + HTML to the Convex console on every send (also logs when Resend creds are unset)
 pnpm --filter @pocketcircle/convex exec convex env set EMAIL_DEV_LOG 1
 ```
@@ -365,7 +366,16 @@ GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
 RESEND_API_KEY=<resend-api-key>
 RESEND_FROM_EMAIL=<verified-from-address>
 SUPPORT_EMAIL=arpitdalalm@gmail.com
+VAPID_PUBLIC_KEY=<url-safe-base64-public>
+VAPID_PRIVATE_KEY=<url-safe-base64-private>
+VAPID_SUBJECT=mailto:<contact-email>
+VAPID_KEY_ID=primary
 ```
+
+Use a **different** VAPID key pair than development. Generate with
+`node -e "console.log(require('web-push').generateVAPIDKeys())"`. During rotation
+also set `VAPID_KEY_ID_PREVIOUS`, `VAPID_PUBLIC_KEY_PREVIOUS`, and
+`VAPID_PRIVATE_KEY_PREVIOUS` (same subject) until devices remigrate.
 
 Leave `E2E_TEST_AUTH` and `EMAIL_DEV_LOG` unset in production. Google OAuth must
 allow the exact callback URL:
