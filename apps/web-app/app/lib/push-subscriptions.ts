@@ -764,12 +764,9 @@ function peekPushRemigrateArm(vapidKeyId: string) {
 
 async function remigrateUnsubThenSubscribe(
   existing: PushSubscription,
-  options: { userVisibleOnly: boolean; applicationServerKey: Uint8Array },
+  options: PushSubscriptionOptionsInit,
   vapid: { publicKey: string; keyId: string },
-  subscribe: (options: {
-    userVisibleOnly: boolean;
-    applicationServerKey: Uint8Array;
-  }) => Promise<PushSubscription>,
+  registration: ServiceWorkerRegistration,
 ) {
   const previousEndpoint = existing.endpoint;
   if (!(await existing.unsubscribe())) {
@@ -791,7 +788,7 @@ async function remigrateUnsubThenSubscribe(
   }
   try {
     return {
-      subscription: await subscribe(options),
+      subscription: await registration.pushManager.subscribe(options),
       previousEndpoint,
     };
   } catch (error) {
@@ -820,21 +817,19 @@ async function subscribeWithVapid(
 ) {
   const existing = await registration.pushManager.getSubscription();
   if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
-    return { subscription: existing };
+    return { subscription: existing, previousEndpoint: undefined };
   }
   const options = {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
   };
-  const subscribe = (subscribeOptions: typeof options) =>
-    registration.pushManager.subscribe(subscribeOptions);
 
   // Second Settings tap after arm: old sub already gone.
   if (!existing) {
     const arm = peekPushRemigrateArm(vapid.keyId);
     if (arm) {
       try {
-        const subscription = await subscribe(options);
+        const subscription = await registration.pushManager.subscribe(options);
         clearPushRemigrateArm();
         return {
           subscription,
@@ -847,11 +842,14 @@ async function subscribeWithVapid(
         throw error;
       }
     }
-    return { subscription: await subscribe(options) };
+    return {
+      subscription: await registration.pushManager.subscribe(options),
+      previousEndpoint: undefined,
+    };
   }
 
   // Key mismatch (or missing applicationServerKey) — remigrate.
-  return remigrateUnsubThenSubscribe(existing, options, vapid, subscribe);
+  return remigrateUnsubThenSubscribe(existing, options, vapid, registration);
 }
 
 /**
