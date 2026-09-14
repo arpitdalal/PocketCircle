@@ -146,7 +146,7 @@ describe("enable operation ownership", () => {
       pushVapidPublicKey: VAPID,
       enablePushSubscription: enable,
       disablePushSubscription: disable,
-      ownsPushEndpoint: (args: { endpoint: string }) =>
+      ownsPushEndpoint: (args: Record<string, unknown>) =>
         args.endpoint === "https://fcm.googleapis.com/fcm/send/second",
     });
     const hook = renderHook(() => useEnableNotifications());
@@ -174,7 +174,7 @@ describe("enable operation ownership", () => {
       replacePushSubscription: replace,
       disablePushSubscription: disable,
       // Pre-replace: unbound. Post-replace: migrated row owns new-key.
-      ownsPushEndpoint: (args: { endpoint: string }) =>
+      ownsPushEndpoint: (args: Record<string, unknown>) =>
         replace.mock.calls.length > 0 &&
         args.endpoint === "https://fcm.googleapis.com/fcm/send/new-key",
     });
