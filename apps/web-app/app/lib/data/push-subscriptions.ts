@@ -119,6 +119,8 @@ async function bindPushSubscription(
   disable: (args: { endpoint: string }) => Promise<unknown>,
   material: PushSubscriptionMaterial,
   previousEndpoint: string | undefined,
+  /** Fires immediately before a unique `enable` claim (not after replace migrate). */
+  onUniqueEnableAttempt?: () => void,
 ) {
   if (previousEndpoint && previousEndpoint !== material.endpoint) {
     const result = await replace({ previousEndpoint, ...material });
@@ -128,10 +130,12 @@ async function bindPushSubscription(
     }
     // Replace refused — enable may still rebind next; drop previous if we own it
     // so remigrate does not leave two rows toward the 10-cap.
+    onUniqueEnableAttempt?.();
     await enable(material);
     await disableOrRememberPending(disable, previousEndpoint);
     return "enable" as const;
   }
+  onUniqueEnableAttempt?.();
   await enable(material);
   return "enable" as const;
 }
@@ -233,18 +237,13 @@ async function enableNotifications(
           const ownedFirst = await probePushEndpointOwnership(owns, binding.endpoint);
           assertCurrentOperation();
           bindAttempted = true;
-          const firstBind = await bindPushSubscription(
-            enable,
-            replace,
-            disable,
-            binding,
-            previousEndpoint,
-          );
-          // Compensate only uniquely created enable binds — replace migrates an
-          // already-owned row onto next and must not tear that row down on fail.
-          if (ownedFirst === false && firstBind === "enable") {
-            toCompensate.add(binding.endpoint);
-          }
+          await bindPushSubscription(enable, replace, disable, binding, previousEndpoint, () => {
+            // Mark before enable awaits so a thrown enable still compensates.
+            // Replace-migrate never calls this.
+            if (ownedFirst === false) {
+              toCompensate.add(binding.endpoint);
+            }
+          });
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
           const live = await getCurrentPushSubscription();
@@ -262,16 +261,11 @@ async function enableNotifications(
             const ownedSecond = await probePushEndpointOwnership(owns, binding.endpoint);
             assertCurrentOperation();
             bindAttempted = true;
-            const secondBind = await bindPushSubscription(
-              enable,
-              replace,
-              disable,
-              binding,
-              previousEndpoint,
-            );
-            if (ownedSecond === false && secondBind === "enable") {
-              toCompensate.add(binding.endpoint);
-            }
+            await bindPushSubscription(enable, replace, disable, binding, previousEndpoint, () => {
+              if (ownedSecond === false) {
+                toCompensate.add(binding.endpoint);
+              }
+            });
             assertCurrentOperation();
             const after = await getCurrentPushSubscription();
             if (!after || after.endpoint !== binding.endpoint) {
