@@ -115,6 +115,7 @@ type OwnsPush = (endpoint: string) => Promise<boolean>;
 async function bindPushSubscription(
   enable: BindPush,
   replace: ReplacePush,
+  disable: (args: { endpoint: string }) => Promise<unknown>,
   material: PushSubscriptionMaterial,
   previousEndpoint: string | undefined,
 ) {
@@ -123,7 +124,11 @@ async function bindPushSubscription(
     if (result?.bound) {
       return;
     }
-    // Previous not owned (or stolen) — explicit enable may still rebind.
+    // Replace refused — enable may still rebind next; drop previous if we own it
+    // so remigrate does not leave two rows toward the 10-cap.
+    await enable(material);
+    await disableOrRememberPending(disable, previousEndpoint);
+    return;
   }
   await enable(material);
 }
@@ -203,7 +208,7 @@ async function enableNotifications(
           assertCurrentOperation();
           ownedBeforeEnable = await owns(binding.endpoint);
           assertCurrentOperation();
-          await bindPushSubscription(enable, replace, binding, previousEndpoint);
+          await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
           const live = await getCurrentPushSubscription();
@@ -222,7 +227,7 @@ async function enableNotifications(
             assertCurrentOperation();
             ownedBeforeEnable = await owns(binding.endpoint);
             assertCurrentOperation();
-            await bindPushSubscription(enable, replace, binding, previousEndpoint);
+            await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
             assertCurrentOperation();
             const after = await getCurrentPushSubscription();
             if (!after || after.endpoint !== binding.endpoint) {

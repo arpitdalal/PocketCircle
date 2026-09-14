@@ -122,7 +122,8 @@ export async function enqueuePushForNotification(
 }
 
 /**
- * Re-enqueue a send after delivery was paused mid-flight. If delivery is now
+ * Re-enqueue a send after delivery was paused mid-flight. Drops jobs whose TTL
+ * is already expired so a long pause does not poll forever. If delivery is now
  * enabled, enqueue immediately; otherwise poll again after a delay.
  */
 export const deferSendWhileDeliveryPaused = internalMutation({
@@ -132,6 +133,18 @@ export const deferSendWhileDeliveryPaused = internalMutation({
     invitationExpiresAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const notification = await ctx.db.get(args.notificationId);
+    if (!notification) {
+      return;
+    }
+    const ttlSeconds = pushTtlSeconds({
+      type: notification.type,
+      nowMs: Date.now(),
+      invitationExpiresAtMs: args.invitationExpiresAtMs,
+    });
+    if (ttlSeconds <= 0) {
+      return;
+    }
     if (isPushDeliveryEnabled()) {
       await enqueueSendOne(ctx, args);
       return;

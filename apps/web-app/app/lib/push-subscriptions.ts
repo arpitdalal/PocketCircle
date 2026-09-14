@@ -495,11 +495,12 @@ export async function registerPushServiceWorker() {
 
 /**
  * Register (if needed), check for a newer push-sw.js, and wait until an active
- * worker controls Push. Call before reconcile so `lastSeenAt` refresh implies
- * the device had a chance to activate the display-capable worker.
+ * worker controls Push. Call before reconcile / enable so `lastSeenAt` refresh
+ * implies the device had a chance to activate the display-capable worker.
  *
- * Fail-closed: a failed `update()` or a successor still installing/waiting
- * after the wait window must not bump `lastSeenAt` (Safari silent-push revoke).
+ * Fail-closed: a failed/timed-out `update()` or a successor still
+ * installing/waiting after the wait window must not bump `lastSeenAt`
+ * (Safari silent-push revoke).
  */
 export async function ensureActivePushServiceWorker() {
   const registration = await resolvePushRegistration();
@@ -509,7 +510,12 @@ export async function ensureActivePushServiceWorker() {
   try {
     // Byte-diff update check — required so an already-active pre-display worker
     // is replaced before we bump lastSeenAt (Safari silent-push revoke).
-    await registration.update();
+    await Promise.race([
+      registration.update(),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("Push service worker update timed out")), 10_000);
+      }),
+    ]);
   } catch {
     return { kind: "update_failed" as const };
   }
@@ -704,12 +710,20 @@ export async function subscribeForPushNotifications(
 ) {
   await permission;
   assertCurrentOperation();
-  const registration = await resolvePushRegistration();
-  if (!registration) {
-    throw new Error("Push service worker is not available");
+  // Same display-SW gate as reconcile: enable/remigrate must not bump lastSeenAt
+  // while a pre-display worker is still active (Safari silent-push revoke).
+  const ensured = await ensureActivePushServiceWorker();
+  if (ensured.kind !== "ready") {
+    throw new Error(
+      ensured.kind === "update_failed"
+        ? "Push service worker update failed"
+        : ensured.kind === "activation_pending"
+          ? "Push service worker is still activating"
+          : "Push service worker is not available",
+    );
   }
   assertCurrentOperation();
-  const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
+  const { subscription, previousEndpoint } = await subscribeWithVapid(ensured.registration, vapid);
   const keys = readSubscriptionKeys(subscription);
   rememberPushEndpoint(keys.endpoint);
   return {

@@ -124,6 +124,44 @@ describe("enable operation ownership", () => {
     expect(enable).not.toHaveBeenCalled();
   });
 
+  it("refuses enable when the display service worker cannot update", async () => {
+    const env = installPushEnv();
+    env.update.mockRejectedValue(new Error("offline"));
+    const enable = vi.fn();
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow(/update failed/);
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it("disables previous endpoint when remigrate replace refuses then enable binds", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const replace = vi.fn().mockResolvedValue({ bound: false });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(replace).toHaveBeenCalled();
+    expect(enable).toHaveBeenCalled();
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+  });
+
   it("subscribes before acquiring the Web Lock so remigrate keeps user activation", async () => {
     const env = installPushEnv({ permission: "granted" });
     const lockOrder: string[] = [];

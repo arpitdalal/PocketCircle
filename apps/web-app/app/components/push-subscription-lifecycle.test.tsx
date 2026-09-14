@@ -47,6 +47,25 @@ afterEach(() => {
 });
 
 describe("PushSubscriptionLifecycle", () => {
+  it("skips reconcile when the display service worker cannot update", async () => {
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
+    const env = installPushEnv({ permission: "granted", subscription: sub });
+    env.update.mockRejectedValue(new Error("offline"));
+    rememberPushEndpoint(sub.endpoint);
+    const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      reconcilePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(env.update).toHaveBeenCalled();
+    });
+    expect(reconcilePushSubscription).not.toHaveBeenCalled();
+  });
+
   it("reconciles a matching live subscription on mount", async () => {
     const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
     installPushEnv({ permission: "granted", subscription: sub });

@@ -180,15 +180,15 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
       });
   const getSubscription =
     options.getSubscription ?? vi.fn().mockImplementation(async () => currentSubscription);
-  const register =
-    options.register ??
-    vi.fn().mockResolvedValue({
-      pushManager: { subscribe, getSubscription },
-      active: {},
-      installing: null,
-      waiting: null,
-      update: vi.fn().mockResolvedValue(undefined),
-    });
+  const update = vi.fn().mockResolvedValue(undefined);
+  const registration = {
+    pushManager: { subscribe, getSubscription },
+    active: {},
+    installing: null,
+    waiting: null,
+    update,
+  };
+  const register = options.register ?? vi.fn().mockResolvedValue(registration);
 
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
@@ -221,20 +221,8 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
       configurable: true,
       value: {
         register,
-        getRegistration: vi.fn().mockResolvedValue({
-          pushManager: { subscribe, getSubscription },
-          active: {},
-          installing: null,
-          waiting: null,
-          update: vi.fn().mockResolvedValue(undefined),
-        }),
-        ready: Promise.resolve({
-          pushManager: { subscribe, getSubscription },
-          active: {},
-          installing: null,
-          waiting: null,
-          update: vi.fn().mockResolvedValue(undefined),
-        }),
+        getRegistration: vi.fn().mockResolvedValue(registration),
+        ready: Promise.resolve(registration),
       },
     });
   } else {
@@ -246,6 +234,8 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     subscribe,
     getSubscription,
     register,
+    registration,
+    update,
     get subscription() {
       return currentSubscription;
     },
