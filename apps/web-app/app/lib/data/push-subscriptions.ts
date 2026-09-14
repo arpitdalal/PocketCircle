@@ -119,16 +119,25 @@ async function enableNotifications(
     if (cancelled()) throw new Error("push enable cancelled");
     assertEnableNotCancelled();
   };
-  // Invoke in the click stack; acquiring a Web Lock crosses a task boundary.
+  // Invoke in the click stack; acquiring a Web Lock crosses a task boundary and
+  // drops user activation (Safari iOS / Firefox). Subscribe before the lock.
   const permission = requestPushNotificationPermission();
   // A busy lock can reject before the permission promise settles.
   void permission.catch(() => undefined);
+  beginPushEnable();
+  let material: PushSubscriptionMaterial;
+  try {
+    assertCurrentOperation();
+    material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
+  } catch (error) {
+    endPushEnable();
+    throw error;
+  }
+
   await withPushSubscriptionLock(async () => {
     if (cancelled()) throw new Error("push enable cancelled");
-    beginPushEnable();
     try {
       assertCurrentOperation();
-      let material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
       /** First bind that recovery abandoned — catch must unbind it too. */
       let abandonedEndpoint: string | undefined;
       try {

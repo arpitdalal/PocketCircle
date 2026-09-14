@@ -133,8 +133,37 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     vi.fn().mockResolvedValue(permission === "denied" ? "denied" : "granted");
   const subscribe =
     options.subscribe ??
-    vi.fn().mockImplementation(async () => {
-      if (!currentSubscription) {
+    vi
+      .fn()
+      .mockImplementation(async (subscribeOptions?: { applicationServerKey?: BufferSource }) => {
+        if (currentSubscription) {
+          const existingKey = currentSubscription.options.applicationServerKey;
+          const requested = subscribeOptions?.applicationServerKey;
+          if (existingKey != null && requested != null) {
+            const existingBytes =
+              existingKey instanceof ArrayBuffer
+                ? new Uint8Array(existingKey)
+                : new Uint8Array(
+                    existingKey.buffer,
+                    existingKey.byteOffset,
+                    existingKey.byteLength,
+                  );
+            const requestedBytes =
+              requested instanceof ArrayBuffer
+                ? new Uint8Array(requested)
+                : new Uint8Array(requested.buffer, requested.byteOffset, requested.byteLength);
+            if (
+              existingBytes.length !== requestedBytes.length ||
+              existingBytes.some((byte, index) => byte !== requestedBytes[index])
+            ) {
+              throw new DOMException(
+                "Registration failed - A subscription with a different applicationServerKey already exists.",
+                "InvalidStateError",
+              );
+            }
+          }
+          return currentSubscription;
+        }
         currentSubscription = trackSubscription(
           makeFakePushSubscription(),
           () => currentSubscription,
@@ -142,9 +171,13 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
             currentSubscription = next;
           },
         );
-      }
-      return currentSubscription;
-    });
+        if (subscribeOptions?.applicationServerKey) {
+          currentSubscription.options = {
+            applicationServerKey: subscribeOptions.applicationServerKey,
+          };
+        }
+        return currentSubscription;
+      });
   const getSubscription =
     options.getSubscription ?? vi.fn().mockImplementation(async () => currentSubscription);
   const register =

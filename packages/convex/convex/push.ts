@@ -19,6 +19,10 @@ import { reportTerminalFailure } from "./terminalFailure.js";
  * Dedicated pool — isolated from email so a slow push provider cannot starve
  * Invitation delivery. Free-plan action ceiling is 20 across ALL pools;
  * email takes 5, push takes 3.
+ *
+ * `PUSH_DELIVERY_ENABLED=1` gates enqueue/send so production can deploy the
+ * display-capable service worker before any silent Push reaches Safari
+ * (which may revoke permission). Unset/other values skip delivery.
  */
 
 export const PUSH_RETRY_BEHAVIOR = {
@@ -32,6 +36,11 @@ export const pushPool = new Workpool(components.pushWorkpool, {
   retryActionsByDefault: true,
   defaultRetryBehavior: PUSH_RETRY_BEHAVIOR,
 });
+
+/** True only when ops explicitly enabled delivery after the display SW is live. */
+export function isPushDeliveryEnabled() {
+  return process.env.PUSH_DELIVERY_ENABLED === "1";
+}
 
 /**
  * After a Notification Center insert: one Push job per active subscription.
@@ -47,6 +56,9 @@ export async function enqueuePushForNotification(
     invitationExpiresAt?: number;
   },
 ) {
+  if (!isPushDeliveryEnabled()) {
+    return;
+  }
   const subscriptions = await listPushSubscriptionsForUser(ctx, args.recipientUserId);
   if (subscriptions.length === 0) {
     return;

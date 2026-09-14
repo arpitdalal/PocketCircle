@@ -11,7 +11,7 @@ import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/push
 import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
 import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
-import { PUSH_RETRY_BEHAVIOR } from "./push.js";
+import { isPushDeliveryEnabled, PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
   createPinnedHttpsAgent,
@@ -59,6 +59,7 @@ function stubVapidEnv(opts?: {
   vi.stubEnv("VAPID_PRIVATE_KEY", opts?.privateKey ?? VAPID_PRIVATE);
   vi.stubEnv("VAPID_SUBJECT", opts?.subject ?? "mailto:push@pocketcircle.test");
   vi.stubEnv("VAPID_KEY_ID", opts?.keyId ?? "primary");
+  vi.stubEnv("PUSH_DELIVERY_ENABLED", "1");
 }
 
 beforeEach(() => {
@@ -211,6 +212,27 @@ describe("createPinnedHttpsAgent", () => {
 });
 
 describe("Push mirror from Notification Center", () => {
+  it("skips enqueue when PUSH_DELIVERY_ENABLED is not 1", async () => {
+    vi.stubEnv("PUSH_DELIVERY_ENABLED", "0");
+    expect(isPushDeliveryEnabled()).toBe(false);
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "circle.restored",
+        title: "Circle restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+    const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
+    expect(rows).toHaveLength(1);
+  });
+
   it("enqueues one send per active subscription with safe copy, tag, TTL, and key", async () => {
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);

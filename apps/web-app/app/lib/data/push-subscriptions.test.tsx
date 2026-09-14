@@ -78,6 +78,29 @@ describe("enable operation ownership", () => {
     expect(disable).not.toHaveBeenCalled();
   });
 
+  it("subscribes before acquiring the Web Lock so remigrate keeps user activation", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const lockOrder: string[] = [];
+    const realRequest = navigator.locks.request.bind(navigator.locks);
+    vi.spyOn(navigator.locks, "request").mockImplementation((name, options, callback) => {
+      lockOrder.push("lock");
+      return realRequest(name, options, callback);
+    });
+    const originalSubscribe = env.subscribe.getMockImplementation();
+    env.subscribe.mockImplementation(async (...args) => {
+      lockOrder.push("subscribe");
+      return originalSubscribe?.(...args);
+    });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: vi.fn().mockResolvedValue(undefined),
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(lockOrder.indexOf("subscribe")).toBeLessThan(lockOrder.indexOf("lock"));
+  });
+
   it("cancels a permission prompt that resolves after sign-out's deadline", async () => {
     vi.useFakeTimers();
     const permission = deferredValue<NotificationPermission>();

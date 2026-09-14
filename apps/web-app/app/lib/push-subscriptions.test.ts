@@ -752,6 +752,30 @@ describe("disableCurrentPushSubscription", () => {
     expect(recalledPendingPushCleanup()).toEqual([sub.endpoint]);
   });
 
+  it("does not unsubscribe an existing sub when subscribe rejects for a non-key reason", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/still-good",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const subscribe = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    installPushEnv({ subscription: sub, subscribe });
+    await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(/Denied|NotAllowedError/);
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(subscribe).toHaveBeenCalledOnce();
+  });
+
+  it("unsubscribes only after InvalidStateError from a conflicting applicationServerKey", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const env = installPushEnv({ subscription: sub });
+    await subscribeForPushNotifications(VAPID);
+    expect(sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(env.subscribe.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(env.subscription?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
+  });
+
   it("removes an endpoint from pending when it becomes active again", () => {
     rememberPushEndpoints([
       "https://fcm.googleapis.com/fcm/send/a",

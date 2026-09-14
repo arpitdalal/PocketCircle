@@ -72,6 +72,9 @@ pnpm --filter @pocketcircle/convex exec convex env set VAPID_PUBLIC_KEY <url-saf
 pnpm --filter @pocketcircle/convex exec convex env set VAPID_PRIVATE_KEY <url-safe-base64-private>
 pnpm --filter @pocketcircle/convex exec convex env set VAPID_SUBJECT mailto:<contact-email>
 pnpm --filter @pocketcircle/convex exec convex env set VAPID_KEY_ID primary
+# Gate Push sends until the display-capable service worker is live (prod deploy
+# toggles this around Cloudflare; set to 1 for local/dev).
+pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 # Optional: log email subject + HTML to the Convex console on every send (also logs when Resend creds are unset)
 pnpm --filter @pocketcircle/convex exec convex env set EMAIL_DEV_LOG 1
 ```

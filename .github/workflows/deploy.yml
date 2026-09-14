@@ -231,6 +231,14 @@ jobs:
       # fails, leave the additive backend deployed and retry the Worker. Old
       # web code remains compatible with the new optional field and unused
       # functions. Breaking Convex changes still use expand-contract releases.
+      #
+      # Push delivery stays off until the Cloudflare assets (display-capable
+      # push-sw.js) are live — silent Push can make Safari revoke permission.
+      - name: Disable Push delivery for rollout
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
+
       - name: Deploy Convex production backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -242,6 +250,11 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
+
+      - name: Enable Push delivery
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 
       - name: Bind MCP Worker production config
         working-directory: packages/mcp-worker

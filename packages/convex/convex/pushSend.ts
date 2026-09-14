@@ -300,6 +300,11 @@ export const sendOne = internalAction({
     invitationExpiresAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Gate here too: Workpool jobs queued before a rollout disable must not
+    // deliver silent Push while the display SW is still rolling out.
+    if (process.env.PUSH_DELIVERY_ENABLED !== "1") {
+      return;
+    }
     const prepared = await ctx.runQuery(internal.push.loadSendPayload, {
       notificationId: args.notificationId,
       subscriptionId: args.subscriptionId,

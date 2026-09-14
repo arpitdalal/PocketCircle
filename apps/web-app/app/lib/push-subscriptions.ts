@@ -605,6 +605,16 @@ function readSubscriptionKeys(subscription: PushSubscription) {
   return { endpoint: subscription.endpoint, p256dh, auth };
 }
 
+function isExistingSubscriptionKeyConflict(error: unknown) {
+  return error instanceof DOMException && error.name === "InvalidStateError";
+}
+
+/**
+ * Subscribe with the current VAPID public key.
+ * Prefer `subscribe()` first so a failed migrate never leaves the device without
+ * Push. Chromium rejects with `InvalidStateError` when a different-key sub
+ * already exists — only then unsubscribe and retry.
+ */
 async function subscribeWithVapid(
   registration: ServiceWorkerRegistration,
   vapid: { publicKey: string; keyId: string },
@@ -613,13 +623,21 @@ async function subscribeWithVapid(
   if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
     return existing;
   }
-  if (existing) {
-    if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
-  }
-  return await registration.pushManager.subscribe({
+  const options = {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
-  });
+  };
+  try {
+    return await registration.pushManager.subscribe(options);
+  } catch (error) {
+    if (!existing || !isExistingSubscriptionKeyConflict(error)) {
+      throw error;
+    }
+    if (!(await existing.unsubscribe())) {
+      throw new Error("Push unsubscribe failed");
+    }
+    return await registration.pushManager.subscribe(options);
+  }
 }
 
 /**

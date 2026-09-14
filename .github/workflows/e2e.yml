@@ -69,6 +69,7 @@ jobs:
           pnpm exec convex env set GOOGLE_CLIENT_ID "ci-dummy"
           pnpm exec convex env set GOOGLE_CLIENT_SECRET "ci-dummy"
           pnpm exec convex env set E2E_TEST_AUTH "1"
+          pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
           pnpm exec convex deploy -y
 
       - name: Install Playwright browsers
