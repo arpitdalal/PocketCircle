@@ -87,14 +87,18 @@ export function PushSubscriptionLifecycle() {
           rememberPushEndpoint(result.staleKeyEndpoint);
           notifyPushSubscriptionChanged();
         } else {
+          // Remember pending cleanup *before* local unsub when ownership is
+          // unknown — cancel/mismatch after a successful drop must not orphan
+          // our server row with neither local sub nor pending handle.
+          if (ownership === "unknown") {
+            recordOrphanLocalDrop(result.staleKeyEndpoint);
+          }
           const dropped = await unsubscribeLocalPushSubscription(
             result.staleKeyEndpoint,
             isCancelled,
           );
           if (isCancelled() || dropped.status === "mismatch") return;
-          if (ownership === "unknown") {
-            recordOrphanLocalDrop(result.staleKeyEndpoint);
-          } else {
+          if (ownership === "foreign") {
             const active = recalledPushEndpoint();
             if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
           }

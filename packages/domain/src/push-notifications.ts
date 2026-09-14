@@ -104,8 +104,10 @@ export function pushTtlSeconds(args: {
     return PUSH_ACTIVITY_TTL_SECONDS;
   }
   const expiresAt = args.invitationExpiresAtMs;
+  // Spec: Invitation Push must not outlive the invitation. Unknown deadline →
+  // skip send (TTL 0) rather than fall back to the 24h activity window.
   if (expiresAt === undefined) {
-    return PUSH_ACTIVITY_TTL_SECONDS;
+    return 0;
   }
   const remainingSeconds = Math.floor((expiresAt - args.nowMs) / 1000);
   if (remainingSeconds <= 0) {

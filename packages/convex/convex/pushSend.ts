@@ -110,10 +110,8 @@ export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
       ? error.code
       : null;
   // Node rejects off-curve p256dh during ECDH without naming "p256dh" in the message.
-  if (
-    code === "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY" ||
-    /not valid for specified curve/i.test(message)
-  ) {
+  // Match the errno only — message-only would false-prune unrelated crypto noise.
+  if (code === "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY") {
     return true;
   }
   // Require an explicit subscription-key token so OpenSSL/VAPID/"crypto" noise
@@ -125,21 +123,15 @@ export function isLikelyInvalidSubscriptionCryptoError(error: unknown) {
   return namesSubscriptionKey && looksLikeEncryptFailure;
 }
 
-/** Permanent DNS failures — prune; do not burn Workpool retries. */
-function isPermanentDnsLookupFailure(cause: unknown) {
-  if (typeof cause !== "object" || cause === null || !("code" in cause)) {
-    return false;
-  }
-  const code = cause.code;
-  return (
-    code === "ENOTFOUND" || code === "EAI_NONAME" || code === "ENODATA" || code === "EAI_NODATA"
-  );
-}
-
 /**
  * Resolve the endpoint host and classify for SSRF / rebinding.
  * Hostname spelling alone is insufficient — DNS may point a public name at RFC1918.
  * Callers must pin `public` addresses into the outbound request (custom Agent lookup).
+ *
+ * All DNS exceptions are `lookup_failed` (Workpool retry). Node documents that
+ * `ENOTFOUND` is not only NXDOMAIN — e.g. no free FDs — so pruning on it would
+ * wipe healthy FCM/Mozilla/Apple bindings under resource pressure. Empty answers
+ * and private/reserved addresses stay `unsafe` (SSRF / unusable).
  */
 export async function resolvePushEndpointAddresses(endpoint: string) {
   if (!isSafePushEndpoint(endpoint)) {
@@ -156,9 +148,6 @@ export async function resolvePushEndpointAddresses(endpoint: string) {
     }
     return { kind: "public" as const, addresses: records };
   } catch (cause) {
-    if (isPermanentDnsLookupFailure(cause)) {
-      return { kind: "unsafe" as const };
-    }
     return { kind: "lookup_failed" as const, cause };
   }
 }

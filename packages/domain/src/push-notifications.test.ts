@@ -57,9 +57,7 @@ describe("push-notifications", () => {
     ).toBe(0);
   });
 
-  it("falls back to 24h when invitation deadline is unknown", () => {
-    expect(pushTtlSeconds({ type: "invitation.revoked", nowMs: 1_000_000 })).toBe(
-      PUSH_ACTIVITY_TTL_SECONDS,
-    );
+  it("skips invitation Push when the deadline is unknown", () => {
+    expect(pushTtlSeconds({ type: "invitation.revoked", nowMs: 1_000_000 })).toBe(0);
   });
 });

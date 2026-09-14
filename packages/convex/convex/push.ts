@@ -64,22 +64,31 @@ export async function enqueuePushForNotification(
   }
 
   for (const subscription of subscriptions) {
-    await pushPool.enqueueAction(
-      ctx,
-      internal.pushSend.sendOne,
-      {
-        notificationId: args.notificationId,
-        subscriptionId: subscription._id,
-        invitationExpiresAtMs,
-      },
-      {
-        onComplete: internal.push.onSendComplete,
-        context: {
+    try {
+      await pushPool.enqueueAction(
+        ctx,
+        internal.pushSend.sendOne,
+        {
           notificationId: args.notificationId,
           subscriptionId: subscription._id,
+          invitationExpiresAtMs,
         },
-      },
-    );
+        {
+          onComplete: internal.push.onSendComplete,
+          context: {
+            notificationId: args.notificationId,
+            subscriptionId: subscription._id,
+          },
+        },
+      );
+    } catch (error) {
+      // Keep fan-out going: one enqueue failure must not strand remaining subs.
+      console.error(
+        "Push enqueue failed for subscription",
+        subscription._id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 }
 

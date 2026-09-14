@@ -129,6 +129,12 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
       code: "ERR_CRYPTO_ECDH_INVALID_PUBLIC_KEY",
     });
     expect(isLikelyInvalidSubscriptionCryptoError(err)).toBe(true);
+    // Message alone must not prune — only the Node errno.
+    expect(
+      isLikelyInvalidSubscriptionCryptoError(
+        new Error("Public key is not valid for specified curve"),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -170,21 +176,13 @@ describe("resolvePushEndpointAddresses", () => {
     });
   });
 
-  it("reports lookup_failed on transient DNS errors instead of unsafe", async () => {
-    const err = Object.assign(new Error("getaddrinfo EAI_AGAIN"), { code: "EAI_AGAIN" });
-    vi.spyOn(dns, "lookup").mockRejectedValue(err);
-    await expect(
-      resolvePushEndpointAddresses("https://push.example-browser.test/wpush/v2/x"),
-    ).resolves.toEqual({ kind: "lookup_failed", cause: err });
-  });
-
-  it("treats permanent DNS name failures as unsafe (prune, do not retry)", async () => {
-    for (const code of ["ENOTFOUND", "EAI_NONAME", "ENODATA", "EAI_NODATA"] as const) {
+  it("reports lookup_failed on DNS errors (including ENOTFOUND) instead of unsafe", async () => {
+    for (const code of ["EAI_AGAIN", "ENOTFOUND", "EAI_NONAME", "ENODATA", "EAI_NODATA"] as const) {
       const err = Object.assign(new Error(`getaddrinfo ${code}`), { code });
       vi.spyOn(dns, "lookup").mockRejectedValue(err);
       await expect(
-        resolvePushEndpointAddresses("https://no-such-push.invalid/wpush/v2/x"),
-      ).resolves.toEqual({ kind: "unsafe" });
+        resolvePushEndpointAddresses("https://push.example-browser.test/wpush/v2/x"),
+      ).resolves.toEqual({ kind: "lookup_failed", cause: err });
     }
   });
 });

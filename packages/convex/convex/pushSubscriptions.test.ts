@@ -101,12 +101,11 @@ describe("pushSubscriptions", () => {
     const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
     signInAs(owner);
     await t.mutation(api.pushSubscriptions.enablePushSubscription, VALID);
-    const before = await t.run(async (ctx) => {
+    await t.run(async (ctx) => {
       const rows = await listPushSubscriptionsForUser(ctx, owner._id);
       const row = rows[0];
       if (!row) throw new Error("missing row");
       await ctx.db.patch(row._id, { lastSeenAt: 1_000 });
-      return row;
     });
 
     const touched = await t.mutation(api.pushSubscriptions.touchPushSubscription, {
@@ -116,7 +115,7 @@ describe("pushSubscriptions", () => {
 
     const after = await t.run((ctx) => listPushSubscriptionsForUser(ctx, owner._id));
     expect(after).toHaveLength(1);
-    expect(after[0]?.lastSeenAt).toBeGreaterThan(before.lastSeenAt);
+    expect(after[0]?.lastSeenAt).toBeGreaterThan(1_000);
     expect(after[0]?.vapidKeyId).toBe("primary");
     expect(after[0]?.p256dh).toBe(VALID.p256dh);
   });
