@@ -15,7 +15,12 @@ import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/push
 import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
 import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
-import { isPushDeliveryEnabled, PUSH_DELIVERY_PAUSE_POLL_MS, PUSH_RETRY_BEHAVIOR } from "./push.js";
+import {
+  isPushDeliveryEnabled,
+  PUSH_DELIVERY_PAUSE_POLL_MS,
+  PUSH_RETRY_BEHAVIOR,
+  pushPool,
+} from "./push.js";
 import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
@@ -573,6 +578,44 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).toHaveBeenCalledTimes(2);
     const remaining = await t.run((ctx) => listPushSubscriptionsForUser(ctx, recipient._id));
     expect(remaining.map((row) => row.endpoint)).toEqual([ENDPOINT_B]);
+  });
+
+  it("isolates enqueue failure — peer subscription still sends", async () => {
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A, ENDPOINT_B]);
+    let enqueues = 0;
+    const realEnqueue = pushPool.enqueueAction.bind(pushPool);
+    const enqueueSpy = vi.spyOn(pushPool, "enqueueAction").mockImplementation(async (...args) => {
+      enqueues += 1;
+      if (enqueues === 1) {
+        throw new Error("workpool enqueue failed");
+      }
+      return realEnqueue(...args);
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.notify.deliverOne, {
+          recipientUserId: recipient._id,
+          actorUserId: owner._id,
+          type: "member.removed",
+          title: "Removed from Circle",
+        }),
+      );
+      expect(mockSendNotification).toHaveBeenCalledOnce();
+      expect(errSpy).toHaveBeenCalledWith(
+        "Push enqueue failed for subscription",
+        expect.anything(),
+        "workpool enqueue failed",
+      );
+      const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
+      expect(rows).toHaveLength(1);
+    } finally {
+      enqueueSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 
   it("skips send when VAPID subject is malformed", async () => {

@@ -240,17 +240,27 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
-          PREV=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>/dev/null || true)
-          PREV=$(printf '%s' "$PREV" | tr -d '[:space:]')
+          set +e
+          ERR=$(mktemp)
+          OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>"$ERR")
+          STATUS=$?
+          set -e
+          PREV=$(printf '%s' "$OUT" | tr -d '[:space:]')
           if [ -n "$PREV" ]; then
             echo "previous_captured=true" >> "$GITHUB_OUTPUT"
             echo "previous=$PREV" >> "$GITHUB_OUTPUT"
-          else
-            # Unset or unreadable — pause as 0 but do not claim a restore value
-            # (restoring unknown as 0 can force-disable a previously enabled prod).
+          elif grep -qi 'not found' "$ERR"; then
+            # Truly unset — pause as 0; no restore value to claim.
             echo "previous_captured=false" >> "$GITHUB_OUTPUT"
             PREV=0
+          else
+            # Auth/transport flake — do not pause without a restore path.
+            echo "convex env get PUSH_DELIVERY_ENABLED failed (status=$STATUS):" >&2
+            cat "$ERR" >&2
+            rm -f "$ERR"
+            exit 1
           fi
+          rm -f "$ERR"
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
 
       - name: Deploy Convex production backend

@@ -123,15 +123,17 @@ async function bindPushSubscription(
   if (previousEndpoint && previousEndpoint !== material.endpoint) {
     const result = await replace({ previousEndpoint, ...material });
     if (result?.bound) {
-      return;
+      // Migrated an already-owned row onto next — not a uniquely created bind.
+      return "replace" as const;
     }
     // Replace refused — enable may still rebind next; drop previous if we own it
     // so remigrate does not leave two rows toward the 10-cap.
     await enable(material);
     await disableOrRememberPending(disable, previousEndpoint);
-    return;
+    return "enable" as const;
   }
   await enable(material);
+  return "enable" as const;
 }
 
 /** One ownership probe: true / false / unknown (query failure — do not compensate). */
@@ -231,8 +233,16 @@ async function enableNotifications(
           const ownedFirst = await probePushEndpointOwnership(owns, binding.endpoint);
           assertCurrentOperation();
           bindAttempted = true;
-          await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
-          if (ownedFirst === false) {
+          const firstBind = await bindPushSubscription(
+            enable,
+            replace,
+            disable,
+            binding,
+            previousEndpoint,
+          );
+          // Compensate only uniquely created enable binds — replace migrates an
+          // already-owned row onto next and must not tear that row down on fail.
+          if (ownedFirst === false && firstBind === "enable") {
             toCompensate.add(binding.endpoint);
           }
           assertCurrentOperation();
@@ -252,8 +262,14 @@ async function enableNotifications(
             const ownedSecond = await probePushEndpointOwnership(owns, binding.endpoint);
             assertCurrentOperation();
             bindAttempted = true;
-            await bindPushSubscription(enable, replace, disable, binding, previousEndpoint);
-            if (ownedSecond === false) {
+            const secondBind = await bindPushSubscription(
+              enable,
+              replace,
+              disable,
+              binding,
+              previousEndpoint,
+            );
+            if (ownedSecond === false && secondBind === "enable") {
               toCompensate.add(binding.endpoint);
             }
             assertCurrentOperation();

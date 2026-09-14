@@ -159,6 +159,44 @@ describe("enable operation ownership", () => {
     });
   });
 
+  it("does not compensate a replace-migrated endpoint when a later step fails", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const env = installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn();
+    const replace = vi.fn().mockResolvedValue({ bound: true });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+      // Pre-replace: unbound. Post-replace: migrated row owns new-key.
+      ownsPushEndpoint: (args: { endpoint: string }) =>
+        replace.mock.calls.length > 0 &&
+        args.endpoint === "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+    // After remigrate subscribe, drop the live sub so enable fails post-replace.
+    const remigrated = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+    remigrated.options = { applicationServerKey: vapidPublicKeyBytes(VAPID.publicKey) };
+    let afterReplace = false;
+    env.subscribe.mockImplementation(async () => {
+      afterReplace = true;
+      env.getSubscription.mockImplementation(async () => (afterReplace ? null : remigrated));
+      return remigrated;
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow();
+    expect(replace).toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+  });
+
   it("uses replacePushSubscription when Chromium forces a VAPID remigrate", async () => {
     const oldSub = makeFakePushSubscription({
       endpoint: "https://fcm.googleapis.com/fcm/send/old-key",

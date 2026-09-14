@@ -435,6 +435,38 @@ describe("pushSubscriptions", () => {
     });
   });
 
+  it("replace consolidate onto an existing next row keeps the previous id", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await t.run((ctx) => makeUser(ctx, "a@example.com", "A"));
+    signInAs(owner);
+    const previousId = await t.run((ctx) =>
+      seedPushSubscription(ctx, {
+        userId: owner._id,
+        endpoint: "https://fcm.googleapis.com/fcm/send/old",
+      }),
+    );
+    const nextId = await t.run((ctx) =>
+      seedPushSubscription(ctx, {
+        userId: owner._id,
+        endpoint: "https://fcm.googleapis.com/fcm/send/new",
+        p256dh: TEST_PUSH_P256DH_ALT,
+        auth: TEST_PUSH_AUTH_ALT,
+      }),
+    );
+    await t.mutation(api.pushSubscriptions.replacePushSubscription, {
+      previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
+      ...VALID,
+      endpoint: "https://fcm.googleapis.com/fcm/send/new",
+    });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(nextId)).toBeNull();
+      const row = await ctx.db.get(previousId);
+      expect(row?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/new");
+      expect(row?.p256dh).toBe(VALID.p256dh);
+      expect(await listPushSubscriptionsForUser(ctx, owner._id)).toHaveLength(1);
+    });
+  });
+
   it("replace refuses a next endpoint owned by another User", async () => {
     const t = convexTest(schema, modules);
     const alice = await t.run((ctx) => makeUser(ctx, "alice@example.com", "Alice"));

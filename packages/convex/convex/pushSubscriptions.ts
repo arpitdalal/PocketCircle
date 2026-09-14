@@ -173,9 +173,11 @@ export const replacePushSubscription = mutation({
     const now = Date.now();
     const versionFields = pushSwVersionPatch(next.pushSwVersion);
     if (nextExisting && nextExisting._id !== previous._id) {
-      // Next endpoint already ours — drop previous; keep next's row id.
-      await ctx.db.delete(previous._id);
-      await ctx.db.patch(nextExisting._id, {
+      // Next endpoint already ours on another row — keep previous._id so
+      // in-flight Workpool jobs still resolve; drop the duplicate next row.
+      await ctx.db.delete(nextExisting._id);
+      await ctx.db.patch(previous._id, {
+        endpoint: next.endpoint,
         p256dh: next.p256dh,
         auth: next.auth,
         vapidKeyId: next.vapidKeyId,
