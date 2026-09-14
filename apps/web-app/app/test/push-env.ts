@@ -1,9 +1,6 @@
-/**
- * Browser-API boundary fakes for Push / Notifications / Permissions / SW
- * tests (issue #381). Stub only at the true boundary — never mock our hooks.
- */
 import { type Mock, vi } from "vitest";
 import { deferredValue } from "~/lib/deferred.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "~/test/push-fixtures.js";
 
 type PushSubFake = {
   endpoint: string;
@@ -26,14 +23,14 @@ type InstallPushEnvOptions = {
   register?: Mock<() => Promise<{ pushManager: { subscribe: Mock; getSubscription: Mock } }>>;
 };
 
-const DEFAULT_ENDPOINT = "https://push.example/test-endpoint";
+const DEFAULT_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-endpoint";
 
 export function makeFakePushSubscription(
   over: Partial<{ endpoint: string; p256dh: string; auth: string }> = {},
 ) {
   const endpoint = over.endpoint ?? DEFAULT_ENDPOINT;
-  const p256dh = over.p256dh ?? "p256dh-test";
-  const auth = over.auth ?? "auth-test";
+  const p256dh = over.p256dh ?? TEST_PUSH_P256DH;
+  const auth = over.auth ?? TEST_PUSH_AUTH;
   return {
     endpoint,
     unsubscribe: vi.fn(async () => true),
@@ -136,8 +133,37 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     vi.fn().mockResolvedValue(permission === "denied" ? "denied" : "granted");
   const subscribe =
     options.subscribe ??
-    vi.fn().mockImplementation(async () => {
-      if (!currentSubscription) {
+    vi
+      .fn()
+      .mockImplementation(async (subscribeOptions?: { applicationServerKey?: BufferSource }) => {
+        if (currentSubscription) {
+          const existingKey = currentSubscription.options.applicationServerKey;
+          const requested = subscribeOptions?.applicationServerKey;
+          if (existingKey != null && requested != null) {
+            const existingBytes =
+              existingKey instanceof ArrayBuffer
+                ? new Uint8Array(existingKey)
+                : new Uint8Array(
+                    existingKey.buffer,
+                    existingKey.byteOffset,
+                    existingKey.byteLength,
+                  );
+            const requestedBytes =
+              requested instanceof ArrayBuffer
+                ? new Uint8Array(requested)
+                : new Uint8Array(requested.buffer, requested.byteOffset, requested.byteLength);
+            if (
+              existingBytes.length !== requestedBytes.length ||
+              existingBytes.some((byte, index) => byte !== requestedBytes[index])
+            ) {
+              throw new DOMException(
+                "Registration failed - A subscription with a different applicationServerKey already exists.",
+                "InvalidStateError",
+              );
+            }
+          }
+          return currentSubscription;
+        }
         currentSubscription = trackSubscription(
           makeFakePushSubscription(),
           () => currentSubscription,
@@ -145,19 +171,39 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
             currentSubscription = next;
           },
         );
-      }
-      return currentSubscription;
-    });
+        if (subscribeOptions?.applicationServerKey) {
+          currentSubscription.options = {
+            applicationServerKey: subscribeOptions.applicationServerKey,
+          };
+        }
+        return currentSubscription;
+      });
   const getSubscription =
     options.getSubscription ?? vi.fn().mockImplementation(async () => currentSubscription);
-  const register =
-    options.register ??
-    vi.fn().mockResolvedValue({
-      pushManager: { subscribe, getSubscription },
-      active: {},
-      installing: null,
-      waiting: null,
-    });
+  const update = vi.fn().mockResolvedValue(undefined);
+  const activeWorker = {
+    postMessage(message: unknown, transfer?: Transferable[]) {
+      const port = transfer?.[0];
+      if (
+        message === "pocketcircle:push-sw-version" &&
+        port &&
+        typeof port === "object" &&
+        "postMessage" in port
+      ) {
+        queueMicrotask(() => {
+          port.postMessage({ version: 1 });
+        });
+      }
+    },
+  };
+  const registration = {
+    pushManager: { subscribe, getSubscription },
+    active: activeWorker,
+    installing: null,
+    waiting: null,
+    update,
+  };
+  const register = options.register ?? vi.fn().mockResolvedValue(registration);
 
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
@@ -190,18 +236,8 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
       configurable: true,
       value: {
         register,
-        getRegistration: vi.fn().mockResolvedValue({
-          pushManager: { subscribe, getSubscription },
-          active: {},
-          installing: null,
-          waiting: null,
-        }),
-        ready: Promise.resolve({
-          pushManager: { subscribe, getSubscription },
-          active: {},
-          installing: null,
-          waiting: null,
-        }),
+        getRegistration: vi.fn().mockResolvedValue(registration),
+        ready: Promise.resolve(registration),
       },
     });
   } else {
@@ -213,6 +249,8 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
     subscribe,
     getSubscription,
     register,
+    registration,
+    update,
     get subscription() {
       return currentSubscription;
     },

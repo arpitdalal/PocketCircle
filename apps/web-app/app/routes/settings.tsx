@@ -1,4 +1,4 @@
-import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
+import { LIMITS, parseProfileUpdate, tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { href, Link } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
@@ -28,8 +28,10 @@ import {
 } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
+  PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
   PUSH_SUBSCRIPTION_CHANGED_EVENT,
   type PushNotificationsUiState,
+  PushRemigrateNeedsGestureError,
   resolvePushNotificationsUiState,
 } from "~/lib/push-subscriptions.js";
 import { type SessionUser, useAppSession } from "~/lib/session.js";
@@ -365,7 +367,7 @@ function NotificationsSettingsCard() {
   useEffect(() => {
     const refresh = () => {
       const requestId = ++refreshGeneration.current;
-      return resolvePushNotificationsUiState()
+      return resolvePushNotificationsUiState(vapid)
         .then((state) => {
           if (requestId === refreshGeneration.current) {
             setUiState(state);
@@ -399,15 +401,34 @@ function NotificationsSettingsCard() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onFocus);
     };
-  }, []);
+  }, [vapid]);
 
   async function refreshState() {
     await refreshRunner.current();
   }
 
-  // Null VAPID: hide enable/onboarding, but keep disable if already subscribed.
+  // Null / undecodable VAPID: hide enable/onboarding, but keep disable if already subscribed.
+  const usableVapid =
+    vapid && tryDecodeVapidKeyBytes(vapid.publicKey)
+      ? vapid
+      : vapid === undefined
+        ? undefined
+        : null;
   const effectiveState =
-    vapid === null ? (uiState === "enabled" ? "enabled" : "unsupported") : uiState;
+    usableVapid === null
+      ? uiState === "enabled" ||
+        uiState === "needs_migration" ||
+        uiState === "needs_remigrate_finish"
+        ? "enabled"
+        : "unsupported"
+      : uiState;
+
+  function notificationsErrorMessage(caught: unknown, fallback: string) {
+    if (caught instanceof PushRemigrateNeedsGestureError) {
+      return PUSH_REMIGRATE_NEEDS_SECOND_GESTURE;
+    }
+    return mutationErrorMessageForUser(caught, fallback);
+  }
 
   async function onToggle(nextEnabled: boolean) {
     if (submitting) {
@@ -430,12 +451,31 @@ function NotificationsSettingsCard() {
       await refreshState();
     } catch (caught) {
       setError(
-        mutationErrorMessageForUser(
+        notificationsErrorMessage(
           caught,
           nextEnabled
             ? "Couldn't enable notifications. Please try again."
             : "Couldn't disable notifications. Please try again.",
         ),
+      );
+      await refreshState();
+    }
+    setSubmitting(false);
+  }
+
+  async function onMigrate() {
+    if (submitting || !vapid) {
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await enableNotifications();
+      show("Notifications updated on this device.");
+      await refreshState();
+    } catch (caught) {
+      setError(
+        notificationsErrorMessage(caught, "Couldn't update notifications. Please try again."),
       );
       await refreshState();
     }
@@ -484,6 +524,42 @@ function NotificationsSettingsCard() {
     );
   }
 
+  if (effectiveState === "needs_migration" || effectiveState === "needs_remigrate_finish") {
+    const finishingSecondTap = effectiveState === "needs_remigrate_finish";
+    return (
+      <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <Field orientation="horizontal">
+          <Switch
+            id="settings-notifications-enabled"
+            checked={!finishingSecondTap}
+            disabled={submitting || finishingSecondTap}
+            aria-labelledby="settings-notifications-enabled-label"
+            onClick={() => {
+              if (!finishingSecondTap) void onToggle(false);
+            }}
+          />
+          <FieldContent>
+            <FieldLabel
+              id="settings-notifications-enabled-label"
+              htmlFor="settings-notifications-enabled"
+            >
+              Enable notifications on this device
+            </FieldLabel>
+            <FieldDescription>
+              {finishingSecondTap
+                ? "Migration started on this device. Tap Update again to finish — required on some browsers after the previous key is removed."
+                : "Still delivering with a previous key. Update this device so it uses the current key — required before the previous key is retired. Some browsers need a second tap after Update starts the migration."}
+            </FieldDescription>
+          </FieldContent>
+        </Field>
+        <Button type="button" disabled={submitting || !vapid} onClick={() => void onMigrate()}>
+          Update notifications on this device
+        </Button>
+        {error ? <FieldError>{error}</FieldError> : null}
+      </div>
+    );
+  }
+
   const enabled = effectiveState === "enabled";
 
   return (
@@ -505,7 +581,7 @@ function NotificationsSettingsCard() {
           </FieldLabel>
           <FieldDescription>
             Registers this device for Push alerts on this browser or installed app—not your other
-            devices. Delivery of Notification Center rows lands in a follow-up.
+            devices.
           </FieldDescription>
         </FieldContent>
       </Field>

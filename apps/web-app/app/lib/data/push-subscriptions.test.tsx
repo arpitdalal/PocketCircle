@@ -6,10 +6,11 @@ import {
   clearLocalPushSubscriptionAndBinding,
   clearRememberedPushEndpoints,
   resetPushOperationState,
+  vapidPublicKeyBytes,
   withPushSubscriptionLock,
 } from "~/lib/push-subscriptions.js";
 import { configureConvex } from "~/test/convex-react.js";
-import { installPushEnv, resetPushEnv } from "~/test/push-env.js";
+import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -26,12 +27,11 @@ afterEach(() => {
 const VAPID = { publicKey: "AQID", keyId: "primary" };
 
 describe("enable operation ownership", () => {
-  it("requests permission in the click stack and excludes competing enable through compensation", async () => {
+  it("requests permission in the click stack and waits for the lock behind a peer enable", async () => {
     const env = installPushEnv();
     const bind = deferredValue<void>();
-    const cleanup = deferredValue<{ removed: boolean }>();
     const enable = vi.fn(() => bind.promise);
-    const disable = vi.fn(() => cleanup.promise);
+    const disable = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
       enablePushSubscription: enable,
@@ -41,23 +41,19 @@ describe("enable operation ownership", () => {
     const secondTab = renderHook(() => useEnableNotifications());
     const first = firstTab.result.current();
     expect(env.requestPermission).toHaveBeenCalledOnce();
-    const failed = expect(first).rejects.toThrow("response lost");
     await waitFor(() => expect(enable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
-    expect(disable).not.toHaveBeenCalled();
-    bind.reject(new Error("response lost"));
-    await waitFor(() => expect(disable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
-    cleanup.resolve({ removed: true });
-    await failed;
-    expect(env.subscription).toBeNull();
-    enable.mockResolvedValue(undefined);
-    await secondTab.result.current();
+    const second = secondTab.result.current();
+    // Second waits on the lock (subscribe-before-lock must not use ifAvailable).
+    expect(enable).toHaveBeenCalledOnce();
+    bind.resolve();
+    await first;
+    await second;
     expect(env.subscription).not.toBeNull();
-    expect(disable).toHaveBeenCalledOnce();
+    expect(disable).not.toHaveBeenCalled();
+    expect(enable.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("does not compensate a rejected competitor when the first enable succeeds", async () => {
+  it("lets a waiting peer enable after the first enable succeeds", async () => {
     const env = installPushEnv();
     const bind = deferredValue<void>();
     const enable = vi.fn(() => bind.promise);
@@ -71,11 +67,241 @@ describe("enable operation ownership", () => {
     const secondTab = renderHook(() => useEnableNotifications());
     const first = firstTab.result.current();
     await waitFor(() => expect(enable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
+    const second = secondTab.result.current();
     bind.resolve();
     await first;
+    await second;
     expect(env.subscription).not.toBeNull();
     expect(disable).not.toHaveBeenCalled();
+    expect(enable.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not unsubscribe a peer-bound endpoint when a later enable fails", async () => {
+    const env = installPushEnv();
+    const enable = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("transport lost"));
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      // After the first enable binds, ownership checks see the endpoint as ours.
+      ownsPushEndpoint: () => enable.mock.calls.length >= 1,
+    });
+    const firstTab = renderHook(() => useEnableNotifications());
+    const secondTab = renderHook(() => useEnableNotifications());
+    await firstTab.result.current();
+    await expect(secondTab.result.current()).rejects.toThrow("transport lost");
+    expect(env.subscription).not.toBeNull();
+    expect(disable).not.toHaveBeenCalled();
+  });
+
+  it("does not compensate when pre-bind ownership lookup fails", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const enable = vi.fn().mockRejectedValue(new Error("transport lost"));
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      ownsPushEndpoint: () => {
+        throw new Error("owns query failed");
+      },
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow("transport lost");
+    expect(enable).toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalled();
+    expect(env.subscription).not.toBeNull();
+  });
+
+  it("compensates the abandoned first endpoint when recovery peer-owns the second", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const first = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/first",
+    });
+    const second = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/second",
+    });
+    let live: ReturnType<typeof makeFakePushSubscription> | null = null;
+    let subscribeCount = 0;
+    env.subscribe.mockImplementation(async () => {
+      subscribeCount += 1;
+      live = subscribeCount === 1 ? first : second;
+      return live;
+    });
+    env.getSubscription.mockImplementation(async () => live);
+    const enable = vi.fn().mockImplementation(async () => {
+      if (enable.mock.calls.length === 1) {
+        // Browser drops the first endpoint before recovery completes.
+        live = null;
+        return;
+      }
+      throw new Error("second bind lost");
+    });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      ownsPushEndpoint: (args: Record<string, unknown>) =>
+        args.endpoint === "https://fcm.googleapis.com/fcm/send/second",
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow("second bind lost");
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/first",
+    });
+    expect(disable).not.toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/second",
+    });
+  });
+
+  it("does not compensate a replace-migrated endpoint when a later step fails", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const env = installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn();
+    const replace = vi.fn().mockResolvedValue({ bound: true });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+      // Pre-replace: unbound. Post-replace: migrated row owns new-key.
+      ownsPushEndpoint: (args: Record<string, unknown>) =>
+        replace.mock.calls.length > 0 &&
+        args.endpoint === "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+    // After remigrate subscribe, drop the live sub so enable fails post-replace.
+    const remigrated = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+    remigrated.options = { applicationServerKey: vapidPublicKeyBytes(VAPID.publicKey) };
+    let afterReplace = false;
+    env.subscribe.mockImplementation(async () => {
+      afterReplace = true;
+      env.getSubscription.mockImplementation(async () => (afterReplace ? null : remigrated));
+      return remigrated;
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow();
+    expect(replace).toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/new-key",
+    });
+  });
+
+  it("uses replacePushSubscription when Chromium forces a VAPID remigrate", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn();
+    const replace = vi.fn().mockResolvedValue({ bound: true });
+    const disable = vi.fn();
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(replace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+        endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
+      }),
+    );
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it("enables when SW update fails but the active worker is already display-capable", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    env.update.mockRejectedValue(new Error("offline"));
+    const enable = vi.fn().mockResolvedValue(undefined);
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(enable).toHaveBeenCalled();
+  });
+
+  it("refuses enable when SW update fails and the worker is not display-capable", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    env.update.mockRejectedValue(new Error("offline"));
+    // No version probe reply — cannot prove display capability before update.
+    env.registration.active = {
+      postMessage() {},
+    };
+    const enable = vi.fn();
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await expect(hook.result.current()).rejects.toThrow(
+      /update failed|not display-capable|not available/,
+    );
+    expect(enable).not.toHaveBeenCalled();
+  });
+
+  it("disables previous endpoint when remigrate replace refuses then enable binds", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const replace = vi.fn().mockResolvedValue({ bound: false });
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(replace).toHaveBeenCalled();
+    expect(enable).toHaveBeenCalled();
+    expect(disable).toHaveBeenCalledWith({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+  });
+
+  it("subscribes before acquiring the Web Lock so remigrate keeps user activation", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const lockOrder: string[] = [];
+    const realRequest = navigator.locks.request.bind(navigator.locks);
+    vi.spyOn(navigator.locks, "request").mockImplementation((name, options, callback) => {
+      lockOrder.push("lock");
+      return realRequest(name, options, callback);
+    });
+    const originalSubscribe = env.subscribe.getMockImplementation();
+    env.subscribe.mockImplementation(async (...args) => {
+      lockOrder.push("subscribe");
+      return originalSubscribe?.(...args);
+    });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: vi.fn().mockResolvedValue(undefined),
+      disablePushSubscription: vi.fn(),
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(lockOrder.indexOf("subscribe")).toBeLessThan(lockOrder.indexOf("lock"));
   });
 
   it("cancels a permission prompt that resolves after sign-out's deadline", async () => {
@@ -102,5 +328,31 @@ describe("enable operation ownership", () => {
     expect(env.subscribe).not.toHaveBeenCalled();
     expect(enable).not.toHaveBeenCalled();
     await withPushSubscriptionLock(async () => {});
+  });
+
+  it("unsubscribes unbound local material when sign-out cancels after subscribe", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const gate = deferredValue<void>();
+    const originalSubscribe = env.subscribe.getMockImplementation();
+    env.subscribe.mockImplementation(async (...args) => {
+      await gate.promise;
+      return originalSubscribe?.(...args);
+    });
+    const enable = vi.fn();
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    const enabling = hook.result.current();
+    await waitFor(() => expect(env.subscribe).toHaveBeenCalledOnce());
+    const release = await clearLocalPushSubscriptionAndBinding(disable);
+    release();
+    gate.resolve();
+    await expect(enabling).rejects.toThrow("push enable cancelled");
+    expect(enable).not.toHaveBeenCalled();
+    expect(env.subscription).toBeNull();
   });
 });

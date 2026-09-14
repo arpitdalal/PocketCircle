@@ -324,6 +324,7 @@ export const createInvitation = mutation({
         actorUserId: access.user._id,
         circle: access.circle,
         invitationId,
+        invitationExpiresAt: now + INVITE_TTL_MS,
       });
     }
   },
@@ -546,6 +547,7 @@ async function acceptPendingInvitationForUser(
     acceptorUserId: user._id,
     acceptorDisplayName: user.displayName,
     circle,
+    invitationExpiresAt: invitation.expiresAt,
   });
 
   return { circleId: circle._id };
@@ -707,6 +709,7 @@ export const resendInvitation = mutation({
         actorUserId: access.user._id,
         circle: access.circle,
         invitationId: args.invitationId,
+        invitationExpiresAt: expiresAt,
       });
     }
   },
@@ -770,6 +773,7 @@ export const revokeInvitation = mutation({
         inviteeUserId: invitee._id,
         actorUserId: access.user._id,
         circleName: access.circle.name,
+        invitationExpiresAt: invitation.expiresAt,
       });
     }
   },

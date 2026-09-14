@@ -137,6 +137,7 @@ log "Configuring test-only auth env + deploying functions"
   pnpm exec convex env set GOOGLE_CLIENT_ID "local-dummy"
   pnpm exec convex env set GOOGLE_CLIENT_SECRET "local-dummy"
   pnpm exec convex env set E2E_TEST_AUTH "1"
+  pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
   pnpm exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_HMAC_SECRET"
   pnpm exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_VERIFYING_JWKS"
   pnpm exec convex deploy -y

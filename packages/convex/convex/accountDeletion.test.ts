@@ -797,15 +797,11 @@ describe("cleanup phases", () => {
       });
       await seedPushSubscription(ctx, {
         userId: deleting.userId,
-        endpoint: "https://push.example/mine",
-        p256dh: "p",
-        auth: "a",
+        endpoint: "https://fcm.googleapis.com/fcm/send/mine",
       });
       await seedPushSubscription(ctx, {
         userId: other._id,
-        endpoint: "https://push.example/theirs",
-        p256dh: "p",
-        auth: "a",
+        endpoint: "https://fcm.googleapis.com/fcm/send/theirs",
       });
       await seedFeedbackEmailEvent(ctx, {
         userId: deleting.userId,

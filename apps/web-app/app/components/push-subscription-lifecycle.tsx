@@ -1,20 +1,23 @@
 import { useEffect, useEffectEvent } from "react";
 import {
   useDisablePushSubscription,
+  useOwnsPushEndpoint,
   usePushVapidPublicKey,
   useReconcilePushSubscription,
   useReplacePushSubscription,
+  useTouchPushSubscription,
 } from "~/lib/data.js";
 import { MOCKS } from "~/lib/env.js";
 import {
   applyPendingCleanupFlushResult,
   capturePushCancellation,
+  ensureActivePushServiceWorker,
+  isPushEnableInProgressForEndpoint,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
   recalledPendingPushCleanup,
   recalledPushEndpoint,
   recordOrphanLocalDrop,
-  registerPushServiceWorker,
   rememberPushEndpoint,
   rememberPushEndpoints,
   unsubscribeLocalPushSubscription,
@@ -27,8 +30,10 @@ export function PushSubscriptionLifecycle() {
   const reconcile = useReconcilePushSubscription();
   const replace = useReplacePushSubscription();
   const disable = useDisablePushSubscription();
+  const ownsPushEndpoint = useOwnsPushEndpoint();
+  const touch = useTouchPushSubscription();
 
-  const runReconcile = useEffectEvent(async (isCancelled: () => boolean) => {
+  const runReconcile = useEffectEvent(async (isCancelled: () => boolean, pushSwVersion: number) => {
     if (!vapid || isCancelled()) return;
 
     const disableEndpoints = async (endpoints: string[]) => {
@@ -46,7 +51,7 @@ export function PushSubscriptionLifecycle() {
       }
     };
 
-    const result = await readPushSubscriptionMaterial(vapid, isCancelled);
+    const result = await readPushSubscriptionMaterial(vapid, isCancelled, pushSwVersion);
     if (isCancelled()) return;
     if (result.unboundEndpoint) {
       const endpoints = result.unboundEndpoints;
@@ -58,6 +63,49 @@ export function PushSubscriptionLifecycle() {
       return;
     }
     if (!result.subscription) {
+      if (result.staleKeyEndpoint) {
+        // Old VAPID key still on the browser. Keep it only when this User owns
+        // the endpoint (dual-key delivery). Fail closed on ownership lookup
+        // errors — drop local so a previous User's sub cannot keep delivering
+        // after switch, but remember pending cleanup so *our* server row is not
+        // orphaned when the lookup was only transiently broken.
+        let ownership: "owned" | "foreign" | "unknown" = "unknown";
+        try {
+          ownership = (await ownsPushEndpoint(result.staleKeyEndpoint)) ? "owned" : "foreign";
+        } catch {
+          ownership = "unknown";
+        }
+        if (isCancelled()) return;
+        if (ownership === "owned") {
+          // Do not reconcile with the current key id — that would break dual-VAPID
+          // send for this row. Only refresh LRU so active devices stay.
+          try {
+            await touch({ endpoint: result.staleKeyEndpoint, pushSwVersion });
+          } catch {
+            // Soft: next focus retries; delivery still works on the old key.
+          }
+          if (isCancelled()) return;
+          rememberPushEndpoint(result.staleKeyEndpoint);
+          notifyPushSubscriptionChanged();
+        } else {
+          // Remember pending cleanup *before* local unsub when ownership is
+          // unknown — cancel/mismatch after a successful drop must not orphan
+          // our server row with neither local sub nor pending handle.
+          if (ownership === "unknown") {
+            recordOrphanLocalDrop(result.staleKeyEndpoint);
+          }
+          const dropped = await unsubscribeLocalPushSubscription(
+            result.staleKeyEndpoint,
+            isCancelled,
+          );
+          if (isCancelled() || dropped.status === "mismatch") return;
+          if (ownership === "foreign") {
+            const active = recalledPushEndpoint();
+            if (active === result.staleKeyEndpoint) rememberPushEndpoint(null);
+          }
+          notifyPushSubscriptionChanged();
+        }
+      }
       await disableEndpoints(recalledPendingPushCleanup());
       return;
     }
@@ -72,6 +120,11 @@ export function PushSubscriptionLifecycle() {
       if (isCancelled()) return;
     }
     if (!outcome?.bound) {
+      // Peer tab may have subscribed under gesture and be waiting on this lock
+      // to bind — do not unsubscribe (Firefox/iOS cannot recover without gesture).
+      if (isPushEnableInProgressForEndpoint(subscription.endpoint)) {
+        return;
+      }
       const dropped = await unsubscribeLocalPushSubscription(subscription.endpoint, isCancelled);
       if (isCancelled() || dropped.status === "mismatch") return;
       recordOrphanLocalDrop(subscription.endpoint);
@@ -93,10 +146,21 @@ export function PushSubscriptionLifecycle() {
       scheduled = true;
       const signOutCancelled = capturePushCancellation();
       const isCancelled = () => abort.signal.aborted || signOutCancelled();
-      void withPushSubscriptionLock(() => runReconcile(isCancelled), {
-        wait: true,
-        signal: abort.signal,
-      })
+      void ensureActivePushServiceWorker()
+        .then((result) => {
+          if (result.kind !== "ready") {
+            scheduled = false;
+            return;
+          }
+          if (isCancelled()) {
+            scheduled = false;
+            return;
+          }
+          return withPushSubscriptionLock(() => runReconcile(isCancelled, result.pushSwVersion), {
+            wait: true,
+            signal: abort.signal,
+          });
+        })
         .catch(() => undefined)
         .finally(() => {
           scheduled = false;
@@ -105,7 +169,7 @@ export function PushSubscriptionLifecycle() {
     const onVisibility = () => {
       if (document.visibilityState === "visible") schedule();
     };
-    void registerPushServiceWorker();
+    // Activate/update the display-capable worker before reconcile bumps lastSeenAt.
     schedule();
     window.addEventListener("focus", schedule);
     document.addEventListener("visibilitychange", onVisibility);

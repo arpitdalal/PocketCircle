@@ -231,6 +231,38 @@ jobs:
       # fails, leave the additive backend deployed and retry the Worker. Old
       # web code remains compatible with the new optional field and unused
       # functions. Breaking Convex changes still use expand-contract releases.
+      #
+      # Push delivery pauses until the Cloudflare assets (display-capable
+      # push-sw.js) are live — silent Push can make Safari revoke permission.
+      # Jobs keep enqueueing; send defers until enabled again.
+      - name: Disable Push delivery for rollout
+        id: push_gate
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set +e
+          ERR=$(mktemp)
+          OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>"$ERR")
+          STATUS=$?
+          set -e
+          PREV=$(printf '%s' "$OUT" | tr -d '[:space:]')
+          if [ -n "$PREV" ]; then
+            echo "previous_captured=true" >> "$GITHUB_OUTPUT"
+            echo "previous=$PREV" >> "$GITHUB_OUTPUT"
+          elif grep -qi 'not found' "$ERR"; then
+            # Truly unset — pause as 0; no restore value to claim.
+            echo "previous_captured=false" >> "$GITHUB_OUTPUT"
+            PREV=0
+          else
+            # Auth/transport flake — do not pause without a restore path.
+            echo "convex env get PUSH_DELIVERY_ENABLED failed (status=$STATUS):" >&2
+            cat "$ERR" >&2
+            rm -f "$ERR"
+            exit 1
+          fi
+          rm -f "$ERR"
+          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
+
       - name: Deploy Convex production backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -243,6 +275,42 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
 
+      - name: Enable Push delivery
+        id: push_enable
+        if: success()
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          # First enable sets a lastSeenAt floor so only devices that open the
+          # app after the display-capable push-sw.js is live receive Push
+          # (Safari silent-push revoke). Later deploys keep a finite >0 floor.
+          set +e
+          SINCE_ERR=$(mktemp)
+          SINCE_OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_SINCE_MS 2>"$SINCE_ERR")
+          SINCE_STATUS=$?
+          set -e
+          SINCE=$(printf '%s' "$SINCE_OUT" | tr -d '[:space:]')
+          if node -e 'const v=Number(process.argv[1]); process.exit(Number.isFinite(v)&&v>0?0:1)' "$SINCE"; then
+            rm -f "$SINCE_ERR"
+          elif [ "$SINCE_STATUS" -ne 0 ] && ! grep -qi 'not found' "$SINCE_ERR"; then
+            # Auth/transport flake — do not overwrite an existing rollout floor.
+            echo "convex env get PUSH_DELIVERY_SINCE_MS failed (status=$SINCE_STATUS):" >&2
+            cat "$SINCE_ERR" >&2
+            rm -f "$SINCE_ERR"
+            exit 1
+          else
+            rm -f "$SINCE_ERR"
+            pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_SINCE_MS "$(node -e 'console.log(Date.now())')"
+          fi
+          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
+
+      - name: Restore Push delivery after failed or cancelled rollout
+        if: (failure() || cancelled()) && steps.push_gate.outputs.previous_captured == 'true' && steps.push_enable.outcome != 'success'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          PREV="${{ steps.push_gate.outputs.previous }}"
+          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED "$PREV"
       - name: Bind MCP Worker production config
         working-directory: packages/mcp-worker
         env:

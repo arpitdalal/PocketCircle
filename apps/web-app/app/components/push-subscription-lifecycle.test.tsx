@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import {
   clearRememberedPushEndpoints,
+  markPushEnableInProgress,
   recalledPendingPushCleanup,
   rememberPushEndpoint,
   rememberPushEndpoints,
@@ -12,6 +13,7 @@ import {
 import { AppTestProviders } from "~/test/app-test-providers.js";
 import { configureConvex, convexReactMock } from "~/test/convex-react.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "~/test/push-fixtures.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -46,8 +48,27 @@ afterEach(() => {
 });
 
 describe("PushSubscriptionLifecycle", () => {
+  it("skips reconcile when the display service worker cannot update", async () => {
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
+    const env = installPushEnv({ permission: "granted", subscription: sub });
+    env.update.mockRejectedValue(new Error("offline"));
+    rememberPushEndpoint(sub.endpoint);
+    const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      reconcilePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(env.update).toHaveBeenCalled();
+    });
+    expect(reconcilePushSubscription).not.toHaveBeenCalled();
+  });
+
   it("reconciles a matching live subscription on mount", async () => {
-    const sub = matchingSub("https://push.example/live");
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
@@ -62,16 +83,17 @@ describe("PushSubscriptionLifecycle", () => {
       expect(reconcilePushSubscription).toHaveBeenCalledWith({
         subscription: {
           endpoint: sub.endpoint,
-          p256dh: "p256dh-test",
-          auth: "auth-test",
+          p256dh: TEST_PUSH_P256DH,
+          auth: TEST_PUSH_AUTH,
           vapidKeyId: VAPID.keyId,
+          pushSwVersion: 1,
         },
       });
     });
   });
 
   it("disables and drops an unbound live subscription", async () => {
-    const sub = matchingSub("https://push.example/orphan");
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/orphan");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: false });
@@ -96,11 +118,33 @@ describe("PushSubscriptionLifecycle", () => {
     expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
   });
 
-  it("retries pending cleanup while an active subscription stays bound", async () => {
-    const sub = matchingSub("https://push.example/live");
+  it("defers orphan drop while a peer tab has enable in progress for the endpoint", async () => {
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/enabling");
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint(sub.endpoint);
-    rememberPushEndpoints(["https://push.example/stale"]);
+    markPushEnableInProgress(sub.endpoint);
+    const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: false });
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: false });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      reconcilePushSubscription,
+      disablePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(reconcilePushSubscription.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
+  });
+
+  it("retries pending cleanup while an active subscription stays bound", async () => {
+    const sub = matchingSub("https://fcm.googleapis.com/fcm/send/live");
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    rememberPushEndpoints(["https://fcm.googleapis.com/fcm/send/stale"]);
     const reconcilePushSubscription = vi.fn().mockResolvedValue({ bound: true });
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
@@ -113,7 +157,7 @@ describe("PushSubscriptionLifecycle", () => {
 
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/stale",
+        endpoint: "https://fcm.googleapis.com/fcm/send/stale",
       });
     });
     await waitFor(() => {
@@ -125,7 +169,7 @@ describe("PushSubscriptionLifecycle", () => {
 
   it("disables the remembered active endpoint when the local subscription is absent", async () => {
     installPushEnv({ permission: "granted", subscription: null });
-    rememberPushEndpoint("https://push.example/absent");
+    rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/absent");
     const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
@@ -137,7 +181,7 @@ describe("PushSubscriptionLifecycle", () => {
 
     await waitFor(() => {
       expect(disablePushSubscription).toHaveBeenCalledWith({
-        endpoint: "https://push.example/absent",
+        endpoint: "https://fcm.googleapis.com/fcm/send/absent",
       });
     });
     await waitFor(() => {
@@ -146,8 +190,8 @@ describe("PushSubscriptionLifecycle", () => {
   });
 
   it("does not clear active remember when orphan drop finds a different live endpoint", async () => {
-    const a = matchingSub("https://push.example/a");
-    const b = matchingSub("https://push.example/b");
+    const a = matchingSub("https://fcm.googleapis.com/fcm/send/a");
+    const b = matchingSub("https://fcm.googleapis.com/fcm/send/b");
     let live: ReturnType<typeof matchingSub> | null = a;
     installPushEnv({
       permission: "granted",
@@ -177,5 +221,95 @@ describe("PushSubscriptionLifecycle", () => {
     expect(a.unsubscribe).not.toHaveBeenCalled();
     expect(b.unsubscribe).not.toHaveBeenCalled();
     expect(recalledPendingPushCleanup()).toEqual([a.endpoint]);
+  });
+
+  it("keeps an owned old-key subscription on VAPID mismatch", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/stale-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    const reconcilePushSubscription = vi.fn();
+    const ownsPushEndpoint = vi.fn().mockReturnValue(true);
+    const touchPushSubscription = vi.fn().mockResolvedValue({ touched: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint,
+      touchPushSubscription,
+      reconcilePushSubscription,
+      disablePushSubscription: vi.fn().mockResolvedValue({ removed: true }),
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(ownsPushEndpoint).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    });
+    await waitFor(() => {
+      expect(touchPushSubscription).toHaveBeenCalledWith({
+        endpoint: sub.endpoint,
+        pushSwVersion: 1,
+      });
+    });
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(reconcilePushSubscription).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBe(sub.endpoint);
+  });
+
+  it("drops a foreign old-key subscription on account switch without server disable", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/foreign-stale",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: false });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint: false,
+      reconcilePushSubscription: vi.fn(),
+      disablePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+    expect(disablePushSubscription).not.toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+  });
+
+  it("fail-closes and queues pending cleanup when ownership lookup errors", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/lookup-fail",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: sub });
+    rememberPushEndpoint(sub.endpoint);
+    const disablePushSubscription = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      ownsPushEndpoint: () => {
+        throw new Error("network");
+      },
+      reconcilePushSubscription: vi.fn(),
+      disablePushSubscription,
+    });
+
+    renderLifecycle();
+
+    await waitFor(() => {
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("pocketcircle.lastPushEndpoint")).toBeNull();
+    });
+    await waitFor(() => {
+      expect(disablePushSubscription).toHaveBeenCalledWith({ endpoint: sub.endpoint });
+    });
   });
 });

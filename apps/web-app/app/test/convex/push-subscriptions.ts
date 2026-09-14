@@ -10,30 +10,37 @@ export interface PushSubscriptionsState {
   pushVapidPublicKey?:
     | PushVapidPublicKey
     | ((args: Record<string, unknown>) => PushVapidPublicKey | undefined);
+  ownsPushEndpoint?: boolean | ((args: Record<string, unknown>) => boolean | undefined);
   enablePushSubscription?: Mock;
   disablePushSubscription?: Mock;
   reconcilePushSubscription?: Mock;
   replacePushSubscription?: Mock;
+  touchPushSubscription?: Mock;
 }
 
 export function pushSubscriptionsDouble(state: PushSubscriptionsState) {
   const {
     pushVapidPublicKey,
+    ownsPushEndpoint,
     enablePushSubscription,
     disablePushSubscription,
     reconcilePushSubscription,
     replacePushSubscription,
+    touchPushSubscription,
   } = state;
   return {
     queries: {
       [getFunctionName(api.pushSubscriptions.getPushVapidPublicKey)]: (args) =>
         pushVapidPublicKey === undefined ? null : resolveWith(pushVapidPublicKey, args),
+      [getFunctionName(api.pushSubscriptions.ownsPushEndpoint)]: (args) =>
+        ownsPushEndpoint === undefined ? false : resolveWith(ownsPushEndpoint, args),
     },
     mutations: {
       [getFunctionName(api.pushSubscriptions.enablePushSubscription)]: enablePushSubscription,
       [getFunctionName(api.pushSubscriptions.disablePushSubscription)]: disablePushSubscription,
       [getFunctionName(api.pushSubscriptions.reconcilePushSubscription)]: reconcilePushSubscription,
       [getFunctionName(api.pushSubscriptions.replacePushSubscription)]: replacePushSubscription,
+      [getFunctionName(api.pushSubscriptions.touchPushSubscription)]: touchPushSubscription,
     },
   } satisfies EntityDouble;
 }

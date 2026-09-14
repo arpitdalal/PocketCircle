@@ -1,7 +1,9 @@
 import {
   DEFAULT_VAPID_KEY_ID,
   isValidPushSubscriptionMaterial,
+  isValidVapidPublicKey,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -16,23 +18,27 @@ import { requireCurrentUser } from "./auth.js";
 
 const INVALID_SUBSCRIPTION = "Invalid push subscription";
 
+/** Expand-contract: parent tabs omit pushSwVersion; new clients send it. */
 const subscriptionFields = {
   endpoint: v.string(),
   p256dh: v.string(),
   auth: v.string(),
   vapidKeyId: v.string(),
+  pushSwVersion: v.optional(v.number()),
 };
 
 /**
  * VAPID public key for client subscribe(). Set `VAPID_PUBLIC_KEY` (URL-safe
- * base64) and optional `VAPID_KEY_ID` (defaults to `"primary"`) via
- * `convex env set`. Private key stays server-only for #382 delivery.
+ * base64 uncompressed P-256) and optional `VAPID_KEY_ID` (defaults to
+ * `"primary"`) via `convex env set`. Malformed values return null so Settings
+ * can still disable an existing local subscription. Private key + subject stay
+ * server-only (`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) for Push delivery (#382).
  */
 export const getPushVapidPublicKey = query({
   args: {},
   handler: async () => {
     const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-    if (!publicKey) {
+    if (!publicKey || !isValidVapidPublicKey(publicKey)) {
       return null;
     }
     const keyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
@@ -70,6 +76,49 @@ export const disablePushSubscription = mutation({
 });
 
 /**
+ * True when the current User owns this Push endpoint. Used on VAPID mismatch
+ * during reconcile: drop a foreign old-key local subscription without disabling
+ * another User's server row.
+ */
+export const ownsPushEndpoint = query({
+  args: { endpoint: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const existing = await findByEndpoint(ctx, args.endpoint);
+    return existing?.userId === user._id;
+  },
+});
+
+/**
+ * Bump lastSeenAt for an owned endpoint without changing keys / vapidKeyId.
+ * Owned old-key subscriptions skip reconcile (would write the new key id) but
+ * still need LRU freshness so active devices are not evicted at the ten-cap.
+ */
+export const touchPushSubscription = mutation({
+  args: {
+    endpoint: v.string(),
+    /** Expand-contract: omitted by parent tabs — no touch without display proof. */
+    pushSwVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const existing = await findByEndpoint(ctx, args.endpoint);
+    if (!existing || existing.userId !== user._id) {
+      return { touched: false };
+    }
+    const pushSwVersion = displayCapablePushSwVersion(args.pushSwVersion);
+    if (pushSwVersion === undefined) {
+      return { touched: false };
+    }
+    await ctx.db.patch(existing._id, {
+      lastSeenAt: Date.now(),
+      pushSwVersion,
+    });
+    return { touched: true };
+  },
+});
+
+/**
  * Startup/focus reconcile: refresh lastSeenAt / keys only when this User already
  * owns the endpoint. Never steals another User's binding and never auto-creates
  * a first binding — that requires explicit enable (#381 / research §7).
@@ -94,6 +143,8 @@ export const reconcilePushSubscription = mutation({
       auth: args.subscription.auth,
       vapidKeyId: args.subscription.vapidKeyId,
       lastSeenAt: Date.now(),
+      // Preserve an existing display version when a parent tab omits the field.
+      ...pushSwVersionPatch(args.subscription.pushSwVersion),
     });
     return { bound: true };
   },
@@ -121,17 +172,57 @@ export const replacePushSubscription = mutation({
     if (nextExisting && nextExisting.userId !== user._id) {
       return { bound: false };
     }
-    await ctx.db.delete(previous._id);
-    await bindPushSubscription(ctx, user._id, next);
+    const now = Date.now();
+    const versionFields = pushSwVersionPatch(next.pushSwVersion);
+    if (nextExisting && nextExisting._id !== previous._id) {
+      // Next endpoint already ours on another row — keep previous._id so
+      // in-flight Workpool jobs still resolve; drop the duplicate next row.
+      await ctx.db.delete(nextExisting._id);
+      await ctx.db.patch(previous._id, {
+        endpoint: next.endpoint,
+        p256dh: next.p256dh,
+        auth: next.auth,
+        vapidKeyId: next.vapidKeyId,
+        lastSeenAt: now,
+        ...versionFields,
+      });
+      return { bound: true };
+    }
+    // Same-user endpoint refresh / VAPID remigrate: patch in place so in-flight
+    // Push jobs keyed by subscriptionId still resolve to this device.
+    await ctx.db.patch(previous._id, {
+      endpoint: next.endpoint,
+      p256dh: next.p256dh,
+      auth: next.auth,
+      vapidKeyId: next.vapidKeyId,
+      lastSeenAt: now,
+      ...versionFields,
+    });
     return { bound: true };
   },
 });
 
-/** Delete by endpoint after permanent push-service failure (#382). */
+/**
+ * Delete after permanent push-service / crypto failure (#382). Only removes the
+ * row when id + endpoint + keys still match the failed send snapshot — a
+ * concurrent reconcile/rebind that refreshed material is left alone.
+ */
 export const removeInvalidPushSubscription = internalMutation({
-  args: { endpoint: v.string() },
+  args: {
+    subscriptionId: v.id("pushSubscriptions"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+  },
   handler: async (ctx, args) => {
-    await deletePushSubscriptionByEndpoint(ctx, args.endpoint);
+    const row = await ctx.db.get(args.subscriptionId);
+    if (!row) {
+      return;
+    }
+    if (row.endpoint !== args.endpoint || row.p256dh !== args.p256dh || row.auth !== args.auth) {
+      return;
+    }
+    await ctx.db.delete(row._id);
   },
 });
 
@@ -158,10 +249,36 @@ function assertValidSubscription(input: {
   p256dh: string;
   auth: string;
   vapidKeyId: string;
+  pushSwVersion?: number;
 }) {
+  // Endpoint/keys only — pushSwVersion is optional (expand-contract). Delivery
+  // eligibility still requires a display-capable version on the stored row.
   if (!isValidPushSubscriptionMaterial(input)) {
     throw new Error(INVALID_SUBSCRIPTION);
   }
+}
+
+/** Display-capable version only; omit/low → undefined (no eligibility grant). */
+function displayCapablePushSwVersion(pushSwVersion: number | undefined) {
+  if (pushSwVersion === undefined || pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return undefined;
+  }
+  return pushSwVersion;
+}
+
+/**
+ * Expand-contract patch: omitted field preserves stored eligibility; an
+ * explicit low/zero report clears it so delivery cannot keep using a stale
+ * display-capable version.
+ */
+function pushSwVersionPatch(pushSwVersion: number | undefined) {
+  if (pushSwVersion === undefined) {
+    return {};
+  }
+  if (pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return { pushSwVersion: undefined };
+  }
+  return { pushSwVersion };
 }
 
 async function findByEndpoint(ctx: QueryCtx | MutationCtx, endpoint: string) {
@@ -223,8 +340,12 @@ async function bindPushSubscription(
     p256dh: string;
     auth: string;
     vapidKeyId: string;
+    pushSwVersion?: number;
   },
 ) {
+  // Missing/low version: still bind (parent-tab expand-contract) but do not
+  // write a display-capable pushSwVersion — eligibility stays closed.
+  const versionFields = pushSwVersionPatch(args.pushSwVersion);
   await pruneInvalidSubscriptionsForUser(ctx, userId);
   const now = Date.now();
   const existing = await findByEndpoint(ctx, args.endpoint);
@@ -236,17 +357,24 @@ async function bindPushSubscription(
         auth: args.auth,
         vapidKeyId: args.vapidKeyId,
         lastSeenAt: now,
+        ...versionFields,
       });
       return;
     }
-    // Rebind from another User — counts toward this User's cap.
+    // Rebind from another User — counts toward this User's cap. Replace the
+    // row so we never inherit the prior owner's pushSwVersion (parent-tab
+    // omit must not grant delivery eligibility).
     await makeRoomForOneSubscription(ctx, userId);
-    await ctx.db.patch(existing._id, {
+    await ctx.db.delete(existing._id);
+    await ctx.db.insert("pushSubscriptions", {
       userId,
+      endpoint: args.endpoint,
       p256dh: args.p256dh,
       auth: args.auth,
       vapidKeyId: args.vapidKeyId,
+      createdAt: now,
       lastSeenAt: now,
+      ...versionFields,
     });
     return;
   }
@@ -260,5 +388,6 @@ async function bindPushSubscription(
     vapidKeyId: args.vapidKeyId,
     createdAt: now,
     lastSeenAt: now,
+    ...versionFields,
   });
 }

@@ -2,6 +2,7 @@
  * Per-device Push subscription lifecycle (#381). Browser APIs only — Convex
  * mutations live in `~/lib/data/push-subscriptions.ts`. Never log endpoints.
  */
+import { PUSH_DISPLAY_SW_VERSION, tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { isInstalledWebApp, isIosDevice } from "~/components/pwa-install.js";
 import { track } from "~/lib/analytics.js";
 import { deferredValue } from "~/lib/deferred.js";
@@ -199,6 +200,7 @@ export function recalledPushEndpoint() {
 let pushEnableInFlight = 0;
 let pushCancellationGeneration = 0;
 const pushSignOutGuardHeartbeats = new Set<number>();
+const pushEnableInProgressHeartbeats = new Set<number>();
 
 /** Sign-out sets this so an in-flight enable aborts before/after bind. */
 let pushEnableCancelRequested = false;
@@ -208,8 +210,11 @@ let pushSignOutCleanupInProgress = 0;
 const PUSH_CANCEL_GENERATION_KEY = "pocketcircle.pushCancelGeneration";
 const PUSH_ENABLE_CANCEL_KEY = "pocketcircle.pushEnableCancel";
 const PUSH_SIGNOUT_CLEANUP_PREFIX = "pocketcircle.pushSignOutCleanup.";
+/** Cross-tab: pre-lock enable subscribe — reconcile must not orphan it. */
+const PUSH_ENABLE_IN_PROGRESS_PREFIX = "pocketcircle.pushEnableInProgress.";
 /** Crash recovery — stuck marks/cancel must not block enable forever. */
 const PUSH_SIGNOUT_CLEANUP_TTL_MS = 60_000;
+const PUSH_ENABLE_IN_PROGRESS_TTL_MS = 60_000;
 
 function sweepExpiredSignOutCleanupMarks() {
   try {
@@ -285,6 +290,152 @@ function unmarkPushSignOutCleanup(id: string) {
   } catch {
     // ignore
   }
+}
+
+function sweepExpiredPushEnableInProgressMarks() {
+  try {
+    const now = Date.now();
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)) {
+        continue;
+      }
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        stale.push(key);
+        continue;
+      }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          !("at" in parsed) ||
+          typeof parsed.at !== "number" ||
+          !Number.isFinite(parsed.at) ||
+          now - parsed.at > PUSH_ENABLE_IN_PROGRESS_TTL_MS
+        ) {
+          stale.push(key);
+        }
+      } catch {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Mark enable in progress (optionally before subscribe has an endpoint) so
+ * peer-tab reconcile does not unsubscribe a pre-lock sub (Firefox/iOS cannot
+ * recover subscribe without a fresh gesture).
+ */
+export function markPushEnableInProgress(endpoint?: string) {
+  const id = pushCoordinationToken();
+  try {
+    window.localStorage.setItem(
+      `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`,
+      JSON.stringify({ endpoint: endpoint ?? null, at: Date.now() }),
+    );
+  } catch {
+    // ignore
+  }
+  return id;
+}
+
+export function setPushEnableInProgressEndpoint(id: string, endpoint: string) {
+  try {
+    const key = `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`;
+    if (window.localStorage.getItem(key) == null) {
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify({ endpoint, at: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+export function touchPushEnableInProgress(id: string) {
+  try {
+    const key = `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    const endpoint =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "endpoint" in parsed &&
+      typeof parsed.endpoint === "string"
+        ? parsed.endpoint
+        : null;
+    window.localStorage.setItem(key, JSON.stringify({ endpoint, at: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+/** Keep the cross-tab mark alive while enable waits on the lock / network. */
+export function startPushEnableInProgressHeartbeat(id: string) {
+  const heartbeat = window.setInterval(() => touchPushEnableInProgress(id), 15_000);
+  pushEnableInProgressHeartbeats.add(heartbeat);
+  return heartbeat;
+}
+
+export function stopPushEnableInProgressHeartbeat(heartbeat: number) {
+  window.clearInterval(heartbeat);
+  pushEnableInProgressHeartbeats.delete(heartbeat);
+}
+
+export function clearPushEnableInProgress(id: string | null | undefined) {
+  if (!id) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(`${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * True when this/other tab is mid-enable for `endpoint`, or still pre-subscribe
+ * (endpoint not yet known — protects the subscribe→mark race).
+ */
+export function isPushEnableInProgressForEndpoint(endpoint: string) {
+  sweepExpiredPushEnableInProgressMarks();
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)) {
+        continue;
+      }
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        continue;
+      }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== "object" || parsed === null || !("endpoint" in parsed)) {
+          continue;
+        }
+        if (parsed.endpoint === endpoint || parsed.endpoint == null) {
+          return true;
+        }
+      } catch {
+        // ignore bad mark
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 /** Captures cancellation even if a later explicit enable clears the sign-out flag. */
@@ -375,12 +526,24 @@ export function resetPushOperationState() {
   pushSignOutCleanupInProgress = 0;
   for (const timer of pushSignOutGuardHeartbeats) window.clearInterval(timer);
   pushSignOutGuardHeartbeats.clear();
+  for (const timer of pushEnableInProgressHeartbeats) window.clearInterval(timer);
+  pushEnableInProgressHeartbeats.clear();
   try {
     window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
     const keys = Object.keys(window.localStorage);
     for (const key of keys) {
-      if (key.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX)) window.localStorage.removeItem(key);
+      if (
+        key.startsWith(PUSH_SIGNOUT_CLEANUP_PREFIX) ||
+        key.startsWith(PUSH_ENABLE_IN_PROGRESS_PREFIX)
+      ) {
+        window.localStorage.removeItem(key);
+      }
     }
+  } catch {
+    // Restricted storage.
+  }
+  try {
+    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
   } catch {
     // Restricted storage.
   }
@@ -391,13 +554,17 @@ export type PushNotificationsUiState =
   | "needs_install"
   | "blocked"
   | "default"
-  | "enabled";
+  | "enabled"
+  | "needs_migration"
+  /** Remigrate unsub done; second Settings tap must finish subscribe. */
+  | "needs_remigrate_finish";
 
 export type PushSubscriptionMaterial = {
   endpoint: string;
   p256dh: string;
   auth: string;
   vapidKeyId: string;
+  pushSwVersion: number;
 };
 
 function hasSecureContext() {
@@ -458,13 +625,46 @@ export function iosVersionFromUserAgent(userAgent: string) {
   return null;
 }
 
-export async function resolvePushNotificationsUiState() {
+export async function resolvePushNotificationsUiState(
+  vapid?: {
+    publicKey: string;
+    keyId?: string;
+  } | null,
+) {
   const capability = resolvePushNotificationsCapability();
   if (capability !== "default") {
     return capability;
   }
   const sub = await getCurrentPushSubscription();
-  return sub ? ("enabled" as const) : ("default" as const);
+  // Malformed keys (atob fails): treat like unavailable VAPID so an existing
+  // local sub still surfaces as enabled (disable stays available).
+  const usableVapid =
+    vapid && tryDecodeVapidKeyBytes(vapid.publicKey)
+      ? vapid
+      : vapid === undefined
+        ? undefined
+        : null;
+  // Matching current-key sub means remigrate finished (possibly on another tab)
+  // — consume a stale arm so Settings does not stick on needs_remigrate_finish.
+  if (sub && usableVapid && applicationServerKeyMatches(sub, usableVapid.publicKey)) {
+    if (usableVapid.keyId) {
+      clearPushRemigrateArm();
+    }
+    return "enabled" as const;
+  }
+  if (usableVapid?.keyId && peekPushRemigrateArm(usableVapid.keyId)) {
+    return "needs_remigrate_finish" as const;
+  }
+  if (!sub) {
+    return "default" as const;
+  }
+  // Local sub still on a previous VAPID key — still delivering via dual-key
+  // env, but Settings must offer a gesture-driven remigrate (auto remigrate
+  // is not gesture-safe on Firefox/iOS).
+  if (usableVapid && !applicationServerKeyMatches(sub, usableVapid.publicKey)) {
+    return "needs_migration" as const;
+  }
+  return "enabled" as const;
 }
 
 /** Register Push SW outside mock env (MSW owns the root scope under MOCKS). */
@@ -484,21 +684,87 @@ export async function registerPushServiceWorker() {
 }
 
 /**
+ * Register (if needed), check for a newer push-sw.js, and wait until an active
+ * worker controls Push. Call before reconcile / enable so `lastSeenAt` refresh
+ * implies the device had a chance to activate the display-capable worker.
+ *
+ * Fail-closed: a failed/timed-out `update()` or a successor still
+ * installing/waiting after the wait window must not bump `lastSeenAt`
+ * (Safari silent-push revoke).
+ */
+export async function ensureActivePushServiceWorker() {
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    return { kind: "unavailable" as const };
+  }
+  try {
+    // Byte-diff update check — required so an already-active pre-display worker
+    // is replaced before we bump lastSeenAt (Safari silent-push revoke).
+    await Promise.race([
+      registration.update(),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("Push service worker update timed out")), 10_000);
+      }),
+    ]);
+  } catch {
+    return { kind: "update_failed" as const };
+  }
+  const ready = await waitForActiveServiceWorker(registration);
+  if (!ready?.active) {
+    return { kind: "activation_pending" as const };
+  }
+  if (ready.installing || ready.waiting) {
+    return { kind: "activation_pending" as const };
+  }
+  const pushSwVersion = await probePushSwVersion(ready);
+  if (pushSwVersion === null || pushSwVersion < PUSH_DISPLAY_SW_VERSION) {
+    return { kind: "pre_display" as const };
+  }
+  return { kind: "ready" as const, registration: ready, pushSwVersion };
+}
+
+/** Ask the active worker for its display-capable version (MessageChannel). */
+function probePushSwVersion(registration: ServiceWorkerRegistration) {
+  const worker = registration.active;
+  if (!worker) {
+    return Promise.resolve(null);
+  }
+  return new Promise<number | null>((resolve) => {
+    const channel = new MessageChannel();
+    const finish = (version: number | null) => {
+      window.clearTimeout(timer);
+      channel.port1.onmessage = null;
+      resolve(version);
+    };
+    const timer = window.setTimeout(() => finish(null), 2_000);
+    channel.port1.onmessage = (event) => {
+      const version = event.data?.version;
+      finish(typeof version === "number" && Number.isFinite(version) ? version : null);
+    };
+    try {
+      worker.postMessage("pocketcircle:push-sw-version", [channel.port2]);
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+/**
  * Prefer an existing registration over `ready` (which can hang forever when
  * registration never succeeds). Wait until the worker is active before
  * returning — `pushManager.subscribe` requires an active worker.
+ * Also waits out an installing/waiting successor after `registration.update()`.
+ * Returns null when a successor is still pending after the timeout (fail closed).
  */
 async function waitForActiveServiceWorker(
   registration: ServiceWorkerRegistration,
   timeoutMs = 10_000,
 ) {
-  if (registration.active) {
-    return registration;
-  }
   const candidate = registration.installing ?? registration.waiting;
   if (!candidate) {
-    return null;
+    return registration.active ? registration : null;
   }
+  let timedOut = false;
   await new Promise<void>((resolve) => {
     const finish = () => {
       window.clearTimeout(timer);
@@ -506,13 +772,18 @@ async function waitForActiveServiceWorker(
       resolve();
     };
     const onStateChange = () => {
-      if (registration.active || candidate.state === "activated" || candidate.state === "redundant")
-        finish();
+      if (candidate.state === "activated" || candidate.state === "redundant") finish();
     };
-    const timer = window.setTimeout(finish, timeoutMs);
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      finish();
+    }, timeoutMs);
     candidate.addEventListener("statechange", onStateChange);
     onStateChange();
   });
+  if (timedOut && (registration.installing || registration.waiting)) {
+    return null;
+  }
   return registration.active ? registration : null;
 }
 
@@ -548,14 +819,11 @@ export async function getCurrentPushSubscription() {
 }
 
 function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const output = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) {
-    output[i] = raw.charCodeAt(i);
+  const bytes = tryDecodeVapidKeyBytes(base64String);
+  if (!bytes) {
+    throw new Error("Invalid VAPID public key");
   }
-  return output;
+  return bytes;
 }
 
 /** Test/fixture helper — same decoder production uses for VAPID public keys. */
@@ -576,13 +844,17 @@ function uint8ArraysEqual(a: Uint8Array, b: Uint8Array) {
 }
 
 function applicationServerKeyMatches(subscription: PushSubscription, publicKey: string) {
+  const expected = tryDecodeVapidKeyBytes(publicKey);
+  if (!expected) {
+    return false;
+  }
   const existing = subscription.options.applicationServerKey;
   if (existing == null) {
     return false;
   }
   const actual =
     existing instanceof ArrayBuffer ? new Uint8Array(existing) : new Uint8Array(existing);
-  return uint8ArraysEqual(actual, urlBase64ToUint8Array(publicKey));
+  return uint8ArraysEqual(actual, expected);
 }
 
 function readSubscriptionKeys(subscription: PushSubscription) {
@@ -595,21 +867,172 @@ function readSubscriptionKeys(subscription: PushSubscription) {
   return { endpoint: subscription.endpoint, p256dh, auth };
 }
 
+function isPushSubscribeActivationLost(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "NotAllowedError" || error.name === "AbortError")
+  );
+}
+
+/** Second-gesture arm after remigrate unsub when subscribe lost user activation. */
+const PUSH_REMIGRATE_ARM_KEY = "pocketcircle.pushRemigrateArm";
+
+export const PUSH_REMIGRATE_NEEDS_SECOND_GESTURE =
+  "Tap Update again to finish notification migration";
+
+export class PushRemigrateNeedsGestureError extends Error {
+  constructor() {
+    super(PUSH_REMIGRATE_NEEDS_SECOND_GESTURE);
+    this.name = "PushRemigrateNeedsGestureError";
+  }
+}
+
+function armPushRemigrateSubscribe(arm: { previousEndpoint: string; vapidKeyId: string }) {
+  try {
+    window.sessionStorage.setItem(PUSH_REMIGRATE_ARM_KEY, JSON.stringify(arm));
+  } catch {
+    // Storage restricted — caller still threw; user can enable fresh.
+  }
+}
+
+function clearPushRemigrateArm() {
+  try {
+    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
+  } catch {
+    // Restricted storage.
+  }
+}
+
+function parsePushRemigrateArm(vapidKeyId: string) {
+  try {
+    const raw = window.sessionStorage.getItem(PUSH_REMIGRATE_ARM_KEY);
+    if (!raw) {
+      return undefined;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("previousEndpoint" in parsed) ||
+      !("vapidKeyId" in parsed) ||
+      typeof parsed.previousEndpoint !== "string" ||
+      typeof parsed.vapidKeyId !== "string"
+    ) {
+      return undefined;
+    }
+    if (parsed.vapidKeyId !== vapidKeyId) {
+      return undefined;
+    }
+    return { previousEndpoint: parsed.previousEndpoint, vapidKeyId: parsed.vapidKeyId };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Peek only — clear after subscribe succeeds so a failed second tap stays armed. */
+function peekPushRemigrateArm(vapidKeyId: string) {
+  return parsePushRemigrateArm(vapidKeyId);
+}
+
+async function remigrateUnsubThenSubscribe(
+  existing: PushSubscription,
+  options: PushSubscriptionOptionsInit,
+  vapid: { publicKey: string; keyId: string },
+  registration: ServiceWorkerRegistration,
+) {
+  const previousEndpoint = existing.endpoint;
+  if (!(await existing.unsubscribe())) {
+    throw new Error("Push unsubscribe failed");
+  }
+  // Replacement subscribe may fail — keep the old endpoint as pending cleanup
+  // so lifecycle/disable can remove the server row (avoid dual rows / enable-only bind).
+  rememberPushEndpoints([
+    ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== previousEndpoint),
+    previousEndpoint,
+  ]);
+  try {
+    const active = recalledPushEndpoint();
+    if (active === previousEndpoint) {
+      rememberPushEndpoint(null);
+    }
+  } catch {
+    // Storage restricted.
+  }
+  try {
+    return {
+      subscription: await registration.pushManager.subscribe(options),
+      previousEndpoint,
+    };
+  } catch (error) {
+    // Firefox / iOS: unsubscribe awaits drop user activation — arm a second
+    // Settings tap so subscribe runs under a fresh gesture (research §Hard
+    // platform constraints). Chromium usually succeeds in one gesture.
+    if (isPushSubscribeActivationLost(error)) {
+      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
+      throw new PushRemigrateNeedsGestureError();
+    }
+    throw error;
+  }
+}
+
+/**
+ * Subscribe with the current VAPID public key.
+ * Prefer matching existing sub. On key conflict, unsubscribe then subscribe —
+ * when the second subscribe loses user activation, arm for a fresh gesture
+ * instead of leaving the device without a recoverable remigrate path.
+ * When a different-key sub is replaced, returns `previousEndpoint` so the
+ * caller can `replacePushSubscription` (avoid LRU eviction at the 10-cap).
+ */
 async function subscribeWithVapid(
   registration: ServiceWorkerRegistration,
   vapid: { publicKey: string; keyId: string },
 ) {
   const existing = await registration.pushManager.getSubscription();
   if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
-    return existing;
+    // Peer/other tab already remigrated — consume arm and surface previous
+    // endpoint so bind can replace the server row when needed.
+    const arm = peekPushRemigrateArm(vapid.keyId);
+    if (arm) {
+      clearPushRemigrateArm();
+      return {
+        subscription: existing,
+        previousEndpoint:
+          arm.previousEndpoint !== existing.endpoint ? arm.previousEndpoint : undefined,
+      };
+    }
+    return { subscription: existing, previousEndpoint: undefined };
   }
-  if (existing) {
-    if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
-  }
-  return await registration.pushManager.subscribe({
+  const options = {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
-  });
+  };
+
+  // Second Settings tap after arm: old sub already gone.
+  if (!existing) {
+    const arm = peekPushRemigrateArm(vapid.keyId);
+    if (arm) {
+      try {
+        const subscription = await registration.pushManager.subscribe(options);
+        clearPushRemigrateArm();
+        return {
+          subscription,
+          previousEndpoint: arm.previousEndpoint,
+        };
+      } catch (error) {
+        if (isPushSubscribeActivationLost(error)) {
+          throw new PushRemigrateNeedsGestureError();
+        }
+        throw error;
+      }
+    }
+    return {
+      subscription: await registration.pushManager.subscribe(options),
+      previousEndpoint: undefined,
+    };
+  }
+
+  // Key mismatch (or missing applicationServerKey) — remigrate.
+  return remigrateUnsubThenSubscribe(existing, options, vapid, registration);
 }
 
 /**
@@ -628,22 +1051,143 @@ export function requestPushNotificationPermission() {
   });
 }
 
+function ensuredFailureMessage(
+  kind: "unavailable" | "update_failed" | "activation_pending" | "pre_display",
+) {
+  return kind === "update_failed"
+    ? "Push service worker update failed"
+    : kind === "activation_pending"
+      ? "Push service worker is still activating"
+      : kind === "pre_display"
+        ? "Push service worker is not display-capable"
+        : "Push service worker is not available";
+}
+
+/**
+ * Probe whether the active worker is already display-capable without waiting
+ * on `registration.update()` (which burns user activation on Firefox/iOS).
+ */
+async function probeDisplayCapablePushSw(registration: ServiceWorkerRegistration) {
+  if (!registration.active || registration.installing || registration.waiting) {
+    return null;
+  }
+  const version = await probePushSwVersion(registration);
+  if (version === null || version < PUSH_DISPLAY_SW_VERSION) {
+    return null;
+  }
+  return version;
+}
+
 export async function subscribeForPushNotifications(
   vapid: { publicKey: string; keyId: string },
   permission = requestPushNotificationPermission(),
   assertCurrentOperation = () => {},
+  ensuredPending = ensureActivePushServiceWorker(),
 ) {
+  // Kick `ensuredPending` in the click stack (caller may share it with
+  // permission). Prefer subscribe under gesture when already display-capable
+  // or finishing a remigrate arm — do not await `update()` first.
   await permission;
   assertCurrentOperation();
+
   const registration = await resolvePushRegistration();
   if (!registration) {
     throw new Error("Push service worker is not available");
   }
+
+  const armed = peekPushRemigrateArm(vapid.keyId) !== undefined;
+
+  // Armed remigrate: subscribe immediately under this gesture — do not await
+  // version probe first (MessageChannel can burn Firefox/iOS activation).
+  if (armed) {
+    assertCurrentOperation();
+    const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
+    const keys = readSubscriptionKeys(subscription);
+    rememberPushEndpoint(keys.endpoint);
+    const [ensured, displayVersion] = await Promise.all([
+      ensuredPending,
+      probeDisplayCapablePushSw(registration),
+    ]);
+    if (ensured.kind === "ready") {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: ensured.pushSwVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    if (displayVersion !== null) {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: displayVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    await subscription.unsubscribe().catch(() => undefined);
+    try {
+      if (recalledPushEndpoint() === keys.endpoint) {
+        rememberPushEndpoint(null);
+      }
+    } catch {
+      // Storage restricted.
+    }
+    if (previousEndpoint) {
+      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
+    }
+    throw new Error(ensuredFailureMessage(ensured.kind));
+  }
+
+  const displayVersion = await probeDisplayCapablePushSw(registration);
+
+  if (displayVersion !== null) {
+    assertCurrentOperation();
+    const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
+    const keys = readSubscriptionKeys(subscription);
+    rememberPushEndpoint(keys.endpoint);
+    const ensured = await ensuredPending;
+    if (ensured.kind === "ready") {
+      return {
+        material: {
+          ...keys,
+          vapidKeyId: vapid.keyId,
+          pushSwVersion: ensured.pushSwVersion,
+        },
+        previousEndpoint,
+      };
+    }
+    // Already proved display-capable at click time — update flake must not
+    // strand a successful remigrate/enable subscribe.
+    return {
+      material: {
+        ...keys,
+        vapidKeyId: vapid.keyId,
+        pushSwVersion: displayVersion,
+      },
+      previousEndpoint,
+    };
+  }
+
+  const ensured = await ensuredPending;
+  if (ensured.kind !== "ready") {
+    throw new Error(ensuredFailureMessage(ensured.kind));
+  }
   assertCurrentOperation();
-  const subscription = await subscribeWithVapid(registration, vapid);
+  const { subscription, previousEndpoint } = await subscribeWithVapid(ensured.registration, vapid);
   const keys = readSubscriptionKeys(subscription);
   rememberPushEndpoint(keys.endpoint);
-  return { ...keys, vapidKeyId: vapid.keyId };
+  return {
+    material: {
+      ...keys,
+      vapidKeyId: vapid.keyId,
+      pushSwVersion: ensured.pushSwVersion,
+    },
+    previousEndpoint,
+  };
 }
 
 /**
@@ -680,15 +1224,17 @@ export async function unsubscribeLocalPushSubscription(
 }
 
 /**
- * Startup/focus material for reconcile. VAPID key mismatch: unsubscribe locally
- * and report `unboundEndpoint` for best-effort server cleanup — does not
- * resubscribe (explicit Settings enable required; avoids cross-User auto-bind).
+ * Startup/focus material for reconcile. VAPID key mismatch: leave the local
+ * subscription alone (no unsubscribe/resubscribe) — automatic remigrate is not
+ * gesture-safe on Firefox/iOS, and the previous VAPID pair still delivers.
+ * Explicit Settings enable migrates via subscribeForPushNotifications.
  * Same-key endpoint change vs last remembered endpoint → `previousEndpoint`
  * for owned migration via replacePushSubscription.
  */
 export async function readPushSubscriptionMaterial(
   vapid: { publicKey: string; keyId: string },
   isCancelled = () => false,
+  pushSwVersion: number,
 ) {
   const registration = await resolvePushRegistration();
   if (!registration) {
@@ -717,26 +1263,18 @@ export async function readPushSubscriptionMaterial(
     return { subscription: null };
   }
   if (!applicationServerKeyMatches(existing, vapid.publicKey)) {
-    const unboundEndpoint = existing.endpoint;
-    // Snapshot before await — another tab may enable and remember a new endpoint.
-    const rememberedBeforeUnsubscribe = recalledPushEndpoints();
-    try {
-      if (!(await existing.unsubscribe())) throw new Error("Push unsubscribe failed");
-    } catch {
-      // Local sub still present — do not unbind server or Settings shows
-      // enabled with nothing deliverable after a successful disable.
-      return { subscription: null };
-    }
-    return {
-      subscription: null,
-      unboundEndpoint,
-      unboundEndpoints: [...new Set([unboundEndpoint, ...rememberedBeforeUnsubscribe])],
-    };
+    // Keep the old-key subscription intact during automatic reconcile when the
+    // current User owns the endpoint (dual-VAPID still delivers). Lifecycle
+    // drops a foreign old-key local sub after ownsPushEndpoint — otherwise a
+    // later account on the same browser would keep receiving Push for the
+    // previous User. Explicit Settings enable remigrates via subscribeWithVapid.
+    return { subscription: null, staleKeyEndpoint: existing.endpoint };
   }
 
   const material = {
     ...readSubscriptionKeys(existing),
     vapidKeyId: vapid.keyId,
+    pushSwVersion,
   };
   const active = recalledPushEndpoint();
   const previousEndpoint = active && active !== material.endpoint ? active : undefined;
