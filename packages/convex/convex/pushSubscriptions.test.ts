@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import {
+  generateTestVapidKeyPair,
   TEST_PUSH_AUTH,
   TEST_PUSH_AUTH_ALT,
   TEST_PUSH_P256DH,
@@ -45,22 +46,36 @@ describe("pushSubscriptions", () => {
   });
 
   it("returns public key and keyId from env", async () => {
-    vi.stubEnv("VAPID_PUBLIC_KEY", "BPtestPublicKey");
+    const { publicKey } = generateTestVapidKeyPair();
+    vi.stubEnv("VAPID_PUBLIC_KEY", publicKey);
     vi.stubEnv("VAPID_KEY_ID", "rotated");
     const t = convexTest(schema, modules);
     expect(await t.query(api.pushSubscriptions.getPushVapidPublicKey, {})).toEqual({
-      publicKey: "BPtestPublicKey",
+      publicKey,
       keyId: "rotated",
     });
   });
 
   it("defaults keyId to primary when only public key is set", async () => {
-    vi.stubEnv("VAPID_PUBLIC_KEY", "BPtestPublicKey");
+    const { publicKey } = generateTestVapidKeyPair();
+    vi.stubEnv("VAPID_PUBLIC_KEY", publicKey);
     const t = convexTest(schema, modules);
     expect(await t.query(api.pushSubscriptions.getPushVapidPublicKey, {})).toEqual({
-      publicKey: "BPtestPublicKey",
+      publicKey,
       keyId: "primary",
     });
+  });
+
+  it("returns null vapid public key when env is malformed", async () => {
+    vi.stubEnv("VAPID_PUBLIC_KEY", "!!!not-base64!!!");
+    const t = convexTest(schema, modules);
+    expect(await t.query(api.pushSubscriptions.getPushVapidPublicKey, {})).toBeNull();
+  });
+
+  it("returns null vapid public key when env is not an uncompressed P-256 key", async () => {
+    vi.stubEnv("VAPID_PUBLIC_KEY", "BPtestPublicKey");
+    const t = convexTest(schema, modules);
+    expect(await t.query(api.pushSubscriptions.getPushVapidPublicKey, {})).toBeNull();
   });
 
   it("enable binds a subscription to the current User", async () => {

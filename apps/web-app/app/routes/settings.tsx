@@ -1,4 +1,4 @@
-import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
+import { LIMITS, parseProfileUpdate, tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { href, Link } from "react-router";
 import { usePwaInstall } from "~/components/pwa-install.js";
@@ -407,9 +407,15 @@ function NotificationsSettingsCard() {
     await refreshRunner.current();
   }
 
-  // Null VAPID: hide enable/onboarding, but keep disable if already subscribed.
+  // Null / undecodable VAPID: hide enable/onboarding, but keep disable if already subscribed.
+  const usableVapid =
+    vapid && tryDecodeVapidKeyBytes(vapid.publicKey)
+      ? vapid
+      : vapid === undefined
+        ? undefined
+        : null;
   const effectiveState =
-    vapid === null
+    usableVapid === null
       ? uiState === "enabled" ||
         uiState === "needs_migration" ||
         uiState === "needs_remigrate_finish"

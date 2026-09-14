@@ -21,3 +21,4 @@ export * from "./text.js";
 export * from "./transaction-category-resolve.js";
 export * from "./transaction-search-pagination.js";
 export * from "./validation.js";
+export * from "./vapid-keys.js";

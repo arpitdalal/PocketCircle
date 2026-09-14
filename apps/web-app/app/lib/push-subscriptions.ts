@@ -2,7 +2,7 @@
  * Per-device Push subscription lifecycle (#381). Browser APIs only — Convex
  * mutations live in `~/lib/data/push-subscriptions.ts`. Never log endpoints.
  */
-import { PUSH_DISPLAY_SW_VERSION } from "@pocketcircle/domain";
+import { PUSH_DISPLAY_SW_VERSION, tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { isInstalledWebApp, isIosDevice } from "~/components/pwa-install.js";
 import { track } from "~/lib/analytics.js";
 import { deferredValue } from "~/lib/deferred.js";
@@ -479,15 +479,23 @@ export async function resolvePushNotificationsUiState(
     return capability;
   }
   const sub = await getCurrentPushSubscription();
+  // Malformed keys (atob fails): treat like unavailable VAPID so an existing
+  // local sub still surfaces as enabled (disable stays available).
+  const usableVapid =
+    vapid && tryDecodeVapidKeyBytes(vapid.publicKey)
+      ? vapid
+      : vapid === undefined
+        ? undefined
+        : null;
   // Matching current-key sub means remigrate finished (possibly on another tab)
   // — consume a stale arm so Settings does not stick on needs_remigrate_finish.
-  if (sub && vapid && applicationServerKeyMatches(sub, vapid.publicKey)) {
-    if (vapid.keyId) {
+  if (sub && usableVapid && applicationServerKeyMatches(sub, usableVapid.publicKey)) {
+    if (usableVapid.keyId) {
       clearPushRemigrateArm();
     }
     return "enabled" as const;
   }
-  if (vapid?.keyId && peekPushRemigrateArm(vapid.keyId)) {
+  if (usableVapid?.keyId && peekPushRemigrateArm(usableVapid.keyId)) {
     return "needs_remigrate_finish" as const;
   }
   if (!sub) {
@@ -496,7 +504,7 @@ export async function resolvePushNotificationsUiState(
   // Local sub still on a previous VAPID key — still delivering via dual-key
   // env, but Settings must offer a gesture-driven remigrate (auto remigrate
   // is not gesture-safe on Firefox/iOS).
-  if (vapid && !applicationServerKeyMatches(sub, vapid.publicKey)) {
+  if (usableVapid && !applicationServerKeyMatches(sub, usableVapid.publicKey)) {
     return "needs_migration" as const;
   }
   return "enabled" as const;
@@ -654,14 +662,11 @@ export async function getCurrentPushSubscription() {
 }
 
 function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const output = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) {
-    output[i] = raw.charCodeAt(i);
+  const bytes = tryDecodeVapidKeyBytes(base64String);
+  if (!bytes) {
+    throw new Error("Invalid VAPID public key");
   }
-  return output;
+  return bytes;
 }
 
 /** Test/fixture helper — same decoder production uses for VAPID public keys. */
@@ -682,13 +687,17 @@ function uint8ArraysEqual(a: Uint8Array, b: Uint8Array) {
 }
 
 function applicationServerKeyMatches(subscription: PushSubscription, publicKey: string) {
+  const expected = tryDecodeVapidKeyBytes(publicKey);
+  if (!expected) {
+    return false;
+  }
   const existing = subscription.options.applicationServerKey;
   if (existing == null) {
     return false;
   }
   const actual =
     existing instanceof ArrayBuffer ? new Uint8Array(existing) : new Uint8Array(existing);
-  return uint8ArraysEqual(actual, urlBase64ToUint8Array(publicKey));
+  return uint8ArraysEqual(actual, expected);
 }
 
 function readSubscriptionKeys(subscription: PushSubscription) {

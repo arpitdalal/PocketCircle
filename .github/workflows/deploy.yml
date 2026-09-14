@@ -284,8 +284,22 @@ jobs:
           # First enable sets a lastSeenAt floor so only devices that open the
           # app after the display-capable push-sw.js is live receive Push
           # (Safari silent-push revoke). Later deploys keep a finite >0 floor.
-          SINCE=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_SINCE_MS 2>/dev/null || true)
-          if ! node -e 'const v=Number(process.argv[1]); process.exit(Number.isFinite(v)&&v>0?0:1)' "$SINCE"; then
+          set +e
+          SINCE_ERR=$(mktemp)
+          SINCE_OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_SINCE_MS 2>"$SINCE_ERR")
+          SINCE_STATUS=$?
+          set -e
+          SINCE=$(printf '%s' "$SINCE_OUT" | tr -d '[:space:]')
+          if node -e 'const v=Number(process.argv[1]); process.exit(Number.isFinite(v)&&v>0?0:1)' "$SINCE"; then
+            rm -f "$SINCE_ERR"
+          elif [ "$SINCE_STATUS" -ne 0 ] && ! grep -qi 'not found' "$SINCE_ERR"; then
+            # Auth/transport flake — do not overwrite an existing rollout floor.
+            echo "convex env get PUSH_DELIVERY_SINCE_MS failed (status=$SINCE_STATUS):" >&2
+            cat "$SINCE_ERR" >&2
+            rm -f "$SINCE_ERR"
+            exit 1
+          else
+            rm -f "$SINCE_ERR"
             pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_SINCE_MS "$(node -e 'console.log(Date.now())')"
           fi
           pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1

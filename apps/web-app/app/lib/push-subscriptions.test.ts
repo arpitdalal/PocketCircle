@@ -303,6 +303,15 @@ describe("resolvePushNotificationsUiState", () => {
     await expect(resolvePushNotificationsUiState(VAPID)).resolves.toBe("enabled");
     expect(window.sessionStorage.getItem("pocketcircle.pushRemigrateArm")).toBeNull();
   });
+
+  it("keeps disable available when the advertised VAPID public key is malformed", async () => {
+    const sub = makeFakePushSubscription({ endpoint: "https://fcm.googleapis.com/fcm/send/ok" });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
+    installPushEnv({ permission: "granted", subscription: sub });
+    await expect(
+      resolvePushNotificationsUiState({ publicKey: "!!!not-base64!!!", keyId: "primary" }),
+    ).resolves.toBe("enabled");
+  });
 });
 
 describe("push operation serialization", () => {

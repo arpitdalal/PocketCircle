@@ -7,6 +7,7 @@ import {
   DEFAULT_VAPID_KEY_ID,
   isPrivateOrReservedIpAddress,
   isSafePushEndpoint,
+  isValidVapidPublicKey,
   pushTtlSeconds,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
@@ -15,6 +16,8 @@ import { internal } from "./_generated/api.js";
 import { internalAction } from "./_generated/server.js";
 import { isPushDeliveryEnabled, isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
+
+export { isValidVapidPublicKey } from "@pocketcircle/domain";
 
 /**
  * Node-only Push sender (ADR 0033). `web-push` needs Node crypto — keep this
@@ -60,12 +63,6 @@ function decodeVapidKeyBytes(key: string) {
   } catch {
     return null;
   }
-}
-
-/** Uncompressed P-256 public key (65 bytes, 0x04 prefix) as URL-safe base64. */
-export function isValidVapidPublicKey(key: string) {
-  const bytes = decodeVapidKeyBytes(key);
-  return bytes?.length === 65 && bytes[0] === 0x04;
 }
 
 /** P-256 private key (32 bytes) as URL-safe base64. */

@@ -1,6 +1,7 @@
 import {
   DEFAULT_VAPID_KEY_ID,
   isValidPushSubscriptionMaterial,
+  isValidVapidPublicKey,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
   PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
@@ -28,15 +29,16 @@ const subscriptionFields = {
 
 /**
  * VAPID public key for client subscribe(). Set `VAPID_PUBLIC_KEY` (URL-safe
- * base64) and optional `VAPID_KEY_ID` (defaults to `"primary"`) via
- * `convex env set`. Private key + subject stay server-only (`VAPID_PRIVATE_KEY`,
- * `VAPID_SUBJECT`) for Push delivery (#382).
+ * base64 uncompressed P-256) and optional `VAPID_KEY_ID` (defaults to
+ * `"primary"`) via `convex env set`. Malformed values return null so Settings
+ * can still disable an existing local subscription. Private key + subject stay
+ * server-only (`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) for Push delivery (#382).
  */
 export const getPushVapidPublicKey = query({
   args: {},
   handler: async () => {
     const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-    if (!publicKey) {
+    if (!publicKey || !isValidVapidPublicKey(publicKey)) {
       return null;
     }
     const keyId = process.env.VAPID_KEY_ID?.trim() || DEFAULT_VAPID_KEY_ID;
