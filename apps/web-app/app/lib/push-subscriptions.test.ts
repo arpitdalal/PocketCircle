@@ -9,6 +9,7 @@ import {
   clearRememberedPushEndpoints,
   disableCurrentPushSubscription,
   endPushEnable,
+  ensureActivePushServiceWorker,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
   PUSH_SERVICE_WORKER_URL,
@@ -57,6 +58,30 @@ describe("registerPushServiceWorker", () => {
   it("skips registration when MOCKS is true", () => {
     installPushEnv();
     expect(canRegisterPushServiceWorker(true)).toBe(false);
+  });
+});
+
+describe("ensureActivePushServiceWorker", () => {
+  it("calls registration.update before returning the active worker", async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const registration = {
+      pushManager: { subscribe: vi.fn(), getSubscription: vi.fn() },
+      active: {},
+      installing: null,
+      waiting: null,
+      update,
+    };
+    installPushEnv();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        register: vi.fn().mockResolvedValue(registration),
+        getRegistration: vi.fn().mockResolvedValue(registration),
+        ready: Promise.resolve(registration),
+      },
+    });
+    await ensureActivePushServiceWorker();
+    expect(update).toHaveBeenCalledOnce();
   });
 });
 

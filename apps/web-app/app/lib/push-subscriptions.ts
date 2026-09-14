@@ -494,28 +494,38 @@ export async function registerPushServiceWorker() {
 }
 
 /**
- * Register (if needed) and wait until an active worker controls Push.
- * Call before reconcile so `lastSeenAt` refresh implies a live display SW.
+ * Register (if needed), check for a newer push-sw.js, and wait until an active
+ * worker controls Push. Call before reconcile so `lastSeenAt` refresh implies
+ * the device had a chance to activate the display-capable worker.
  */
 export async function ensureActivePushServiceWorker() {
-  return await resolvePushRegistration();
+  const registration = await resolvePushRegistration();
+  if (!registration) {
+    return null;
+  }
+  try {
+    // Byte-diff update check — required so an already-active pre-display worker
+    // is replaced before we bump lastSeenAt (Safari silent-push revoke).
+    await registration.update();
+  } catch {
+    // Offline / blocked — keep the current active worker.
+  }
+  return (await waitForActiveServiceWorker(registration)) ?? registration;
 }
 
 /**
  * Prefer an existing registration over `ready` (which can hang forever when
  * registration never succeeds). Wait until the worker is active before
  * returning — `pushManager.subscribe` requires an active worker.
+ * Also waits out an installing/waiting successor after `registration.update()`.
  */
 async function waitForActiveServiceWorker(
   registration: ServiceWorkerRegistration,
   timeoutMs = 10_000,
 ) {
-  if (registration.active) {
-    return registration;
-  }
   const candidate = registration.installing ?? registration.waiting;
   if (!candidate) {
-    return null;
+    return registration.active ? registration : null;
   }
   await new Promise<void>((resolve) => {
     const finish = () => {
@@ -524,8 +534,7 @@ async function waitForActiveServiceWorker(
       resolve();
     };
     const onStateChange = () => {
-      if (registration.active || candidate.state === "activated" || candidate.state === "redundant")
-        finish();
+      if (candidate.state === "activated" || candidate.state === "redundant") finish();
     };
     const timer = window.setTimeout(finish, timeoutMs);
     candidate.addEventListener("statechange", onStateChange);

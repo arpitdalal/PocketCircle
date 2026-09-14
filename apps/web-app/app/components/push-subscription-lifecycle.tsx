@@ -140,10 +140,18 @@ export function PushSubscriptionLifecycle() {
       scheduled = true;
       const signOutCancelled = capturePushCancellation();
       const isCancelled = () => abort.signal.aborted || signOutCancelled();
-      void withPushSubscriptionLock(() => runReconcile(isCancelled), {
-        wait: true,
-        signal: abort.signal,
-      })
+      void ensureActivePushServiceWorker()
+        .catch(() => null)
+        .then(() => {
+          if (isCancelled()) {
+            scheduled = false;
+            return;
+          }
+          return withPushSubscriptionLock(() => runReconcile(isCancelled), {
+            wait: true,
+            signal: abort.signal,
+          });
+        })
         .catch(() => undefined)
         .finally(() => {
           scheduled = false;
@@ -152,12 +160,8 @@ export function PushSubscriptionLifecycle() {
     const onVisibility = () => {
       if (document.visibilityState === "visible") schedule();
     };
-    // Activate the display-capable worker before reconcile bumps lastSeenAt —
-    // delivery eligibility uses lastSeenAt as a proxy for "device saw new SW".
-    void ensureActivePushServiceWorker().finally(() => {
-      if (abort.signal.aborted) return;
-      schedule();
-    });
+    // Activate/update the display-capable worker before reconcile bumps lastSeenAt.
+    schedule();
     window.addEventListener("focus", schedule);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
