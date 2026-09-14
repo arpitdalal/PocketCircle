@@ -332,6 +332,7 @@ export const sendOne = internalAction({
       type: prepared.type,
       nowMs: Date.now(),
       invitationExpiresAtMs: args.invitationExpiresAtMs,
+      createdAtMs: prepared.createdAtMs,
     });
     if (ttlSeconds <= 0) {
       return;

@@ -371,7 +371,6 @@ describe("Push mirror from Notification Center", () => {
       expect(payload.parsed.title).not.toMatch(/Ada|Weekly shop/i);
       expect(payload.parsed.body).not.toMatch(/Ada|Weekly shop|family/i);
       expect(payload.options).toMatchObject({
-        TTL: 24 * 60 * 60,
         topic: pushTopicFromNotificationId(notificationId ?? ""),
         timeout: 30_000,
         vapidDetails: {
@@ -380,6 +379,9 @@ describe("Push mirror from Notification Center", () => {
           privateKey: VAPID_PRIVATE,
         },
       });
+      // Remaining of the 24h window from NC creation (not a fresh 24h on send).
+      expect(payload.options.TTL).toBeGreaterThan(24 * 60 * 60 - 60);
+      expect(payload.options.TTL).toBeLessThanOrEqual(24 * 60 * 60);
     }
   });
 

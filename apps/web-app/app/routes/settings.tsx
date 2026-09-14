@@ -527,7 +527,8 @@ function NotificationsSettingsCard() {
             </FieldLabel>
             <FieldDescription>
               Still delivering with a previous key. Update this device so it uses the current key —
-              required before the previous key is retired.
+              required before the previous key is retired. Some browsers need a second tap after
+              Update starts the migration.
             </FieldDescription>
           </FieldContent>
         </Field>

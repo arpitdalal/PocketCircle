@@ -90,18 +90,25 @@ export function isInvitationPushType(type: string) {
 }
 
 /**
- * TTL in seconds for the push service. Activity = 24h. Invitation types with a
- * known deadline use remaining time until that deadline (never longer than the
- * invitation lives). Missing deadline falls back to activity TTL; past deadline
- * returns 0 so the sender skips.
+ * TTL in seconds for the push service.
+ * Activity: remaining of the 24h window from `createdAtMs` (NC row time). Omit
+ * `createdAtMs` only when the event is "now" — pause/resume must pass it so a
+ * long pause cannot mint a fresh 24h on the wire.
+ * Invitation: remaining until deadline; unknown/past → 0 (skip).
  */
 export function pushTtlSeconds(args: {
   type: string;
   nowMs: number;
   invitationExpiresAtMs?: number;
+  /** Activity expiry anchor — Notification Center `_creationTime`. */
+  createdAtMs?: number;
 }) {
   if (!isInvitationPushType(args.type)) {
-    return PUSH_ACTIVITY_TTL_SECONDS;
+    const createdAtMs = args.createdAtMs ?? args.nowMs;
+    return Math.max(
+      0,
+      Math.floor((createdAtMs + PUSH_ACTIVITY_TTL_SECONDS * 1000 - args.nowMs) / 1000),
+    );
   }
   const expiresAt = args.invitationExpiresAtMs;
   // Spec: Invitation Push must not outlive the invitation. Unknown deadline →

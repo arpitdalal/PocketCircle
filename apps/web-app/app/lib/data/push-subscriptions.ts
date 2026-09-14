@@ -271,12 +271,16 @@ async function enableNotifications(
     );
   } catch (error) {
     // Subscribe ran before the lock — local sub is shared with any peer. Never
-    // unsubscribe here; bind-path compensation under the lock owns teardown.
+    // unsubscribe on ordinary bind failure; bind-path compensation under the
+    // lock owns that teardown. Sign-out/cancel is different: cleanup may have
+    // snapshotted before subscribe resolved, so tear down the unbound local sub.
     if (!bound && material) {
-      // Soft-clear remember only when nobody owns the endpoint yet.
       const owned = await owns(material.endpoint).catch(() => false);
       if (!owned) {
         rememberPushEndpoint(null);
+        if (cancelled() || isPushEnableCancelRequested()) {
+          await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
+        }
       }
     }
     throw error;

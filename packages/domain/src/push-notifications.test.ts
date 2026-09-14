@@ -29,10 +29,33 @@ describe("push-notifications", () => {
     expect(isInvitationPushType("transaction.archived")).toBe(false);
   });
 
-  it("uses 24h TTL for activity", () => {
+  it("uses 24h TTL for activity at creation", () => {
     expect(pushTtlSeconds({ type: "circle.archived", nowMs: 1_000_000 })).toBe(
       PUSH_ACTIVITY_TTL_SECONDS,
     );
+  });
+
+  it("shrinks activity TTL from creation time after a pause", () => {
+    const createdAtMs = 1_000_000;
+    const nowMs = createdAtMs + 3_600_000;
+    expect(
+      pushTtlSeconds({
+        type: "circle.archived",
+        nowMs,
+        createdAtMs,
+      }),
+    ).toBe(PUSH_ACTIVITY_TTL_SECONDS - 3600);
+  });
+
+  it("returns 0 when activity is older than 24h", () => {
+    const createdAtMs = 1_000_000;
+    expect(
+      pushTtlSeconds({
+        type: "circle.archived",
+        nowMs: createdAtMs + PUSH_ACTIVITY_TTL_SECONDS * 1000 + 1,
+        createdAtMs,
+      }),
+    ).toBe(0);
   });
 
   it("caps invitation TTL at the deadline", () => {

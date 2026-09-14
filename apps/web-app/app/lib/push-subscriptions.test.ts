@@ -12,6 +12,7 @@ import {
   ensureActivePushServiceWorker,
   getCurrentPushSubscription,
   isPushEnableCancelRequested,
+  PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
   PUSH_SERVICE_WORKER_URL,
   readPushSubscriptionMaterial,
   recalledPendingPushCleanup,
@@ -773,19 +774,27 @@ describe("disableCurrentPushSubscription", () => {
     expect(recalledPendingPushCleanup()).toEqual([sub.endpoint]);
   });
 
-  it("does not unsubscribe an existing sub when subscribe rejects for a non-key reason", async () => {
-    const sub = makeFakePushSubscription({
-      endpoint: "https://fcm.googleapis.com/fcm/send/still-good",
-    });
-    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+  it("surfaces NotAllowed without remigrate when there is no existing subscription", async () => {
     const subscribe = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
-    installPushEnv({ subscription: sub, subscribe });
+    installPushEnv({ subscription: null, subscribe });
     await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(/Denied|NotAllowedError/);
-    expect(sub.unsubscribe).not.toHaveBeenCalled();
     expect(subscribe).toHaveBeenCalledOnce();
   });
 
-  it("unsubscribes only after InvalidStateError from a conflicting applicationServerKey", async () => {
+  it("reuses a matching subscription without calling subscribe", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/still-good",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes(VAPID_PUBLIC_KEY) };
+    const subscribe = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    installPushEnv({ subscription: sub, subscribe });
+    const result = await subscribeForPushNotifications(VAPID);
+    expect(result.material.endpoint).toBe(sub.endpoint);
+    expect(sub.unsubscribe).not.toHaveBeenCalled();
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it("unsubscribes then resubscribes when the applicationServerKey conflicts", async () => {
     const sub = makeFakePushSubscription({
       endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
     });
@@ -793,7 +802,7 @@ describe("disableCurrentPushSubscription", () => {
     const env = installPushEnv({ subscription: sub });
     await subscribeForPushNotifications(VAPID);
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
-    expect(env.subscribe.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(env.subscribe).toHaveBeenCalledOnce();
     expect(env.subscription?.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
   });
 
@@ -804,19 +813,28 @@ describe("disableCurrentPushSubscription", () => {
     sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
     rememberPushEndpoint(sub.endpoint);
     const env = installPushEnv({ subscription: sub });
-    env.subscribe
-      .mockRejectedValueOnce(
-        new DOMException(
-          "Registration failed - A subscription with a different applicationServerKey already exists.",
-          "InvalidStateError",
-        ),
-      )
-      .mockRejectedValueOnce(new Error("subscribe failed after unsub"));
+    env.subscribe.mockRejectedValueOnce(new Error("subscribe failed after unsub"));
     await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
       "subscribe failed after unsub",
     );
     expect(sub.unsubscribe).toHaveBeenCalledOnce();
     expect(recalledPendingPushCleanup()).toContain("https://fcm.googleapis.com/fcm/send/old-key");
+  });
+
+  it("arms a second gesture when remigrate subscribe loses user activation", async () => {
+    const sub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    sub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    const env = installPushEnv({ subscription: sub });
+    env.subscribe.mockRejectedValueOnce(new DOMException("No gesture", "NotAllowedError"));
+    await expect(subscribeForPushNotifications(VAPID)).rejects.toThrow(
+      PUSH_REMIGRATE_NEEDS_SECOND_GESTURE,
+    );
+    expect(sub.unsubscribe).toHaveBeenCalledOnce();
+    const result = await subscribeForPushNotifications(VAPID);
+    expect(result.previousEndpoint).toBe("https://fcm.googleapis.com/fcm/send/old-key");
+    expect(result.material.endpoint).toBe("https://fcm.googleapis.com/fcm/send/test-endpoint");
   });
 
   it("removes an endpoint from pending when it becomes active again", () => {

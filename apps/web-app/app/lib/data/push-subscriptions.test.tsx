@@ -210,4 +210,30 @@ describe("enable operation ownership", () => {
     expect(enable).not.toHaveBeenCalled();
     await withPushSubscriptionLock(async () => {});
   });
+
+  it("unsubscribes unbound local material when sign-out cancels after subscribe", async () => {
+    const env = installPushEnv({ permission: "granted" });
+    const gate = deferredValue<void>();
+    const originalSubscribe = env.subscribe.getMockImplementation();
+    env.subscribe.mockImplementation(async (...args) => {
+      await gate.promise;
+      return originalSubscribe?.(...args);
+    });
+    const enable = vi.fn();
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    const enabling = hook.result.current();
+    await waitFor(() => expect(env.subscribe).toHaveBeenCalledOnce());
+    const release = await clearLocalPushSubscriptionAndBinding(disable);
+    release();
+    gate.resolve();
+    await expect(enabling).rejects.toThrow("push enable cancelled");
+    expect(enable).not.toHaveBeenCalled();
+    expect(env.subscription).toBeNull();
+  });
 });

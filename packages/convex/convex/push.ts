@@ -1,7 +1,6 @@
 import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
 import {
   isInvitationPushType,
-  PUSH_ACTIVITY_TTL_SECONDS,
   parseNotificationLinkPath,
   pushBodyForNotificationType,
   pushTitleForNotificationType,
@@ -99,10 +98,15 @@ export async function enqueuePushForNotification(
 
   const invitationExpiresAtMs =
     args.invitationExpiresAt ?? (await resolveInvitationExpiresAtMs(ctx, args.type, args.link));
+  const notification = await ctx.db.get(args.notificationId);
+  if (!notification) {
+    return;
+  }
   const ttlSeconds = pushTtlSeconds({
     type: args.type,
     nowMs: Date.now(),
     invitationExpiresAtMs,
+    createdAtMs: notification._creationTime,
   });
   if (ttlSeconds <= 0) {
     return;
@@ -142,18 +146,14 @@ export const deferSendWhileDeliveryPaused = internalMutation({
     if (!notification) {
       return;
     }
-    // Bound pause polling: invitations by deadline; activity by NC row age
-    // (pushTtlSeconds for activity is a fresh 24h window — not useful here).
-    if (isInvitationPushType(notification.type)) {
-      const ttlSeconds = pushTtlSeconds({
-        type: notification.type,
-        nowMs: Date.now(),
-        invitationExpiresAtMs: args.invitationExpiresAtMs,
-      });
-      if (ttlSeconds <= 0) {
-        return;
-      }
-    } else if (Date.now() - notification._creationTime >= PUSH_ACTIVITY_TTL_SECONDS * 1000) {
+    // Bound pause polling with the same TTL the sender would put on the wire.
+    const ttlSeconds = pushTtlSeconds({
+      type: notification.type,
+      nowMs: Date.now(),
+      invitationExpiresAtMs: args.invitationExpiresAtMs,
+      createdAtMs: notification._creationTime,
+    });
+    if (ttlSeconds <= 0) {
       return;
     }
     if (isPushDeliveryEnabled()) {
@@ -184,6 +184,7 @@ export const loadSendPayload = internalQuery({
       title: pushTitleForNotificationType(notification.type),
       body: pushBodyForNotificationType(notification.type),
       tag: notification._id,
+      createdAtMs: notification._creationTime,
       endpoint: subscription.endpoint,
       p256dh: subscription.p256dh,
       auth: subscription.auth,

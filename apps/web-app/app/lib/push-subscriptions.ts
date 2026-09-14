@@ -385,6 +385,11 @@ export function resetPushOperationState() {
   } catch {
     // Restricted storage.
   }
+  try {
+    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
+  } catch {
+    // Restricted storage.
+  }
 }
 
 export type PushNotificationsUiState =
@@ -678,15 +683,103 @@ function readSubscriptionKeys(subscription: PushSubscription) {
   return { endpoint: subscription.endpoint, p256dh, auth };
 }
 
-function isExistingSubscriptionKeyConflict(error: unknown) {
-  return error instanceof DOMException && error.name === "InvalidStateError";
+function isPushSubscribeActivationLost(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "NotAllowedError" || error.name === "AbortError")
+  );
+}
+
+/** Second-gesture arm after remigrate unsub when subscribe lost user activation. */
+const PUSH_REMIGRATE_ARM_KEY = "pocketcircle.pushRemigrateArm";
+
+export const PUSH_REMIGRATE_NEEDS_SECOND_GESTURE =
+  "Tap Update again to finish notification migration";
+
+function armPushRemigrateSubscribe(arm: { previousEndpoint: string; vapidKeyId: string }) {
+  try {
+    window.sessionStorage.setItem(PUSH_REMIGRATE_ARM_KEY, JSON.stringify(arm));
+  } catch {
+    // Storage restricted — caller still threw; user can enable fresh.
+  }
+}
+
+function takePushRemigrateArm(vapidKeyId: string) {
+  try {
+    const raw = window.sessionStorage.getItem(PUSH_REMIGRATE_ARM_KEY);
+    if (!raw) {
+      return undefined;
+    }
+    window.sessionStorage.removeItem(PUSH_REMIGRATE_ARM_KEY);
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("previousEndpoint" in parsed) ||
+      !("vapidKeyId" in parsed) ||
+      typeof parsed.previousEndpoint !== "string" ||
+      typeof parsed.vapidKeyId !== "string"
+    ) {
+      return undefined;
+    }
+    if (parsed.vapidKeyId !== vapidKeyId) {
+      return undefined;
+    }
+    return { previousEndpoint: parsed.previousEndpoint, vapidKeyId: parsed.vapidKeyId };
+  } catch {
+    return undefined;
+  }
+}
+
+async function remigrateUnsubThenSubscribe(
+  existing: PushSubscription,
+  options: { userVisibleOnly: boolean; applicationServerKey: Uint8Array },
+  vapid: { publicKey: string; keyId: string },
+  subscribe: (options: {
+    userVisibleOnly: boolean;
+    applicationServerKey: Uint8Array;
+  }) => Promise<PushSubscription>,
+) {
+  const previousEndpoint = existing.endpoint;
+  if (!(await existing.unsubscribe())) {
+    throw new Error("Push unsubscribe failed");
+  }
+  // Replacement subscribe may fail — keep the old endpoint as pending cleanup
+  // so lifecycle/disable can remove the server row (avoid dual rows / enable-only bind).
+  rememberPushEndpoints([
+    ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== previousEndpoint),
+    previousEndpoint,
+  ]);
+  try {
+    const active = recalledPushEndpoint();
+    if (active === previousEndpoint) {
+      rememberPushEndpoint(null);
+    }
+  } catch {
+    // Storage restricted.
+  }
+  try {
+    return {
+      subscription: await subscribe(options),
+      previousEndpoint,
+    };
+  } catch (error) {
+    // Firefox / iOS: unsubscribe awaits drop user activation — arm a second
+    // Settings tap so subscribe runs under a fresh gesture (research §Hard
+    // platform constraints). Chromium usually succeeds in one gesture.
+    if (isPushSubscribeActivationLost(error)) {
+      armPushRemigrateSubscribe({ previousEndpoint, vapidKeyId: vapid.keyId });
+      throw new Error(PUSH_REMIGRATE_NEEDS_SECOND_GESTURE);
+    }
+    throw error;
+  }
 }
 
 /**
  * Subscribe with the current VAPID public key.
- * Prefer `subscribe()` first so a failed migrate never leaves the device without
- * Push. Chromium rejects with `InvalidStateError` when a different-key sub
- * already exists — only then unsubscribe and retry.
+ * Prefer matching existing sub. On key conflict, unsubscribe then subscribe —
+ * when the second subscribe loses user activation, arm for a fresh gesture
+ * instead of leaving the device without a recoverable remigrate path.
  * When a different-key sub is replaced, returns `previousEndpoint` so the
  * caller can `replacePushSubscription` (avoid LRU eviction at the 10-cap).
  */
@@ -702,35 +795,23 @@ async function subscribeWithVapid(
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
   };
-  try {
-    return { subscription: await registration.pushManager.subscribe(options) };
-  } catch (error) {
-    if (!existing || !isExistingSubscriptionKeyConflict(error)) {
-      throw error;
+  const subscribe = (subscribeOptions: typeof options) =>
+    registration.pushManager.subscribe(subscribeOptions);
+
+  // Second Settings tap after arm: old sub already gone.
+  if (!existing) {
+    const arm = takePushRemigrateArm(vapid.keyId);
+    if (arm) {
+      return {
+        subscription: await subscribe(options),
+        previousEndpoint: arm.previousEndpoint,
+      };
     }
-    const previousEndpoint = existing.endpoint;
-    if (!(await existing.unsubscribe())) {
-      throw new Error("Push unsubscribe failed");
-    }
-    // Replacement subscribe may fail — keep the old endpoint as pending cleanup
-    // so lifecycle/disable can remove the server row (avoid dual rows / enable-only bind).
-    rememberPushEndpoints([
-      ...recalledPendingPushCleanup().filter((endpoint) => endpoint !== previousEndpoint),
-      previousEndpoint,
-    ]);
-    try {
-      const active = recalledPushEndpoint();
-      if (active === previousEndpoint) {
-        rememberPushEndpoint(null);
-      }
-    } catch {
-      // Storage restricted.
-    }
-    return {
-      subscription: await registration.pushManager.subscribe(options),
-      previousEndpoint,
-    };
+    return { subscription: await subscribe(options) };
   }
+
+  // Key mismatch (or missing applicationServerKey) — remigrate.
+  return remigrateUnsubThenSubscribe(existing, options, vapid, subscribe);
 }
 
 /**
