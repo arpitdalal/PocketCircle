@@ -200,6 +200,7 @@ export function recalledPushEndpoint() {
 let pushEnableInFlight = 0;
 let pushCancellationGeneration = 0;
 const pushSignOutGuardHeartbeats = new Set<number>();
+const pushEnableInProgressHeartbeats = new Set<number>();
 
 /** Sign-out sets this so an in-flight enable aborts before/after bind. */
 let pushEnableCancelRequested = false;
@@ -330,15 +331,16 @@ function sweepExpiredPushEnableInProgressMarks() {
 }
 
 /**
- * Mark a pre-lock enable subscription so peer-tab reconcile does not unsubscribe
- * it before bind (Firefox/iOS cannot recover subscribe without a fresh gesture).
+ * Mark enable in progress (optionally before subscribe has an endpoint) so
+ * peer-tab reconcile does not unsubscribe a pre-lock sub (Firefox/iOS cannot
+ * recover subscribe without a fresh gesture).
  */
-export function markPushEnableInProgress(endpoint: string) {
+export function markPushEnableInProgress(endpoint?: string) {
   const id = pushCoordinationToken();
   try {
     window.localStorage.setItem(
       `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`,
-      JSON.stringify({ endpoint, at: Date.now() }),
+      JSON.stringify({ endpoint: endpoint ?? null, at: Date.now() }),
     );
   } catch {
     // ignore
@@ -358,6 +360,39 @@ export function setPushEnableInProgressEndpoint(id: string, endpoint: string) {
   }
 }
 
+export function touchPushEnableInProgress(id: string) {
+  try {
+    const key = `${PUSH_ENABLE_IN_PROGRESS_PREFIX}${id}`;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    const endpoint =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "endpoint" in parsed &&
+      typeof parsed.endpoint === "string"
+        ? parsed.endpoint
+        : null;
+    window.localStorage.setItem(key, JSON.stringify({ endpoint, at: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+/** Keep the cross-tab mark alive while enable waits on the lock / network. */
+export function startPushEnableInProgressHeartbeat(id: string) {
+  const heartbeat = window.setInterval(() => touchPushEnableInProgress(id), 15_000);
+  pushEnableInProgressHeartbeats.add(heartbeat);
+  return heartbeat;
+}
+
+export function stopPushEnableInProgressHeartbeat(heartbeat: number) {
+  window.clearInterval(heartbeat);
+  pushEnableInProgressHeartbeats.delete(heartbeat);
+}
+
 export function clearPushEnableInProgress(id: string | null | undefined) {
   if (!id) {
     return;
@@ -369,7 +404,10 @@ export function clearPushEnableInProgress(id: string | null | undefined) {
   }
 }
 
-/** True when another tab (or this one) is mid-enable for `endpoint`. */
+/**
+ * True when this/other tab is mid-enable for `endpoint`, or still pre-subscribe
+ * (endpoint not yet known — protects the subscribe→mark race).
+ */
 export function isPushEnableInProgressForEndpoint(endpoint: string) {
   sweepExpiredPushEnableInProgressMarks();
   try {
@@ -384,12 +422,10 @@ export function isPushEnableInProgressForEndpoint(endpoint: string) {
       }
       try {
         const parsed: unknown = JSON.parse(raw);
-        if (
-          typeof parsed === "object" &&
-          parsed !== null &&
-          "endpoint" in parsed &&
-          parsed.endpoint === endpoint
-        ) {
+        if (typeof parsed !== "object" || parsed === null || !("endpoint" in parsed)) {
+          continue;
+        }
+        if (parsed.endpoint === endpoint || parsed.endpoint == null) {
           return true;
         }
       } catch {
@@ -490,6 +526,8 @@ export function resetPushOperationState() {
   pushSignOutCleanupInProgress = 0;
   for (const timer of pushSignOutGuardHeartbeats) window.clearInterval(timer);
   pushSignOutGuardHeartbeats.clear();
+  for (const timer of pushEnableInProgressHeartbeats) window.clearInterval(timer);
+  pushEnableInProgressHeartbeats.clear();
   try {
     window.localStorage.removeItem(PUSH_ENABLE_CANCEL_KEY);
     const keys = Object.keys(window.localStorage);

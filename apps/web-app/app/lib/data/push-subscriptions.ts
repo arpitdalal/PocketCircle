@@ -21,6 +21,8 @@ import {
   rememberPushEndpoints,
   requestPushNotificationPermission,
   setPushEnableInProgressEndpoint,
+  startPushEnableInProgressHeartbeat,
+  stopPushEnableInProgressHeartbeat,
   subscribeForPushNotifications,
   unsubscribeLocalPushSubscription,
   withPushSubscriptionLock,
@@ -214,7 +216,9 @@ async function enableNotifications(
   let material: PushSubscriptionMaterial | undefined;
   let previousEndpoint: string | undefined;
   let bound = false;
-  let enableProgressId: string | null = null;
+  // Mark before subscribe so peer reconcile cannot race the pre-lock window.
+  const enableProgressId = markPushEnableInProgress();
+  const enableHeartbeat = startPushEnableInProgressHeartbeat(enableProgressId);
   try {
     assertCurrentOperation();
     const subscribed = await subscribeForPushNotifications(
@@ -226,8 +230,7 @@ async function enableNotifications(
     material = subscribed.material;
     previousEndpoint = subscribed.previousEndpoint;
     let binding = material;
-    // Peer-tab reconcile must not orphan this unbound sub before we bind.
-    enableProgressId = markPushEnableInProgress(binding.endpoint);
+    setPushEnableInProgressEndpoint(enableProgressId, binding.endpoint);
     // Wait for the lock — do not use ifAvailable after a successful local
     // subscribe (that would orphan an unbound sub or race another tab's unsub).
     await withPushSubscriptionLock(
@@ -324,6 +327,7 @@ async function enableNotifications(
     }
     throw error;
   } finally {
+    stopPushEnableInProgressHeartbeat(enableHeartbeat);
     clearPushEnableInProgress(enableProgressId);
     endPushEnable();
   }
