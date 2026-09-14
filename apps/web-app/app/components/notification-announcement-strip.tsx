@@ -1,6 +1,6 @@
 import { tryDecodeVapidKeyBytes } from "@pocketcircle/domain";
 import { XIcon } from "lucide-react";
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState, useSyncExternalStore } from "react";
 import { href, Link } from "react-router";
 import { isInstalledWebApp, isIosDevice, usePwaInstall } from "~/components/pwa-install.js";
 import { Button } from "~/components/ui/button.js";
@@ -46,13 +46,19 @@ function getDocumentVisible() {
  * sticky header (#383). Enable reuses the Settings subscription path; dismiss is
  * per-device localStorage. Never prompts without the Enable gesture.
  */
-export function NotificationAnnouncementStrip() {
+export function NotificationAnnouncementStrip({
+  onOwnsTopSafeAreaChange,
+}: {
+  /** True while the strip covers the viewport top and must own notch inset alone. */
+  onOwnsTopSafeAreaChange?: (owns: boolean) => void;
+} = {}) {
   const vapid = usePushVapidPublicKey();
   const enableNotifications = useEnableNotifications();
   const { available, showInstallPrompt, installSurfaceOpen } = usePwaInstall();
   const { uiState } = usePushNotificationsUiState(vapid);
   const { show } = useSnackbar();
   const titleId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
   const dismissed = useSyncExternalStore(
     subscribeNotificationAnnouncementDismissed,
     readNotificationAnnouncementDismissed,
@@ -70,6 +76,9 @@ export function NotificationAnnouncementStrip() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [pendingDismissTrack, setPendingDismissTrack] = useState(false);
+  const reportOwnsTopSafeArea = useEffectEvent((owns: boolean) => {
+    onOwnsTopSafeAreaChange?.(owns);
+  });
 
   const vapidUsable = Boolean(vapid && tryDecodeVapidKeyBytes(vapid.publicKey));
   const iosInstallPrerequisiteDismissed = isIosInstallPrerequisiteDismissed({
@@ -95,6 +104,31 @@ export function NotificationAnnouncementStrip() {
   });
   // Genuine visibility for analytics / live region — install modal + background tabs.
   const liveVisible = visible && !installSurfaceOpen && documentVisible;
+
+  useEffect(() => {
+    if (!visible) {
+      reportOwnsTopSafeArea(false);
+      return;
+    }
+    const el = sectionRef.current;
+    if (!el) {
+      reportOwnsTopSafeArea(false);
+      return;
+    }
+    const update = () => {
+      // Own notch inset only while the strip's top edge is still at the viewport top.
+      reportOwnsTopSafeArea(el.getBoundingClientRect().top <= 0.5);
+    };
+    update();
+    const io = new IntersectionObserver(update, { threshold: [0, 1] });
+    io.observe(el);
+    window.addEventListener("scroll", update, { passive: true });
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", update);
+      reportOwnsTopSafeArea(false);
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (!liveVisible || !analyticsReady) {
@@ -158,6 +192,7 @@ export function NotificationAnnouncementStrip() {
       ) : null}
       {visible ? (
         <section
+          ref={sectionRef}
           aria-labelledby={titleId}
           className="border-b border-border bg-muted/40 pt-[calc(0.75rem+var(--safe-area-top))] pr-[max(1rem,var(--safe-area-right))] pb-3 pl-[max(1rem,var(--safe-area-left))]"
           data-testid="notification-announcement-strip"

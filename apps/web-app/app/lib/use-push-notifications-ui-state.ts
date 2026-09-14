@@ -9,43 +9,47 @@ import {
   type PushNotificationsUiState,
   resolvePushNotificationsUiState,
 } from "~/lib/push-subscriptions.js";
+import { useValueChange } from "~/lib/use-value-change.js";
+
+function probePushUiState(
+  vapid: { publicKey: string; keyId: string } | null | undefined,
+  generation: { current: number },
+  setUiState: (state: PushNotificationsUiState | null) => void,
+) {
+  const requestId = ++generation.current;
+  return resolvePushNotificationsUiState(vapid)
+    .then((state) => {
+      if (requestId === generation.current) {
+        setUiState(state);
+      }
+    })
+    .catch(() => {
+      if (requestId === generation.current) {
+        setUiState("unsupported");
+      }
+    });
+}
 
 export function usePushNotificationsUiState(
   vapid: { publicKey: string; keyId: string } | null | undefined,
 ) {
   const [uiState, setUiState] = useState<PushNotificationsUiState | null>(null);
-  const refreshGeneration = useRef(0);
-  const refreshRunner = useRef<() => Promise<void>>(async () => {});
+  const generation = useRef(0);
+  const vapidKey = vapid?.publicKey ?? null;
+
+  // Same-commit clear when the key identity changes — avoids one stale enableable frame.
+  useValueChange(vapidKey, () => {
+    setUiState(null);
+  });
 
   useEffect(() => {
-    // Drop the previous probe immediately so a vapid change cannot briefly keep
-    // the prior enableable state with a new key / null key.
-    setUiState(null);
-    const refresh = () => {
-      const requestId = ++refreshGeneration.current;
-      return resolvePushNotificationsUiState(vapid)
-        .then((state) => {
-          if (requestId === refreshGeneration.current) {
-            setUiState(state);
-          }
-        })
-        .catch(() => {
-          if (requestId === refreshGeneration.current) {
-            setUiState("unsupported");
-          }
-        });
-    };
-    refreshRunner.current = refresh;
-    void refresh();
-    // Generation after the initial refresh bump — stale permission queries must
-    // not attach listeners after this effect has been replaced.
-    const subscribeGeneration = refreshGeneration.current;
+    void probePushUiState(vapid, generation, setUiState);
     const onRefresh = () => {
-      void refresh();
+      void probePushUiState(vapid, generation, setUiState);
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        void refresh();
+        void probePushUiState(vapid, generation, setUiState);
       }
     };
     window.addEventListener("focus", onRefresh);
@@ -55,12 +59,13 @@ export function usePushNotificationsUiState(
     // Chromium fires PermissionStatus.change when site permission flips in-place;
     // Safari often exposes the API but never fires — focus/visibility still cover it.
     let permissionStatus: PermissionStatus | null = null;
+    let permissionQueryAlive = true;
     const permissions = navigator.permissions;
     if (permissions) {
       void permissions
         .query({ name: "notifications" })
         .then((status) => {
-          if (refreshGeneration.current !== subscribeGeneration) {
+          if (!permissionQueryAlive) {
             return;
           }
           permissionStatus = status;
@@ -73,7 +78,8 @@ export function usePushNotificationsUiState(
 
     return () => {
       // Invalidate in-flight refresh so a late resolve cannot overwrite callers.
-      refreshGeneration.current += 1;
+      generation.current += 1;
+      permissionQueryAlive = false;
       window.removeEventListener("focus", onRefresh);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(PUSH_SUBSCRIPTION_CHANGED_EVENT, onRefresh);
@@ -84,6 +90,6 @@ export function usePushNotificationsUiState(
   return {
     /** Null until the first probe settles. */
     uiState,
-    refresh: () => refreshRunner.current(),
+    refresh: () => probePushUiState(vapid, generation, setUiState),
   };
 }
