@@ -494,6 +494,14 @@ export async function registerPushServiceWorker() {
 }
 
 /**
+ * Register (if needed) and wait until an active worker controls Push.
+ * Call before reconcile so `lastSeenAt` refresh implies a live display SW.
+ */
+export async function ensureActivePushServiceWorker() {
+  return await resolvePushRegistration();
+}
+
+/**
  * Prefer an existing registration over `ready` (which can hang forever when
  * registration never succeeds). Wait until the worker is active before
  * returning — `pushManager.subscribe` requires an active worker.

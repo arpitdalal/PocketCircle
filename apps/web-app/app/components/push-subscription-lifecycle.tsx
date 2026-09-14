@@ -11,12 +11,12 @@ import { MOCKS } from "~/lib/env.js";
 import {
   applyPendingCleanupFlushResult,
   capturePushCancellation,
+  ensureActivePushServiceWorker,
   notifyPushSubscriptionChanged,
   readPushSubscriptionMaterial,
   recalledPendingPushCleanup,
   recalledPushEndpoint,
   recordOrphanLocalDrop,
-  registerPushServiceWorker,
   rememberPushEndpoint,
   rememberPushEndpoints,
   unsubscribeLocalPushSubscription,
@@ -152,8 +152,12 @@ export function PushSubscriptionLifecycle() {
     const onVisibility = () => {
       if (document.visibilityState === "visible") schedule();
     };
-    void registerPushServiceWorker();
-    schedule();
+    // Activate the display-capable worker before reconcile bumps lastSeenAt —
+    // delivery eligibility uses lastSeenAt as a proxy for "device saw new SW".
+    void ensureActivePushServiceWorker().finally(() => {
+      if (abort.signal.aborted) return;
+      schedule();
+    });
     window.addEventListener("focus", schedule);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {

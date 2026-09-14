@@ -12,6 +12,7 @@ import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
 import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
 import { isPushDeliveryEnabled, PUSH_RETRY_BEHAVIOR } from "./push.js";
+import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
   createPinnedHttpsAgent,
@@ -231,6 +232,33 @@ describe("Push mirror from Notification Center", () => {
     expect(mockSendNotification).not.toHaveBeenCalled();
     const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
     expect(rows).toHaveLength(1);
+  });
+
+  it("skips subscriptions lastSeen before PUSH_DELIVERY_SINCE_MS", async () => {
+    const floor = Date.now() + 60_000;
+    vi.stubEnv("PUSH_DELIVERY_SINCE_MS", String(floor));
+    expect(isSubscriptionEligibleForPushDelivery(floor - 1)).toBe(false);
+    expect(isSubscriptionEligibleForPushDelivery(floor)).toBe(true);
+    const t = convexTest(schema, modules);
+    registerPushWorkpool(t);
+    const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
+    await t.run(async (ctx) => {
+      const rows = await listPushSubscriptionsForUser(ctx, recipient._id);
+      const row = rows[0];
+      if (!row) throw new Error("missing row");
+      await ctx.db.patch(row._id, { lastSeenAt: floor - 1 });
+    });
+
+    await mutateAndDrain(t, () =>
+      t.mutation(internal.notify.deliverOne, {
+        recipientUserId: recipient._id,
+        actorUserId: owner._id,
+        type: "circle.restored",
+        title: "Circle restored",
+      }),
+    );
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
   });
 
   it("enqueues one send per active subscription with safe copy, tag, TTL, and key", async () => {

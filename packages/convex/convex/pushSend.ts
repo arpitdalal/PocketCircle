@@ -13,6 +13,7 @@ import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
 import { internalAction } from "./_generated/server.js";
+import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 
 /**
@@ -310,6 +311,9 @@ export const sendOne = internalAction({
       subscriptionId: args.subscriptionId,
     });
     if (!prepared) {
+      return;
+    }
+    if (!isSubscriptionEligibleForPushDelivery(prepared.lastSeenAt)) {
       return;
     }
 

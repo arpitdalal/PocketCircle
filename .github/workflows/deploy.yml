@@ -254,7 +254,14 @@ jobs:
       - name: Enable Push delivery
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
+        run: |
+          # First enable sets a lastSeenAt floor so only devices that open the
+          # app after the display-capable push-sw.js is live receive Push
+          # (Safari silent-push revoke). Later deploys keep the existing floor.
+          if ! pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_SINCE_MS 2>/dev/null | grep -Eq '^[0-9]+$'; then
+            pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_SINCE_MS "$(node -e 'console.log(Date.now())')"
+          fi
+          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 1
 
       - name: Bind MCP Worker production config
         working-directory: packages/mcp-worker

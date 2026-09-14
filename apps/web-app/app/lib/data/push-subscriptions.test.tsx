@@ -26,12 +26,11 @@ afterEach(() => {
 const VAPID = { publicKey: "AQID", keyId: "primary" };
 
 describe("enable operation ownership", () => {
-  it("requests permission in the click stack and excludes competing enable through compensation", async () => {
+  it("requests permission in the click stack and waits for the lock behind a peer enable", async () => {
     const env = installPushEnv();
     const bind = deferredValue<void>();
-    const cleanup = deferredValue<{ removed: boolean }>();
     const enable = vi.fn(() => bind.promise);
-    const disable = vi.fn(() => cleanup.promise);
+    const disable = vi.fn().mockResolvedValue({ removed: true });
     configureConvex({
       pushVapidPublicKey: VAPID,
       enablePushSubscription: enable,
@@ -41,23 +40,19 @@ describe("enable operation ownership", () => {
     const secondTab = renderHook(() => useEnableNotifications());
     const first = firstTab.result.current();
     expect(env.requestPermission).toHaveBeenCalledOnce();
-    const failed = expect(first).rejects.toThrow("response lost");
     await waitFor(() => expect(enable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
-    expect(disable).not.toHaveBeenCalled();
-    bind.reject(new Error("response lost"));
-    await waitFor(() => expect(disable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
-    cleanup.resolve({ removed: true });
-    await failed;
-    expect(env.subscription).toBeNull();
-    enable.mockResolvedValue(undefined);
-    await secondTab.result.current();
+    const second = secondTab.result.current();
+    // Second waits on the lock (subscribe-before-lock must not use ifAvailable).
+    expect(enable).toHaveBeenCalledOnce();
+    bind.resolve();
+    await first;
+    await second;
     expect(env.subscription).not.toBeNull();
-    expect(disable).toHaveBeenCalledOnce();
+    expect(disable).not.toHaveBeenCalled();
+    expect(enable.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("does not compensate a rejected competitor when the first enable succeeds", async () => {
+  it("lets a waiting peer enable after the first enable succeeds", async () => {
     const env = installPushEnv();
     const bind = deferredValue<void>();
     const enable = vi.fn(() => bind.promise);
@@ -71,11 +66,13 @@ describe("enable operation ownership", () => {
     const secondTab = renderHook(() => useEnableNotifications());
     const first = firstTab.result.current();
     await waitFor(() => expect(enable).toHaveBeenCalledOnce());
-    await expect(secondTab.result.current()).rejects.toThrow(/another tab/);
+    const second = secondTab.result.current();
     bind.resolve();
     await first;
+    await second;
     expect(env.subscription).not.toBeNull();
     expect(disable).not.toHaveBeenCalled();
+    expect(enable.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("subscribes before acquiring the Web Lock so remigrate keeps user activation", async () => {

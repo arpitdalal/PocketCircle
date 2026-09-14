@@ -125,78 +125,92 @@ async function enableNotifications(
   // A busy lock can reject before the permission promise settles.
   void permission.catch(() => undefined);
   beginPushEnable();
-  let material: PushSubscriptionMaterial;
+  let material: PushSubscriptionMaterial | undefined;
+  let bound = false;
   try {
     assertCurrentOperation();
     material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
-  } catch (error) {
-    endPushEnable();
-    throw error;
-  }
-
-  await withPushSubscriptionLock(async () => {
-    if (cancelled()) throw new Error("push enable cancelled");
-    try {
-      assertCurrentOperation();
-      /** First bind that recovery abandoned — catch must unbind it too. */
-      let abandonedEndpoint: string | undefined;
-      try {
+    // Wait for the lock — do not use ifAvailable after a successful local
+    // subscribe (that would orphan an unbound sub or race another tab's unsub).
+    await withPushSubscriptionLock(
+      async () => {
+        if (cancelled()) throw new Error("push enable cancelled");
         assertCurrentOperation();
-        await enable(material);
-        assertCurrentOperation();
-        // The browser may revoke or refresh its subscription during bind; recover once.
-        const live = await getCurrentPushSubscription();
-        if (!live || live.endpoint !== material.endpoint) {
-          const previousEndpoint = material.endpoint;
-          // First bind may have committed — catch must unbind it if recovery fails.
-          abandonedEndpoint = previousEndpoint;
-          material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
+        /** First bind that recovery abandoned — catch must unbind it too. */
+        let abandonedEndpoint: string | undefined;
+        try {
           assertCurrentOperation();
           await enable(material);
           assertCurrentOperation();
-          const recovered = await getCurrentPushSubscription();
-          if (!recovered || recovered.endpoint !== material.endpoint) {
-            throw new Error("Push subscription was removed during enable");
+          // The browser may revoke or refresh its subscription during bind; recover once.
+          const live = await getCurrentPushSubscription();
+          if (!live || live.endpoint !== material.endpoint) {
+            const previousEndpoint = material.endpoint;
+            // First bind may have committed — catch must unbind it if recovery fails.
+            abandonedEndpoint = previousEndpoint;
+            material = await subscribeForPushNotifications(
+              vapid,
+              permission,
+              assertCurrentOperation,
+            );
+            assertCurrentOperation();
+            await enable(material);
+            assertCurrentOperation();
+            const recovered = await getCurrentPushSubscription();
+            if (!recovered || recovered.endpoint !== material.endpoint) {
+              throw new Error("Push subscription was removed during enable");
+            }
+            // Drop the abandoned first endpoint (or keep pending on failure).
+            if (previousEndpoint !== material.endpoint) {
+              await disableOrRememberPending(disable, previousEndpoint);
+            }
+            abandonedEndpoint = undefined;
           }
-          // Drop the abandoned first endpoint (or keep pending on failure).
-          if (previousEndpoint !== material.endpoint) {
-            await disableOrRememberPending(disable, previousEndpoint);
-          }
-          abandonedEndpoint = undefined;
-        }
-        assertCurrentOperation();
-        track("notifications_enabled", {});
-      } catch (error) {
-        // Ambiguous transport failures: clear server binding for this endpoint
-        // (covers committed-but-lost-response) then drop the local subscription.
-        const endpoints = [
-          ...new Set(
-            [material.endpoint, abandonedEndpoint].filter(
-              (endpoint): endpoint is string => typeof endpoint === "string" && endpoint.length > 0,
+          assertCurrentOperation();
+          bound = true;
+          track("notifications_enabled", {});
+        } catch (error) {
+          // Ambiguous transport failures: clear server binding for this endpoint
+          // (covers committed-but-lost-response) then drop the local subscription.
+          const endpoints = [
+            ...new Set(
+              [material.endpoint, abandonedEndpoint].filter(
+                (endpoint): endpoint is string =>
+                  typeof endpoint === "string" && endpoint.length > 0,
+              ),
             ),
-          ),
-        ];
-        const failures: string[] = [];
-        for (const endpoint of endpoints) {
-          let removed = false;
-          try {
-            removed = disableRemovedOwnedBinding(await disable({ endpoint }));
-          } catch {
-            removed = false;
+          ];
+          const failures: string[] = [];
+          for (const endpoint of endpoints) {
+            let removed = false;
+            try {
+              removed = disableRemovedOwnedBinding(await disable({ endpoint }));
+            } catch {
+              removed = false;
+            }
+            if (!removed) {
+              failures.push(endpoint);
+            }
           }
-          if (!removed) {
-            failures.push(endpoint);
-          }
+          rememberPushEndpoint(null);
+          applyPendingCleanupFlushResult(endpoints, failures);
+          await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
+          throw error;
         }
-        rememberPushEndpoint(null);
-        applyPendingCleanupFlushResult(endpoints, failures);
-        await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
-        throw error;
-      }
-    } finally {
-      endPushEnable();
+      },
+      { wait: true },
+    );
+  } catch (error) {
+    // Subscribe ran before the lock — if we never bound (cancel while waiting),
+    // drop the unbound local sub so Settings does not look enabled.
+    if (!bound && material) {
+      rememberPushEndpoint(null);
+      await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
     }
-  });
+    throw error;
+  } finally {
+    endPushEnable();
+  }
 }
 
 /** Settings enable: permission + subscribe + bind. */

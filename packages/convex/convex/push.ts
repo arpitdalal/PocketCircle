@@ -10,8 +10,15 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server.js";
+import { isPushDeliveryEnabled, isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { listPushSubscriptionsForUser } from "./pushSubscriptions.js";
 import { reportTerminalFailure } from "./terminalFailure.js";
+
+export {
+  isPushDeliveryEnabled,
+  isSubscriptionEligibleForPushDelivery,
+  pushDeliverySinceMs,
+} from "./pushDelivery.js";
 
 /**
  * Best-effort Push mirror of Notification Center rows (ADR 0033 / #382).
@@ -23,6 +30,8 @@ import { reportTerminalFailure } from "./terminalFailure.js";
  * `PUSH_DELIVERY_ENABLED=1` gates enqueue/send so production can deploy the
  * display-capable service worker before any silent Push reaches Safari
  * (which may revoke permission). Unset/other values skip delivery.
+ * Optional `PUSH_DELIVERY_SINCE_MS` further requires subscription `lastSeenAt`
+ * at/after that floor (devices that opened the app after the display SW).
  */
 
 export const PUSH_RETRY_BEHAVIOR = {
@@ -36,11 +45,6 @@ export const pushPool = new Workpool(components.pushWorkpool, {
   retryActionsByDefault: true,
   defaultRetryBehavior: PUSH_RETRY_BEHAVIOR,
 });
-
-/** True only when ops explicitly enabled delivery after the display SW is live. */
-export function isPushDeliveryEnabled() {
-  return process.env.PUSH_DELIVERY_ENABLED === "1";
-}
 
 /**
  * After a Notification Center insert: one Push job per active subscription.
@@ -59,7 +63,9 @@ export async function enqueuePushForNotification(
   if (!isPushDeliveryEnabled()) {
     return;
   }
-  const subscriptions = await listPushSubscriptionsForUser(ctx, args.recipientUserId);
+  const subscriptions = (await listPushSubscriptionsForUser(ctx, args.recipientUserId)).filter(
+    (subscription) => isSubscriptionEligibleForPushDelivery(subscription.lastSeenAt),
+  );
   if (subscriptions.length === 0) {
     return;
   }
@@ -128,6 +134,7 @@ export const loadSendPayload = internalQuery({
       p256dh: subscription.p256dh,
       auth: subscription.auth,
       vapidKeyId: subscription.vapidKeyId,
+      lastSeenAt: subscription.lastSeenAt,
     };
   },
 });
