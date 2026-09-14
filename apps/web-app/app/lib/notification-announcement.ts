@@ -2,6 +2,7 @@
  * One-time notification announcement strip (#383). Per-device dismiss only —
  * Settings remains the retry path. Visibility is enableable Push only.
  */
+import { track } from "~/lib/analytics.js";
 import type { PushNotificationsUiState } from "~/lib/push-subscriptions.js";
 
 export const NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY =
@@ -12,6 +13,8 @@ const IMPRESSION_KEY = "pocketcircle.notificationAnnouncementImpression";
 /** Survives blocked Web Storage for the JS realm (private mode / ITP). */
 let dismissedMemory = false;
 let impressionMemory = false;
+/** Dismiss analytics queued until capture is ready (cold-load race). */
+let pendingDismissTrack = false;
 
 const dismissListeners = new Set<() => void>();
 let detachStorageListener: (() => void) | null = null;
@@ -43,6 +46,7 @@ function ensureDismissStorageListener() {
 export function resetNotificationAnnouncementMemory() {
   dismissedMemory = false;
   impressionMemory = false;
+  pendingDismissTrack = false;
   emitDismissChange();
 }
 
@@ -98,6 +102,26 @@ export function markNotificationAnnouncementImpressionRecorded() {
     window.sessionStorage.setItem(IMPRESSION_KEY, "1");
   } catch {
     // Memory flag still de-dupes for this realm.
+  }
+}
+
+/** Capture dismiss analytics, or queue until capture is ready. */
+export function trackNotificationAnnouncementDismissed() {
+  if (track("notification_announcement_dismissed", {})) {
+    pendingDismissTrack = false;
+    return true;
+  }
+  pendingDismissTrack = true;
+  return false;
+}
+
+/** Flush a dismiss event queued before analytics initialized. */
+export function flushPendingNotificationAnnouncementDismissTrack() {
+  if (!pendingDismissTrack) {
+    return;
+  }
+  if (track("notification_announcement_dismissed", {})) {
+    pendingDismissTrack = false;
   }
 }
 

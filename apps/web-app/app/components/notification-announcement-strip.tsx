@@ -21,6 +21,7 @@ import {
 import { useEnableNotifications, usePushVapidPublicKey } from "~/lib/data.js";
 import { mutationErrorMessageForUser } from "~/lib/mutation-user-message.js";
 import {
+  flushPendingNotificationAnnouncementDismissTrack,
   hasRecordedNotificationAnnouncementImpression,
   isIosInstallPrerequisiteDismissed,
   isNotificationAnnouncementVisible,
@@ -28,6 +29,7 @@ import {
   readNotificationAnnouncementDismissed,
   shouldSuppressNotificationAnnouncementForUiState,
   subscribeNotificationAnnouncementDismissed,
+  trackNotificationAnnouncementDismissed,
   writeNotificationAnnouncementDismissed,
 } from "~/lib/notification-announcement.js";
 import { useSnackbar } from "~/lib/snackbar.js";
@@ -83,7 +85,6 @@ export function NotificationAnnouncementStrip({
     () => false,
   );
   const [submitting, setSubmitting] = useState(false);
-  const [pendingDismissTrack, setPendingDismissTrack] = useState(false);
   const reportOwnsTopSafeArea = useEffectEvent((owns: boolean) => {
     onOwnsTopSafeAreaChange?.(owns);
   });
@@ -154,19 +155,15 @@ export function NotificationAnnouncementStrip({
   }, [liveVisible, analyticsReady]);
 
   useEffect(() => {
-    if (!analyticsReady || !pendingDismissTrack) {
+    if (!analyticsReady) {
       return;
     }
-    if (track("notification_announcement_dismissed", {})) {
-      setPendingDismissTrack(false);
-    }
-  }, [analyticsReady, pendingDismissTrack]);
+    flushPendingNotificationAnnouncementDismissTrack();
+  }, [analyticsReady]);
 
   const onDismiss = () => {
     writeNotificationAnnouncementDismissed();
-    if (!track("notification_announcement_dismissed", {})) {
-      setPendingDismissTrack(true);
-    }
+    trackNotificationAnnouncementDismissed();
   };
 
   const onEnable = () => {
