@@ -13,7 +13,7 @@ import { v } from "convex/values";
 import webpush from "web-push";
 import { internal } from "./_generated/api.js";
 import { internalAction } from "./_generated/server.js";
-import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
+import { isPushDeliveryEnabled, isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 
 /**
@@ -301,9 +301,15 @@ export const sendOne = internalAction({
     invitationExpiresAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // Gate here too: Workpool jobs queued before a rollout disable must not
-    // deliver silent Push while the display SW is still rolling out.
-    if (process.env.PUSH_DELIVERY_ENABLED !== "1") {
+    // Gate here: Workpool jobs queued before/during a rollout disable must not
+    // deliver silent Push. Defer (re-enqueue) instead of ack-success so jobs
+    // survive until PUSH_DELIVERY_ENABLED=1 without burning retry budget.
+    if (!isPushDeliveryEnabled()) {
+      await ctx.runMutation(internal.push.deferSendWhileDeliveryPaused, {
+        notificationId: args.notificationId,
+        subscriptionId: args.subscriptionId,
+        invitationExpiresAtMs: args.invitationExpiresAtMs,
+      });
       return;
     }
     const prepared = await ctx.runQuery(internal.push.loadSendPayload, {

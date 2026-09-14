@@ -141,8 +141,11 @@ export function PushSubscriptionLifecycle() {
       const signOutCancelled = capturePushCancellation();
       const isCancelled = () => abort.signal.aborted || signOutCancelled();
       void ensureActivePushServiceWorker()
-        .catch(() => null)
-        .then(() => {
+        .then((result) => {
+          if (result.kind !== "ready") {
+            scheduled = false;
+            return;
+          }
           if (isCancelled()) {
             scheduled = false;
             return;

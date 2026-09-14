@@ -105,11 +105,62 @@ async function disableOrRememberPending(
   return removed;
 }
 
+type BindPush = (material: PushSubscriptionMaterial) => Promise<unknown>;
+type ReplacePush = (
+  args: PushSubscriptionMaterial & { previousEndpoint: string },
+) => Promise<{ bound: boolean }>;
+type OwnsPush = (endpoint: string) => Promise<boolean>;
+
+/** Bind via replace when remigrating an owned old-key endpoint; else enable. */
+async function bindPushSubscription(
+  enable: BindPush,
+  replace: ReplacePush,
+  material: PushSubscriptionMaterial,
+  previousEndpoint: string | undefined,
+) {
+  if (previousEndpoint && previousEndpoint !== material.endpoint) {
+    const result = await replace({ previousEndpoint, ...material });
+    if (result && result.bound) {
+      return;
+    }
+    // Previous not owned (or stolen) — explicit enable may still rebind.
+  }
+  await enable(material);
+}
+
+/** Compensate only endpoints this attempt may have uniquely bound. */
+async function compensateFailedBind(
+  disable: (args: { endpoint: string }) => Promise<unknown>,
+  endpoints: string[],
+) {
+  const unique = [...new Set(endpoints.filter((endpoint) => endpoint.length > 0))];
+  const failures: string[] = [];
+  for (const endpoint of unique) {
+    let removed = false;
+    try {
+      removed = disableRemovedOwnedBinding(await disable({ endpoint }));
+    } catch {
+      removed = false;
+    }
+    if (!removed) {
+      failures.push(endpoint);
+    }
+  }
+  rememberPushEndpoint(null);
+  applyPendingCleanupFlushResult(unique, failures);
+  const local = unique[unique.length - 1];
+  if (local) {
+    await unsubscribeLocalPushSubscription(local).catch(() => undefined);
+  }
+}
+
 /** One complete enable transaction; the hook only supplies the network boundary. */
 async function enableNotifications(
   vapid: { publicKey: string; keyId: string } | null | undefined,
-  enable: (material: PushSubscriptionMaterial) => Promise<unknown>,
+  enable: BindPush,
   disable: (args: { endpoint: string }) => Promise<unknown>,
+  replace: ReplacePush,
+  owns: OwnsPush,
 ) {
   if (!vapid) {
     throw new Error("Push notifications are not configured");
@@ -126,10 +177,17 @@ async function enableNotifications(
   void permission.catch(() => undefined);
   beginPushEnable();
   let material: PushSubscriptionMaterial | undefined;
+  let previousEndpoint: string | undefined;
   let bound = false;
   try {
     assertCurrentOperation();
-    material = await subscribeForPushNotifications(vapid, permission, assertCurrentOperation);
+    const subscribed = await subscribeForPushNotifications(
+      vapid,
+      permission,
+      assertCurrentOperation,
+    );
+    material = subscribed.material;
+    previousEndpoint = subscribed.previousEndpoint;
     let binding = material;
     // Wait for the lock — do not use ifAvailable after a successful local
     // subscribe (that would orphan an unbound sub or race another tab's unsub).
@@ -139,32 +197,40 @@ async function enableNotifications(
         assertCurrentOperation();
         /** First bind that recovery abandoned — catch must unbind it too. */
         let abandonedEndpoint: string | undefined;
+        /** Peer/prior already owns this endpoint — never destroy their bind. */
+        let ownedBeforeEnable = false;
         try {
           assertCurrentOperation();
-          await enable(binding);
+          ownedBeforeEnable = await owns(binding.endpoint);
+          assertCurrentOperation();
+          await bindPushSubscription(enable, replace, binding, previousEndpoint);
           assertCurrentOperation();
           // The browser may revoke or refresh its subscription during bind; recover once.
           const live = await getCurrentPushSubscription();
           if (!live || live.endpoint !== binding.endpoint) {
-            const previousEndpoint = binding.endpoint;
+            const firstEndpoint = binding.endpoint;
             // First bind may have committed — catch must unbind it if recovery fails.
-            abandonedEndpoint = previousEndpoint;
-            binding = await subscribeForPushNotifications(
+            abandonedEndpoint = firstEndpoint;
+            const recovered = await subscribeForPushNotifications(
               vapid,
               permission,
               assertCurrentOperation,
             );
+            binding = recovered.material;
             material = binding;
+            previousEndpoint = recovered.previousEndpoint ?? firstEndpoint;
             assertCurrentOperation();
-            await enable(binding);
+            ownedBeforeEnable = await owns(binding.endpoint);
             assertCurrentOperation();
-            const recovered = await getCurrentPushSubscription();
-            if (!recovered || recovered.endpoint !== binding.endpoint) {
+            await bindPushSubscription(enable, replace, binding, previousEndpoint);
+            assertCurrentOperation();
+            const after = await getCurrentPushSubscription();
+            if (!after || after.endpoint !== binding.endpoint) {
               throw new Error("Push subscription was removed during enable");
             }
             // Drop the abandoned first endpoint (or keep pending on failure).
-            if (previousEndpoint !== binding.endpoint) {
-              await disableOrRememberPending(disable, previousEndpoint);
+            if (firstEndpoint !== binding.endpoint) {
+              await disableOrRememberPending(disable, firstEndpoint);
             }
             abandonedEndpoint = undefined;
           }
@@ -172,42 +238,27 @@ async function enableNotifications(
           bound = true;
           track("notifications_enabled", {});
         } catch (error) {
+          if (ownedBeforeEnable) {
+            // Concurrent peer already bound this endpoint — leave their sub alone.
+            throw error;
+          }
           // Ambiguous transport failures: clear server binding for this endpoint
           // (covers committed-but-lost-response) then drop the local subscription.
-          const endpoints = [
-            ...new Set(
-              [binding.endpoint, abandonedEndpoint].filter(
-                (endpoint): endpoint is string =>
-                  typeof endpoint === "string" && endpoint.length > 0,
-              ),
-            ),
-          ];
-          const failures: string[] = [];
-          for (const endpoint of endpoints) {
-            let removed = false;
-            try {
-              removed = disableRemovedOwnedBinding(await disable({ endpoint }));
-            } catch {
-              removed = false;
-            }
-            if (!removed) {
-              failures.push(endpoint);
-            }
-          }
-          rememberPushEndpoint(null);
-          applyPendingCleanupFlushResult(endpoints, failures);
-          await unsubscribeLocalPushSubscription(binding.endpoint).catch(() => undefined);
+          await compensateFailedBind(disable, [binding.endpoint, abandonedEndpoint ?? ""]);
           throw error;
         }
       },
       { wait: true },
     );
   } catch (error) {
-    // Subscribe ran before the lock — if we never bound (cancel while waiting),
-    // drop the unbound local sub so Settings does not look enabled.
+    // Subscribe ran before the lock — local sub is shared with any peer. Never
+    // unsubscribe here; bind-path compensation under the lock owns teardown.
     if (!bound && material) {
-      rememberPushEndpoint(null);
-      await unsubscribeLocalPushSubscription(material.endpoint).catch(() => undefined);
+      // Soft-clear remember only when nobody owns the endpoint yet.
+      const owned = await owns(material.endpoint).catch(() => false);
+      if (!owned) {
+        rememberPushEndpoint(null);
+      }
     }
     throw error;
   } finally {
@@ -215,12 +266,14 @@ async function enableNotifications(
   }
 }
 
-/** Settings enable: permission + subscribe + bind. */
+/** Settings enable: permission + subscribe + bind (replace on VAPID remigrate). */
 export function useEnableNotifications() {
   const vapid = usePushVapidPublicKey();
   const enable = useEnablePushSubscription();
   const disable = useDisablePushSubscription();
-  return () => enableNotifications(vapid, enable, disable);
+  const replace = useReplacePushSubscription();
+  const owns = useOwnsPushEndpoint();
+  return () => enableNotifications(vapid, enable, disable, replace, owns);
 }
 
 /** Settings disable: unsubscribe + unbind; leaves browser permission granted. */

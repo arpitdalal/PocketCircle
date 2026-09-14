@@ -6,10 +6,11 @@ import {
   clearLocalPushSubscriptionAndBinding,
   clearRememberedPushEndpoints,
   resetPushOperationState,
+  vapidPublicKeyBytes,
   withPushSubscriptionLock,
 } from "~/lib/push-subscriptions.js";
 import { configureConvex } from "~/test/convex-react.js";
-import { installPushEnv, resetPushEnv } from "~/test/push-env.js";
+import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
 
@@ -73,6 +74,54 @@ describe("enable operation ownership", () => {
     expect(env.subscription).not.toBeNull();
     expect(disable).not.toHaveBeenCalled();
     expect(enable.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not unsubscribe a peer-bound endpoint when a later enable fails", async () => {
+    const env = installPushEnv();
+    const enable = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("transport lost"));
+    const disable = vi.fn().mockResolvedValue({ removed: true });
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      disablePushSubscription: disable,
+      // After the first enable binds, ownership checks see the endpoint as ours.
+      ownsPushEndpoint: () => enable.mock.calls.length >= 1,
+    });
+    const firstTab = renderHook(() => useEnableNotifications());
+    const secondTab = renderHook(() => useEnableNotifications());
+    await firstTab.result.current();
+    await expect(secondTab.result.current()).rejects.toThrow("transport lost");
+    expect(env.subscription).not.toBeNull();
+    expect(disable).not.toHaveBeenCalled();
+  });
+
+  it("uses replacePushSubscription when Chromium forces a VAPID remigrate", async () => {
+    const oldSub = makeFakePushSubscription({
+      endpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+    });
+    oldSub.options = { applicationServerKey: vapidPublicKeyBytes("BAQE") };
+    installPushEnv({ permission: "granted", subscription: oldSub });
+    const enable = vi.fn();
+    const replace = vi.fn().mockResolvedValue({ bound: true });
+    const disable = vi.fn();
+    configureConvex({
+      pushVapidPublicKey: VAPID,
+      enablePushSubscription: enable,
+      replacePushSubscription: replace,
+      disablePushSubscription: disable,
+    });
+    const hook = renderHook(() => useEnableNotifications());
+    await hook.result.current();
+    expect(replace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousEndpoint: "https://fcm.googleapis.com/fcm/send/old-key",
+        endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
+      }),
+    );
+    expect(enable).not.toHaveBeenCalled();
   });
 
   it("subscribes before acquiring the Web Lock so remigrate keeps user activation", async () => {

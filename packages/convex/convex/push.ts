@@ -27,11 +27,11 @@ export {
  * Invitation delivery. Free-plan action ceiling is 20 across ALL pools;
  * email takes 5, push takes 3.
  *
- * `PUSH_DELIVERY_ENABLED=1` gates enqueue/send so production can deploy the
- * display-capable service worker before any silent Push reaches Safari
- * (which may revoke permission). Unset/other values skip delivery.
- * Optional `PUSH_DELIVERY_SINCE_MS` further requires subscription `lastSeenAt`
- * at/after that floor (devices that opened the app after the display SW).
+ * Jobs are always enqueued from NC. `PUSH_DELIVERY_ENABLED=1` gates actual
+ * delivery: while unset/other, `sendOne` defers (re-enqueues with delay) so
+ * rollout can pause without dropping Workpool jobs. Optional
+ * `PUSH_DELIVERY_SINCE_MS` further requires subscription `lastSeenAt` at/after
+ * that floor (devices that opened the app after the display SW).
  */
 
 export const PUSH_RETRY_BEHAVIOR = {
@@ -40,15 +40,40 @@ export const PUSH_RETRY_BEHAVIOR = {
   base: 2,
 };
 
+/** How long to wait before retrying a send while delivery is paused. */
+export const PUSH_DELIVERY_PAUSE_POLL_MS = 30_000;
+
 export const pushPool = new Workpool(components.pushWorkpool, {
   maxParallelism: 3,
   retryActionsByDefault: true,
   defaultRetryBehavior: PUSH_RETRY_BEHAVIOR,
 });
 
+type SendOneArgs = {
+  notificationId: Id<"notifications">;
+  subscriptionId: Id<"pushSubscriptions">;
+  invitationExpiresAtMs?: number;
+};
+
+async function enqueueSendOne(
+  ctx: MutationCtx,
+  args: SendOneArgs,
+  options?: { runAfter?: number },
+) {
+  await pushPool.enqueueAction(ctx, internal.pushSend.sendOne, args, {
+    runAfter: options?.runAfter,
+    onComplete: internal.push.onSendComplete,
+    context: {
+      notificationId: args.notificationId,
+      subscriptionId: args.subscriptionId,
+    },
+  });
+}
+
 /**
  * After a Notification Center insert: one Push job per active subscription.
  * No-ops when the recipient has no subscriptions (most users / most tests).
+ * Still enqueues while delivery is paused — send defers until enabled.
  */
 export async function enqueuePushForNotification(
   ctx: MutationCtx,
@@ -60,9 +85,6 @@ export async function enqueuePushForNotification(
     invitationExpiresAt?: number;
   },
 ) {
-  if (!isPushDeliveryEnabled()) {
-    return;
-  }
   const subscriptions = (await listPushSubscriptionsForUser(ctx, args.recipientUserId)).filter(
     (subscription) => isSubscriptionEligibleForPushDelivery(subscription.lastSeenAt),
   );
@@ -83,22 +105,11 @@ export async function enqueuePushForNotification(
 
   for (const subscription of subscriptions) {
     try {
-      await pushPool.enqueueAction(
-        ctx,
-        internal.pushSend.sendOne,
-        {
-          notificationId: args.notificationId,
-          subscriptionId: subscription._id,
-          invitationExpiresAtMs,
-        },
-        {
-          onComplete: internal.push.onSendComplete,
-          context: {
-            notificationId: args.notificationId,
-            subscriptionId: subscription._id,
-          },
-        },
-      );
+      await enqueueSendOne(ctx, {
+        notificationId: args.notificationId,
+        subscriptionId: subscription._id,
+        invitationExpiresAtMs,
+      });
     } catch (error) {
       // Keep fan-out going: one enqueue failure must not strand remaining subs.
       console.error(
@@ -109,6 +120,25 @@ export async function enqueuePushForNotification(
     }
   }
 }
+
+/**
+ * Re-enqueue a send after delivery was paused mid-flight. If delivery is now
+ * enabled, enqueue immediately; otherwise poll again after a delay.
+ */
+export const deferSendWhileDeliveryPaused = internalMutation({
+  args: {
+    notificationId: v.id("notifications"),
+    subscriptionId: v.id("pushSubscriptions"),
+    invitationExpiresAtMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    if (isPushDeliveryEnabled()) {
+      await enqueueSendOne(ctx, args);
+      return;
+    }
+    await enqueueSendOne(ctx, args, { runAfter: PUSH_DELIVERY_PAUSE_POLL_MS });
+  },
+});
 
 /** Payload for the Node sender — lock-screen-safe title/body from event type. */
 export const loadSendPayload = internalQuery({

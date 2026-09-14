@@ -497,20 +497,30 @@ export async function registerPushServiceWorker() {
  * Register (if needed), check for a newer push-sw.js, and wait until an active
  * worker controls Push. Call before reconcile so `lastSeenAt` refresh implies
  * the device had a chance to activate the display-capable worker.
+ *
+ * Fail-closed: a failed `update()` or a successor still installing/waiting
+ * after the wait window must not bump `lastSeenAt` (Safari silent-push revoke).
  */
 export async function ensureActivePushServiceWorker() {
   const registration = await resolvePushRegistration();
   if (!registration) {
-    return null;
+    return { kind: "unavailable" as const };
   }
   try {
     // Byte-diff update check — required so an already-active pre-display worker
     // is replaced before we bump lastSeenAt (Safari silent-push revoke).
     await registration.update();
   } catch {
-    // Offline / blocked — keep the current active worker.
+    return { kind: "update_failed" as const };
   }
-  return (await waitForActiveServiceWorker(registration)) ?? registration;
+  const ready = await waitForActiveServiceWorker(registration);
+  if (!ready?.active) {
+    return { kind: "activation_pending" as const };
+  }
+  if (ready.installing || ready.waiting) {
+    return { kind: "activation_pending" as const };
+  }
+  return { kind: "ready" as const, registration: ready };
 }
 
 /**
@@ -518,6 +528,7 @@ export async function ensureActivePushServiceWorker() {
  * registration never succeeds). Wait until the worker is active before
  * returning — `pushManager.subscribe` requires an active worker.
  * Also waits out an installing/waiting successor after `registration.update()`.
+ * Returns null when a successor is still pending after the timeout (fail closed).
  */
 async function waitForActiveServiceWorker(
   registration: ServiceWorkerRegistration,
@@ -527,6 +538,7 @@ async function waitForActiveServiceWorker(
   if (!candidate) {
     return registration.active ? registration : null;
   }
+  let timedOut = false;
   await new Promise<void>((resolve) => {
     const finish = () => {
       window.clearTimeout(timer);
@@ -536,10 +548,16 @@ async function waitForActiveServiceWorker(
     const onStateChange = () => {
       if (candidate.state === "activated" || candidate.state === "redundant") finish();
     };
-    const timer = window.setTimeout(finish, timeoutMs);
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      finish();
+    }, timeoutMs);
     candidate.addEventListener("statechange", onStateChange);
     onStateChange();
   });
+  if (timedOut && (registration.installing || registration.waiting)) {
+    return null;
+  }
   return registration.active ? registration : null;
 }
 
@@ -631,6 +649,8 @@ function isExistingSubscriptionKeyConflict(error: unknown) {
  * Prefer `subscribe()` first so a failed migrate never leaves the device without
  * Push. Chromium rejects with `InvalidStateError` when a different-key sub
  * already exists — only then unsubscribe and retry.
+ * When a different-key sub is replaced, returns `previousEndpoint` so the
+ * caller can `replacePushSubscription` (avoid LRU eviction at the 10-cap).
  */
 async function subscribeWithVapid(
   registration: ServiceWorkerRegistration,
@@ -638,22 +658,26 @@ async function subscribeWithVapid(
 ) {
   const existing = await registration.pushManager.getSubscription();
   if (existing && applicationServerKeyMatches(existing, vapid.publicKey)) {
-    return existing;
+    return { subscription: existing };
   }
   const options = {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
   };
   try {
-    return await registration.pushManager.subscribe(options);
+    return { subscription: await registration.pushManager.subscribe(options) };
   } catch (error) {
     if (!existing || !isExistingSubscriptionKeyConflict(error)) {
       throw error;
     }
+    const previousEndpoint = existing.endpoint;
     if (!(await existing.unsubscribe())) {
       throw new Error("Push unsubscribe failed");
     }
-    return await registration.pushManager.subscribe(options);
+    return {
+      subscription: await registration.pushManager.subscribe(options),
+      previousEndpoint,
+    };
   }
 }
 
@@ -685,10 +709,13 @@ export async function subscribeForPushNotifications(
     throw new Error("Push service worker is not available");
   }
   assertCurrentOperation();
-  const subscription = await subscribeWithVapid(registration, vapid);
+  const { subscription, previousEndpoint } = await subscribeWithVapid(registration, vapid);
   const keys = readSubscriptionKeys(subscription);
   rememberPushEndpoint(keys.endpoint);
-  return { ...keys, vapidKeyId: vapid.keyId };
+  return {
+    material: { ...keys, vapidKeyId: vapid.keyId },
+    previousEndpoint,
+  };
 }
 
 /**

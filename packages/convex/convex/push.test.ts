@@ -4,14 +4,18 @@ import { promises as dns } from "node:dns";
 import { pushBodyForNotificationType, pushTitleForNotificationType } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mutateAndDrain, mutateAndDrainRetries } from "../test/mutateAndDrain.js";
+import {
+  drainScheduledFunctions,
+  mutateAndDrain,
+  mutateAndDrainRetries,
+} from "../test/mutateAndDrain.js";
 import { listNotificationsForUser } from "../test/notifications.js";
 import { generateTestVapidKeyPair } from "../test/pushFixtures.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { registerPushWorkpool } from "../test/registerPushWorkpool.js";
 import { makeUser, seedCircle } from "../test/seed.js";
 import { internal } from "./_generated/api.js";
-import { isPushDeliveryEnabled, PUSH_RETRY_BEHAVIOR } from "./push.js";
+import { isPushDeliveryEnabled, PUSH_DELIVERY_PAUSE_POLL_MS, PUSH_RETRY_BEHAVIOR } from "./push.js";
 import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import { classifyPushHttpStatus, pushHttpStatusFromError } from "./pushFailure.js";
 import {
@@ -213,23 +217,32 @@ describe("createPinnedHttpsAgent", () => {
 });
 
 describe("Push mirror from Notification Center", () => {
-  it("skips enqueue when PUSH_DELIVERY_ENABLED is not 1", async () => {
+  it("enqueues while delivery is paused and sends after enable + poll delay", async () => {
     vi.stubEnv("PUSH_DELIVERY_ENABLED", "0");
     expect(isPushDeliveryEnabled()).toBe(false);
     const t = convexTest(schema, modules);
     registerPushWorkpool(t);
     const { owner, recipient } = await seedRecipientWithSubs(t, [ENDPOINT_A]);
 
-    await mutateAndDrain(t, () =>
-      t.mutation(internal.notify.deliverOne, {
+    vi.useFakeTimers();
+    try {
+      await t.mutation(internal.notify.deliverOne, {
         recipientUserId: recipient._id,
         actorUserId: owner._id,
         type: "circle.restored",
         title: "Circle restored",
-      }),
-    );
+      });
+      await drainScheduledFunctions(t);
+      expect(mockSendNotification).not.toHaveBeenCalled();
 
-    expect(mockSendNotification).not.toHaveBeenCalled();
+      vi.stubEnv("PUSH_DELIVERY_ENABLED", "1");
+      vi.advanceTimersByTime(PUSH_DELIVERY_PAUSE_POLL_MS);
+      await drainScheduledFunctions(t);
+      expect(mockSendNotification).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+
     const rows = await t.run((ctx) => listNotificationsForUser(ctx, recipient._id));
     expect(rows).toHaveLength(1);
   });

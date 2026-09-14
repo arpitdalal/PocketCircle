@@ -7,11 +7,8 @@ import {
   isValidPushSubscriptionMaterial,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
 } from "./push-subscriptions.js";
+import { TEST_PUSH_AUTH, TEST_PUSH_P256DH } from "./push-test-fixtures.js";
 
-/** Synthetic valid key material for domain unit tests only (on-curve P-256). */
-const TEST_P256DH =
-  "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU";
-const TEST_AUTH = "CQkJCQkJCQkJCQkJCQkJCQ";
 const PUBLIC_ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-sub";
 /** 65-byte 0x04 blob that is not a P-256 point. */
 const OFF_CURVE_P256DH =
@@ -63,8 +60,8 @@ describe("push-subscriptions", () => {
     expect(
       isValidPushSubscriptionMaterial({
         endpoint: PUBLIC_ENDPOINT,
-        p256dh: TEST_P256DH,
-        auth: TEST_AUTH,
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
       }),
     ).toBe(true);
     expect(
@@ -77,8 +74,8 @@ describe("push-subscriptions", () => {
     expect(
       isValidPushSubscriptionMaterial({
         endpoint: "https://127.0.0.1/sub",
-        p256dh: TEST_P256DH,
-        auth: TEST_AUTH,
+        p256dh: TEST_PUSH_P256DH,
+        auth: TEST_PUSH_AUTH,
       }),
     ).toBe(false);
     // Compressed 33-byte points are not valid for RFC 8291 user-agent keys.
@@ -87,7 +84,7 @@ describe("push-subscriptions", () => {
       isValidPushSubscriptionMaterial({
         endpoint: PUBLIC_ENDPOINT,
         p256dh: compressed,
-        auth: TEST_AUTH,
+        auth: TEST_PUSH_AUTH,
       }),
     ).toBe(false);
     // Length-valid but off-curve points must not bind.
@@ -95,7 +92,7 @@ describe("push-subscriptions", () => {
       isValidPushSubscriptionMaterial({
         endpoint: PUBLIC_ENDPOINT,
         p256dh: OFF_CURVE_P256DH,
-        auth: TEST_AUTH,
+        auth: TEST_PUSH_AUTH,
       }),
     ).toBe(false);
   });

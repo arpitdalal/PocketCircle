@@ -54,6 +54,8 @@ import type * as opaqueToken from "../opaqueToken.js";
 import type * as operationReader from "../operationReader.js";
 import type * as operations from "../operations.js";
 import type * as push from "../push.js";
+import type * as pushDelivery from "../pushDelivery.js";
+import type * as pushFailure from "../pushFailure.js";
 import type * as pushSend from "../pushSend.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as search from "../search.js";
@@ -116,6 +118,8 @@ declare const fullApi: ApiFromModules<{
   operationReader: typeof operationReader;
   operations: typeof operations;
   push: typeof push;
+  pushDelivery: typeof pushDelivery;
+  pushFailure: typeof pushFailure;
   pushSend: typeof pushSend;
   pushSubscriptions: typeof pushSubscriptions;
   search: typeof search;

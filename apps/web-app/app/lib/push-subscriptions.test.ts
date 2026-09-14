@@ -80,8 +80,32 @@ describe("ensureActivePushServiceWorker", () => {
         ready: Promise.resolve(registration),
       },
     });
-    await ensureActivePushServiceWorker();
+    await expect(ensureActivePushServiceWorker()).resolves.toEqual({
+      kind: "ready",
+      registration,
+    });
     expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("skips reconcile-ready when update fails", async () => {
+    const update = vi.fn().mockRejectedValue(new Error("offline"));
+    const registration = {
+      pushManager: { subscribe: vi.fn(), getSubscription: vi.fn() },
+      active: {},
+      installing: null,
+      waiting: null,
+      update,
+    };
+    installPushEnv();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        register: vi.fn().mockResolvedValue(registration),
+        getRegistration: vi.fn().mockResolvedValue(registration),
+        ready: Promise.resolve(registration),
+      },
+    });
+    await expect(ensureActivePushServiceWorker()).resolves.toEqual({ kind: "update_failed" });
   });
 });
 
