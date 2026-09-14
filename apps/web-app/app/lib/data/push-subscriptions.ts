@@ -120,7 +120,7 @@ async function bindPushSubscription(
 ) {
   if (previousEndpoint && previousEndpoint !== material.endpoint) {
     const result = await replace({ previousEndpoint, ...material });
-    if (result && result.bound) {
+    if (result?.bound) {
       return;
     }
     // Previous not owned (or stolen) — explicit enable may still rebind.
