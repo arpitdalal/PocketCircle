@@ -35,6 +35,7 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 const VAPID = { publicKey: "BPtestPublicKey", keyId: "primary" };
 const STRIP_TITLE = /Enable notifications on this device/i;
+const FEATURE_ANNOUNCEMENT_TITLE = /Connect PocketCircle to your AI assistant/i;
 
 beforeEach(async () => {
   window.localStorage.clear();
@@ -261,12 +262,13 @@ describe("NotificationAnnouncementStrip", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /Install PocketCircle/i });
     expect(screen.getByTestId("notification-announcement-strip")).toBeInTheDocument();
+    // The announcement card withholds its entrance entirely while covered (#334).
     expect(
-      screen.getByRole("heading", {
-        name: /Connect PocketCircle to your AI assistant/i,
+      screen.queryByRole("heading", {
+        name: FEATURE_ANNOUNCEMENT_TITLE,
         hidden: true,
       }),
-    ).toBeInTheDocument();
+    ).toBeNull();
     expect(posthogSdk.capture).not.toHaveBeenCalledWith(
       "notification_announcement_impression",
       expect.anything(),
@@ -279,8 +281,9 @@ describe("NotificationAnnouncementStrip", () => {
     await waitFor(() => {
       expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_impression", {});
     });
+    // Both surfaces coexist once the install surface is out of the way.
     expect(
-      screen.getByRole("region", { name: /Connect PocketCircle to your AI assistant/i }),
+      await screen.findByRole("region", { name: FEATURE_ANNOUNCEMENT_TITLE }, { timeout: 3000 }),
     ).toBeVisible();
     expect(screen.getByRole("region", { name: STRIP_TITLE })).toBeVisible();
   });

@@ -56,6 +56,12 @@ test("Feature Announcement CTA opens Connections and acknowledges the campaign",
     await openHome(page);
     const card = page.getByRole("region", { name: ACTIVE_TITLE });
     await expect(card).toBeVisible();
+    // Hero slot + highlight rows only. Deliberately NOT the <img> itself: the card
+    // drops that element if the load errors, so asserting on it would make this
+    // suite depend on the production CDN being reachable from CI. The image's
+    // attributes are covered by the component test instead.
+    await expect(card.getByTestId("feature-announcement-hero")).toBeVisible();
+    await expect(card.getByRole("listitem")).toHaveCount(3);
     await card.getByRole("link", { name: "Open Connections" }).click();
 
     await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();

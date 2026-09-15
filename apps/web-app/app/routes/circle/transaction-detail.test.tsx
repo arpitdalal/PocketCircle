@@ -45,7 +45,6 @@ function setup(
     transactionDetail?: TransactionDetail | null | undefined;
     transactionHistory?: ReturnType<typeof makeHistoryEventView>[];
     url?: string;
-    locationState?: { featureAnnouncementFocus: string };
   } = {},
 ) {
   const circle = makeCircleView(opts.circle);
@@ -54,10 +53,7 @@ function setup(
     transactionHistory: opts.transactionHistory ?? [],
   });
   const url = opts.url ?? `/circles/${REF}/transactions/weekly-shop-t1`;
-  const initialEntries = opts.locationState
-    ? [{ pathname: url, state: opts.locationState }]
-    : [url];
-  return renderCircleRoutes(circle, ROUTES, { initialEntries });
+  return renderCircleRoutes(circle, ROUTES, { initialEntries: [url] });
 }
 
 afterEach(() => {
@@ -323,22 +319,7 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
     expect(screen.queryByRole("link", { name: "Edit Weekly shop" })).not.toBeInTheDocument();
   });
 
-  it("focuses and emphasizes Duplicate only for an announcement CTA visit", async () => {
-    setup({
-      transactionDetail: makeTransactionDetailView({
-        ref: "weekly-shop-t1",
-        title: "Weekly shop",
-      }),
-      locationState: { featureAnnouncementFocus: "duplicate-transaction" },
-    });
-    const duplicate = await screen.findByRole("link", { name: "Duplicate Weekly shop" });
-    await waitFor(() => {
-      expect(duplicate).toHaveFocus();
-    });
-    expect(duplicate).toHaveAttribute("data-feature-announcement-focus", "true");
-  });
-
-  it("does not focus Duplicate on an ordinary Detail visit", async () => {
+  it("does not steal focus for the Duplicate action", async () => {
     setup({
       transactionDetail: makeTransactionDetailView({
         ref: "weekly-shop-t1",
@@ -347,7 +328,6 @@ describe("TransactionDetail — Duplicate action (issue #299)", () => {
     });
     const duplicate = await screen.findByRole("link", { name: "Duplicate Weekly shop" });
     expect(duplicate).not.toHaveFocus();
-    expect(duplicate).not.toHaveAttribute("data-feature-announcement-focus");
   });
 
   it("keeps Duplicate for an Archived Transaction", () => {
