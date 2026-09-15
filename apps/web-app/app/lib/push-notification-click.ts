@@ -9,14 +9,12 @@ import {
 } from "@pocketcircle/domain";
 import { track } from "~/lib/analytics.js";
 import { requestNotificationCenterFocus } from "~/lib/notification-center-focus.js";
+import { isConvexId } from "~/lib/refs.js";
 
 export type PushClickResolveResult =
   | { outcome: "navigate"; path: string; notificationId: string }
   | { outcome: "notification_center"; notificationId: string }
   | { outcome: "unavailable" };
-
-/** Convex `normalizeId` / branded ids — shape gate only; server is authoritative. */
-const acceptRefIdSegment = () => true;
 
 /**
  * Apply a successful Push click resolution: navigate, or open NC at the row.
@@ -34,7 +32,7 @@ export async function applyPushNotificationClickResult(
   }
 
   if (result.outcome === "navigate") {
-    if (!isSafePushResolvedPath(result.path, acceptRefIdSegment)) {
+    if (!isSafePushResolvedPath(result.path, isConvexId)) {
       // Treat unsafe path as apply failure — do not mark read.
       await navigate("/", { replace: true });
       return;

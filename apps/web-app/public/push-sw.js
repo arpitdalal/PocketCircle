@@ -6,7 +6,8 @@
  * skipWaiting + clients.claim so an updated worker (with the push handler)
  * activates without requiring every controlled tab to close first.
  *
- * Click capability: POCKETCIRCLE_PUSH_SW_VERSION >= 2 (#384).
+ * Click capability: POCKETCIRCLE_PUSH_SW_VERSION >= 3 (#384).
+ * v3: prefer openWindow (durable URL) over fire-and-forget postMessage.
  */
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -88,7 +89,7 @@ self.addEventListener("pushsubscriptionchange", () => {
  * Probed by the page after update/activate — proves display + click-capable
  * push-sw.js (#382 display, #384 click). Bump when click/routing contract changes.
  */
-const POCKETCIRCLE_PUSH_SW_VERSION = 2;
+const POCKETCIRCLE_PUSH_SW_VERSION = 3;
 
 self.addEventListener("message", (event) => {
   if (event.data !== "pocketcircle:push-sw-version") {
@@ -169,15 +170,8 @@ async function focusOrOpenPocketCircle(notificationId) {
       return;
     }
 
-    try {
-      client.postMessage({
-        type: "pocketcircle:push-notification-click",
-        notificationId,
-      });
-      return;
-    } catch {
-      // Fall through to openWindow when the existing client cannot receive work.
-    }
+    // Prefer durable URL handoff over fire-and-forget postMessage — Client.postMessage
+    // does not ack delivery, and Splash / early shells may lack a listener yet.
   }
 
   try {
@@ -188,8 +182,20 @@ async function focusOrOpenPocketCircle(notificationId) {
       } catch {
         // Opened but focus rejected — deep-link URL still loaded.
       }
+      return;
     }
   } catch {
-    // openWindow blocked / failed after close — nothing more we can do.
+    // openWindow blocked — try postMessage into the focused client below.
+  }
+
+  if (client && notificationId) {
+    try {
+      client.postMessage({
+        type: "pocketcircle:push-notification-click",
+        notificationId,
+      });
+    } catch {
+      // Nothing more we can do after close.
+    }
   }
 }

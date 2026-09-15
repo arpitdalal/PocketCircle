@@ -9,6 +9,7 @@ import {
   makeCurrentUserView,
   renderRoutes,
 } from "~/test/convex-react.js";
+import { deferred } from "~/test/router-stub.js";
 import FromNotification from "./from-notification.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
@@ -102,5 +103,28 @@ describe("FromNotification", () => {
     });
     expect(markNotificationRead).not.toHaveBeenCalled();
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument();
+  });
+
+  it("marks read after navigate even when the landing route unmounts", async () => {
+    const markInvoked = deferred();
+    markNotificationRead.mockImplementation(() => {
+      markInvoked.resolve();
+      return new Promise(() => {
+        // Leave in-flight — proves invoke happened after navigate unmount/abort.
+      });
+    });
+    resolvePushNotificationClick.mockResolvedValue({
+      outcome: "navigate",
+      path: "/circles/trip-c1",
+      notificationId,
+    });
+
+    const view = renderFromNotification(`/from-notification?n=${notificationId}`);
+
+    await waitFor(() => {
+      expect(view.location()).toBe("/circles/trip-c1");
+    });
+    await markInvoked.promise;
+    expect(markNotificationRead).toHaveBeenCalledWith({ notificationId });
   });
 });

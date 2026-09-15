@@ -191,7 +191,7 @@ export function installPushEnv(options: InstallPushEnvOptions = {}) {
         "postMessage" in port
       ) {
         queueMicrotask(() => {
-          port.postMessage({ version: 2 });
+          port.postMessage({ version: 3 });
         });
       }
     },

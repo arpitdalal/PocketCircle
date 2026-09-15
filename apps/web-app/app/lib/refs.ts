@@ -5,7 +5,7 @@ import { type ParsedRef, parseRef, redactRefSlug } from "@pocketcircle/domain";
  * obviously malformed segments; the authoritative check is server-side
  * (`ctx.db.normalizeId`), which returns null for invalid IDs (ADR 0016).
  */
-function isConvexId(candidate: string): boolean {
+export function isConvexId(candidate: string): boolean {
   return /^[a-z0-9]+$/i.test(candidate);
 }
 

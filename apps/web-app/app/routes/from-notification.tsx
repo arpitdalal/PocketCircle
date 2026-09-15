@@ -1,7 +1,4 @@
-import {
-  PUSH_NOTIFICATION_CLICK_PATH,
-  parsePushNotificationClickSearch,
-} from "@pocketcircle/domain";
+import { parsePushNotificationClickSearch } from "@pocketcircle/domain";
 import { useEffect, useEffectEvent } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { Splash } from "~/components/splash.js";
@@ -37,22 +34,23 @@ export default function FromNotification() {
       await applyPushNotificationClickResult(
         result,
         async (to, opts) => {
+          // Abort before destination apply must not navigate or mark.
           if (signal.aborted) {
-            return;
+            throw new DOMException("Aborted", "AbortError");
           }
           await navigate(to, opts);
         },
         async (markId) => {
-          if (signal.aborted) {
-            return;
-          }
+          // After navigate, unmount aborts this effect — still mark read.
+          // Successful resolution already applied the destination.
           await markRead({ notificationId: markId });
         },
       );
-    } catch {
-      if (!signal.aborted) {
-        void navigate("/", { replace: true });
+    } catch (error) {
+      if (signal.aborted || isAbortError(error)) {
+        return;
       }
+      void navigate("/", { replace: true });
     }
   });
 
@@ -74,5 +72,6 @@ export default function FromNotification() {
   return <Splash />;
 }
 
-/** Path constant for route config / returnTo checks — mirrors domain. */
-export const FROM_NOTIFICATION_PATH = PUSH_NOTIFICATION_CLICK_PATH;
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}

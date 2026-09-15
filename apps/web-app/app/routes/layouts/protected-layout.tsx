@@ -70,6 +70,9 @@ export default function ProtectedLayout() {
   const readyUserEmail = session.state === "ready" ? session.user.email : undefined;
   // Strip reports when it covers the viewport top so header drops duplicate safe-area.
   const [notificationStripOwnsTopSafeArea, setNotificationStripOwnsTopSafeArea] = useState(false);
+  // Mount on every auth gate (Splash / MarketingHome), not only the ready shell —
+  // SW postMessage is last-resort after openWindow fails (#384).
+  const pushClickListener = !MOCKS ? <PushNotificationClickListener /> : null;
 
   useEffect(() => {
     if (analyticsUserId === undefined || analyticsEnabled === undefined) {
@@ -87,13 +90,23 @@ export default function ProtectedLayout() {
   }, [readyUserEmail]);
 
   if (session.state === "loading") {
-    return <Splash />;
+    return (
+      <>
+        {pushClickListener}
+        <Splash />
+      </>
+    );
   }
   if (session.state === "unauthenticated") {
     // `/` stays public so Google branding (and visitors) see product purpose
     // instead of a login-only redirect. Other protected paths still require sign-in.
     if (location.pathname === "/") {
-      return <MarketingHome />;
+      return (
+        <>
+          {pushClickListener}
+          <MarketingHome />
+        </>
+      );
     }
     return <Navigate to={signinRedirect} replace />;
   }
@@ -155,7 +168,7 @@ export default function ProtectedLayout() {
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}
       <FeatureAnnouncementCard />
       {!MOCKS ? <PushSubscriptionLifecycle key={session.user.id} /> : null}
-      {!MOCKS ? <PushNotificationClickListener /> : null}
+      {pushClickListener}
     </div>
   );
 }

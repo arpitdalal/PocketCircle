@@ -120,11 +120,16 @@ describe("push-sw.js notificationclick contract", () => {
     expect(source).toMatch(/event\.notification\.close/);
     expect(source).toMatch(/notificationId/);
     expect(source).toMatch(/from-notification\?n=/);
-    expect(source).toMatch(/POCKETCIRCLE_PUSH_SW_VERSION = 2/);
+    expect(source).toMatch(/POCKETCIRCLE_PUSH_SW_VERSION = 3/);
     expect(source).not.toMatch(/\bactions\s*:/);
     expect(source).not.toMatch(/parsed\.url|payload\.url|data\.url/);
     // focus rejection must not abort routing
     expect(source).toMatch(/await client\.focus\(\)/);
     expect(source).toMatch(/Continue to navigate/);
+    // openWindow before postMessage (durable URL handoff)
+    const openWindowAt = source.indexOf("clients.openWindow(targetUrl)");
+    const postMessageAt = source.lastIndexOf("client.postMessage({");
+    expect(openWindowAt).toBeGreaterThan(-1);
+    expect(postMessageAt).toBeGreaterThan(openWindowAt);
   });
 });

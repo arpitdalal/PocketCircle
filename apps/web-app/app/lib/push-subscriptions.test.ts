@@ -71,7 +71,7 @@ describe("ensureActivePushServiceWorker", () => {
     await expect(ensureActivePushServiceWorker()).resolves.toEqual({
       kind: "ready",
       registration: env.registration,
-      pushSwVersion: 2,
+      pushSwVersion: 3,
     });
     expect(env.update).toHaveBeenCalledOnce();
   });
@@ -194,13 +194,13 @@ describe("readPushSubscriptionMaterial", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/old");
 
-    await expect(readPushSubscriptionMaterial(VAPID, () => false, 2)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 3)).resolves.toEqual({
       subscription: {
         endpoint: "https://fcm.googleapis.com/fcm/send/new",
         p256dh: TEST_PUSH_P256DH,
         auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
-        pushSwVersion: 2,
+        pushSwVersion: 3,
       },
       previousEndpoint: "https://fcm.googleapis.com/fcm/send/old",
     });
@@ -216,13 +216,13 @@ describe("readPushSubscriptionMaterial", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     rememberPushEndpoint("https://fcm.googleapis.com/fcm/send/same");
 
-    await expect(readPushSubscriptionMaterial(VAPID, () => false, 2)).resolves.toEqual({
+    await expect(readPushSubscriptionMaterial(VAPID, () => false, 3)).resolves.toEqual({
       subscription: {
         endpoint: "https://fcm.googleapis.com/fcm/send/same",
         p256dh: TEST_PUSH_P256DH,
         auth: TEST_PUSH_AUTH,
         vapidKeyId: "primary",
-        pushSwVersion: 2,
+        pushSwVersion: 3,
       },
     });
   });

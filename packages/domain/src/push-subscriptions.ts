@@ -15,11 +15,11 @@ export const DEFAULT_VAPID_KEY_ID = "primary";
 
 /**
  * push-sw.js must report at least this version before a subscription is
- * delivery-eligible after `PUSH_DELIVERY_SINCE_MS` is set. Parent-release tabs
- * can bump `lastSeenAt` without a visible `push` handler — version proof closes
- * that Safari silent-push hole.
+ * delivery-eligible after `PUSH_DELIVERY_SINCE_MS` is set. Covers display
+ * (#382) and authenticated click routing (#384). Parent-release tabs can bump
+ * `lastSeenAt` without a capable worker — version proof closes that hole.
  */
-export const PUSH_DISPLAY_SW_VERSION = 2;
+export const PUSH_DISPLAY_SW_VERSION = 3;
 
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {
