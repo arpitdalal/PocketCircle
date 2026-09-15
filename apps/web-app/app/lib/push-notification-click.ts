@@ -16,8 +16,12 @@ export type PushClickResolveResult =
   | { outcome: "notification_center"; notificationId: string }
   | { outcome: "unavailable" };
 
-/** Coarse `notification_opened` queued only while capture is deferred (cold load). */
-let pendingOpenedTrack = false;
+/**
+ * Coarse `notification_opened` count queued only while capture is deferred
+ * (cold load). Count — not a boolean — so rapid clicks during init each flush
+ * as their own open; a later immediate capture must not drop earlier deferred ones.
+ */
+let pendingOpenedTrackCount = 0;
 
 /**
  * Apply a successful Push click resolution: navigate, or open NC at the row.
@@ -64,39 +68,38 @@ async function markReadBestEffort(
 }
 
 /**
- * Capture `notification_opened`, or queue only while capture is deferred.
- * Opt-out / unavailable → no queue (must not flush after a later opt-in).
+ * Capture `notification_opened`, or enqueue one deferred open while capture
+ * loads. Opt-out / unavailable drops the queue (must not flush after a later
+ * opt-in). Immediate success leaves any prior deferred count intact.
  */
 export function trackNotificationOpened() {
   if (track("notification_opened", {})) {
-    pendingOpenedTrack = false;
     return true;
   }
   if (isAnalyticsCaptureDeferred()) {
-    pendingOpenedTrack = true;
+    pendingOpenedTrackCount += 1;
   } else {
-    pendingOpenedTrack = false;
+    pendingOpenedTrackCount = 0;
   }
   return false;
 }
 
-/** Flush an open event queued before analytics initialized. */
+/** Drain opens queued before analytics initialized. */
 export function flushPendingNotificationOpenedTrack() {
-  if (!pendingOpenedTrack) {
-    return;
-  }
-  if (track("notification_opened", {})) {
-    pendingOpenedTrack = false;
-    return;
-  }
-  if (!isAnalyticsCaptureDeferred()) {
-    pendingOpenedTrack = false;
+  while (pendingOpenedTrackCount > 0) {
+    if (!track("notification_opened", {})) {
+      if (!isAnalyticsCaptureDeferred()) {
+        pendingOpenedTrackCount = 0;
+      }
+      return;
+    }
+    pendingOpenedTrackCount -= 1;
   }
 }
 
 /** Test isolation. */
 export function resetPushNotificationClickAnalyticsForTests() {
-  pendingOpenedTrack = false;
+  pendingOpenedTrackCount = 0;
 }
 
 /** Handle a service-worker postMessage fallback (no WindowClient.navigate). */

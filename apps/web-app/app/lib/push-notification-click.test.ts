@@ -130,6 +130,24 @@ describe("applyPushNotificationClickResult", () => {
     flushPendingNotificationOpenedTrack();
     expect(posthogSdk.capture).toHaveBeenCalledWith("notification_opened", {});
   });
+
+  it("preserves every deferred open and keeps them when a later open captures immediately", async () => {
+    resetPostHogBoundary();
+    resetPushNotificationClickAnalyticsForTests();
+    stubPosthogEnvForTests();
+    const releaseHold = holdPostHogLoad();
+    const pending = initAnalytics({ id: "cold-multi", analyticsEnabled: true });
+    expect(trackNotificationOpened()).toBe(false);
+    expect(trackNotificationOpened()).toBe(false);
+    releaseHold();
+    await pending;
+    posthogSdk.capture.mockClear();
+    // Immediate success after ready must not drop the two deferred opens.
+    expect(trackNotificationOpened()).toBe(true);
+    expect(posthogSdk.capture).toHaveBeenCalledTimes(1);
+    flushPendingNotificationOpenedTrack();
+    expect(posthogSdk.capture).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("handlePushNotificationClickMessage", () => {
