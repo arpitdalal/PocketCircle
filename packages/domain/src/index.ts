@@ -12,6 +12,7 @@ export * from "./money.js";
 export * from "./mutation-errors.js";
 export * from "./notification-links.js";
 export * from "./personal-circle-name.js";
+export * from "./push-notification-click.js";
 export * from "./push-notifications.js";
 export * from "./push-subscriptions.js";
 export * from "./push-test-fixtures.js";

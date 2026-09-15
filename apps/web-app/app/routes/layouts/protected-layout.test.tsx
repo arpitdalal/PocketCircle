@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRoutesStub, Link } from "react-router";
+import { createRoutesStub, Link, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAIN_CONTENT_ID } from "~/components/skip-navigation.js";
 import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
@@ -644,5 +644,31 @@ describe("ProtectedLayout unauthenticated homepage", () => {
 
     expect(await screen.findByText("Sign in page")).toBeInTheDocument();
     expect(screen.queryByText("Settings stub")).not.toBeInTheDocument();
+  });
+
+  it("preserves Push click deep-link as sign-in returnTo", async () => {
+    configureConvex();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+
+    function SignInStub() {
+      const [params] = useSearchParams();
+      return <h2 data-testid="signin-stub">Sign in {params.get("returnTo") ?? "(none)"}</h2>;
+    }
+
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [{ path: "from-notification", Component: () => <h2>From notification</h2> }],
+        },
+        { path: "/signin", Component: SignInStub },
+      ],
+      ["/from-notification?n=jd7abc123"],
+    );
+
+    const signin = await screen.findByTestId("signin-stub");
+    expect(signin).toHaveTextContent("Sign in /from-notification?n=jd7abc123");
+    expect(screen.queryByText("From notification")).not.toBeInTheDocument();
   });
 });

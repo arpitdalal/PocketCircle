@@ -36,7 +36,7 @@ const VALID = {
   p256dh: TEST_PUSH_P256DH,
   auth: TEST_PUSH_AUTH,
   vapidKeyId: "primary",
-  pushSwVersion: 1,
+  pushSwVersion: 3,
 } as const;
 
 describe("pushSubscriptions", () => {
@@ -127,7 +127,7 @@ describe("pushSubscriptions", () => {
 
     const touched = await t.mutation(api.pushSubscriptions.touchPushSubscription, {
       endpoint: VALID.endpoint,
-      pushSwVersion: 1,
+      pushSwVersion: 3,
     });
     expect(touched).toEqual({ touched: true });
 
@@ -148,7 +148,7 @@ describe("pushSubscriptions", () => {
     expect(
       await t.mutation(api.pushSubscriptions.touchPushSubscription, {
         endpoint: VALID.endpoint,
-        pushSwVersion: 1,
+        pushSwVersion: 3,
       }),
     ).toEqual({ touched: false });
   });
@@ -199,7 +199,7 @@ describe("pushSubscriptions", () => {
       const rows = await listPushSubscriptionsForUser(ctx, owner._id);
       return rows[0];
     });
-    expect(row?.pushSwVersion).toBe(1);
+    expect(row?.pushSwVersion).toBe(3);
     expect(row?.p256dh).toBe(TEST_PUSH_P256DH_ALT);
   });
 
@@ -285,7 +285,7 @@ describe("pushSubscriptions", () => {
         userId: alice._id,
         endpoint: VALID.endpoint,
         lastSeenAt: 1000,
-        pushSwVersion: 1,
+        pushSwVersion: 3,
       }),
     );
 

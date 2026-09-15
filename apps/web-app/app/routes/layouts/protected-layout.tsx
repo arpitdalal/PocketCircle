@@ -1,3 +1,4 @@
+import { isPushNotificationClickReturnTo } from "@pocketcircle/domain";
 import { useEffect, useState } from "react";
 import { href, Link, Navigate, Outlet, useLocation, useNavigation } from "react-router";
 import { AccountMenu } from "~/components/account-menu.js";
@@ -10,6 +11,7 @@ import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.
 import { MarketingHome } from "~/components/marketing-home.js";
 import { NotificationAnnouncementStrip } from "~/components/notification-announcement-strip.js";
 import { NotificationCenter } from "~/components/notification-center.js";
+import { PushNotificationClickListener } from "~/components/push-notification-click-listener.js";
 import { PushSubscriptionLifecycle } from "~/components/push-subscription-lifecycle.js";
 import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
 import { PageSkeleton } from "~/components/skeleton.js";
@@ -33,14 +35,16 @@ export default function ProtectedLayout() {
   const session = useAppSession();
   const location = useLocation();
   const onOnboarding = location.pathname === "/onboarding";
+  const returnToCandidate = location.pathname + location.search;
   const shouldPreserveReturnTo =
     location.pathname === "/mcp/authorize" ||
     location.pathname.startsWith("/mcp/authorize?") ||
-    location.pathname.startsWith("/mcp/authorize#");
+    location.pathname.startsWith("/mcp/authorize#") ||
+    isPushNotificationClickReturnTo(returnToCandidate);
   const signinRedirect = shouldPreserveReturnTo
-    ? withReturnTo(href("/signin"), location.pathname + location.search)
+    ? withReturnTo(href("/signin"), returnToCandidate)
     : href("/signin");
-  const onboardingRedirect = withReturnTo(href("/onboarding"), location.pathname + location.search);
+  const onboardingRedirect = withReturnTo(href("/onboarding"), returnToCandidate);
   const postOnboardingTarget = parseReturnTo(
     new URLSearchParams(location.search).get(RETURN_TO_PARAM),
     { fallback: "/" },
@@ -66,6 +70,9 @@ export default function ProtectedLayout() {
   const readyUserEmail = session.state === "ready" ? session.user.email : undefined;
   // Strip reports when it covers the viewport top so header drops duplicate safe-area.
   const [notificationStripOwnsTopSafeArea, setNotificationStripOwnsTopSafeArea] = useState(false);
+  // Mount on every auth gate (Splash / MarketingHome), not only the ready shell —
+  // SW postMessage is last-resort after openWindow fails (#384).
+  const pushClickListener = !MOCKS ? <PushNotificationClickListener /> : null;
 
   useEffect(() => {
     if (analyticsUserId === undefined || analyticsEnabled === undefined) {
@@ -83,13 +90,23 @@ export default function ProtectedLayout() {
   }, [readyUserEmail]);
 
   if (session.state === "loading") {
-    return <Splash />;
+    return (
+      <>
+        {pushClickListener}
+        <Splash />
+      </>
+    );
   }
   if (session.state === "unauthenticated") {
     // `/` stays public so Google branding (and visitors) see product purpose
     // instead of a login-only redirect. Other protected paths still require sign-in.
     if (location.pathname === "/") {
-      return <MarketingHome />;
+      return (
+        <>
+          {pushClickListener}
+          <MarketingHome />
+        </>
+      );
     }
     return <Navigate to={signinRedirect} replace />;
   }
@@ -151,6 +168,7 @@ export default function ProtectedLayout() {
       {showBottomNavSkeleton ? <CircleBottomNavSkeleton /> : null}
       <FeatureAnnouncementCard />
       {!MOCKS ? <PushSubscriptionLifecycle key={session.user.id} /> : null}
+      {pushClickListener}
     </div>
   );
 }
