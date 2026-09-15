@@ -8,10 +8,6 @@ import { type CategoriesState, categoriesDouble } from "./categories.js";
 import { type CirclesState, circlesDouble } from "./circles.js";
 import type { EntityDouble, PaginatedPage } from "./contract.js";
 import { type DashboardState, dashboardDouble } from "./dashboard.js";
-import {
-  type FeatureAnnouncementsState,
-  featureAnnouncementsDouble,
-} from "./feature-announcements.js";
 import { type FeedbackState, feedbackDouble } from "./feedback.js";
 import { type HistoryState, historyDouble } from "./history.js";
 import { type HomeSummaryState, homeSummaryDouble } from "./home-summary.js";
@@ -39,7 +35,6 @@ export type ConvexState = CirclesState &
   AccountDeletionState &
   ActivationState &
   HomeSummaryState &
-  FeatureAnnouncementsState &
   McpState;
 
 const ENTITY_DOUBLES: Array<(state: ConvexState) => EntityDouble> = [
@@ -58,7 +53,6 @@ const ENTITY_DOUBLES: Array<(state: ConvexState) => EntityDouble> = [
   accountDeletionDouble,
   activationDouble,
   homeSummaryDouble,
-  featureAnnouncementsDouble,
   mcpDouble,
 ];
 function mergeEntityDoubles(state: ConvexState) {

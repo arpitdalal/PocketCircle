@@ -1,13 +1,5 @@
 import { api } from "@pocketcircle/convex";
-import { useMutation, useQuery } from "convex/react";
-import type { Circle } from "./circles.js";
-
-export function useFeatureAnnouncementSource(circleId: Circle["id"] | undefined, enabled: boolean) {
-  return useQuery(
-    api.featureAnnouncementSource.getFeatureAnnouncementSource,
-    !enabled ? "skip" : circleId !== undefined ? { circleId } : {},
-  );
-}
+import { useMutation } from "convex/react";
 
 export function useAcknowledgeFeatureAnnouncement() {
   return useMutation(api.users.acknowledgeFeatureAnnouncement).withOptimisticUpdate(

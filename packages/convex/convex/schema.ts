@@ -188,8 +188,6 @@ export default defineSchema({
     // active Ledger paginates date-desc (then created-at desc via _creationTime)
     // straight off the index — no in-memory sort of an unbounded set.
     .index("by_circle_status_date", ["circleId", "status", "date"])
-    // Newest active Transaction by record time (Feature Announcement CTA source, #282).
-    .index("by_circle_status_createdAt", ["circleId", "status", "createdAt"])
     // Ranges one Member's Transactions of one status by Transaction Date. Backs the
     // Dashboard's Paid By filter (RPT-3): the per-Member month totals/recent range
     // this index at the source instead of scanning the whole month and filtering in
