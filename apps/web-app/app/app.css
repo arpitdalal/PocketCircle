@@ -57,6 +57,16 @@
     /* Bar height + 2rem breathing room. Applied on <main> only while the Circle
        bar (or its shell skeleton) is painted — not on Home/Settings. */
     --mobile-bottom-nav-clearance: calc(6rem + var(--mobile-bottom-nav-pad));
+    /* Sticky app header: 0.75rem padding top and bottom around a 2.5rem control
+       band (the `size-10` avatar / bell triggers are the tallest children), plus
+       its 1px bottom border and the notch inset it owns. Bottom-anchored overlays
+       (Feature Announcement card) subtract this so they stop below the header
+       instead of sliding under it — the header sits at z-30, they sit lower.
+       Keep in sync if a header control grows past `size-10`. When the notification
+       strip owns the notch the header drops its safe-area padding, so this token
+       over-reports by that inset — deliberately conservative: overlays end up
+       slightly shorter rather than tucked under the header. */
+    --app-header-height: calc(4rem + 1px + var(--safe-area-top));
   }
 
   /* Light palette — ready for the theme-switching slice; nothing applies it yet. */

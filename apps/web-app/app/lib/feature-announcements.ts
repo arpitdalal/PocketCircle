@@ -1,49 +1,104 @@
-import { type FeatureAnnouncementId, isFeatureAnnouncementId } from "@pocketcircle/domain";
+import type { FeatureAnnouncementId } from "@pocketcircle/domain";
+import type { LucideIcon } from "lucide-react";
+import { KeyRoundIcon, MessageSquareTextIcon, ShieldCheckIcon } from "lucide-react";
 import { circleRefOf } from "./circle-path.js";
 
+/** One icon + copy row under the headline. At most three; the card has no body paragraph. */
+export interface FeatureAnnouncementHighlight {
+  /** Statically imported lucide component — never a name string (keeps tree-shaking). */
+  readonly icon: LucideIcon;
+  readonly title: string;
+  readonly body: string;
+}
+
 /**
- * Typed in-repo Feature Announcement catalog (#282). Newest entry owns the slot.
+ * Typed in-repo Feature Announcement catalog (#282, enriched in #334). Newest
+ * entry owns the slot, so an ended campaign is deleted outright rather than kept
+ * as unreachable data — its ID stays reserved in `@pocketcircle/domain`.
+ *
  * `eligibleBefore` is immutable product history — set at that campaign's release prep.
  */
 export interface FeatureAnnouncement {
   readonly id: FeatureAnnouncementId;
   readonly label: string;
   readonly title: string;
-  readonly body: string;
+  /**
+   * Required hero image. Authoring spec (16:9, 1280x720 WebP, R2 filenames, the
+   * quiet top-right corner the close button covers):
+   * `docs/research/announcement-card-media-and-motion.md` — "Hero image asset spec".
+   */
+  readonly heroImage: {
+    readonly src: string;
+    readonly alt: string;
+  };
+  readonly highlights: readonly FeatureAnnouncementHighlight[];
   readonly ctaLabel: string;
+  /** In-app path the CTA opens; the card appends the current origin as `returnTo`. */
+  readonly ctaHref: string;
   /** UTC ISO instant; User is eligible when `createdAt < Date.parse(eligibleBefore)`. */
   readonly eligibleBefore: string;
 }
 
 export const FEATURE_ANNOUNCEMENTS = [
   {
-    id: "duplicate-transaction",
-    label: "New",
-    title: "Duplicate a transaction",
-    body: "Start from a recent transaction, select Duplicate, then review and save a separate copy.",
-    ctaLabel: "Try Duplicate",
-    // Release cutoff: Users created at or after this instant never see the card.
-    eligibleBefore: "2026-08-26T13:40:00.000Z",
-  },
-  {
     id: "mcp-connections",
     label: "New",
     title: "Connect PocketCircle to your AI assistant",
-    body: "Paste the MCP server URL from Connections, approve Circles, then ask your assistant about shared spending.",
+    heroImage: {
+      src: "https://assets.pocketcircle.app/announcements/mcp-connections-v1.webp",
+      alt: "An AI assistant answering a question about a PocketCircle Circle's spending.",
+    },
+    highlights: [
+      {
+        icon: KeyRoundIcon,
+        title: "Paste one URL",
+        body: "Copy the MCP URL from Connections.",
+      },
+      {
+        icon: ShieldCheckIcon,
+        title: "Approve each Circle",
+        body: "Pick its Circles; revoke any time.",
+      },
+      {
+        icon: MessageSquareTextIcon,
+        title: "Just ask",
+        body: "Ask in plain language, app closed.",
+      },
+    ],
     ctaLabel: "Open Connections",
+    ctaHref: "/connections",
     // MCP Connections went live with v0.4.1 (2026-09-04T19:24:27Z).
     eligibleBefore: "2026-09-04T19:25:00.000Z",
   },
 ] as const satisfies readonly FeatureAnnouncement[];
 
-/** Duplicate CTA needs a Transaction source; MCP CTA is a static Connections href. */
-export function featureAnnouncementNeedsSource(announcement: FeatureAnnouncement) {
-  return announcement.id === "duplicate-transaction";
-}
-
 /** The single campaign that owns the announcement slot (newest catalog entry). */
 export function activeFeatureAnnouncement() {
   return selectActiveCatalogEntry(FEATURE_ANNOUNCEMENTS);
+}
+
+/**
+ * Beat between the card becoming genuinely showable and its entrance animation
+ * (#334). The card only appears once eligibility has settled, the route matches,
+ * and no install surface covers it — so that already IS "after the page loaded";
+ * this delay exists so the entrance reads as motion arriving on a settled page
+ * instead of part of the first paint. Deliberately not `requestIdleCallback`:
+ * unsupported on older iOS Safari, absent in jsdom, and it buys nothing here.
+ */
+export const ANNOUNCEMENT_ENTRANCE_DELAY_MS = 600;
+
+/**
+ * Polite status text for the card's first genuine appearance. Highlight TITLES
+ * only: the visible card carries each body, and speaking all six segments makes
+ * an unprompted announcement far heavier than the one-sentence status #282 asked
+ * for. The card is also a labelled region, so the detail stays reachable.
+ */
+export function announcementLiveMessage(announcement: FeatureAnnouncement) {
+  return [
+    announcement.label,
+    announcement.title,
+    ...announcement.highlights.map((highlight) => highlight.title),
+  ].join(". ");
 }
 
 export type FeatureAnnouncementRouteScope =
@@ -92,28 +147,6 @@ export function isEligibleForFeatureAnnouncement(
     return false;
   }
   return !user.acknowledgedFeatureAnnouncementIds.includes(announcement.id);
-}
-
-/** Transient React Router location.state set by the announcement CTA. */
-export function featureAnnouncementFocusFromState(state: unknown) {
-  if (typeof state !== "object" || state === null) {
-    return null;
-  }
-  if (!("featureAnnouncementFocus" in state)) {
-    return null;
-  }
-  const value = state.featureAnnouncementFocus;
-  if (typeof value !== "string" || !isFeatureAnnouncementId(value)) {
-    return null;
-  }
-  return value;
-}
-
-/** Duplicate Transaction Detail focus — first campaign's CTA target on Detail. */
-export function shouldFocusDuplicateAction(
-  focus: ReturnType<typeof featureAnnouncementFocusFromState>,
-) {
-  return focus === "duplicate-transaction";
 }
 
 export function impressionStorageKey(announcementId: FeatureAnnouncementId) {

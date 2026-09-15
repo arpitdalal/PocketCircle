@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   activeFeatureAnnouncement,
-  featureAnnouncementFocusFromState,
+  announcementLiveMessage,
+  FEATURE_ANNOUNCEMENTS,
   featureAnnouncementRouteScope,
   isEligibleForFeatureAnnouncement,
   selectActiveCatalogEntry,
@@ -104,17 +105,43 @@ describe("selectActiveCatalogEntry", () => {
     expect(selectActiveCatalogEntry([{ id: "older" }, { id: "newer" }])).toEqual({ id: "newer" });
     expect(activeFeatureAnnouncement()?.id).toBe("mcp-connections");
   });
+
+  it("keeps only reachable entries — an ended campaign is deleted, not kept as data", () => {
+    expect(FEATURE_ANNOUNCEMENTS).toHaveLength(1);
+  });
 });
 
-describe("featureAnnouncementFocusFromState", () => {
-  it("reads only allowlisted announcement focus ids", () => {
-    expect(
-      featureAnnouncementFocusFromState({ featureAnnouncementFocus: "duplicate-transaction" }),
-    ).toBe("duplicate-transaction");
-    expect(featureAnnouncementFocusFromState({ featureAnnouncementFocus: "mcp-connections" })).toBe(
-      "mcp-connections",
-    );
-    expect(featureAnnouncementFocusFromState({ featureAnnouncementFocus: "nope" })).toBeNull();
-    expect(featureAnnouncementFocusFromState(null)).toBeNull();
+describe("catalog shape", () => {
+  it("requires a hero image and caps highlights at the small-phone height budget", () => {
+    for (const announcement of FEATURE_ANNOUNCEMENTS) {
+      // Pins the agreed R2 origin, prefix, version suffix, and format so a
+      // mistyped asset path fails here instead of shipping a broken hero — E2E
+      // deliberately never load-tests the CDN, so this is the only in-repo guard.
+      // docs/research/announcement-card-media-and-motion.md — hero image asset spec.
+      expect(announcement.heroImage.src, announcement.id).toMatch(
+        /^https:\/\/assets\.pocketcircle\.app\/announcements\/[a-z0-9-]+-v\d+\.webp$/,
+      );
+      // Required, not decorative: the hero carries product meaning.
+      expect(announcement.heroImage.alt.length, announcement.id).toBeGreaterThan(0);
+      // Three 16:9-hero + bullet rows already fill an iPhone SE; see
+      // docs/research/announcement-card-media-and-motion.md.
+      expect(announcement.highlights.length, announcement.id).toBeGreaterThan(0);
+      expect(announcement.highlights.length, announcement.id).toBeLessThanOrEqual(3);
+      expect(announcement.ctaHref.startsWith("/"), announcement.id).toBe(true);
+    }
+  });
+
+  it("speaks the label, title, and highlight titles — not every body", () => {
+    const announcement = activeFeatureAnnouncement();
+    if (!announcement) {
+      throw new Error("expected active announcement");
+    }
+    const message = announcementLiveMessage(announcement);
+    expect(message).toContain(announcement.label);
+    expect(message).toContain(announcement.title);
+    for (const highlight of announcement.highlights) {
+      expect(message).toContain(highlight.title);
+      expect(message).not.toContain(highlight.body);
+    }
   });
 });
