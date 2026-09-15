@@ -1,3 +1,4 @@
+import { isPushNotificationClickReturnTo } from "@pocketcircle/domain";
 import { useLocation } from "react-router";
 import { isCircleScopedPath } from "./circle-path.js";
 import { withQuery } from "./ledger-url.js";
@@ -116,9 +117,11 @@ export function parseReturnTo(raw: string | null, { fallback }: { fallback: stri
     raw.startsWith("/mcp/authorize?") ||
     raw.startsWith("/mcp/authorize#");
 
-  // Self-scoping (ADR 0016): only an in-Circle object path or the MCP consent route
-  // is a valid return origin — not a top-level `/settings`, not another app area.
-  if (!isMcpAuthorize && !isCircleScopedPath(raw)) {
+  const isPushNotificationClick = isPushNotificationClickReturnTo(raw);
+
+  // Self-scoping (ADR 0016): only an in-Circle object path, MCP consent, or the
+  // Push click deep-link is a valid return origin — not a top-level `/settings`.
+  if (!isMcpAuthorize && !isPushNotificationClick && !isCircleScopedPath(raw)) {
     return fallback;
   }
   // Reject `..` traversal that could climb out of scope after the browser normalizes

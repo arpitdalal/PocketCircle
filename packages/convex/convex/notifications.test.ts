@@ -681,3 +681,202 @@ describe("notification link resolution", () => {
     expect(page[0]?.link).toBeUndefined();
   });
 });
+
+describe("resolvePushNotificationClick", () => {
+  /** Shared seed: current user + optional notification row; returns ids for assertions. */
+  async function setupPushClick(
+    opts: {
+      as?: "owner" | "invitee" | "member" | "other" | "none";
+      link?: string | null;
+      read?: boolean;
+      invitation?: {
+        status?: "pending" | "accepted" | "revoked";
+        expiresAt?: number;
+        email?: string;
+      };
+      removeMemberAfterInsert?: boolean;
+    } = {},
+  ) {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    const circle = await t.run(async (ctx) => ctx.db.get(f.circleId));
+    const circleRef = buildRef(circle?.name ?? "Trip", f.circleId);
+
+    let user = f.owner;
+    let memberId: Id<"members"> | undefined;
+    if (opts.as === "invitee" || opts.as === "other") {
+      user = await t.run((ctx) =>
+        makeUser(
+          ctx,
+          opts.as === "other" ? "other@example.com" : "ada@example.com",
+          opts.as === "other" ? "Other" : "Ada",
+        ),
+      );
+    } else if (opts.as === "member") {
+      const added = await t.run((ctx) =>
+        addMember(ctx, f.circleId, "member@example.com", "Member"),
+      );
+      user = added.user;
+      memberId = added.memberId;
+    }
+
+    mockCurrentUser.mockResolvedValue(opts.as === "none" ? null : user);
+
+    let link = opts.link;
+    let invitationId: Id<"invitations"> | undefined;
+    if (opts.invitation) {
+      invitationId = await t.run((ctx) =>
+        seedInvitation(ctx, f.circleId, f.owner._id, {
+          email: opts.invitation?.email ?? user.email,
+          status: opts.invitation?.status,
+          expiresAt: opts.invitation?.expiresAt,
+        }),
+      );
+      link = buildInvitationNotificationLink(buildRef(circle?.name ?? "Trip", invitationId));
+    } else if (link === undefined) {
+      link = `/circles/${circleRef}`;
+    }
+
+    const ownerOfRow = opts.as === "other" ? f.owner._id : user._id;
+    const notificationId =
+      opts.link === null && !opts.invitation
+        ? await t.run(async (ctx) =>
+            insertNotification(ctx, {
+              userId: ownerOfRow,
+              title: "Push click",
+              read: opts.read,
+            }),
+          )
+        : await t.run(async (ctx) =>
+            insertNotification(ctx, {
+              userId: ownerOfRow,
+              title: "Push click",
+              link: link ?? undefined,
+              read: opts.read,
+            }),
+          );
+
+    if (opts.removeMemberAfterInsert && memberId) {
+      await t.run(async (ctx) => {
+        await ctx.db.patch(memberId, { status: "removed", removedAt: Date.now() });
+      });
+    }
+
+    return {
+      t,
+      f,
+      user,
+      circleRef,
+      circleLink: `/circles/${circleRef}`,
+      invitationLink: link,
+      notificationId,
+      resolve: () => t.mutation(api.notifications.resolvePushNotificationClick, { notificationId }),
+      readFlag: async () => (await t.run(async (ctx) => ctx.db.get(notificationId)))?.read,
+    };
+  }
+
+  it("navigates to a live-accessible destination and leaves unread for the client to mark", async () => {
+    const s = await setupPushClick({ as: "owner" });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "navigate",
+      path: s.circleLink,
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("pending Invitation → acceptance path; leaves unread", async () => {
+    const s = await setupPushClick({ as: "invitee", invitation: { status: "pending" } });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "navigate",
+      path: s.invitationLink,
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("accepted Invitation → Circle path with live membership", async () => {
+    const s = await setupPushClick({
+      as: "member",
+      invitation: { status: "accepted", email: "member@example.com" },
+    });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "navigate",
+      path: s.circleLink,
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("revoked Invitation → Notification Center; leaves unread; no invalid action path", async () => {
+    const s = await setupPushClick({ as: "invitee", invitation: { status: "revoked" } });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "notification_center",
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("expired Invitation → Notification Center; leaves unread", async () => {
+    const s = await setupPushClick({
+      as: "invitee",
+      invitation: { expiresAt: Date.now() - 1 },
+    });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "notification_center",
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("inaccessible Circle link → Notification Center; leaves unread", async () => {
+    const s = await setupPushClick({ as: "member", removeMemberAfterInsert: true });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "notification_center",
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("text-only row (no link) → Notification Center; leaves unread", async () => {
+    const s = await setupPushClick({ as: "owner", link: null });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "notification_center",
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("already-read row still resolves without error", async () => {
+    const s = await setupPushClick({ as: "owner", read: true });
+    await expect(s.resolve()).resolves.toEqual({
+      outcome: "navigate",
+      path: s.circleLink,
+      notificationId: s.notificationId,
+    });
+    expect(await s.readFlag()).toBe(true);
+  });
+
+  it("non-owned notification → unavailable and leaves unread", async () => {
+    const s = await setupPushClick({ as: "other", link: "/circles/trip-c1" });
+    await expect(s.resolve()).resolves.toEqual({ outcome: "unavailable" });
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("requires authentication", async () => {
+    const s = await setupPushClick({ as: "none", link: null });
+    await expect(s.resolve()).rejects.toThrow("Not authenticated");
+    expect(await s.readFlag()).toBe(false);
+  });
+
+  it("malformed notification id → unavailable without throwing", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await expect(
+      t.mutation(api.notifications.resolvePushNotificationClick, {
+        notificationId: "not-a-real-id",
+      }),
+    ).resolves.toEqual({ outcome: "unavailable" });
+  });
+});

@@ -121,6 +121,8 @@ export type AnalyticsEventMap = {
   /** One-time notification announcement strip (#383) — no copy or IDs. */
   notification_announcement_impression: Record<string, never>;
   notification_announcement_dismissed: Record<string, never>;
+  /** Coarse Push click (#384) — never include names, endpoints, object/notification IDs, or copy. */
+  notification_opened: Record<string, never>;
 };
 
 export type AnalyticsEvent = keyof AnalyticsEventMap;
@@ -163,6 +165,7 @@ const EVENT_ALLOWLISTS: Record<AnalyticsEvent, ReadonlySet<string>> = {
   notifications_disabled: new Set(),
   notification_announcement_impression: new Set(),
   notification_announcement_dismissed: new Set(),
+  notification_opened: new Set(),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -308,6 +311,7 @@ function validatePropValue(event: AnalyticsEvent, key: string, value: unknown) {
     case "notifications_disabled":
     case "notification_announcement_impression":
     case "notification_announcement_dismissed":
+    case "notification_opened":
       return false;
     default:
       return false;
@@ -542,6 +546,10 @@ function toValidatedPayload(
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap["notification_announcement_dismissed"] | null;
 function toValidatedPayload(
+  event: "notification_opened",
+  sanitized: Record<string, unknown>,
+): AnalyticsEventMap["notification_opened"] | null;
+function toValidatedPayload(
   event: AnalyticsEvent,
   sanitized: Record<string, unknown>,
 ): AnalyticsEventMap[AnalyticsEvent] | null;
@@ -581,6 +589,7 @@ function toValidatedPayload(event: AnalyticsEvent, sanitized: Record<string, unk
     case "notifications_disabled":
     case "notification_announcement_impression":
     case "notification_announcement_dismissed":
+    case "notification_opened":
       return isEmptyNotificationsPreferencePayload(sanitized) ? sanitized : null;
     default:
       return null;

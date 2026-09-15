@@ -12,6 +12,7 @@ export interface NotificationsState {
   unreadCount?: UnreadCount;
   markNotificationRead?: Mock;
   markAllRead?: Mock;
+  resolvePushNotificationClick?: Mock;
 }
 
 export function notificationsDouble(state: NotificationsState): EntityDouble {
@@ -22,6 +23,7 @@ export function notificationsDouble(state: NotificationsState): EntityDouble {
     unreadCount = { count: 0, hasMore: false },
     markNotificationRead,
     markAllRead,
+    resolvePushNotificationClick,
   } = state;
   return {
     queries: {
@@ -37,6 +39,8 @@ export function notificationsDouble(state: NotificationsState): EntityDouble {
     mutations: {
       [getFunctionName(api.notifications.markNotificationRead)]: markNotificationRead,
       [getFunctionName(api.notifications.markAllRead)]: markAllRead,
+      [getFunctionName(api.notifications.resolvePushNotificationClick)]:
+        resolvePushNotificationClick,
     },
   };
 }

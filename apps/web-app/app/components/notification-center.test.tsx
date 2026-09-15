@@ -1,10 +1,11 @@
 import { api } from "@pocketcircle/convex";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { Route } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationCenter } from "~/components/notification-center.js";
+import type { Notification } from "~/lib/data/notifications.js";
 import { MOCK_NOTIFICATIONS } from "~/lib/fixtures.js";
 import {
   configureConvex,
@@ -259,5 +260,34 @@ describe("NotificationCenter", () => {
 
     expect(screen.getByText("99+")).toBeInTheDocument();
     expect(screen.getByText("99+ unread notifications")).toBeInTheDocument();
+  });
+
+  it("opens All and shows the focused row after a Push click request", async () => {
+    const focusedId = testId<Notification["id"]>("n-focus");
+    configureConvex({
+      notifications: [
+        makeNotificationView({
+          id: focusedId,
+          title: "Focused push row",
+          read: true,
+          link: undefined,
+        }),
+        makeNotificationView({
+          id: testId<Notification["id"]>("n-other"),
+          title: "Other row",
+          read: false,
+        }),
+      ],
+      unreadCount: { count: 1, hasMore: false },
+    });
+    renderCenter();
+
+    const { requestNotificationCenterFocus } = await import("~/lib/notification-center-focus.js");
+    await act(async () => {
+      requestNotificationCenterFocus(focusedId);
+    });
+
+    expect(await screen.findByText("Focused push row")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 });

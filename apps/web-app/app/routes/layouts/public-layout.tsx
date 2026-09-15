@@ -1,4 +1,6 @@
 import { Outlet } from "react-router";
+import { PushNotificationClickListener } from "~/components/push-notification-click-listener.js";
+import { MOCKS } from "~/lib/env.js";
 
 /** Shared atmosphere for unauthenticated surfaces. Child layouts own content width. */
 export default function PublicLayout() {
@@ -11,6 +13,8 @@ export default function PublicLayout() {
       <main className="relative w-full">
         <Outlet />
       </main>
+      {/* SW postMessage fallback must work on /signin before the protected shell mounts (#384). */}
+      {!MOCKS ? <PushNotificationClickListener /> : null}
     </div>
   );
 }

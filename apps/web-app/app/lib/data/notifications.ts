@@ -75,3 +75,11 @@ export function useMarkAllRead() {
   }
   return mutation;
 }
+
+export function useResolvePushNotificationClick() {
+  const mutation = useMutation(api.notifications.resolvePushNotificationClick);
+  if (MOCKS) {
+    return async () => ({ outcome: "unavailable" as const });
+  }
+  return mutation;
+}

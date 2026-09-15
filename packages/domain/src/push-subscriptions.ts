@@ -19,7 +19,7 @@ export const DEFAULT_VAPID_KEY_ID = "primary";
  * can bump `lastSeenAt` without a visible `push` handler — version proof closes
  * that Safari silent-push hole.
  */
-export const PUSH_DISPLAY_SW_VERSION = 1;
+export const PUSH_DISPLAY_SW_VERSION = 2;
 
 /** Non-empty https Push endpoint (browser Push API). */
 export function isValidPushEndpoint(endpoint: string) {

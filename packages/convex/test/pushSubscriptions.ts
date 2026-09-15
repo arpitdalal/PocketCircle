@@ -32,6 +32,6 @@ export async function seedPushSubscription(ctx: MutationCtx, seed: PushSubscript
     vapidKeyId: seed.vapidKeyId ?? "primary",
     createdAt: seed.createdAt ?? now,
     lastSeenAt: seed.lastSeenAt ?? now,
-    pushSwVersion: seed.pushSwVersion ?? 1,
+    pushSwVersion: seed.pushSwVersion ?? 2,
   });
 }

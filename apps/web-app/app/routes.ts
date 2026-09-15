@@ -39,6 +39,8 @@ export default [
     route("settings", "routes/settings.tsx"),
     route("connections", "routes/connections.tsx"),
     route("feedback", "routes/feedback.tsx"),
+    // Push click deep-link (#384): Notification identity only; resolves after auth.
+    route("from-notification", "routes/from-notification.tsx"),
     // Authenticated Invitation acceptance by Invitation identity (#375).
     // Notification Center links land here; emailed tokens stay on /invite/:token.
     route("invitations/:invitationRef", "routes/invitation-accept.tsx"),

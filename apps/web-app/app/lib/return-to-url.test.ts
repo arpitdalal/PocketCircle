@@ -64,6 +64,12 @@ describe("parseReturnTo", () => {
       "/mcp/authorize?handoffId=abc",
       "/mcp/authorize?handoffId=abc",
     ],
+    [
+      "honors Push click deep-link with Notification identity",
+      "/from-notification?n=jd7abc123",
+      "/from-notification?n=jd7abc123",
+    ],
+    ["honors bare Push click path", "/from-notification", "/from-notification"],
   ])("%s", (_name, raw, expected) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(expected);
   });
@@ -97,6 +103,11 @@ describe("parseReturnTo", () => {
     ["a mixed encoded/literal `%2e.` traversal", "/circles/trip-c1/%2e./settings"],
     ["an over-length value", `/circles/trip-c1/${"x".repeat(3000)}`],
     ["an over-length MCP authorize handoff", `/mcp/authorize?handoff=${"x".repeat(2100)}`],
+    [
+      "Push click deep-link with smuggled returnTo",
+      "/from-notification?n=jd7abc123&returnTo=/settings",
+    ],
+    ["Push click deep-link with invalid identity", "/from-notification?n=../evil"],
   ])("falls back for %s", (_name, raw) => {
     expect(parseReturnTo(raw, { fallback: FALLBACK })).toBe(FALLBACK);
   });

@@ -654,6 +654,7 @@ describe("track", () => {
     expect(sanitizeAnalyticsProps("notifications_disabled", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notification_announcement_impression", {})).toEqual({});
     expect(sanitizeAnalyticsProps("notification_announcement_dismissed", {})).toEqual({});
+    expect(sanitizeAnalyticsProps("notification_opened", {})).toEqual({});
     expect(
       sanitizeAnalyticsProps(
         "notifications_enabled",

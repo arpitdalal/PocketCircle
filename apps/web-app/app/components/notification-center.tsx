@@ -1,6 +1,6 @@
 import { Menu } from "@base-ui/react/menu";
 import { Bell } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { InfiniteScrollFooter } from "~/components/infinite-scroll-footer.js";
 import { Button } from "~/components/ui/button.js";
@@ -14,6 +14,10 @@ import {
   useUnreadCount,
 } from "~/lib/data/notifications.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
+import {
+  takeNotificationCenterFocusRequest,
+  useNotificationCenterFocusEpoch,
+} from "~/lib/notification-center-focus.js";
 import { cn } from "~/lib/utils.js";
 
 const FILTER_OPTIONS = [
@@ -39,9 +43,11 @@ function badgeLabel(count: number, hasMore: boolean) {
 function NotificationRow({
   notification,
   onMarkRead,
+  rowRef,
 }: {
   notification: Notification;
   onMarkRead: (id: Notification["id"]) => void;
+  rowRef?: (node: HTMLLIElement | null) => void;
 }) {
   const timestamp = formatAuditTimestamp(notification.createdAt);
   const unread = !notification.read;
@@ -70,33 +76,38 @@ function NotificationRow({
     }
   };
 
-  if (notification.link) {
-    return (
-      <Menu.LinkItem
-        className={menuItemClass}
-        closeOnClick
-        render={<Link to={notification.link} prefetch="intent" onClick={handleActivate} />}
-      >
-        {content}
-      </Menu.LinkItem>
-    );
-  }
-
   return (
-    <Menu.Item className={menuItemClass} closeOnClick={false} onClick={handleActivate}>
-      {content}
-    </Menu.Item>
+    <li ref={rowRef} className="list-none" data-notification-id={notification.id}>
+      {notification.link ? (
+        <Menu.LinkItem
+          className={menuItemClass}
+          closeOnClick
+          render={<Link to={notification.link} prefetch="intent" onClick={handleActivate} />}
+        >
+          {content}
+        </Menu.LinkItem>
+      ) : (
+        <Menu.Item className={menuItemClass} closeOnClick={false} onClick={handleActivate}>
+          {content}
+        </Menu.Item>
+      )}
+    </li>
   );
 }
 
 /**
  * App-wide Notification Center: bell trigger, capped unread badge, Unread | All
  * filter, infinite-scroll tray, and mark-all-read of the click-time unread set.
+ * Push clicks (#384) open All and scroll to the matching row when resolution
+ * falls back to the tray.
  */
 export function NotificationCenter() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>("unread");
+  const [focusTargetId, setFocusTargetId] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const focusRowRef = useRef<HTMLLIElement | null>(null);
+  const focusEpoch = useNotificationCenterFocusEpoch();
   const unreadOnly = filter === "unread";
   const { notifications, status, loadMore } = useNotifications(unreadOnly, menuOpen);
   const unread = useUnreadCount();
@@ -108,6 +119,38 @@ export function NotificationCenter() {
   const showBadge = unreadCount > 0 || unread?.hasMore;
   const showMarkAllRead = unreadCount > 0 || unread?.hasMore === true;
   const showEmpty = status !== "LoadingFirstPage" && notifications.length === 0;
+
+  useEffect(() => {
+    if (focusEpoch === 0) {
+      return;
+    }
+    const { notificationId } = takeNotificationCenterFocusRequest();
+    if (!notificationId) {
+      return;
+    }
+    setFilter("all");
+    setFocusTargetId(notificationId);
+    setMenuOpen(true);
+  }, [focusEpoch]);
+
+  useEffect(() => {
+    if (!menuOpen || !focusTargetId || filter !== "all") {
+      return;
+    }
+    const found = notifications.some((n) => n.id === focusTargetId);
+    if (found) {
+      focusRowRef.current?.scrollIntoView({ block: "nearest" });
+      setFocusTargetId(null);
+      return;
+    }
+    if (status === "CanLoadMore") {
+      loadMore();
+      return;
+    }
+    if (status === "Exhausted") {
+      setFocusTargetId(null);
+    }
+  }, [menuOpen, focusTargetId, filter, notifications, status, loadMore]);
 
   const handleMarkRead = async (notificationId: Notification["id"]) => {
     try {
@@ -130,7 +173,7 @@ export function NotificationCenter() {
   };
 
   return (
-    <Menu.Root modal={false} onOpenChange={setMenuOpen}>
+    <Menu.Root modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
       <Menu.Trigger
         aria-label="Notifications"
         className={cn(
@@ -173,9 +216,18 @@ export function NotificationCenter() {
                 </li>
               ) : (
                 notifications.map((notification) => (
-                  <li key={notification.id} className="list-none">
-                    <NotificationRow notification={notification} onMarkRead={handleMarkRead} />
-                  </li>
+                  <NotificationRow
+                    key={notification.id}
+                    notification={notification}
+                    onMarkRead={handleMarkRead}
+                    rowRef={
+                      focusTargetId === notification.id
+                        ? (node) => {
+                            focusRowRef.current = node;
+                          }
+                        : undefined
+                    }
+                  />
                 ))
               )}
               <li className="list-none">

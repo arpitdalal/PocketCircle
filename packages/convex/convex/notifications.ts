@@ -230,17 +230,59 @@ export const getUnreadCount = query({
 /** Marks one notification read for the current User; no-op when already read. */
 export const markNotificationRead = mutation({
   args: {
-    notificationId: v.id("notifications"),
+    // Plain string so Push click / deep-link callers need no branded cast; normalizeId gates.
+    notificationId: v.string(),
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    const row = await ctx.db.get(args.notificationId);
+    const notificationId = ctx.db.normalizeId("notifications", args.notificationId);
+    if (!notificationId) {
+      throw new Error(NOT_FOUND);
+    }
+    const row = await ctx.db.get(notificationId);
     if (!row || row.userId !== user._id) {
       throw new Error(NOT_FOUND);
     }
     if (!row.read) {
-      await ctx.db.patch(args.notificationId, { read: true });
+      await ctx.db.patch(notificationId, { read: true });
     }
+  },
+});
+
+/**
+ * Push click resolution (#384): authenticate, re-resolve the Notification
+ * Center row's live destination from Notification identity. Does **not** mark
+ * read — the client marks only after it successfully applies the destination
+ * (navigate or open NC at the row). Failures leave the row unread.
+ *
+ * - Accessible link → navigate path (Invitation pending/accepted rewritten live)
+ * - Text-only / inaccessible object → Notification Center at that row
+ * - Missing, malformed, or non-owned row → unavailable (ADR 0016)
+ */
+export const resolvePushNotificationClick = mutation({
+  args: {
+    // URL / SW identity is a plain string; normalizeId is the authoritative gate.
+    notificationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const notificationId = ctx.db.normalizeId("notifications", args.notificationId);
+    if (!notificationId) {
+      return { outcome: "unavailable" as const };
+    }
+    const row = await ctx.db.get(notificationId);
+    if (!row || row.userId !== user._id) {
+      return { outcome: "unavailable" as const };
+    }
+
+    const path = await createNotificationLinkResolver(ctx, user).resolve(row.link);
+    if (path) {
+      return { outcome: "navigate" as const, path, notificationId };
+    }
+    return {
+      outcome: "notification_center" as const,
+      notificationId,
+    };
   },
 });
 
