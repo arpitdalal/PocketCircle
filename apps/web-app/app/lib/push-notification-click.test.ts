@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PUSH_NOTIFICATION_CLICK_MESSAGE_TYPE } from "@pocketcircle/domain";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { track } from "./analytics.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  posthogSdk,
+  primeAnalyticsForTests,
+  resetPostHogBoundary,
+  stubPosthogEnvForTests,
+} from "~/test/posthog-boundary.js";
+import { initAnalytics } from "./analytics.js";
 import {
   peekNotificationCenterFocusId,
   requestNotificationCenterFocus,
@@ -13,17 +19,18 @@ import {
   handlePushNotificationClickMessage,
 } from "./push-notification-click.js";
 
-vi.mock("./analytics.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./analytics.js")>();
-  return {
-    ...actual,
-    track: vi.fn(),
-  };
+vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
+
+beforeEach(async () => {
+  stubPosthogEnvForTests();
+  await primeAnalyticsForTests();
+  resetNotificationCenterFocus();
+  posthogSdk.capture.mockClear();
 });
 
 afterEach(() => {
+  resetPostHogBoundary();
   resetNotificationCenterFocus();
-  vi.mocked(track).mockClear();
 });
 
 describe("applyPushNotificationClickResult", () => {
@@ -37,7 +44,7 @@ describe("applyPushNotificationClickResult", () => {
     );
     expect(navigate).toHaveBeenCalledWith("/circles/trip-c1", { replace: true });
     expect(markRead).toHaveBeenCalledWith("jd7abc123");
-    expect(track).toHaveBeenCalledWith("notification_opened", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_opened", {});
   });
 
   it("opens Notification Center focus, marks read, tracks", async () => {
@@ -51,7 +58,7 @@ describe("applyPushNotificationClickResult", () => {
     expect(peekNotificationCenterFocusId()).toBe("jd7abc123");
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(markRead).toHaveBeenCalledWith("jd7abc123");
-    expect(track).toHaveBeenCalledWith("notification_opened", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_opened", {});
   });
 
   it("unavailable goes home without mark or analytics", async () => {
@@ -61,7 +68,7 @@ describe("applyPushNotificationClickResult", () => {
     await applyPushNotificationClickResult({ outcome: "unavailable" }, navigate, markRead);
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(markRead).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
     expect(peekNotificationCenterFocusId()).toBe("kept");
   });
 
@@ -75,7 +82,7 @@ describe("applyPushNotificationClickResult", () => {
     );
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(markRead).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 
   it("still tracks after markRead failure once destination applied", async () => {
@@ -87,7 +94,21 @@ describe("applyPushNotificationClickResult", () => {
       markRead,
     );
     expect(navigate).toHaveBeenCalledWith("/circles/trip-c1", { replace: true });
-    expect(track).toHaveBeenCalledWith("notification_opened", {});
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_opened", {});
+  });
+
+  it("respects analytics opt-out for notification_opened", async () => {
+    resetPostHogBoundary();
+    stubPosthogEnvForTests();
+    await initAnalytics({ id: "opted-out", analyticsEnabled: false });
+    posthogSdk.capture.mockClear();
+
+    await applyPushNotificationClickResult(
+      { outcome: "navigate", path: "/circles/trip-c1", notificationId: "jd7abc123" },
+      vi.fn(),
+      vi.fn().mockResolvedValue(undefined),
+    );
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
   });
 });
 
