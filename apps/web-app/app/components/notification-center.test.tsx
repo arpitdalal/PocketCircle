@@ -38,7 +38,7 @@ describe("NotificationCenter", () => {
     configureConvex({
       notifications: [
         makeNotificationView({
-          title: "Paid By updated",
+          title: "Set as Paid By",
           link: MOCK_NOTIFICATIONS[0]?.link,
         }),
         makeNotificationView({
@@ -54,9 +54,9 @@ describe("NotificationCenter", () => {
 
     await openNotifications(user);
 
-    expect(await screen.findByText("Paid By updated")).toBeInTheDocument();
+    expect(await screen.findByText("Set as Paid By")).toBeInTheDocument();
     expect(screen.getByText("Removed from Circle")).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /Paid By updated/ })).toHaveAttribute(
+    expect(screen.getByRole("menuitem", { name: /Set as Paid By/ })).toHaveAttribute(
       "href",
       MOCK_NOTIFICATIONS[0]?.link,
     );
@@ -72,14 +72,14 @@ describe("NotificationCenter", () => {
 
     await openNotifications(user);
 
-    expect(await screen.findByText("Paid By updated")).toBeInTheDocument();
+    expect(await screen.findByText("Set as Paid By")).toBeInTheDocument();
     expect(screen.queryByText("Removed from Circle")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute("aria-pressed", "true");
 
     await user.click(screen.getByRole("button", { name: "All" }));
 
     expect(screen.getByText("Removed from Circle")).toBeInTheDocument();
-    expect(screen.getByText("Paid By updated")).toBeInTheDocument();
+    expect(screen.getByText("Set as Paid By")).toBeInTheDocument();
   });
 
   it("names unread rows in All so the unread dot is not the only cue", async () => {
@@ -121,7 +121,7 @@ describe("NotificationCenter", () => {
     renderCenter();
 
     await openNotifications(user);
-    expect(await screen.findByText("Paid By updated")).toBeInTheDocument();
+    expect(await screen.findByText("Set as Paid By")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "All" }));
     expect(screen.getByText("Removed from Circle")).toBeInTheDocument();
 

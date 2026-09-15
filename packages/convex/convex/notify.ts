@@ -465,7 +465,7 @@ export async function notifyPaidBySet(
     recipientUserId: opts.paidByUserId,
     actorUserId: opts.actorUserId,
     type: "transaction.paid_by",
-    title: "Paid By updated",
+    title: "Set as Paid By",
     body: `${opts.actorDisplayName} set you as Paid By on ${opts.transaction.title}.`,
     link: buildTransactionNotificationLink(
       circleRef(opts.circle),

@@ -39,7 +39,7 @@ export function pushTitleForNotificationType(type: string) {
     case "circle.restored":
       return "Circle restored";
     case "transaction.paid_by":
-      return "Paid By updated";
+      return "Set as Paid By";
     case "transaction.archived":
       return "Transaction archived";
     case "transaction.restored":
@@ -74,6 +74,7 @@ export function pushBodyForNotificationType(type: string) {
     case "circle.restored":
       return "Open PocketCircle for Circle updates.";
     case "transaction.paid_by":
+      return "Open PocketCircle to see this Transaction.";
     case "transaction.archived":
     case "transaction.restored":
       return "Open PocketCircle for Transaction updates.";
@@ -83,6 +84,18 @@ export function pushBodyForNotificationType(type: string) {
     default:
       return "Open PocketCircle for details.";
   }
+}
+
+/**
+ * Wire payload the SW `push` handler shows — same object `webpush.sendNotification`
+ * encrypts. Sender + E2E simulated delivery must share this so copy/tag cannot drift.
+ */
+export function buildVisiblePushPayload(args: { type: string; notificationId: string }) {
+  return {
+    title: pushTitleForNotificationType(args.type),
+    body: pushBodyForNotificationType(args.type),
+    tag: args.notificationId,
+  };
 }
 
 export function isInvitationPushType(type: string) {

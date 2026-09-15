@@ -35,8 +35,24 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    {
+      name: "desktop-chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /push-notifications\.spec\.ts/,
+    },
+    {
+      name: "mobile-chromium",
+      use: { ...devices["Pixel 7"] },
+      testIgnore: /push-notifications\.spec\.ts/,
+    },
+    // Headed only: headless Chromium cannot surface SW notifications (#385).
+    {
+      name: "desktop-chromium-push",
+      use: { ...devices["Desktop Chrome"], headless: false },
+      testMatch: /push-notifications\.spec\.ts/,
+      // Headed windows + OS notifications — one at a time avoids flakes.
+      workers: 1,
+    },
   ],
   webServer: {
     command: "pnpm --filter @pocketcircle/web-app dev --host 127.0.0.1",
