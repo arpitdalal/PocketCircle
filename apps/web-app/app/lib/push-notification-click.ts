@@ -7,7 +7,7 @@ import {
   isSafePushResolvedPath,
   parsePushNotificationClickMessage,
 } from "@pocketcircle/domain";
-import { track } from "~/lib/analytics.js";
+import { isAnalyticsCaptureDeferred, track } from "~/lib/analytics.js";
 import { requestNotificationCenterFocus } from "~/lib/notification-center-focus.js";
 import { isConvexId } from "~/lib/refs.js";
 
@@ -15,6 +15,9 @@ export type PushClickResolveResult =
   | { outcome: "navigate"; path: string; notificationId: string }
   | { outcome: "notification_center"; notificationId: string }
   | { outcome: "unavailable" };
+
+/** Coarse `notification_opened` queued only while capture is deferred (cold load). */
+let pendingOpenedTrack = false;
 
 /**
  * Apply a successful Push click resolution: navigate, or open NC at the row.
@@ -39,14 +42,14 @@ export async function applyPushNotificationClickResult(
     }
     await navigate(result.path, { replace: true });
     await markReadBestEffort(markRead, result.notificationId);
-    track("notification_opened", {});
+    trackNotificationOpened();
     return;
   }
 
   requestNotificationCenterFocus(result.notificationId);
   await navigate("/", { replace: true });
   await markReadBestEffort(markRead, result.notificationId);
-  track("notification_opened", {});
+  trackNotificationOpened();
 }
 
 async function markReadBestEffort(
@@ -58,6 +61,42 @@ async function markReadBestEffort(
   } catch {
     // Destination already applied; unread drain can retry via NC.
   }
+}
+
+/**
+ * Capture `notification_opened`, or queue only while capture is deferred.
+ * Opt-out / unavailable → no queue (must not flush after a later opt-in).
+ */
+export function trackNotificationOpened() {
+  if (track("notification_opened", {})) {
+    pendingOpenedTrack = false;
+    return true;
+  }
+  if (isAnalyticsCaptureDeferred()) {
+    pendingOpenedTrack = true;
+  } else {
+    pendingOpenedTrack = false;
+  }
+  return false;
+}
+
+/** Flush an open event queued before analytics initialized. */
+export function flushPendingNotificationOpenedTrack() {
+  if (!pendingOpenedTrack) {
+    return;
+  }
+  if (track("notification_opened", {})) {
+    pendingOpenedTrack = false;
+    return;
+  }
+  if (!isAnalyticsCaptureDeferred()) {
+    pendingOpenedTrack = false;
+  }
+}
+
+/** Test isolation. */
+export function resetPushNotificationClickAnalyticsForTests() {
+  pendingOpenedTrack = false;
 }
 
 /** Handle a service-worker postMessage fallback (no WindowClient.navigate). */

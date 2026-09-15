@@ -1,13 +1,22 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router";
-import { handlePushNotificationClickMessage } from "~/lib/push-notification-click.js";
+import { getAnalyticsCapturePhase, subscribeAnalyticsCapturePhase } from "~/lib/analytics.js";
+import {
+  flushPendingNotificationOpenedTrack,
+  handlePushNotificationClickMessage,
+} from "~/lib/push-notification-click.js";
 
 /**
- * Fallback when the service worker can focus a client but not navigate it
- * (older browsers). Routes into `/from-notification?n=…` for the shared resolver.
+ * SW postMessage fallback + flush deferred `notification_opened` after cold
+ * analytics init (#384). Mounted on public + every protected auth gate.
  */
 export function PushNotificationClickListener() {
   const navigate = useNavigate();
+  const capturePhase = useSyncExternalStore(
+    subscribeAnalyticsCapturePhase,
+    getAnalyticsCapturePhase,
+    () => "off" as const,
+  );
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) {
@@ -21,6 +30,13 @@ export function PushNotificationClickListener() {
       navigator.serviceWorker.removeEventListener("message", onMessage);
     };
   }, [navigate]);
+
+  useEffect(() => {
+    // Ready → capture; off (opt-out / teardown) → drop queue so it cannot survive re-opt-in.
+    if (capturePhase !== "deferred") {
+      flushPendingNotificationOpenedTrack();
+    }
+  }, [capturePhase]);
 
   return null;
 }

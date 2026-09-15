@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { PUSH_NOTIFICATION_CLICK_MESSAGE_TYPE } from "@pocketcircle/domain";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  holdPostHogLoad,
   posthogSdk,
   primeAnalyticsForTests,
   resetPostHogBoundary,
@@ -16,7 +17,10 @@ import {
 } from "./notification-center-focus.js";
 import {
   applyPushNotificationClickResult,
+  flushPendingNotificationOpenedTrack,
   handlePushNotificationClickMessage,
+  resetPushNotificationClickAnalyticsForTests,
+  trackNotificationOpened,
 } from "./push-notification-click.js";
 
 vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posthogModuleMock);
@@ -25,12 +29,14 @@ beforeEach(async () => {
   stubPosthogEnvForTests();
   await primeAnalyticsForTests();
   resetNotificationCenterFocus();
+  resetPushNotificationClickAnalyticsForTests();
   posthogSdk.capture.mockClear();
 });
 
 afterEach(() => {
   resetPostHogBoundary();
   resetNotificationCenterFocus();
+  resetPushNotificationClickAnalyticsForTests();
 });
 
 describe("applyPushNotificationClickResult", () => {
@@ -109,6 +115,20 @@ describe("applyPushNotificationClickResult", () => {
       vi.fn().mockResolvedValue(undefined),
     );
     expect(posthogSdk.capture).not.toHaveBeenCalled();
+  });
+
+  it("queues notification_opened while capture is deferred and flushes when ready", async () => {
+    resetPostHogBoundary();
+    resetPushNotificationClickAnalyticsForTests();
+    stubPosthogEnvForTests();
+    const releaseHold = holdPostHogLoad();
+    const pending = initAnalytics({ id: "cold", analyticsEnabled: true });
+    expect(trackNotificationOpened()).toBe(false);
+    expect(posthogSdk.capture).not.toHaveBeenCalled();
+    releaseHold();
+    await pending;
+    flushPendingNotificationOpenedTrack();
+    expect(posthogSdk.capture).toHaveBeenCalledWith("notification_opened", {});
   });
 });
 

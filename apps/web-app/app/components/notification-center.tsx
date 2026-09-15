@@ -18,6 +18,7 @@ import {
   clearNotificationCenterFocus,
   useNotificationCenterFocusId,
 } from "~/lib/notification-center-focus.js";
+import { useValueChange } from "~/lib/use-value-change.js";
 import { cn } from "~/lib/utils.js";
 
 const FILTER_OPTIONS = [
@@ -107,16 +108,13 @@ export function NotificationCenter() {
   const listRef = useRef<HTMLUListElement>(null);
   const focusRowRef = useRef<HTMLLIElement | null>(null);
   const pushFocusId = useNotificationCenterFocusId();
-  const [seenPushFocusId, setSeenPushFocusId] = useState<string | null>(null);
 
-  // React-approved: adjust local UI state when an external Push focus id arrives.
-  if (pushFocusId !== seenPushFocusId) {
-    setSeenPushFocusId(pushFocusId);
-    if (pushFocusId) {
+  useValueChange(pushFocusId, (current) => {
+    if (current) {
       setFilter("all");
       setMenuOpen(true);
     }
-  }
+  });
 
   const unreadOnly = filter === "unread";
   const { notifications, status, loadMore } = useNotifications(unreadOnly, menuOpen);
