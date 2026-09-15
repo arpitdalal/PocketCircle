@@ -237,7 +237,7 @@ describe("NotificationAnnouncementStrip", () => {
     });
   });
 
-  it("announces once per appearance, not again on tab refocus", async () => {
+  it("keeps the mounted announcement unchanged across tab refocus", async () => {
     installPushEnv({ permission: "default", subscription: null });
     renderStrip();
     await screen.findByRole("region", { name: STRIP_TITLE });
@@ -245,16 +245,36 @@ describe("NotificationAnnouncementStrip", () => {
       expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
     });
 
-    // Backgrounding feeds `liveVisible`, but leaving and returning is not a new
-    // announcement — the copy must stay put rather than clear and re-speak.
-    await act(async () => {
-      hideDocument();
+    const liveRegion = stripLiveRegions()[0];
+    if (!liveRegion) {
+      throw new Error("expected the strip live region");
+    }
+    const mutations: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => {
+      mutations.push(...records);
     });
-    expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
-    await act(async () => {
-      showDocument();
-    });
-    expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
+    observer.observe(liveRegion, { childList: true, characterData: true, subtree: true });
+
+    try {
+      // Backgrounding feeds `liveVisible`, but leaving and returning is not a new
+      // appearance. The original region and text must remain completely untouched;
+      // clearing, repopulating, or replacing either can trigger another announcement.
+      await act(async () => {
+        hideDocument();
+      });
+      expect(stripLiveRegions()[0]).toBe(liveRegion);
+      expect(liveRegion.textContent).toMatch(STRIP_TITLE);
+
+      await act(async () => {
+        showDocument();
+      });
+      expect(stripLiveRegions()[0]).toBe(liveRegion);
+      expect(liveRegion.textContent).toMatch(STRIP_TITLE);
+      mutations.push(...observer.takeRecords());
+      expect(mutations).toHaveLength(0);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it("dismisses per device and keeps Settings as the enable path", async () => {
