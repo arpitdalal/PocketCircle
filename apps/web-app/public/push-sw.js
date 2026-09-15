@@ -69,7 +69,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const rawId = event.notification.data && event.notification.data.notificationId;
+  const rawId = event.notification.data?.notificationId;
   const fromData = typeof rawId === "string" ? rawId : undefined;
   const fromTag =
     typeof event.notification.tag === "string" && event.notification.tag.length > 0
