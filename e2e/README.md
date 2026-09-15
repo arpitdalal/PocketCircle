@@ -48,6 +48,12 @@ That spec skips when Playwright runs without the local Worker environment. The s
 reads the SHA-pinned backend image straight from the workflow, so the Convex versions
 cannot drift.
 
+Web Push (#385) generates a fresh E2E VAPID pair at deploy time via
+[`scripts/e2e-generate-vapid.mjs`](../scripts/e2e-generate-vapid.mjs) (CI + local
+script) — private key is never committed. CI wraps Playwright in `xvfb-run` so headed
+`desktop-chromium-push` can show SW notifications. Platform smoke outside Chromium:
+[`docs/research/web-push-platform-smoke.md`](../docs/research/web-push-platform-smoke.md).
+
 ## The `.env.local` gotcha
 
 Your gitignored `packages/convex/.env.local` points the Convex CLI at the **cloud** dev

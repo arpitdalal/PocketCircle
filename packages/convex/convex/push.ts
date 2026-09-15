@@ -1,9 +1,8 @@
 import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
 import {
+  buildVisiblePushPayload,
   isInvitationPushType,
   parseNotificationLinkPath,
-  pushBodyForNotificationType,
-  pushTitleForNotificationType,
   pushTtlSeconds,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
@@ -185,9 +184,10 @@ export const loadSendPayload = internalQuery({
     }
     return {
       type: notification.type,
-      title: pushTitleForNotificationType(notification.type),
-      body: pushBodyForNotificationType(notification.type),
-      tag: notification._id,
+      ...buildVisiblePushPayload({
+        type: notification.type,
+        notificationId: notification._id,
+      }),
       createdAtMs: notification._creationTime,
       endpoint: subscription.endpoint,
       p256dh: subscription.p256dh,

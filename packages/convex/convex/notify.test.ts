@@ -527,7 +527,7 @@ describe("notification creation on events (NTF-2)", () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         type: "transaction.paid_by",
-        title: "Paid By updated",
+        title: "Set as Paid By",
         body: "Olive Owner set you as Paid By on Weekly shop.",
         link: buildTransactionNotificationLink(circleRef, txnRef),
       });

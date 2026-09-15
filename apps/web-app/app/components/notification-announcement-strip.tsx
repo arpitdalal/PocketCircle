@@ -39,8 +39,9 @@ import { usePushNotificationsUiState } from "~/lib/use-push-notifications-ui-sta
 import { cn } from "~/lib/utils.js";
 
 const TITLE = "Enable notifications on this device";
+/** Spoken / live-region copy — Settings link is visual only in the strip. */
 const BODY =
-  "Get alerts for Circle activity while PocketCircle is closed. You can change this anytime in Settings.";
+  "Get alerts for Circle activity while PocketCircle is closed. Change this anytime in Settings.";
 
 function subscribeDocumentVisible(onStoreChange: () => void) {
   document.addEventListener("visibilitychange", onStoreChange);
@@ -218,35 +219,51 @@ export function NotificationAnnouncementStrip({
               {TITLE}. {BODY}
             </div>
           ) : null}
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="min-w-0 flex-1 space-y-1">
-              <h2 id={titleId} className="font-display text-sm font-semibold tracking-tight">
-                {TITLE}
-              </h2>
-              <p className="text-sm text-muted-foreground">{BODY}</p>
-              <p className="text-xs text-muted-foreground">
-                Or manage this later in{" "}
-                <Link to={href("/settings")} className="underline underline-offset-2">
-                  Settings
-                </Link>
-                .
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button type="button" size="sm" disabled={submitting} onClick={onEnable}>
-                Enable notifications
-              </Button>
+          {/*
+            One-column strip: dismiss rides the title row; CTA sits under copy.
+            Avoids the old flex-wrap side-by-side that stretched on desktop and
+            crushed the title beside the button on narrow viewports.
+          */}
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <h2
+                  id={titleId}
+                  className="font-display text-sm font-semibold tracking-tight text-balance"
+                >
+                  {TITLE}
+                </h2>
+                <p className="text-sm text-muted-foreground text-pretty">
+                  Get alerts for Circle activity while PocketCircle is closed. Change this anytime
+                  in{" "}
+                  <Link to={href("/settings")} className="underline underline-offset-2">
+                    Settings
+                  </Link>
+                  .
+                </p>
+              </div>
               <button
                 type="button"
                 aria-label="Dismiss notification announcement"
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "icon-xs" }),
-                  "shrink-0 text-muted-foreground",
+                  "-mt-0.5 shrink-0 text-muted-foreground",
                 )}
                 onClick={onDismiss}
               >
                 <XIcon />
               </button>
+            </div>
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={submitting}
+                className="w-full sm:w-auto"
+                onClick={onEnable}
+              >
+                Enable notifications
+              </Button>
             </div>
           </div>
         </section>

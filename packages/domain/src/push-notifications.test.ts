@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildVisiblePushPayload,
   isInvitationPushType,
   PUSH_ACTIVITY_TTL_SECONDS,
   pushBodyForNotificationType,
@@ -9,14 +10,27 @@ import {
 
 describe("push-notifications", () => {
   it("maps event-type titles without entity names", () => {
-    expect(pushTitleForNotificationType("transaction.paid_by")).toBe("Paid By updated");
+    expect(pushTitleForNotificationType("transaction.paid_by")).toBe("Set as Paid By");
     expect(pushTitleForNotificationType("unknown")).toBe("PocketCircle");
   });
 
   it("uses generic bodies with no entity names", () => {
     const body = pushBodyForNotificationType("transaction.paid_by");
-    expect(body).toBe("Open PocketCircle for Transaction updates.");
+    expect(body).toBe("Open PocketCircle to see this Transaction.");
     expect(body).not.toMatch(/Ada|Weekly shop|Family/i);
+  });
+
+  it("builds the wire payload title/body/tag from type + notification id", () => {
+    expect(
+      buildVisiblePushPayload({
+        type: "invitation.received",
+        notificationId: "jd7notif1",
+      }),
+    ).toEqual({
+      title: "Circle invitation",
+      body: "Open PocketCircle to view this invitation.",
+      tag: "jd7notif1",
+    });
   });
 
   it("falls back for unknown types", () => {

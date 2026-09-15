@@ -138,6 +138,12 @@ log "Configuring test-only auth env + deploying functions"
   pnpm exec convex env set GOOGLE_CLIENT_SECRET "local-dummy"
   pnpm exec convex env set E2E_TEST_AUTH "1"
   pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
+  # E2E-only VAPID — generate at run time (no committed private key / GitGuardian).
+  eval "$(node "$REPO_ROOT/scripts/e2e-generate-vapid.mjs")"
+  pnpm exec convex env set VAPID_PUBLIC_KEY "$E2E_VAPID_PUBLIC_KEY"
+  pnpm exec convex env set VAPID_PRIVATE_KEY "$E2E_VAPID_PRIVATE_KEY"
+  pnpm exec convex env set VAPID_SUBJECT "$E2E_VAPID_SUBJECT"
+  pnpm exec convex env set VAPID_KEY_ID "$E2E_VAPID_KEY_ID"
   pnpm exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_HMAC_SECRET"
   pnpm exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_VERIFYING_JWKS"
   pnpm exec convex deploy -y
@@ -187,4 +193,14 @@ log "Ensuring Playwright Chromium is installed"
 pnpm exec playwright install chromium
 
 log "Running E2E suite"
-pnpm exec playwright test "$@"
+# Headed `desktop-chromium-push` needs a display (Playwright CI recipe).
+if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" ]]; then
+  if ! command -v xvfb-run >/dev/null 2>&1; then
+    echo "✗ xvfb-run required for headed Push E2E without DISPLAY" >&2
+    exit 1
+  fi
+  xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
+    pnpm exec playwright test "$@"
+else
+  pnpm exec playwright test "$@"
+fi

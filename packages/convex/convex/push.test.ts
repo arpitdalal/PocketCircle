@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { promises as dns } from "node:dns";
-import { pushBodyForNotificationType, pushTitleForNotificationType } from "@pocketcircle/domain";
+import { buildVisiblePushPayload } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -366,7 +366,7 @@ describe("Push mirror from Notification Center", () => {
         recipientUserId: recipient._id,
         actorUserId: owner._id,
         type: "transaction.paid_by",
-        title: "Paid By updated — Ada Weekly shop",
+        title: "Set as Paid By — Ada Weekly shop",
         body: "Ada set you as Paid By on Weekly shop.",
         link: "/circles/family-c123/transactions/shop-t456",
       }),
@@ -404,11 +404,12 @@ describe("Push mirror from Notification Center", () => {
     expect(endpoints).toEqual([ENDPOINT_A, ENDPOINT_B].sort());
 
     for (const payload of payloads) {
-      expect(payload.parsed).toEqual({
-        title: pushTitleForNotificationType("transaction.paid_by"),
-        body: pushBodyForNotificationType("transaction.paid_by"),
-        tag: notificationId,
-      });
+      expect(payload.parsed).toEqual(
+        buildVisiblePushPayload({
+          type: "transaction.paid_by",
+          notificationId,
+        }),
+      );
       expect(payload.parsed.title).not.toMatch(/Ada|Weekly shop/i);
       expect(payload.parsed.body).not.toMatch(/Ada|Weekly shop|family/i);
       expect(payload.options).toMatchObject({

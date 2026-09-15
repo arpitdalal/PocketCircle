@@ -163,6 +163,21 @@ export function installE2EAuthHelper(): void {
           await convex.mutation(api.users.acknowledgeFeatureAnnouncement, { announcementId });
         }
       },
+
+      /** Newest unread NC row's production Push wire payload (#385). */
+      async getLatestUnreadPushDeliveryPayload() {
+        return await convex.query(api.e2e.getLatestUnreadPushDeliveryPayloadForE2E, {});
+      },
+
+      /** Convex-bound Push subscription count after enable (#385). */
+      async countPushSubscriptions() {
+        return await convex.query(api.e2e.countPushSubscriptionsForE2E, {});
+      },
+
+      /** Read-state probe after Push click (#385). */
+      async getNotificationRead(notificationId: string) {
+        return await convex.query(api.e2e.getNotificationReadForE2E, { notificationId });
+      },
     },
   });
 }

@@ -70,13 +70,28 @@ jobs:
           pnpm exec convex env set GOOGLE_CLIENT_SECRET "ci-dummy"
           pnpm exec convex env set E2E_TEST_AUTH "1"
           pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
+          # E2E-only VAPID — generate at job time (no committed private key / GitGuardian).
+          eval "$(node "$GITHUB_WORKSPACE/scripts/e2e-generate-vapid.mjs")"
+          pnpm exec convex env set VAPID_PUBLIC_KEY "$E2E_VAPID_PUBLIC_KEY"
+          pnpm exec convex env set VAPID_PRIVATE_KEY "$E2E_VAPID_PRIVATE_KEY"
+          pnpm exec convex env set VAPID_SUBJECT "$E2E_VAPID_SUBJECT"
+          pnpm exec convex env set VAPID_KEY_ID "$E2E_VAPID_KEY_ID"
           pnpm exec convex deploy -y
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      # Headed `desktop-chromium-push` needs Xvfb; `install --with-deps` usually
+      # pulls xvfb, but pin it so a dep-list regression cannot drop the display.
+      - name: Ensure Xvfb for headed Push E2E
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      # Playwright docs: https://playwright.dev/docs/ci#running-headed
       - name: Run E2E shard
-        run: pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+        run: >
+          xvfb-run --auto-servernum
+          --server-args="-screen 0 1280x960x24"
+          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
 
       - name: Upload Playwright blob report
         if: ${{ !cancelled() }}

@@ -557,7 +557,7 @@ export const MOCK_NOTIFICATIONS: Notification[] = [
   {
     id: "mock-notif-linked" as Notification["id"],
     type: "transaction.paid_by",
-    title: "Paid By updated",
+    title: "Set as Paid By",
     body: "Alex set you as Paid By on Weekly shop.",
     link: "/circles/trip-mock-personal/transactions/weekly-shop-mock-txn",
     read: false,

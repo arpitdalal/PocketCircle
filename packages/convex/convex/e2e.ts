@@ -1,10 +1,15 @@
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from "@pocketcircle/domain";
+import {
+  buildVisiblePushPayload,
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_TERMS_VERSION,
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.js";
 import { mutation, type QueryCtx, query } from "./_generated/server.js";
 import { requireCurrentUser } from "./auth.js";
 import { requireCircleAccess } from "./guard.js";
 import { hashInvitationToken } from "./invitationToken.js";
+import { listPushSubscriptionsForUser } from "./pushSubscriptions.js";
 
 /** Returns the stashed token only when it still matches a live pending invitation row. */
 async function e2eStashedInvitationToken(ctx: QueryCtx, row: Doc<"e2eInvitationTokens"> | null) {
@@ -224,5 +229,68 @@ export const backdateCurrentUserCreatedAtForE2E = mutation({
 
     const user = await requireCurrentUser(ctx);
     await ctx.db.patch(user._id, { createdAt: args.createdAt });
+  },
+});
+
+/**
+ * E2E-only: newest unread Notification Center row for the signed-in User, plus
+ * the production visible Push wire payload (#385 / ADR 0033). Simulated delivery
+ * must inject this object into `push-sw.js` — not hand-built title/body strings.
+ */
+export const getLatestUnreadPushDeliveryPayloadForE2E = query({
+  args: {},
+  handler: async (ctx) => {
+    if (process.env.E2E_TEST_AUTH !== "1") {
+      throw new Error("Not found");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    const row = await ctx.db
+      .query("notifications")
+      .withIndex("by_user_and_read", (q) => q.eq("userId", user._id).eq("read", false))
+      .order("desc")
+      .first();
+    if (!row) {
+      return null;
+    }
+    return buildVisiblePushPayload({
+      type: row.type,
+      notificationId: row._id,
+    });
+  },
+});
+
+/** E2E-only: read-state probe after Push click resolution (#385). */
+export const getNotificationReadForE2E = query({
+  args: { notificationId: v.string() },
+  handler: async (ctx, args) => {
+    if (process.env.E2E_TEST_AUTH !== "1") {
+      throw new Error("Not found");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    const notificationId = ctx.db.normalizeId("notifications", args.notificationId);
+    if (!notificationId) {
+      return null;
+    }
+    const row = await ctx.db.get(notificationId);
+    if (!row || row.userId !== user._id) {
+      return null;
+    }
+    return row.read;
+  },
+});
+
+/** E2E-only: Convex-bound Push subscription count after enable (#385). */
+export const countPushSubscriptionsForE2E = query({
+  args: {},
+  handler: async (ctx) => {
+    if (process.env.E2E_TEST_AUTH !== "1") {
+      throw new Error("Not found");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    const rows = await listPushSubscriptionsForUser(ctx, user._id);
+    return rows.length;
   },
 });

@@ -64,8 +64,17 @@ export async function ensureCircleConvexReady(page: Page) {
   await waitForScE2E(page);
 }
 
-export async function invokeScE2E<T>(page: Page, method: string, args: unknown[] = []) {
-  await ensureCircleConvexReady(page);
+export async function invokeScE2E<T>(
+  page: Page,
+  method: string,
+  args: unknown[] = [],
+  readiness: "circle" | "helper" = "circle",
+) {
+  if (readiness === "circle") {
+    await ensureCircleConvexReady(page);
+  } else {
+    await waitForScE2E(page);
+  }
   return page.evaluate<T>(
     async ([name, methodArgs]) => {
       const helper = Reflect.get(globalThis, "__scE2E");

@@ -183,3 +183,64 @@ describe("backdateCurrentUserCreatedAtForE2E", () => {
     ).rejects.toThrow("Forbidden");
   });
 });
+
+describe("Push E2E notification probes", () => {
+  it("returns the production Push wire payload for the newest unread row", async () => {
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await t.run(async (ctx) =>
+      ctx.db.insert("notifications", {
+        userId: owner._id,
+        type: "circle.restored",
+        title: "Older",
+        read: false,
+        createdAt: Date.now() - 1_000,
+      }),
+    );
+    const newerId = await t.run(async (ctx) =>
+      ctx.db.insert("notifications", {
+        userId: owner._id,
+        type: "invitation.received",
+        title: "Newer",
+        read: false,
+        createdAt: Date.now(),
+      }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("notifications", {
+        userId: owner._id,
+        type: "circle.archived",
+        title: "Read",
+        read: true,
+        createdAt: Date.now() + 1_000,
+      });
+    });
+
+    await expect(t.query(api.e2e.getLatestUnreadPushDeliveryPayloadForE2E, {})).resolves.toEqual({
+      title: "Circle invitation",
+      body: "Open PocketCircle to view this invitation.",
+      tag: newerId,
+    });
+    await expect(
+      t.query(api.e2e.getNotificationReadForE2E, { notificationId: newerId }),
+    ).resolves.toBe(false);
+    await expect(t.query(api.e2e.countPushSubscriptionsForE2E, {})).resolves.toBe(0);
+  });
+
+  it("rejects probes when E2E auth is disabled", async () => {
+    vi.stubEnv("E2E_TEST_AUTH", "0");
+    const t = createTestConvex();
+    const { owner } = await t.run((ctx) => seedCircle(ctx));
+    mockCurrentUser.mockResolvedValue(owner);
+
+    await expect(t.query(api.e2e.getLatestUnreadPushDeliveryPayloadForE2E, {})).rejects.toThrow(
+      "Not found",
+    );
+    await expect(
+      t.query(api.e2e.getNotificationReadForE2E, { notificationId: "jd7abc123" }),
+    ).rejects.toThrow("Not found");
+    await expect(t.query(api.e2e.countPushSubscriptionsForE2E, {})).rejects.toThrow("Not found");
+  });
+});
