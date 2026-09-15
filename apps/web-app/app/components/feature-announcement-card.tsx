@@ -157,20 +157,20 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
         <section
           aria-labelledby={titleId}
           className={cn(
-            // Below Circle nav (z-30), dialogs (z-50), and snackbars (z-60).
-            "pointer-events-auto fixed z-20 flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-md",
+            // Above the sticky header (z-30) if a short viewport makes them overlap;
+            // still below sheets/dialogs (z-40+) and snackbars (z-60).
+            "pointer-events-auto fixed z-[35] flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-md",
             // Fluid width: never wider than the viewport allows on a phone, grows
             // with the viewport past ~1000px, capped at 32rem. One clamp instead
             // of a breakpoint ladder — the hero follows via `aspect-video w-full`.
             "w-[clamp(min(22rem,100vw-1.5rem),35vw,32rem)]",
             "animate-slide-up left-[max(0.75rem,var(--safe-area-left,0px))]",
-            // `svh` (toolbar-shown height) so an expanded mobile toolbar cannot
-            // clip the card, minus the sticky header it must stop below and the
-            // Circle nav it must clear. A guard for landscape / large font
-            // scales — portrait copy is sized to fit without scrolling.
+            // `svh` (toolbar-shown height) keeps the card inside the visible
+            // viewport. It may cover the sticky header on short screens, while
+            // still clearing the Circle nav, safe area, and a 0.75rem top gap.
             aboveCircleNav
-              ? "bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)] max-h-[calc(100svh-var(--app-header-height)-var(--mobile-bottom-nav-height)-1.5rem)] sm:bottom-[max(0.75rem,var(--safe-area-bottom))] sm:max-h-[calc(100svh-var(--app-header-height)-1.5rem)]"
-              : "bottom-[max(0.75rem,var(--safe-area-bottom))] max-h-[calc(100svh-var(--app-header-height)-1.5rem)]",
+              ? "bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)] max-h-[calc(100svh-var(--mobile-bottom-nav-height)-0.75rem-max(0.75rem,var(--safe-area-top)))] sm:bottom-[max(0.75rem,var(--safe-area-bottom))] sm:max-h-[calc(100svh-max(0.75rem,var(--safe-area-bottom))-max(0.75rem,var(--safe-area-top)))]"
+              : "bottom-[max(0.75rem,var(--safe-area-bottom))] max-h-[calc(100svh-max(0.75rem,var(--safe-area-bottom))-max(0.75rem,var(--safe-area-top)))]",
           )}
         >
           {/* Hero bleeds to the card edges; the close button rides its top-right

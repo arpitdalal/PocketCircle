@@ -111,3 +111,42 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
     await context.close();
   }
 });
+
+test("Feature Announcement overlaps above the header on a short mobile viewport", async ({
+  browser,
+  baseURL,
+}, testInfo) => {
+  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const stamp = `${Date.now()}-${testInfo.project.name}-overlap`;
+  const context = await createIsolatedBrowserContext(browser);
+  const page = await context.newPage();
+  try {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await establishAnnouncementEligibleSession(page, {
+      baseURL: resolvedBase,
+      email: `e2e+ann-overlap-${stamp}@example.com`,
+      name: "Ann Overlap",
+    });
+
+    await openHome(page);
+    const card = page.getByRole("region", { name: ACTIVE_TITLE });
+    const header = page.getByRole("banner");
+    await expect(card).toBeVisible();
+
+    const [cardBox, headerBox, cardZIndex, headerZIndex] = await Promise.all([
+      card.boundingBox(),
+      header.boundingBox(),
+      card.evaluate((element) => getComputedStyle(element).zIndex),
+      header.evaluate((element) => getComputedStyle(element).zIndex),
+    ]);
+    if (!cardBox || !headerBox) {
+      throw new Error("expected visible announcement card and header bounds");
+    }
+
+    expect(cardBox.y).toBeLessThan(headerBox.y + headerBox.height);
+    expect(Number.parseInt(cardZIndex, 10)).toBeGreaterThan(Number.parseInt(headerZIndex, 10));
+    await expect(card.getByRole("button", { name: "Close" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
