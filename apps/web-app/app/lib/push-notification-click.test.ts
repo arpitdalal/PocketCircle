@@ -4,9 +4,9 @@ import { PUSH_NOTIFICATION_CLICK_MESSAGE_TYPE } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { track } from "./analytics.js";
 import {
+  peekNotificationCenterFocusId,
   requestNotificationCenterFocus,
   resetNotificationCenterFocus,
-  takeNotificationCenterFocusRequest,
 } from "./notification-center-focus.js";
 import {
   applyPushNotificationClickResult,
@@ -48,9 +48,7 @@ describe("applyPushNotificationClickResult", () => {
       navigate,
       markRead,
     );
-    expect(takeNotificationCenterFocusRequest()).toMatchObject({
-      notificationId: "jd7abc123",
-    });
+    expect(peekNotificationCenterFocusId()).toBe("jd7abc123");
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(markRead).toHaveBeenCalledWith("jd7abc123");
     expect(track).toHaveBeenCalledWith("notification_opened", {});
@@ -64,7 +62,7 @@ describe("applyPushNotificationClickResult", () => {
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(markRead).not.toHaveBeenCalled();
     expect(track).not.toHaveBeenCalled();
-    expect(takeNotificationCenterFocusRequest().notificationId).toBe("kept");
+    expect(peekNotificationCenterFocusId()).toBe("kept");
   });
 
   it("refuses non-canonical navigate paths without marking", async () => {

@@ -21,12 +21,14 @@ export function requestNotificationCenterFocus(notificationId: string | undefine
   emit();
 }
 
-/** Consume the pending focus request (epoch advances so the same id can re-focus). */
-export function takeNotificationCenterFocusRequest() {
-  const notificationId = focusNotificationId;
-  const epoch = focusEpoch;
+/** Clear a consumed / abandoned Push focus request. */
+export function clearNotificationCenterFocus() {
+  if (focusNotificationId === null) {
+    return;
+  }
   focusNotificationId = null;
-  return { notificationId, epoch };
+  focusEpoch += 1;
+  emit();
 }
 
 export function subscribeNotificationCenterFocus(onStoreChange: () => void) {
@@ -40,6 +42,11 @@ function getFocusEpoch() {
   return focusEpoch;
 }
 
+/** Sync peek for tests / apply helpers. */
+export function peekNotificationCenterFocusId() {
+  return focusNotificationId;
+}
+
 /** Test isolation. */
 export function resetNotificationCenterFocus() {
   focusNotificationId = null;
@@ -47,7 +54,11 @@ export function resetNotificationCenterFocus() {
   emit();
 }
 
-/** Subscribe to Push-driven Notification Center focus requests. */
-export function useNotificationCenterFocusEpoch() {
-  return useSyncExternalStore(subscribeNotificationCenterFocus, getFocusEpoch, () => 0);
+/**
+ * Pending Push focus row id (null when none).
+ * Subscribes via epoch so re-requesting the same id still re-renders.
+ */
+export function useNotificationCenterFocusId() {
+  useSyncExternalStore(subscribeNotificationCenterFocus, getFocusEpoch, () => 0);
+  return focusNotificationId;
 }

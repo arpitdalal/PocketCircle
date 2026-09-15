@@ -15,8 +15,8 @@ import {
 } from "~/lib/data/notifications.js";
 import { formatAuditTimestamp } from "~/lib/datetime.js";
 import {
-  takeNotificationCenterFocusRequest,
-  useNotificationCenterFocusEpoch,
+  clearNotificationCenterFocus,
+  useNotificationCenterFocusId,
 } from "~/lib/notification-center-focus.js";
 import { cn } from "~/lib/utils.js";
 
@@ -104,10 +104,20 @@ function NotificationRow({
 export function NotificationCenter() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>("unread");
-  const [focusTargetId, setFocusTargetId] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const focusRowRef = useRef<HTMLLIElement | null>(null);
-  const focusEpoch = useNotificationCenterFocusEpoch();
+  const pushFocusId = useNotificationCenterFocusId();
+  const [seenPushFocusId, setSeenPushFocusId] = useState<string | null>(null);
+
+  // React-approved: adjust local UI state when an external Push focus id arrives.
+  if (pushFocusId !== seenPushFocusId) {
+    setSeenPushFocusId(pushFocusId);
+    if (pushFocusId) {
+      setFilter("all");
+      setMenuOpen(true);
+    }
+  }
+
   const unreadOnly = filter === "unread";
   const { notifications, status, loadMore } = useNotifications(unreadOnly, menuOpen);
   const unread = useUnreadCount();
@@ -120,27 +130,15 @@ export function NotificationCenter() {
   const showMarkAllRead = unreadCount > 0 || unread?.hasMore === true;
   const showEmpty = status !== "LoadingFirstPage" && notifications.length === 0;
 
+  // DOM scroll + clear external store only — no React setState.
   useEffect(() => {
-    if (focusEpoch === 0) {
+    if (!menuOpen || !pushFocusId || filter !== "all") {
       return;
     }
-    const { notificationId } = takeNotificationCenterFocusRequest();
-    if (!notificationId) {
-      return;
-    }
-    setFilter("all");
-    setFocusTargetId(notificationId);
-    setMenuOpen(true);
-  }, [focusEpoch]);
-
-  useEffect(() => {
-    if (!menuOpen || !focusTargetId || filter !== "all") {
-      return;
-    }
-    const found = notifications.some((n) => n.id === focusTargetId);
+    const found = notifications.some((n) => n.id === pushFocusId);
     if (found) {
       focusRowRef.current?.scrollIntoView({ block: "nearest" });
-      setFocusTargetId(null);
+      clearNotificationCenterFocus();
       return;
     }
     if (status === "CanLoadMore") {
@@ -148,9 +146,9 @@ export function NotificationCenter() {
       return;
     }
     if (status === "Exhausted") {
-      setFocusTargetId(null);
+      clearNotificationCenterFocus();
     }
-  }, [menuOpen, focusTargetId, filter, notifications, status, loadMore]);
+  }, [menuOpen, pushFocusId, filter, notifications, status, loadMore]);
 
   const handleMarkRead = async (notificationId: Notification["id"]) => {
     try {
@@ -172,8 +170,15 @@ export function NotificationCenter() {
     }
   };
 
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open && pushFocusId) {
+      clearNotificationCenterFocus();
+    }
+  };
+
   return (
-    <Menu.Root modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
+    <Menu.Root modal={false} open={menuOpen} onOpenChange={handleMenuOpenChange}>
       <Menu.Trigger
         aria-label="Notifications"
         className={cn(
@@ -221,7 +226,7 @@ export function NotificationCenter() {
                     notification={notification}
                     onMarkRead={handleMarkRead}
                     rowRef={
-                      focusTargetId === notification.id
+                      pushFocusId === notification.id
                         ? (node) => {
                             focusRowRef.current = node;
                           }
