@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -103,6 +103,22 @@ async function expectStripAbsentAfterProbe() {
   expect(screen.queryByTestId("notification-announcement-strip")).not.toBeInTheDocument();
 }
 
+function setDocumentVisibility(state: "visible" | "hidden") {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+const hideDocument = () => setDocumentVisibility("hidden");
+const showDocument = () => setDocumentVisibility("visible");
+
+/** The strip's own polite region — the router stub also exposes a status node. */
+function stripLiveRegions() {
+  return screen.getAllByRole("status").filter((node) => node.classList.contains("sr-only"));
+}
+
 describe("NotificationAnnouncementStrip", () => {
   it("shows above enableable Push and does not request permission on load", async () => {
     const requestPermission = vi.fn().mockResolvedValue("granted");
@@ -203,6 +219,43 @@ describe("NotificationAnnouncementStrip", () => {
     expect(await screen.findByRole("region", { name: STRIP_TITLE })).toBeVisible();
   });
 
+  it("mounts the polite region empty, then updates it with the strip copy", async () => {
+    installPushEnv({ permission: "default", subscription: null });
+    renderStrip();
+
+    // Live regions announce CHANGES, not initial content: a region created with
+    // its text already in place is announced by almost no browser/screen-reader
+    // pair, so it has to exist and be empty first.
+    const liveRegion = stripLiveRegions();
+    expect(liveRegion).toHaveLength(1);
+    expect(liveRegion[0]?.textContent).toBe("");
+
+    await screen.findByRole("region", { name: STRIP_TITLE });
+    await waitFor(() => {
+      expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
+    });
+  });
+
+  it("announces once per appearance, not again on tab refocus", async () => {
+    installPushEnv({ permission: "default", subscription: null });
+    renderStrip();
+    await screen.findByRole("region", { name: STRIP_TITLE });
+    await waitFor(() => {
+      expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
+    });
+
+    // Backgrounding feeds `liveVisible`, but leaving and returning is not a new
+    // announcement — the copy must stay put rather than clear and re-speak.
+    await act(async () => {
+      hideDocument();
+    });
+    expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
+    await act(async () => {
+      showDocument();
+    });
+    expect(stripLiveRegions()[0]?.textContent).toMatch(STRIP_TITLE);
+  });
+
   it("dismisses per device and keeps Settings as the enable path", async () => {
     installPushEnv({ permission: "default", subscription: null });
     const user = userEvent.setup();
@@ -214,6 +267,8 @@ describe("NotificationAnnouncementStrip", () => {
     });
     expect(window.localStorage.getItem(NOTIFICATION_ANNOUNCEMENT_DISMISSED_KEY)).toBe("1");
     expect(posthogSdk.capture).toHaveBeenCalledWith("notification_announcement_dismissed", {});
+    // Region empties on the way out, so a later appearance is a fresh change.
+    expect(stripLiveRegions()[0]?.textContent).toBe("");
   });
 
   it("Enable is the only strip path that may request permission and then dismisses", async () => {

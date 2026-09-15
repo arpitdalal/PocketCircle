@@ -36,6 +36,7 @@ import {
 import { useAppSession } from "~/lib/session.js";
 import { useSnackbar } from "~/lib/snackbar.js";
 import { usePushNotificationsUiState } from "~/lib/use-push-notifications-ui-state.js";
+import { useValueChange } from "~/lib/use-value-change.js";
 import { cn } from "~/lib/utils.js";
 
 const TITLE = "Enable notifications on this device";
@@ -91,6 +92,7 @@ export function NotificationAnnouncementStrip({
   );
   const analyticsReady = capturePhase === "ready";
   const [submitting, setSubmitting] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
   const reportOwnsTopSafeArea = useEffectEvent((owns: boolean) => {
     onOwnsTopSafeAreaChange?.(owns);
   });
@@ -119,6 +121,35 @@ export function NotificationAnnouncementStrip({
   });
   // Genuine visibility for analytics / live region — install modal + background tabs.
   const liveVisible = visible && !installSurfaceOpen && documentVisible;
+
+  // Reset during render (ADR 0025) when the strip itself goes away, so a later
+  // appearance repopulates the region — an Effect would leave one stale spoken
+  // frame. Keyed on `visible`, not `liveVisible`: a backgrounded tab or a covering
+  // install surface must not clear and then re-speak copy already announced.
+  useValueChange(visible, (current) => {
+    if (!current) {
+      setLiveMessage("");
+    }
+  });
+
+  // Live regions announce CHANGES, not initial content: a region created with its
+  // text already in place is announced by almost no browser/screen-reader pair.
+  // So the region in the markup below stays mounted and empty, and the text lands
+  // in a later task. Mirrors the Feature Announcement card (#334).
+  // https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Guides/Live_regions
+  useEffect(() => {
+    // `liveMessage` guard makes this once-per-appearance: `liveVisible` also
+    // tracks tab focus, and refocusing is not a new announcement.
+    if (!liveVisible || liveMessage !== "") {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setLiveMessage(`${TITLE}. ${BODY}`);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [liveVisible, liveMessage]);
 
   useLayoutEffect(() => {
     if (!visible) {
@@ -207,6 +238,14 @@ export function NotificationAnnouncementStrip({
       {uiState !== null ? (
         <div hidden data-testid="notification-announcement-probe" data-state={uiState} />
       ) : null}
+      {/*
+        Mounted whether or not the strip is showing, so the text is an UPDATE to an
+        existing region — see the live-message effect above. Sits outside the
+        `visible` branch for the same reason the message is injected in a later task.
+      */}
+      <div className="sr-only" role="status">
+        {liveMessage}
+      </div>
       {visible ? (
         <section
           ref={sectionRef}
@@ -214,11 +253,6 @@ export function NotificationAnnouncementStrip({
           className="border-b border-border bg-muted/40 pt-[calc(0.75rem+var(--safe-area-top))] pr-[max(1rem,var(--safe-area-right))] pb-3 pl-[max(1rem,var(--safe-area-left))]"
           data-testid="notification-announcement-strip"
         >
-          {liveVisible ? (
-            <div className="sr-only" role="status">
-              {TITLE}. {BODY}
-            </div>
-          ) : null}
           {/*
             One-column strip: dismiss rides the title row; CTA sits under copy.
             Avoids the old flex-wrap side-by-side that stretched on desktop and
