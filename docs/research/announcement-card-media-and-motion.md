@@ -423,16 +423,11 @@ shorter than an SE, or on the SE when the mobile browser toolbar is expanded.**
 > ⚠️ **Constraint collision.** Cursor's hero + 3-highlight layout + the existing 22 rem
 > fixed card does **not** fit a small phone without an overflow strategy.
 
-> 🔧 **Correction from device testing (2026-09-15).** The first height budget subtracted
-> only the bottom nav, so the bottom-anchored card grew up **under the sticky header**
-> (header is `z-30`, card is `z-20`), hiding the top of the hero and the close button. The
-> budget must also subtract the header, which is now the `--app-header-height` token in
-> `app.css` (`4rem + 1px + safe-area-top` — 0.75 rem padding either side of a 2.5 rem
-> `size-10` control band, plus its bottom border). Real usable height on an iPhone SE in
-> Circle scope: 667 − 65 − 76 − 24 ≈ **502 px**, not ~575 px. Three highlight rows with
-> two-line bodies measured ~538 px, so the bodies were tightened to one line each
-> (≤ 35 characters at the ~300 px content width) to land near 478 px and keep the scroll
-> guard dormant in portrait.
+> 🔧 **Final product decision (2026-09-15).** Avoid coupling this transient card to
+> the sticky header's height. On short viewports the card may overlap the header and
+> paints above it (`z-[35]` versus `z-30`); its height budget reserves only the mobile
+> nav, hardware safe areas, and breathing room. This keeps the close button usable
+> without introducing a global header-height token or runtime measurement.
 
 ### Correct viewport unit + overflow strategy (primary sources)
 

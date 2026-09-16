@@ -321,16 +321,17 @@ describe("FeatureAnnouncementCard", () => {
     );
   });
 
-  it("keeps stacking below snackbars/dialogs, clears the Circle mobile nav, and caps its height", async () => {
+  it("stacks above the header, clears the Circle mobile nav, and stays in the viewport", async () => {
     renderCard({ path: "/circles/trip-abc/transactions" });
     const region = await findCard();
-    expect(region.className).toContain("z-20");
+    expect(region.className).toContain("z-[35]");
     expect(region.className).toContain("bottom-[calc(var(--mobile-bottom-nav-height)+0.75rem)]");
-    // `svh` = toolbar-shown height, and the budget must clear the sticky header
-    // (z-30) as well as the Circle nav, or the card grows up underneath it.
+    // The card may cover the sticky header on a short screen. Its height budget
+    // only reserves the Circle nav, hardware top inset, and breathing room.
     expect(region.className).toContain(
-      "max-h-[calc(100svh-var(--app-header-height)-var(--mobile-bottom-nav-height)-1.5rem)]",
+      "max-h-[calc(100svh-var(--mobile-bottom-nav-height)-0.75rem-max(0.75rem,var(--safe-area-top)))]",
     );
+    expect(region.className).not.toContain("--app-header-height");
   });
 
   it("withholds the entrance and impression while the PWA install modal covers the card", async () => {
