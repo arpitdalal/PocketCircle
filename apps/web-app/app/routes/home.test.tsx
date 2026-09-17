@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Circle, HomeSummaryCircle } from "~/lib/data.js";
 import { MOCK_CIRCLES } from "~/lib/fixtures.js";
 import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
+import { withActivationChecklist } from "~/test/activation-hosts.js";
 import {
   configureConvex,
   deferredMutationFn,
@@ -26,11 +27,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// Home's checklist card reads the shell's single subscriber (`ProtectedLayout` owns it),
+// so route tests mount the same provider rather than a second subscription.
 function renderHome() {
-  return renderWithRouter(<Home />);
+  return renderWithRouter(withActivationChecklist(<Home />));
 }
 
-const HOME_ROUTES = <Route path="/" element={<Home />} />;
+const HOME_ROUTES = <Route path="/" element={withActivationChecklist(<Home />)} />;
 
 function setupHome(initialSearch = "") {
   return renderRoutes(HOME_ROUTES, { initialEntries: [`/${initialSearch}`] });

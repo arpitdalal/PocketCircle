@@ -26,8 +26,6 @@ import {
 } from "~/test/posthog-boundary.js";
 
 afterEach(() => {
-  window.localStorage.clear();
-  window.sessionStorage.clear();
   resetNotificationAnnouncementMemory();
   resetPostHogBoundary();
   posthogSdk.capture.mockClear();

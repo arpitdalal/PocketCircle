@@ -1,4 +1,10 @@
-import { createIsolatedBrowserContext, establishE2ESession, expect, test } from "./fixtures.js";
+import {
+  accountMenuButton,
+  createIsolatedBrowserContext,
+  establishE2ESession,
+  expect,
+  test,
+} from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019) regression guard for the sign-out wiring fixed in #132/#135.
@@ -27,11 +33,11 @@ test("signing out clears the session and lands signed out", async ({ browser, ba
     await establishE2ESession(page, { baseURL: resolvedBase, email });
     await expect(page.getByRole("heading", { name: "Your circles" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Account menu" }).click();
+    await accountMenuButton(page).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
 
     await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(0);
+    await expect(accountMenuButton(page)).toHaveCount(0);
 
     // Session is truly gone, not just a client redirect: revisiting `/` stays signed out.
     await page.goto(`${resolvedBase}/`);

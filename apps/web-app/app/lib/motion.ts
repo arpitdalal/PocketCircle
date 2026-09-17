@@ -1,4 +1,5 @@
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
+import { useMediaQuery } from "./media-query.js";
 
 /** Repo easing token from `app.css` — strong ease-out for UI transitions. */
 export const EASE_OUT_QUART = "cubic-bezier(0.165, 0.84, 0.44, 1)";
@@ -17,27 +18,10 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
  * `MediaQueryList` captured at import time — null under jsdom/SSR and then
  * `.matches` throws. NumberFlow digits still honor motion via `respectMotionPreference`.
  *
- * Uses `useSyncExternalStore` so SSR and hydration start from `false` until the
- * client reads the real media query.
+ * SSR and hydration start from `false` until the client reads the real media query.
  */
 export function usePrefersReducedMotion() {
-  return useSyncExternalStore(subscribeToReducedMotion, readPrefersReducedMotion, () => false);
-}
-
-function subscribeToReducedMotion(onStoreChange: () => void) {
-  if (typeof window.matchMedia !== "function") {
-    return () => {};
-  }
-  const media = window.matchMedia(REDUCED_MOTION_QUERY);
-  media.addEventListener("change", onStoreChange);
-  return () => media.removeEventListener("change", onStoreChange);
-}
-
-function readPrefersReducedMotion() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  return useMediaQuery(REDUCED_MOTION_QUERY, false);
 }
 
 type ScopeMotionState = {

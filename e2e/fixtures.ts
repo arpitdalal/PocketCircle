@@ -5,8 +5,83 @@ import type { Browser, BrowserContext, Locator, Page, TestInfo } from "@playwrig
 import { test as base, expect } from "@playwright/test";
 
 const SM_BREAKPOINT_PX = 640;
+/** Tailwind `lg`: the desktop sidebar replaces the header and Circle tabs (issue #351). */
+const LG_BREAKPOINT_PX = 1024;
 
 export type CircleChromeTab = "Dashboard" | "Transactions" | "Search" | "Categories" | "Members";
+
+/**
+ * Shell controls the header and the desktop sidebar both mount, one painted per band
+ * (issue #351). The unpainted chrome is `display: none`, so it is out of the
+ * accessibility tree and a role query resolves to the painted instance on its own.
+ */
+function chromeButton(page: Page, name: string) {
+  return page.getByRole("button", { name, exact: true });
+}
+
+/**
+ * Which chrome CSS paints at this width — the single place the band is decided, so nav,
+ * checklist, and tab helpers can never disagree about where a control lives. A headless
+ * context always reports a viewport; the fallback only covers `viewport: null`.
+ */
+function viewportBand(page: Page) {
+  const width = page.viewportSize()?.width ?? SM_BREAKPOINT_PX;
+  if (width >= LG_BREAKPOINT_PX) {
+    return "sidebar" as const;
+  }
+  return width >= SM_BREAKPOINT_PX ? ("tabs" as const) : ("bottom" as const);
+}
+
+/** Whether this viewport paints the desktop sidebar instead of the sticky header. */
+export function isSidebarViewport(page: Page) {
+  return viewportBand(page) === "sidebar";
+}
+
+/**
+ * The Activation Checklist surface for this viewport (issue #351): the Home card below
+ * `lg`, the sidebar flyout at `lg` and above. Specs drive the same checklist flows
+ * through whichever presentation the band paints.
+ */
+export async function openActivationChecklist(page: Page) {
+  if (!isSidebarViewport(page)) {
+    const card = page.getByRole("region", { name: "Get started" });
+    await expect(card).toBeVisible();
+    return card;
+  }
+  // Settle on the trigger before branching: the launcher only mounts once the checklist
+  // query resolves, so an `isVisible()` read on the flyout right after a navigation would
+  // report "closed" while there is still nothing to click.
+  const trigger = page.getByRole("button", { name: /Get started/ });
+  await expect(trigger).toBeVisible();
+  const flyout = page.getByRole("dialog", { name: "Get started" });
+  if (!(await flyout.isVisible())) {
+    await trigger.click();
+  }
+  await expect(flyout).toBeVisible();
+  return flyout;
+}
+
+/** No checklist in either presentation — skipped, complete, or ineligible. */
+export async function expectNoActivationChecklist(page: Page) {
+  await expect(page.getByRole("button", { name: /Get started/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Get started" })).toHaveCount(0);
+}
+
+/**
+ * The Circle destinations for the current viewport band: the sidebar's Circle group at
+ * `lg` and above, the horizontal tabs from `sm`, the bottom bar below that. `exact`
+ * matters — "Circle" substring-matches "Circle tabs" and "Circle members".
+ */
+export function circleChromeNav(page: Page) {
+  switch (viewportBand(page)) {
+    case "sidebar":
+      return page.getByRole("group", { name: "Circle", exact: true });
+    case "tabs":
+      return page.getByRole("navigation", { name: "Circle tabs", exact: true });
+    default:
+      return page.getByRole("navigation", { name: "Circle", exact: true });
+  }
+}
 
 /**
  * Exact accessible-name match for create/edit primary submit.
@@ -56,11 +131,7 @@ export async function waitForScE2E(page: Page) {
 /** Circle route mounted + Better Auth session wired into the Convex client (after navigation). */
 export async function ensureCircleConvexReady(page: Page) {
   await page.waitForURL(/\/circles\/[^/]+/);
-  await expect(
-    page
-      .getByRole("navigation", { name: "Circle tabs" })
-      .or(page.getByRole("navigation", { name: "Circle" })),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(circleChromeNav(page)).toBeVisible({ timeout: 30_000 });
   await waitForScE2E(page);
 }
 
@@ -135,7 +206,16 @@ export async function finishCircleSetup(page: Page) {
 }
 
 export function circleSwitcher(page: Page) {
-  return page.getByRole("button", { name: "Circles", exact: true });
+  return chromeButton(page, "Circles");
+}
+
+/**
+ * The header trigger is avatar-only ("Account menu"); the desktop sidebar row leads
+ * with the Display Name ("Ada E2E, account menu", issue #351). Anchoring the suffix
+ * matches either without pinning the User's name.
+ */
+export function accountMenuButton(page: Page) {
+  return page.getByRole("button", { name: /account menu$/i });
 }
 
 export function homeCircleCard(page: Page, name: string | RegExp) {
@@ -257,15 +337,21 @@ export function createSecondaryBrowserContext(browser: Browser, testInfo: TestIn
   return createIsolatedBrowserContext(browser, testInfo.project.use);
 }
 
-/** Signs in a second User and accepts an invitation via the E2E-only backend helper. */
+/**
+ * Signs in a second User and accepts an invitation via the E2E-only backend helper.
+ * `testInfo` is required, not optional: the second page drives the same band-dependent
+ * chrome as the first (issue #351), and a context that skipped the project's device would
+ * silently run the desktop sidebar under the mobile project.
+ */
 export async function joinCircleViaInvitation(opts: {
   browser: Browser;
+  testInfo: TestInfo;
   baseURL: string;
   memberEmail: string;
   memberName: string;
   token: string;
 }) {
-  const context = await createIsolatedBrowserContext(opts.browser);
+  const context = await createSecondaryBrowserContext(opts.browser, opts.testInfo);
   const page = await context.newPage();
   try {
     await establishE2ESession(page, {
@@ -297,31 +383,24 @@ async function waitForCircleRouteReady(page: Page) {
 }
 
 /**
- * Circle tab navigation: desktop horizontal tabs vs mobile bottom bar + More sheet
- * (issue #124). Use instead of bare `getByRole("link", { name: … })` for Circle chrome.
+ * Circle navigation across the three bands: the desktop sidebar's Circle group (issue
+ * #351), the horizontal tabs, or the mobile bottom bar + More sheet (issue #124). Use
+ * instead of a bare `getByRole("link", { name: … })` for Circle chrome.
  */
 export async function clickCircleChromeTab(page: Page, tab: CircleChromeTab) {
-  const width = page.viewportSize()?.width ?? SM_BREAKPOINT_PX;
-  if (width >= SM_BREAKPOINT_PX) {
-    await page
-      .getByRole("navigation", { name: "Circle tabs" })
-      .getByRole("link", { name: tab, exact: true })
-      .click();
+  if (viewportBand(page) !== "bottom") {
+    // Sidebar and tabs both expose every destination as a link, so one query serves
+    // both wide bands.
+    await circleChromeNav(page).getByRole("link", { name: tab, exact: true }).click();
     await waitForCircleRouteReady(page);
     return;
   }
   if (tab === "Dashboard" || tab === "Transactions" || tab === "Search") {
-    await page
-      .getByRole("navigation", { name: "Circle" })
-      .getByRole("link", { name: tab, exact: true })
-      .click();
+    await circleChromeNav(page).getByRole("link", { name: tab, exact: true }).click();
     await waitForCircleRouteReady(page);
     return;
   }
-  await page
-    .getByRole("navigation", { name: "Circle" })
-    .getByRole("button", { name: "More" })
-    .click();
+  await circleChromeNav(page).getByRole("button", { name: "More" }).click();
   await page
     .getByRole("dialog", { name: "More" })
     .getByRole("link", { name: tab, exact: true })

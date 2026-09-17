@@ -2,6 +2,7 @@ import { colorLabel } from "@pocketcircle/domain";
 import { useEffect, useId, useRef, useState } from "react";
 import { href, Link } from "react-router";
 import { CircleMark } from "~/components/circle-mark.js";
+import { type AppChrome, useCloseWhenChromeHidden } from "~/lib/app-chrome.js";
 import { type Circle, partitionCirclesByStatus, useMyCircles } from "~/lib/data.js";
 import { cn } from "~/lib/utils.js";
 
@@ -20,10 +21,19 @@ import { cn } from "~/lib/utils.js";
  * the panel is a labelled menu of links, Escape closes and returns focus to the
  * trigger, and an outside click closes it. Selecting an item navigates (a real
  * Link) and closes the menu.
+ *
+ * `className` styles the TRIGGER only — the desktop sidebar (issue #351) passes a
+ * full-width treatment; the sticky header keeps the intrinsic width.
+ *
+ * Both chromes mount an instance and CSS paints one, so `chrome` says which this is:
+ * a resize across `lg` with the menu open would otherwise leave it open against a
+ * `display: none` trigger, and re-appear open when the User comes back.
  */
-export function CircleSwitcher() {
+export function CircleSwitcher({ chrome, className }: { chrome: AppChrome; className?: string }) {
   const circles = useMyCircles();
   const [open, setOpen] = useState(false);
+
+  useCloseWhenChromeHidden(chrome, () => setOpen(false));
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -69,7 +79,10 @@ export function CircleSwitcher() {
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground transition-colors duration-150 hover:border-ring/60 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className={cn(
+          "flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground transition-colors duration-150 hover:border-ring/60 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          className,
+        )}
       >
         Circles
         <span

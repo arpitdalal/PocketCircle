@@ -46,9 +46,15 @@ const series = CASH_FLOW_TREND_TEST_SERIES;
 const media = createMatchMediaFakeController();
 
 async function awaitChartReady(container: HTMLElement) {
-  await waitFor(() => {
-    expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
-  });
+  // This waits on a real dynamic import of Recharts, not on our state settling, so it
+  // needs more than waitFor's 1s default: on a machine running the whole suite in
+  // parallel the chunk alone can outlast it.
+  await waitFor(
+    () => {
+      expect(container.querySelector(".recharts-responsive-container")).toBeInTheDocument();
+    },
+    { timeout: 10_000 },
+  );
 }
 
 describe("CashFlowTrend", () => {

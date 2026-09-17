@@ -1,10 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AccountMenu } from "~/components/account-menu.js";
-import { PwaInstallHeaderButton } from "~/components/pwa-install.js";
-import { configureConvex, renderRoutes } from "~/test/convex-react.js";
+import type { AppChrome } from "~/lib/app-chrome.js";
+import { accountMenuItemLabels, openAccountMenu, renderAccountMenu } from "~/test/account-menu.js";
+import { configureConvex } from "~/test/convex-react.js";
 import {
   clearPwaInstallPromptDismissal,
   dispatchAppInstalled,
@@ -25,21 +24,6 @@ vi.mock("better-auth/react", () => ({
   createAuthClient: () => ({ signOut: signOutMock }),
 }));
 
-const user = {
-  id: "u1",
-  email: "alex@example.com",
-  displayName: "Alex Tester",
-  image: undefined,
-  onboardingComplete: true,
-  analyticsEnabled: false,
-  createdAt: 1,
-  acknowledgedFeatureAnnouncementIds: [],
-};
-
-async function openAccountMenu(u: UserEvent) {
-  await u.click(screen.getByRole("button", { name: "Account menu" }));
-}
-
 /** Soft promo blocks the shell until dismissed — clear it before menu assertions. */
 async function dismissInstallPromo(u: UserEvent) {
   const dialog = await screen.findByRole("dialog", { name: "Install PocketCircle" });
@@ -49,19 +33,10 @@ async function dismissInstallPromo(u: UserEvent) {
   });
 }
 
-function renderInstallChrome() {
-  return renderRoutes(
-    <Route
-      path="/"
-      element={
-        <>
-          <PwaInstallHeaderButton />
-          <AccountMenu user={user} showSignOut />
-        </>
-      }
-    />,
-    { initialEntries: ["/"] },
-  );
+function renderInstallChrome(chrome: AppChrome = "header") {
+  // The header shortcut only exists in the header chrome (issue #351): at `lg` and above
+  // the sidebar drops it and the account menu is the whole install affordance.
+  return renderAccountMenu({ chrome, installShortcut: chrome === "header" });
 }
 
 beforeEach(() => {
@@ -186,10 +161,10 @@ describe("PWA install via AccountMenu", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Install PocketCircle" }),
     ).not.toBeInTheDocument();
-    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
+    expect(await accountMenuItemLabels()).toEqual([
       "Settings",
       "ConnectionsNew",
-      "What's new",
+      "What's new, opens in a new tab",
       "Send feedback",
       "Sign out",
     ]);
@@ -281,14 +256,29 @@ describe("PWA install via AccountMenu", () => {
     await dismissInstallPromo(u);
 
     await openAccountMenu(u);
-    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
+    expect(await accountMenuItemLabels()).toEqual([
       "Settings",
       "ConnectionsNew",
-      "What's new",
+      "What's new, opens in a new tab",
       "Install PocketCircle",
       "Send feedback",
       "Sign out",
     ]);
+  });
+
+  // The sidebar deliberately ships no install shortcut of its own, so this item is the
+  // only way to install at desktop widths — the deviation issue #351 records rests on it.
+  it("offers Install from the sidebar account menu, where no header shortcut exists", async () => {
+    const u = userEvent.setup();
+    renderInstallChrome("sidebar");
+    dispatchBeforeInstallPrompt();
+    await dismissInstallPromo(u);
+
+    expect(screen.queryByRole("button", { name: /^Install/ })).not.toBeInTheDocument();
+    await openAccountMenu(u);
+    expect(
+      await screen.findByRole("menuitem", { name: "Install PocketCircle" }),
+    ).toBeInTheDocument();
   });
 
   it("shows the item on iPhone browser mode and opens install instructions", async () => {

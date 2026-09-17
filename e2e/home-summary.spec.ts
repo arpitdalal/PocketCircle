@@ -12,6 +12,7 @@ import {
   homeCircleCard,
   inlineCreateFormCategory,
   inviteMemberByEmail,
+  openActivationChecklist,
   pickFormCategory,
   returnFromTransactionDetail,
   saveButton,
@@ -110,8 +111,9 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
 
   try {
     await openHome(page);
-    const checklist = page.getByRole("region", { name: "Get started" });
-    await expect(checklist).toBeVisible();
+    // Reopened at each step: the desktop presentation is a flyout that closes when a
+    // checklist action navigates (issue #351), while the narrow card just stays put.
+    const checklist = await openActivationChecklist(page);
     await expect(checklist.getByText("0 of 4 complete")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Cash flow" })).toBeVisible();
 
@@ -125,23 +127,20 @@ test("Home Summary reports attributed cash flow by Currency and keeps Circle nav
     await finishCircleSetup(page);
 
     await openHome(page);
-    await expect(checklist.getByText("1 of 4 complete")).toBeVisible();
-    await expect(checklist.getByRole("button", { name: "New category" })).toBeVisible();
+    const afterSharedCircle = await openActivationChecklist(page);
+    await expect(afterSharedCircle.getByText("1 of 4 complete")).toBeVisible();
+    await expect(afterSharedCircle.getByRole("button", { name: "New category" })).toBeVisible();
 
-    await checklist.getByRole("button", { name: "New category" }).click();
+    await afterSharedCircle.getByRole("button", { name: "New category" }).click();
     await pickChecklistCircle(page, sharedName);
     const categoryForm = page.getByRole("form", { name: "New category" });
     await categoryForm.getByLabel(/New expense category/).fill(categoryName);
     await saveButton(categoryForm).click();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("region", { name: "Get started" }).getByText("2 of 4 complete"),
-    ).toBeVisible();
+    const afterCategory = await openActivationChecklist(page);
+    await expect(afterCategory.getByText("2 of 4 complete")).toBeVisible();
 
-    await page
-      .getByRole("region", { name: "Get started" })
-      .getByRole("link", { name: "Add expense" })
-      .click();
+    await afterCategory.getByRole("link", { name: "Add expense" }).click();
     await expect(page.getByRole("heading", { name: "Add transaction" })).toBeVisible();
     await selectGlobalAddCircle(page, sharedName);
     await addExpenseOnCurrentForm(page, {

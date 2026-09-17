@@ -14,7 +14,7 @@ export { makeAccountDeletionBlocker } from "./convex/account-deletion.js";
 export { makeActivationChecklistView, makeEligibleCircle } from "./convex/activation.js";
 export { makeCategoryDetailView, makeCategoryView } from "./convex/categories.js";
 export { makeCircleView } from "./convex/circles.js";
-export type { ConvexState } from "./convex/core.js";
+export type { ConvexState, OptimisticLocalStore } from "./convex/core.js";
 export { configureConvex, convexHelpersReactMock, convexReactMock } from "./convex/core.js";
 export { makeHistoryEventView } from "./convex/history.js";
 export { makeHomeSummaryRecent, makeHomeSummaryView } from "./convex/home-summary.js";

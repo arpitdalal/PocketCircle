@@ -112,12 +112,53 @@ export const convexHelpersReactMock = {
   usePaginatedQuery: convexReactMock.usePaginatedQuery,
 };
 
+/**
+ * The subset of Convex's optimistic `localStore` the doubles implement — the two
+ * methods `withOptimisticUpdate` callbacks use. Exported so a test can type its
+ * callback without leaning on the mock's `any`.
+ */
+export interface OptimisticLocalStore {
+  getQuery: (query: FunctionReference<"query">, args: Record<string, unknown>) => unknown;
+  setQuery: (
+    query: FunctionReference<"query">,
+    args: Record<string, unknown>,
+    value: unknown,
+  ) => void;
+}
+
+type OptimisticUpdate = (localStore: OptimisticLocalStore, args: unknown) => void;
+
 /** Configures what each doubled Convex subscription/mutation returns for one test.
  * Call before rendering so the first render reads the intended state. */
 export function configureConvex(state: ConvexState = {}) {
   const merged = mergeEntityDoubles(state);
   const noop = vi.fn();
-  const queryOverrides = new Map<string, unknown>();
+  /**
+   * Optimistic writes, mirroring the Convex client's layering: every in-flight mutation
+   * owns its own layer, and reads resolve newest-layer-first over the entity doubles.
+   * A mutation may only ever add or drop ITS layer, so a rollback cannot discard a
+   * concurrent mutation's optimistic state.
+   *
+   * ponytail: a settled layer is folded into `settledWrites` and kept, rather than
+   * dropped the way Convex drops it once the server result arrives. Ceiling: an
+   * optimistic value can shadow a double that models the same write differently.
+   * Upgrade path — make the mutation doubles apply their own writes to entity state,
+   * then delete `settledWrites` and let the fold become a plain drop.
+   */
+  const pendingWrites: Array<Map<string, unknown>> = [];
+  const settledWrites = new Map<string, unknown>();
+  const readWrite = (key: string) => {
+    for (let i = pendingWrites.length - 1; i >= 0; i -= 1) {
+      const layer = pendingWrites[i];
+      if (layer?.has(key)) {
+        return { found: true, value: layer.get(key) };
+      }
+    }
+    if (settledWrites.has(key)) {
+      return { found: true, value: settledWrites.get(key) };
+    }
+    return { found: false, value: undefined };
+  };
   let queryEpoch = 0;
   const queryListeners = new Set<() => void>();
   const bumpQueries = () => {
@@ -131,8 +172,9 @@ export function configureConvex(state: ConvexState = {}) {
 
   const readQuery = (name: string, args: Record<string, unknown>) => {
     const key = queryCacheKey(name, args);
-    if (queryOverrides.has(key)) {
-      return queryOverrides.get(key);
+    const optimistic = readWrite(key);
+    if (optimistic.found) {
+      return optimistic.value;
     }
     const handler = merged.queries[name];
     if (!handler) return undefined;
@@ -225,57 +267,77 @@ export function configureConvex(state: ConvexState = {}) {
     },
   );
 
+  /** The `localStore` Convex hands an optimistic update, bound to one mutation's layer. */
+  const localStoreFor = (layer: Map<string, unknown>) => ({
+    getQuery(query: FunctionReference<"query">, queryArgs: Record<string, unknown>) {
+      return readQuery(getFunctionName(query), queryArgs);
+    },
+    setQuery(
+      query: FunctionReference<"query">,
+      queryArgs: Record<string, unknown>,
+      value: unknown,
+    ) {
+      layer.set(queryCacheKey(getFunctionName(query), queryArgs), value);
+      bumpQueries();
+    },
+  });
+
+  function buildMutation(name: string, optimisticUpdate: OptimisticUpdate | undefined) {
+    const run = async (args: unknown) => {
+      const m = merged.mutations[name] ?? noop;
+      const layer = new Map<string, unknown>();
+      if (optimisticUpdate) {
+        pendingWrites.push(layer);
+        optimisticUpdate(localStoreFor(layer), args);
+      }
+      const dropLayer = () => {
+        const index = pendingWrites.indexOf(layer);
+        if (index !== -1) {
+          pendingWrites.splice(index, 1);
+        }
+      };
+      try {
+        const result = await m(args);
+        // The write landed, so this layer stops being a guess: fold it in and stop
+        // shadowing later mutations' layers with it.
+        for (const [key, value] of layer) {
+          settledWrites.set(key, value);
+        }
+        dropLayer();
+        // Convex re-runs affected queries once a mutation lands and pushes any changed
+        // result, so subscribers update even when the component that called the mutation
+        // is not the one subscribed. Without this, a state-changing double
+        // (`activation: () => dismissed ? … : …`) would only appear to change if the
+        // caller happened to re-render — a property of the test, not of the app.
+        bumpQueries();
+        return result;
+      } catch (error) {
+        // Rollback drops only this mutation's guesses (mirrors Convex): queries fall back
+        // to the entity doubles, and any concurrent mutation's layer is left alone.
+        dropLayer();
+        bumpQueries();
+        throw error;
+      }
+    };
+    return Object.assign(run, {
+      withOptimisticUpdate: (update: OptimisticUpdate) => buildMutation(name, update),
+    });
+  }
+
+  // Convex's `useMutation` is memoized per function reference, so the function it
+  // returns is referentially stable across renders. Components depend on that: an
+  // effect listing the mutation in its deps (e.g. the activation checklist's
+  // self-initialize) would otherwise re-run on every render and re-fire the mutation.
+  const mutationCache = new Map<string, ReturnType<typeof buildMutation>>();
+
   convexReactMock.useMutation.mockImplementation((fn: FunctionReference<"mutation">) => {
     const name = getFunctionName(fn);
-    const m = merged.mutations[name] ?? noop;
-    let optimisticUpdate:
-      | ((
-          localStore: {
-            getQuery: (query: FunctionReference<"query">, args: Record<string, unknown>) => unknown;
-            setQuery: (
-              query: FunctionReference<"query">,
-              args: Record<string, unknown>,
-              value: unknown,
-            ) => void;
-          },
-          args: unknown,
-        ) => void)
-      | undefined;
-
-    const localStore = {
-      getQuery(query: FunctionReference<"query">, queryArgs: Record<string, unknown>) {
-        return readQuery(getFunctionName(query), queryArgs);
-      },
-      setQuery(
-        query: FunctionReference<"query">,
-        queryArgs: Record<string, unknown>,
-        value: unknown,
-      ) {
-        queryOverrides.set(queryCacheKey(getFunctionName(query), queryArgs), value);
-        bumpQueries();
-      },
-    };
-
-    const mutation = Object.assign(
-      async (args: unknown) => {
-        optimisticUpdate?.(localStore, args);
-        try {
-          return await m(args);
-        } catch (error) {
-          // Roll back optimistic overrides for this mutation's queries by clearing
-          // overrides and re-reading entity doubles (mirrors Convex rollback).
-          queryOverrides.clear();
-          bumpQueries();
-          throw error;
-        }
-      },
-      {
-        withOptimisticUpdate(update: NonNullable<typeof optimisticUpdate>) {
-          optimisticUpdate = update;
-          return mutation;
-        },
-      },
-    );
+    const cached = mutationCache.get(name);
+    if (cached) {
+      return cached;
+    }
+    const mutation = buildMutation(name, undefined);
+    mutationCache.set(name, mutation);
     return mutation;
   });
 }

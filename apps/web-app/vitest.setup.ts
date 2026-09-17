@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { server } from "@pocketcircle/mocks/server";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
+import { clearUnpersistedDeviceLocal } from "./app/lib/device-local-store.js";
 
 // jsdom ships no ResizeObserver; Recharts' ResponsiveContainer (the Dashboard
 // chart — RPT-4) requires one to mount. A no-op satisfies it: jsdom boxes have no
@@ -116,5 +117,11 @@ beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  // Web Storage is document-scoped and survives `cleanup()`, so it is reset here rather
+  // than re-declared per suite. Device-local values also keep a module-level mirror for
+  // writes `localStorage` refused; clearing storage alone would leave it behind.
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  clearUnpersistedDeviceLocal();
 });
 afterAll(() => server.close());
