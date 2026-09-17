@@ -4,8 +4,21 @@ import { cn } from "~/lib/utils.js";
 export const MAIN_CONTENT_ID = "main-content";
 
 /**
- * First tab stop in the authenticated shell (WCAG 2.4.1 Bypass Blocks).
- * Hidden until focused; moves keyboard focus past the sticky header into `<main>`.
+ * Moves keyboard focus into `<main>`, reporting whether the landmark was there. Used by
+ * the skip link and by chrome that destroys the element the User was focused on (a
+ * checklist skip removes the flyout together with its trigger, so there is no trigger
+ * left to restore focus to).
+ */
+export function focusMainContent() {
+  const target = document.getElementById(MAIN_CONTENT_ID);
+  target?.focus();
+  return target != null;
+}
+
+/**
+ * First tab stop in the authenticated shell (WCAG 2.4.1 Bypass Blocks). Hidden until
+ * focused; moves keyboard focus past whichever chrome the viewport paints — the sticky
+ * header or the desktop sidebar — into `<main>`.
  */
 export function SkipNavigation() {
   return (
@@ -19,12 +32,9 @@ export function SkipNavigation() {
       )}
       onClick={(event) => {
         // Fragment focus is inconsistent across browsers; focus the landmark explicitly.
-        const target = document.getElementById(MAIN_CONTENT_ID);
-        if (target == null) {
-          return;
+        if (focusMainContent()) {
+          event.preventDefault();
         }
-        event.preventDefault();
-        target.focus();
       }}
     >
       Skip to main content

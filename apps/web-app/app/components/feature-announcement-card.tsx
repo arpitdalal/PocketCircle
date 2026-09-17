@@ -164,7 +164,9 @@ function FeatureAnnouncementCardBody({ user }: { user: SessionUser }) {
             // with the viewport past ~1000px, capped at 32rem. One clamp instead
             // of a breakpoint ladder — the hero follows via `aspect-video w-full`.
             "w-[clamp(min(22rem,100vw-1.5rem),35vw,32rem)]",
-            "animate-slide-up left-[max(0.75rem,var(--safe-area-left,0px))]",
+            // Clears the fixed desktop sidebar (issue #351) instead of covering its
+            // footer controls; below `lg` there is no sidebar to clear.
+            "animate-slide-up left-[max(0.75rem,var(--safe-area-left,0px))] lg:left-[calc(var(--sidebar-width)+max(0.75rem,var(--safe-area-left,0px)))]",
             // `svh` (toolbar-shown height) keeps the card inside the visible
             // viewport. It may cover the sticky header on short screens, while
             // still clearing the Circle nav, safe area, and a 0.75rem top gap.

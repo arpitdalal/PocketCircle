@@ -7,6 +7,12 @@ import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import { Segmented } from "~/components/ui/segmented.js";
 import {
+  type AppChrome,
+  chromeMenuPlacement,
+  useCloseWhenChromeHidden,
+  useIsActiveChrome,
+} from "~/lib/app-chrome.js";
+import {
   type Notification,
   useMarkAllRead,
   useMarkNotificationRead,
@@ -101,20 +107,29 @@ function NotificationRow({
  * filter, infinite-scroll tray, and mark-all-read of the click-time unread set.
  * Push clicks (#384) open All and scroll to the matching row when resolution
  * falls back to the tray.
+ *
+ * `chrome` names which app-shell chrome hosts this instance (issue #351). The sticky
+ * header and the desktop sidebar each mount one and CSS hides the other, so only the
+ * PAINTED instance may auto-open on a Push-focus request — the tray is portaled to
+ * `document.body`, and a hidden instance opening it would paint an unanchored second
+ * tray. A user's own click is unaffected: a hidden trigger cannot be clicked.
  */
-export function NotificationCenter() {
+export function NotificationCenter({ chrome }: { chrome: AppChrome }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>("unread");
   const listRef = useRef<HTMLUListElement>(null);
   const focusRowRef = useRef<HTMLLIElement | null>(null);
   const pushFocusId = useNotificationCenterFocusId();
+  const honorsPushFocus = useIsActiveChrome(chrome);
 
   useValueChange(pushFocusId, (current) => {
-    if (current) {
+    if (current && honorsPushFocus) {
       setFilter("all");
       setMenuOpen(true);
     }
   });
+
+  useCloseWhenChromeHidden(chrome, () => setMenuOpen(false));
 
   const unreadOnly = filter === "unread";
   const { notifications, status, loadMore } = useNotifications(unreadOnly, menuOpen);
@@ -125,6 +140,7 @@ export function NotificationCenter() {
 
   const unreadCount = unread?.count ?? 0;
   const showBadge = unreadCount > 0 || unread?.hasMore;
+  const unreadLabel = showBadge ? badgeLabel(unreadCount, unread?.hasMore ?? false) : null;
   const showMarkAllRead = unreadCount > 0 || unread?.hasMore === true;
   const showEmpty = status !== "LoadingFirstPage" && notifications.length === 0;
 
@@ -178,7 +194,9 @@ export function NotificationCenter() {
   return (
     <Menu.Root modal={false} open={menuOpen} onOpenChange={handleMenuOpenChange}>
       <Menu.Trigger
-        aria-label="Notifications"
+        // The count rides the name so it is available the moment the bell takes focus,
+        // not only when the live region below happens to fire.
+        aria-label={unreadLabel ? `Notifications, ${unreadLabel}` : "Notifications"}
         className={cn(
           buttonVariants({ variant: "ghost", size: "icon-xs" }),
           "relative size-10 shrink-0 rounded-full focus-visible:ring-offset-background",
@@ -187,19 +205,27 @@ export function NotificationCenter() {
         <Bell aria-hidden className="size-5" />
         {showBadge ? (
           <span
-            className="absolute -top-0.5 -right-0.5 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-5 text-primary-foreground"
-            aria-live="polite"
+            aria-hidden
+            className="pointer-events-none absolute -top-0.5 -right-0.5 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-5 text-primary-foreground"
           >
-            <span className="sr-only">{badgeLabel(unreadCount, unread?.hasMore ?? false)}</span>
-            <span aria-hidden>{unread?.hasMore ? "99+" : unreadCount}</span>
+            {unread?.hasMore ? "99+" : unreadCount}
           </span>
         ) : null}
       </Menu.Trigger>
+      {/* Outside the trigger, deliberately: `button` is "children presentational", so a
+          region nested inside one has no accessible object and can never announce
+          (WAI-ARIA 1.2 §7.1). Mounted at zero unread as well — a region inserted together
+          with its first text announces nothing — and atomic so 1 → 2 reads the whole
+          phrase instead of just "2". CSS hides the unpainted chrome, so only the visible
+          instance's region is live. */}
+      <span aria-live="polite" aria-atomic="true" className="sr-only">
+        {unreadLabel}
+      </span>
       <Menu.Portal>
-        <Menu.Positioner side="bottom" align="end" sideOffset={6} className="z-50">
+        <Menu.Positioner {...chromeMenuPlacement(chrome, "start")} sideOffset={6} className="z-50">
           <Menu.Popup
             className={cn(
-              "flex max-h-[min(24rem,70dvh)] w-[min(22rem,calc(100vw-2rem))] origin-(--transform-origin) animate-pop-in flex-col rounded-lg border border-border bg-popover text-popover-foreground shadow-xl outline-none",
+              "flex max-h-[min(24rem,var(--available-height,70dvh))] w-88 max-w-(--available-width) origin-(--transform-origin) animate-pop-in flex-col rounded-lg border border-border bg-popover text-popover-foreground shadow-xl outline-none",
             )}
           >
             <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">

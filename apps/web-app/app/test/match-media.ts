@@ -94,8 +94,12 @@ export function createMatchMediaFakeController() {
   });
   return {
     reducedMotion(prefersReducedMotion: boolean) {
+      return this.queries({ "(prefers-reduced-motion: reduce)": prefersReducedMotion });
+    },
+    /** Arbitrary query map, e.g. the breakpoint that swaps header chrome for sidebar. */
+    queries(initial: Record<string, boolean>) {
       media?.restore();
-      media = installReducedMotionPreference(prefersReducedMotion);
+      media = installMatchMediaFake(initial);
       return media;
     },
   };

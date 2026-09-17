@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { simulateCrossTabLastUsedGoogleEmailClear } from "~/test/last-used-google-email.js";
 import {
   clearLastUsedGoogleEmail,
@@ -9,14 +9,6 @@ import {
   setLastUsedGoogleEmail,
   subscribeLastUsedGoogleEmail,
 } from "./last-used-google-email.js";
-
-beforeEach(() => {
-  window.localStorage.clear();
-});
-
-afterEach(() => {
-  window.localStorage.clear();
-});
 
 describe("maskGoogleAccountEmail", () => {
   it.each([
@@ -50,10 +42,18 @@ describe("last-used Google email storage", () => {
     expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
   });
 
-  it("clears corrupt storage on read", () => {
+  // The read backs a `useSyncExternalStore` snapshot, so it stays pure: a corrupt value
+  // reads as "no hint" and is left alone rather than evicted from render (which would
+  // also wake every other tab in the origin). The next sign-in overwrites it.
+  it("reads corrupt storage as no hint without mutating it", () => {
     window.localStorage.setItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY, "bad-value");
+
     expect(getLastUsedGoogleEmail()).toBeNull();
-    expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBeNull();
+    expect(getMaskedLastUsedGoogleEmail()).toBeNull();
+    expect(window.localStorage.getItem(LAST_USED_GOOGLE_EMAIL_STORAGE_KEY)).toBe("bad-value");
+
+    setLastUsedGoogleEmail("alice@gmail.com");
+    expect(getLastUsedGoogleEmail()).toBe("alice@gmail.com");
   });
 });
 

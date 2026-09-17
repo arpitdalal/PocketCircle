@@ -244,6 +244,25 @@ function chromeRoutes() {
   ]);
 }
 
+describe("CircleLayout responsive Circle navigation", () => {
+  // Three bands own these destinations (issue #351): the mobile bottom bar below `sm`,
+  // these horizontal tabs from `sm` to `lg - 1`, and the desktop sidebar at `lg` and
+  // above. Visibility is CSS-only, so the classes ARE the contract under test.
+  it("scopes the horizontal tabs to the tablet band and keeps the mobile bottom bar", async () => {
+    configureConvex({ circle: makeCircleView() });
+    renderRouteStub(chromeRoutes(), ["/circles/trip-c1"]);
+
+    await screen.findByText("Dashboard stub");
+
+    const tabsNav = screen.getByRole("navigation", { name: "Circle tabs" });
+    expect(tabsNav.className).toContain("hidden");
+    expect(tabsNav.className).toContain("sm:flex");
+    expect(tabsNav.className).toContain("lg:hidden");
+    // The mobile bar is untouched by the sidebar work.
+    expect(screen.getByRole("navigation", { name: "Circle" })).toBeInTheDocument();
+  });
+});
+
 describe("CircleLayout chrome Feedback", () => {
   it("renders Feedback for an Owner and keeps Settings owner-only", async () => {
     configureConvex({

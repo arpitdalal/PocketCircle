@@ -38,8 +38,6 @@ const STRIP_TITLE = /Enable notifications on this device/i;
 const FEATURE_ANNOUNCEMENT_TITLE = /Connect PocketCircle to your AI assistant/i;
 
 beforeEach(async () => {
-  window.localStorage.clear();
-  window.sessionStorage.clear();
   resetNotificationAnnouncementMemory();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();
@@ -53,8 +51,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  window.localStorage.clear();
-  window.sessionStorage.clear();
   resetNotificationAnnouncementMemory();
   clearPwaInstallPromptDismissal();
   resetNavigatorInstallProps();

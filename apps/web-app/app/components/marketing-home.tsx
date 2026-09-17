@@ -1,6 +1,7 @@
 import { colorHex } from "@pocketcircle/domain";
 import { History, Sparkles, Tags, Users, Wallet } from "lucide-react";
 import { Link } from "react-router";
+import { BrandMark } from "~/components/brand-mark.js";
 import { CircleMark } from "~/components/circle-mark.js";
 import { GoogleSignInPanel } from "~/components/google-sign-in-panel.js";
 import { cn } from "~/lib/utils.js";
@@ -319,17 +320,6 @@ function LedgerPreview() {
         </span>
       </div>
     </div>
-  );
-}
-
-function BrandMark() {
-  return (
-    <span
-      aria-hidden
-      className="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
-    >
-      <span className="size-2.5 rounded-full bg-primary" />
-    </span>
   );
 }
 

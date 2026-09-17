@@ -4,6 +4,7 @@ import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Circle } from "~/lib/data.js";
 import { RETURN_TO_PARAM } from "~/lib/return-to-url.js";
+import { withActivationChecklist } from "~/test/activation-hosts.js";
 import {
   configureConvex,
   makeActivationChecklistView,
@@ -34,7 +35,7 @@ afterEach(() => {
 });
 
 function renderChecklist() {
-  return renderWithRouter(<ActivationChecklist />);
+  return renderWithRouter(withActivationChecklist(<ActivationChecklist />));
 }
 
 describe("ActivationChecklist visibility", () => {
@@ -120,9 +121,12 @@ describe("ActivationChecklist items", () => {
     configureConvex({
       activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
-    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
-      initialEntries: ["/?currency=CAD&range=3"],
-    });
+    const view = renderRoutes(
+      <Route path="/" element={withActivationChecklist(<ActivationChecklist />)} />,
+      {
+        initialEntries: ["/?currency=CAD&range=3"],
+      },
+    );
 
     const expense = new URL(
       screen.getByRole("link", { name: "Add expense" }).getAttribute("href") ?? "",
@@ -331,9 +335,12 @@ describe("ActivationChecklist circle picker", () => {
       activation: makeActivationChecklistView({ eligibleCircles: eligible }),
     });
     const user = userEvent.setup();
-    const view = renderRoutes(<Route path="/" element={<ActivationChecklist />} />, {
-      initialEntries: ["/?currency=EUR"],
-    });
+    const view = renderRoutes(
+      <Route path="/" element={withActivationChecklist(<ActivationChecklist />)} />,
+      {
+        initialEntries: ["/?currency=EUR"],
+      },
+    );
 
     await user.click(screen.getByRole("button", { name: "New category" }));
     expect(

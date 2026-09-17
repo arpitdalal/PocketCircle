@@ -1,10 +1,15 @@
 import { screen, waitFor } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
+import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AccountMenu } from "~/components/account-menu.js";
 import { withReturnTo } from "~/lib/return-to-url.js";
-import { configureConvex, renderRoutes } from "~/test/convex-react.js";
+import {
+  accountMenuItemLabels,
+  accountMenuTestUser,
+  openAccountMenu,
+  renderAccountMenu,
+} from "~/test/account-menu.js";
+import { configureConvex } from "~/test/convex-react.js";
 import { installPushEnv, makeFakePushSubscription, resetPushEnv } from "~/test/push-env.js";
 
 vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).convexReactMock);
@@ -32,27 +37,12 @@ beforeEach(() => {
   signOutMock.mockResolvedValue({ data: { success: true }, error: null });
 });
 
-async function openAccountMenu(u: UserEvent) {
-  await u.click(screen.getByRole("button", { name: "Account menu" }));
-}
-
 describe("AccountMenu", () => {
-  const user = {
-    id: "u1",
-    email: "alex@example.com",
-    displayName: "Alex Tester",
-    image: undefined,
-    onboardingComplete: true,
-    analyticsEnabled: false,
-    createdAt: 1,
-    acknowledgedFeatureAnnouncementIds: [],
-  };
+  const user = accountMenuTestUser;
 
   it("renders exactly one New badge on Connections while that item owns the slot", async () => {
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     const connections = await screen.findByRole("menuitem", { name: /Connections/ });
     expect(connections.textContent?.replace(/\s+/g, " ").trim()).toBe("ConnectionsNew");
@@ -60,58 +50,90 @@ describe("AccountMenu", () => {
     expect(connections.querySelector('[data-account-menu-new="true"]')).not.toBeNull();
   });
 
+  // The desktop sidebar footer (issue #351) hosts this control at the bottom-left, so
+  // the menu goes out to the side instead of hanging below a header bar.
+  it.each([
+    { chrome: "header" as const, side: "bottom" },
+    { chrome: "sidebar" as const, side: "right" },
+  ])("opens the $chrome menu on its $side side", async ({ chrome, side }) => {
+    const u = userEvent.setup();
+    renderAccountMenu({ chrome });
+    await openAccountMenu(u);
+
+    const menu = await screen.findByRole("menu");
+    await waitFor(() => {
+      expect(menu.closest("[data-side]")).toHaveAttribute("data-side", side);
+    });
+  });
+
+  // Sidebar rows are wide enough to name the User (issue #351), so the desktop trigger
+  // reads as a list item rather than a bare avatar. The email belongs to the menu.
+  it("names the User on the sidebar trigger and keeps the email in the menu", async () => {
+    const u = userEvent.setup();
+    renderAccountMenu({ chrome: "sidebar" });
+
+    const trigger = screen.getByRole("button", { name: "Alex Tester, account menu" });
+    expect(trigger).toHaveTextContent("Alex Tester");
+    expect(screen.queryByText(user.email)).not.toBeInTheDocument();
+
+    await openAccountMenu(u);
+    expect(await screen.findByText(user.email)).toBeInTheDocument();
+  });
+
+  it("keeps the header trigger avatar-only", () => {
+    renderAccountMenu();
+
+    // Only the Avatar's decorative initials — the narrow bar has no room for identity.
+    const trigger = screen.getByRole("button", { name: "Account menu" });
+    expect(trigger).not.toHaveTextContent("Alex Tester");
+    expect(screen.queryByText(user.email)).not.toBeInTheDocument();
+  });
+
   it("opens the menu and navigates to Settings", async () => {
     const u = userEvent.setup();
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
-        <Route path="/settings" element={<div>settings-screen</div>} />
-      </>,
-      { initialEntries: ["/"] },
-    );
+    const view = renderAccountMenu({
+      routes: <Route path="/settings" element={<div>settings-screen</div>} />,
+    });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Settings" }));
     expect(view.location()).toBe("/settings");
     expect(await screen.findByText("settings-screen")).toBeInTheDocument();
   });
 
-  it("navigates What's new to /whats-new", async () => {
+  // Issue #351: the archive opens beside the app so closing it returns the User to the
+  // page they were on — the same contract as the desktop sidebar's footer link.
+  it("opens What's new in a new tab with safe link attributes and a spoken cue", async () => {
     const u = userEvent.setup();
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
-        <Route path="/whats-new" element={<div>whats-new-screen</div>} />
-      </>,
-      { initialEntries: ["/"] },
-    );
+    renderAccountMenu();
     await openAccountMenu(u);
-    await u.click(await screen.findByRole("menuitem", { name: "What's new" }));
-    expect(view.location()).toBe("/whats-new");
-    expect(await screen.findByText("whats-new-screen")).toBeInTheDocument();
+
+    const whatsNew = await screen.findByRole("menuitem", { name: /What's new/ });
+    expect(whatsNew).toHaveAttribute("href", "/whats-new");
+    expect(whatsNew).toHaveAttribute("target", "_blank");
+    expect(whatsNew).toHaveAttribute("rel", "noopener noreferrer");
+    // Whitespace-tolerant: accessible-name computation joins sibling text with a space in
+    // real engines and without one in jsdom. Either spelling reads as the same pause.
+    expect(whatsNew).toHaveAccessibleName(/^What's new\s*, opens in a new tab$/);
   });
 
   it("orders Settings, Connections, What's new, Send feedback, then Sign out when install is unavailable", async () => {
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
-    expect(
-      (await screen.findAllByRole("menuitem")).map((item) =>
-        (item.textContent ?? "").replace(/\s+/g, " ").trim(),
-      ),
-    ).toEqual(["Settings", "ConnectionsNew", "What's new", "Send feedback", "Sign out"]);
+    expect(await accountMenuItemLabels()).toEqual([
+      "Settings",
+      "ConnectionsNew",
+      "What's new, opens in a new tab",
+      "Send feedback",
+      "Sign out",
+    ]);
   });
 
   it("badges Connections as New while that feature owns the account-menu slot", async () => {
     const u = userEvent.setup();
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
-        <Route path="/connections" element={<div>connections-screen</div>} />
-      </>,
-      { initialEntries: ["/"] },
-    );
+    const view = renderAccountMenu({
+      routes: <Route path="/connections" element={<div>connections-screen</div>} />,
+    });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: /Connections/ }));
     expect(view.location()).toBe("/connections");
@@ -120,13 +142,9 @@ describe("AccountMenu", () => {
 
   it("navigates Send feedback to the global /feedback route", async () => {
     const u = userEvent.setup();
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
-        <Route path="/feedback" element={<div>feedback-screen</div>} />
-      </>,
-      { initialEntries: ["/"] },
-    );
+    const view = renderAccountMenu({
+      routes: <Route path="/feedback" element={<div>feedback-screen</div>} />,
+    });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Send feedback" }));
     expect(view.location()).toBe("/feedback");
@@ -136,16 +154,11 @@ describe("AccountMenu", () => {
   it("carries a Circle-scoped origin as returnTo on Send feedback", async () => {
     const u = userEvent.setup();
     const origin = "/circles/trip-c1/transactions?month=2026-05";
-    const view = renderRoutes(
-      <>
-        <Route
-          path="/circles/:circleRef/transactions"
-          element={<AccountMenu user={user} showSignOut />}
-        />
-        <Route path="/feedback" element={<div>feedback-screen</div>} />
-      </>,
-      { initialEntries: [origin] },
-    );
+    const view = renderAccountMenu({
+      path: "/circles/:circleRef/transactions",
+      initialEntries: [origin],
+      routes: <Route path="/feedback" element={<div>feedback-screen</div>} />,
+    });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Send feedback" }));
     expect(view.location()).toBe(withReturnTo("/feedback", origin));
@@ -155,9 +168,7 @@ describe("AccountMenu", () => {
   it("shows Sign out and invokes signOut when chosen", async () => {
     const u = userEvent.setup();
     configureConvex({});
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signOutMock).toHaveBeenCalledTimes(1);
@@ -176,9 +187,7 @@ describe("AccountMenu", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     configureConvex({ disablePushSubscription });
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signOutMock).not.toHaveBeenCalled();
@@ -197,9 +206,7 @@ describe("AccountMenu", () => {
     installPushEnv({ permission: "granted", subscription: sub });
     configureConvex({ disablePushSubscription });
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => {
@@ -222,9 +229,7 @@ describe("AccountMenu", () => {
     });
     const u = userEvent.setup();
     try {
-      renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-        initialEntries: ["/"],
-      });
+      renderAccountMenu();
       await openAccountMenu(u);
       await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
       await waitFor(() => {
@@ -245,9 +250,7 @@ describe("AccountMenu", () => {
           releaseSignOut = () => resolve();
         }),
     );
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
@@ -274,9 +277,7 @@ describe("AccountMenu", () => {
         }),
     );
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu();
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
@@ -298,13 +299,9 @@ describe("AccountMenu", () => {
     // the real `signOut` wrapper turns that into the throw this UX path catches.
     const failure = { message: "network down" };
     signOutMock.mockResolvedValueOnce({ data: null, error: failure });
-    const view = renderRoutes(
-      <>
-        <Route path="/" element={<AccountMenu user={user} showSignOut />} />
-        <Route path="/signin" element={<div>signin-screen</div>} />
-      </>,
-      { initialEntries: ["/"] },
-    );
+    const view = renderAccountMenu({
+      routes: <Route path="/signin" element={<div>signin-screen</div>} />,
+    });
     await openAccountMenu(u);
     await u.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
@@ -315,9 +312,7 @@ describe("AccountMenu", () => {
 
   it("omits Sign out when showSignOut is false", async () => {
     const u = userEvent.setup();
-    renderRoutes(<Route path="/" element={<AccountMenu user={user} showSignOut={false} />} />, {
-      initialEntries: ["/"],
-    });
+    renderAccountMenu({ showSignOut: false });
     await openAccountMenu(u);
     expect(screen.queryByRole("menuitem", { name: "Sign out" })).not.toBeInTheDocument();
   });

@@ -46,8 +46,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  window.localStorage.clear();
-  window.sessionStorage.clear();
   resetPostHogBoundary();
 });
 

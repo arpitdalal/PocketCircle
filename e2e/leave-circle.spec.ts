@@ -18,7 +18,7 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
   page,
   browser,
   baseURL,
-}) => {
+}, testInfo) => {
   test.setTimeout(60_000);
   const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
   const circleName = `E2E Leave ${Date.now()}`;
@@ -29,6 +29,7 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
 
   const { context: memberContext, page: memberPage } = await joinCircleViaInvitation({
     browser,
+    testInfo,
     baseURL: resolvedBase,
     memberEmail,
     memberName: "Leave Member",

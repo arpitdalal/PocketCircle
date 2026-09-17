@@ -1,11 +1,14 @@
 import { Menu } from "@base-ui/react/menu";
-import { LoaderCircle } from "lucide-react";
+import { ChevronsUpDown, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { NEW_TAB_LINK_PROPS, NewTabCue } from "~/components/new-tab-link.js";
 import { usePwaInstall } from "~/components/pwa-install.js";
 import { Avatar } from "~/components/ui/avatar.js";
 import { Badge } from "~/components/ui/badge.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
+import { SidebarMenuButton } from "~/components/ui/sidebar.js";
+import { type AppChrome, chromeMenuPlacement, useCloseWhenChromeHidden } from "~/lib/app-chrome.js";
 import { signOut } from "~/lib/auth-client.js";
 import { isCircleScopedPath } from "~/lib/circle-path.js";
 import { useClearPushOnSignOut } from "~/lib/data.js";
@@ -37,19 +40,36 @@ function accountMenuNewBadge(item: AccountMenuItemId) {
 }
 
 /**
- * Header account control: avatar trigger opens a Base UI `Menu` with identity,
+ * Shell account control: avatar trigger opens a Base UI `Menu` with identity,
  * Settings, Connections, What's new, conditional Install PocketCircle (#262), Send feedback, and optional
  * Sign out (ADR 0019 / issue #124). Send feedback is always the global route;
  * Circle-scoped origins only carry `returnTo` so Back can restore them. Circle
  * chrome owns contextual Feedback.
+ *
+ * `chrome` picks the trigger presentation and the menu's placement (issue #351): the
+ * header keeps an avatar-only round button and hangs the menu below the bar, the
+ * desktop sidebar shows a full-width row naming the signed-in User and sends the menu
+ * out to the side. The email stays in the menu, where it identifies the account
+ * without repeating itself in the persistent chrome.
  */
-export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSignOut: boolean }) {
+export function AccountMenu({
+  user,
+  showSignOut,
+  chrome,
+}: {
+  user: SessionUser;
+  showSignOut: boolean;
+  chrome: AppChrome;
+}) {
   const navigate = useNavigate();
   const origin = useReturnToOrigin();
   const { available: installAvailable, install } = usePwaInstall();
   const clearPushOnSignOut = useClearPushOnSignOut();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const feedbackTo = isCircleScopedPath(origin) ? withReturnTo("/feedback", origin) : "/feedback";
+
+  useCloseWhenChromeHidden(chrome, () => setMenuOpen(false));
 
   // Sign-out is terminal: success lets the reactive ProtectedLayout guard redirect to
   // /signin once the session clears (no bespoke routing here), while a failed request
@@ -80,21 +100,34 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
   };
 
   return (
-    <Menu.Root modal={false}>
-      <Menu.Trigger
-        aria-label="Account menu"
-        className={cn(
-          buttonVariants({ variant: "ghost", size: "icon-xs" }),
-          "size-10 shrink-0 rounded-full p-0 focus-visible:ring-offset-background",
-        )}
-      >
-        <Avatar name={user.displayName} image={user.image} className="size-9" />
-      </Menu.Trigger>
+    <Menu.Root modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
+      {chrome === "sidebar" ? (
+        // Display Name first in the accessible name so speech input can say what it
+        // sees (WCAG 2.5.3); the Avatar itself is decorative and stays silent.
+        <Menu.Trigger
+          aria-label={`${user.displayName}, account menu`}
+          render={<SidebarMenuButton size="lg" />}
+        >
+          <Avatar name={user.displayName} image={user.image} className="size-8" />
+          <span className="min-w-0 flex-1 truncate font-medium">{user.displayName}</span>
+          <ChevronsUpDown aria-hidden className="text-muted-foreground" />
+        </Menu.Trigger>
+      ) : (
+        <Menu.Trigger
+          aria-label="Account menu"
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "icon-xs" }),
+            "size-10 shrink-0 rounded-full p-0 focus-visible:ring-offset-background",
+          )}
+        >
+          <Avatar name={user.displayName} image={user.image} className="size-9" />
+        </Menu.Trigger>
+      )}
       <Menu.Portal>
-        <Menu.Positioner side="bottom" align="end" sideOffset={6} className="z-50">
+        <Menu.Positioner {...chromeMenuPlacement(chrome, "end")} sideOffset={6} className="z-50">
           <Menu.Popup
             className={cn(
-              "min-w-[220px] origin-(--transform-origin) animate-pop-in rounded-lg border border-border bg-popover py-1 text-popover-foreground shadow-xl outline-none",
+              "min-w-[220px] max-w-(--available-width) origin-(--transform-origin) animate-pop-in rounded-lg border border-border bg-popover py-1 text-popover-foreground shadow-xl outline-none",
             )}
           >
             <div className="border-b border-border px-3 py-2">
@@ -118,15 +151,19 @@ export function AccountMenu({ user, showSignOut }: { user: SessionUser; showSign
               Connections
               {accountMenuNewBadge("connections")}
             </Menu.LinkItem>
+            {/* New tab (issue #351): closing the archive returns the User to the
+                unchanged app page they were on. Same contract as the desktop
+                sidebar's "View all updates". */}
             <Menu.LinkItem
-              className={menuItemClass}
+              className={`${menuItemClass} justify-between`}
               closeOnClick
-              render={<Link to="/whats-new" prefetch="intent" />}
+              render={<Link {...NEW_TAB_LINK_PROPS} to="/whats-new" />}
             >
               What's new
+              <NewTabCue />
             </Menu.LinkItem>
             {installAvailable ? (
-              <Menu.Item className={menuItemClass} closeOnClick onClick={() => install()}>
+              <Menu.Item className={menuItemClass} onClick={() => install()}>
                 Install PocketCircle
               </Menu.Item>
             ) : null}

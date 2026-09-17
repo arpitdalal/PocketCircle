@@ -1,9 +1,11 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type AppChrome, SIDEBAR_CHROME_QUERY } from "~/lib/app-chrome.js";
 import type { Circle } from "~/lib/data.js";
 import { configureConvex, makeCircleView, renderRoutes, testId } from "~/test/convex-react.js";
+import { createMatchMediaFakeController } from "~/test/match-media.js";
 
 /**
  * Behavior test for the Circle switcher (CS-0). Doubles ONLY Convex's reactive client
@@ -20,11 +22,12 @@ afterEach(() => {
 });
 
 /** Mounts the switcher at `/` with sink routes for the two destinations it links to,
- * so a click's navigation is observable through `location()`. */
-function renderSwitcher() {
+ * so a click's navigation is observable through `location()`. `header` is jsdom's default
+ * chrome: `matchMedia` reports the `lg` query unmatched. */
+function renderSwitcher(chrome: AppChrome = "header") {
   return renderRoutes(
     <>
-      <Route path="/" element={<CircleSwitcher />} />
+      <Route path="/" element={<CircleSwitcher chrome={chrome} />} />
       <Route path="/circles/new" element={<div>create page</div>} />
       <Route path="/circles/:circleRef" element={<div>circle page</div>} />
     </>,
@@ -57,6 +60,27 @@ const ARCHIVED_TRIP = makeCircleView({
 });
 
 describe("CircleSwitcher", () => {
+  const media = createMatchMediaFakeController();
+
+  // Both chromes mount a switcher and CSS paints one, so an open menu has to close when
+  // its own chrome stops being painted — otherwise it hangs off a `display: none` trigger
+  // and comes back open on the next resize.
+  it("closes the sidebar menu when the viewport stops painting the sidebar", async () => {
+    const matchMedia = media.queries({ [SIDEBAR_CHROME_QUERY]: true });
+    const user = userEvent.setup();
+    configureConvex({ circles: [PERSONAL] });
+    renderSwitcher("sidebar");
+
+    await user.click(screen.getByRole("button", { name: /circles/i }));
+    expect(screen.getByRole("menu", { name: "Your circles" })).toBeInTheDocument();
+
+    await act(async () => {
+      matchMedia.setQueryMatches(SIDEBAR_CHROME_QUERY, false);
+    });
+
+    expect(screen.queryByRole("menu", { name: "Your circles" })).not.toBeInTheDocument();
+  });
+
   it("lists only the User's own circles, Personal first, as canonical-ref links", async () => {
     const user = userEvent.setup();
     // `listMyCircles` already returns active-only, Personal-first; the switcher renders

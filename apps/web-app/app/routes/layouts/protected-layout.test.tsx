@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Link, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAIN_CONTENT_ID } from "~/components/skip-navigation.js";
+import { circleNavItems } from "~/lib/circle-nav.js";
 import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
 import { SKELETON_DELAY_MS } from "~/lib/route-skeleton.js";
 import {
@@ -122,6 +123,162 @@ describe("ProtectedLayout skip navigation", () => {
   });
 });
 
+/**
+ * Desktop sidebar chrome (issue #351) at the shell seam: the real sidebar, the real
+ * canonical navigation model, and a real router. Visibility is CSS-only by design, so
+ * these assert STRUCTURE (both chromes mounted, correct destinations, active state) and
+ * the responsive classes that swap them — never a JavaScript viewport branch.
+ */
+describe("ProtectedLayout sidebar", () => {
+  /** Sidebar regions carry no landmark of their own; the slot attribute locates them. */
+  function requireSidebarSlot(slot: "sidebar-header" | "sidebar-footer") {
+    const element = document.querySelector<HTMLElement>(`[data-slot="${slot}"]`);
+    if (element === null) {
+      throw new Error(`expected a ${slot} in the rendered shell`);
+    }
+    return element;
+  }
+
+  function renderShellAt(pathname: string) {
+    ready();
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [
+            { index: true, Component: () => <h2>Home stub</h2> },
+            { path: "circles/:circleRef", Component: () => <h2>Dashboard stub</h2> },
+            {
+              path: "circles/:circleRef/transactions",
+              Component: () => <h2>Transactions stub</h2>,
+            },
+            {
+              path: "circles/:circleRef/transactions/:transactionId",
+              Component: () => <h2>Transaction detail stub</h2>,
+            },
+          ],
+        },
+      ],
+      [pathname],
+    );
+  }
+
+  it("renders a labelled primary navigation with brand, Circle switcher, and an active Home link", async () => {
+    renderShellAt("/");
+    await screen.findByText("Home stub");
+
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    const home = within(primary).getByRole("link", { name: "Home" });
+    expect(home).toHaveAttribute("href", "/");
+    expect(home).toHaveAttribute("aria-current", "page");
+
+    // Brand + switcher live in the sidebar header, outside the navigation landmark.
+    expect(screen.getAllByRole("link", { name: "PocketCircle" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Circles" })).toHaveLength(2);
+    // No Circle group off a Circle route.
+    expect(within(primary).queryByRole("group", { name: "Circle" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the sticky header mounted but hidden from `lg` up, and the sidebar hidden below it", async () => {
+    renderShellAt("/");
+    await screen.findByText("Home stub");
+
+    expect(screen.getByRole("banner").className).toContain("lg:hidden");
+    const sidebar = document.querySelector('[data-slot="sidebar"]');
+    expect(sidebar?.className).toContain("hidden");
+    expect(sidebar?.className).toContain("lg:block");
+    // Collapse-ready contract: provider state is expressed on the panel, no control yet.
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+    expect(screen.queryByRole("button", { name: /collapse/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the canonical Circle destinations, in order, when the URL is Circle-scoped", async () => {
+    renderShellAt("/circles/home-c2");
+    await screen.findByText("Dashboard stub");
+
+    const group = screen.getByRole("group", { name: "Circle" });
+    expect(
+      within(group)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(circleNavItems("home-c2").map((item) => item.label));
+    expect(within(group).getByRole("link", { name: "Transactions" })).toHaveAttribute(
+      "href",
+      "/circles/home-c2/transactions",
+    );
+    expect(within(group).getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("keeps the parent destination active on a nested detail route", async () => {
+    renderShellAt("/circles/home-c2/transactions/t1");
+    await screen.findByText("Transaction detail stub");
+
+    const group = screen.getByRole("group", { name: "Circle" });
+    expect(within(group).getByRole("link", { name: "Transactions" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // `end: true` keeps Dashboard from lighting up for every nested Circle route.
+    expect(within(group).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
+  // Where the shared controls sit differs by chrome: the bell rides the sidebar's top
+  // row beside the brand, and the account control becomes a footer row naming the User.
+  it("puts notifications in the sidebar header and the named account row in its footer", async () => {
+    renderShellAt("/");
+    await screen.findByText("Home stub");
+
+    const sidebarHeader = requireSidebarSlot("sidebar-header");
+    const sidebarFooter = requireSidebarSlot("sidebar-footer");
+
+    expect(
+      within(sidebarHeader).getByRole("button", { name: /^Notifications/ }),
+    ).toBeInTheDocument();
+    expect(within(sidebarHeader).getByRole("link", { name: "PocketCircle" })).toBeInTheDocument();
+
+    const seeded = makeCurrentUserView();
+    const accountRow = within(sidebarFooter).getByRole("button", {
+      name: `${seeded.displayName}, account menu`,
+    });
+    expect(accountRow).toHaveTextContent(seeded.displayName);
+    // Email is menu-only; the persistent row shows just the name.
+    expect(screen.queryByText(seeded.email)).not.toBeInTheDocument();
+    // The header keeps its own avatar-only trigger — two chromes, one implementation.
+    expect(screen.getByRole("button", { name: "Account menu" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Notifications/ })).toHaveLength(2);
+  });
+
+  it("renders no sidebar before onboarding completes", async () => {
+    configureConvex({
+      currentUser: makeCurrentUserView({ onboardingComplete: false }),
+      circles: [],
+    });
+    renderRouteStub(
+      [
+        {
+          path: "/",
+          Component: ProtectedLayout,
+          children: [
+            { index: true, Component: () => <h2>Home stub</h2> },
+            { path: "onboarding", Component: OnboardingRoute },
+          ],
+        },
+      ],
+      ["/onboarding"],
+    );
+
+    await screen.findByRole("heading", { name: "Welcome" });
+    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="sidebar"]')).toBeNull();
+  });
+});
+
 describe("ProtectedLayout shell skeleton", () => {
   it("shows the generic skeleton while a slow shell navigation loads, keeping the header", async () => {
     const slow = deferred();
@@ -135,8 +292,10 @@ describe("ProtectedLayout shell skeleton", () => {
 
     const main = screen.getByRole("main");
     expect(await within(main).findByTestId("route-skeleton")).toBeInTheDocument();
-    // The header (brand) survives the navigation — no full-page swap, no layout shift.
-    expect(screen.getByText("PocketCircle")).toBeInTheDocument();
+    // Both chromes (brand) survive the navigation — no full-page swap, no layout shift.
+    // Sidebar and header are always both mounted; CSS alone picks which is painted.
+    expect(screen.getAllByRole("link", { name: "PocketCircle" })).toHaveLength(2);
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Go to settings" })).not.toBeInTheDocument();
     // A non-Circle destination gets no Circle bottom-bar placeholder.
     expect(screen.queryByTestId("circle-bottom-nav-skeleton")).not.toBeInTheDocument();
@@ -459,12 +618,13 @@ describe("ProtectedLayout onboarding gate", () => {
     const input = await screen.findByLabelText("Display name");
     await user.clear(input);
     await user.type(input, "  Ada King  ");
+    // Analytics stay off for a User who has not finished onboarding.
+    expect(posthogSdk.init).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
       expect(completeOnboarding).toHaveBeenCalledWith({ displayName: "Ada King" });
     });
-    expect(posthogSdk.init).not.toHaveBeenCalled();
 
     view.rerender(
       <AppTestProviders>
@@ -624,6 +784,10 @@ describe("ProtectedLayout unauthenticated homepage", () => {
     expect(screen.getByText(/track spending together in shared Circles/i)).toBeInTheDocument();
     expect(screen.queryByText("App home")).not.toBeInTheDocument();
     expect(screen.queryByText("Sign in page")).not.toBeInTheDocument();
+    // No app chrome for a visitor: the marketing page owns the whole viewport, and the
+    // sidebar's controls all assume a signed-in User.
+    expect(document.querySelector('[data-slot="sidebar"]')).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
   });
 
   it("still redirects other protected paths to sign-in", async () => {

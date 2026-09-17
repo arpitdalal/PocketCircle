@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changelogSource, parseChangelog } from "~/lib/changelog.js";
+import { readChangelogSeenVersion } from "~/lib/changelog-seen.js";
 import { configureConvex, convexReactMock, makeCurrentUserView } from "~/test/convex-react.js";
 import {
   posthogSdk,
@@ -82,6 +83,31 @@ describe("What's new", () => {
         latestVersion: latest.version,
       });
     });
+  });
+
+  // The account menu links straight here below `lg` (issue #351), so reading the
+  // archive is what clears the sidebar's unread indicator on that path.
+  it("marks the latest version seen for the signed-in reader", async () => {
+    const latest = sections[0];
+    if (!latest) {
+      throw new Error("CHANGELOG.md must have at least one released version");
+    }
+    const currentUser = makeCurrentUserView();
+    configureConvex({ currentUser });
+    renderWhatsNew();
+
+    await waitFor(() => {
+      expect(readChangelogSeenVersion(currentUser.id)).toBe(latest.version);
+    });
+  });
+
+  it("stores nothing for a signed-out visitor", async () => {
+    configureConvex({ currentUser: undefined });
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    renderWhatsNew();
+
+    await screen.findByRole("heading", { name: "What's new" });
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("renders for signed-out visitors and does not track while the session is still loading", async () => {

@@ -107,9 +107,11 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
           </div>
         </div>
 
+        {/* Tablet band only: the mobile bottom bar owns below `sm`, and the desktop
+            sidebar owns these destinations at `lg` and above (issue #351). */}
         <nav
           aria-label="Circle tabs"
-          className="-mx-4 hidden gap-1 overflow-x-auto border-b border-border px-4 sm:flex"
+          className="-mx-4 hidden gap-1 overflow-x-auto border-b border-border px-4 sm:flex lg:hidden"
         >
           {tabs.map((tab) => (
             <NavLink

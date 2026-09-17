@@ -7,6 +7,7 @@ import {
 } from "~/components/ui/accordion.js";
 import { track } from "~/lib/analytics.js";
 import { changelogSource, parseChangelog } from "~/lib/changelog.js";
+import { markChangelogVersionSeen } from "~/lib/changelog-seen.js";
 import { useAppSession } from "~/lib/session.js";
 
 const sections = parseChangelog(changelogSource);
@@ -15,13 +16,18 @@ const sections = parseChangelog(changelogSource);
 export default function WhatsNew() {
   const session = useAppSession();
   const latestVersion = sections[0]?.version;
+  const readerId = session.state === "ready" ? session.user.id : undefined;
 
   useEffect(() => {
-    if (session.state !== "ready" || !latestVersion) {
+    if (readerId === undefined || !latestVersion) {
       return;
     }
     track("whats_new_opened", { latestVersion });
-  }, [latestVersion, session.state]);
+    // Covers the mobile/tablet path: the account menu links straight here, so reading
+    // the archive must clear the sidebar's unread indicator in the tab that opened it
+    // (issue #351). Signed-out visitors store nothing.
+    markChangelogVersionSeen(readerId, latestVersion);
+  }, [latestVersion, readerId]);
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-8">

@@ -32,29 +32,30 @@ export const MOCK_ACTIVATION: ActivationChecklist = {
 };
 
 /**
- * Home Summary Activation Checklist subscription. Skip with `enabled=false` (unused
- * on Circle Dashboards). Existing Users with no row get the evidence initializer;
- * completion analytics are claimed once via the durable marker even after the card hides.
+ * Activation Checklist subscription, plus the two side effects that ride with it:
+ * existing Users with no row get the evidence initializer, and completion analytics are
+ * claimed once via the durable marker even after the checklist hides.
+ *
+ * Those effects are why the authenticated shell mounts exactly ONE subscriber
+ * (`ActivationChecklistProvider`) and both presentations read the value from it — two
+ * callers would fire each mutation twice and lean on backend idempotence to clean up.
  */
-export function useActivationChecklist(enabled: boolean) {
-  const checklist = useQuery(
-    api.activation.getActivationChecklist,
-    enabled && !MOCKS ? {} : "skip",
-  );
+export function useActivationChecklist() {
+  const checklist = useQuery(api.activation.getActivationChecklist, MOCKS ? "skip" : {});
   const initialize = useMutation(api.activation.initializeActivationChecklist);
   const acknowledge = useMutation(api.activation.acknowledgeActivationCompleted);
 
   useEffect(() => {
-    if (!enabled || MOCKS) {
+    if (MOCKS) {
       return;
     }
     if (checklist?.status === "uninitialized") {
       void initialize({});
     }
-  }, [enabled, checklist, initialize]);
+  }, [checklist, initialize]);
 
   useEffect(() => {
-    if (!enabled || MOCKS) {
+    if (MOCKS) {
       return;
     }
     if (checklist?.status !== "ready" || !checklist.completionEventPending) {
@@ -69,10 +70,10 @@ export function useActivationChecklist(enabled: boolean) {
       .catch(() => {
         // Completion analytics are best-effort; do not surface failures to the User.
       });
-  }, [enabled, checklist, acknowledge]);
+  }, [checklist, acknowledge]);
 
   if (MOCKS) {
-    return enabled ? MOCK_ACTIVATION : undefined;
+    return MOCK_ACTIVATION;
   }
   return checklist;
 }

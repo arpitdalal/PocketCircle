@@ -139,6 +139,55 @@ async function registerDcrClient(options: {
   });
 }
 
+/**
+ * Sends until the limiter answers 429 and returns that response.
+ *
+ * Rate-limit windows are aligned to the wall clock (`epoch = floor(now / period)`,
+ * Cloudflare and miniflare alike), so a rollover inside the loop resets the count
+ * and lets more than `allowed` through overall. The contract that still holds —
+ * and that a misconfigured higher limit would break — is per epoch: at most
+ * `allowed` successes, then a 429 after that burst in the same window.
+ */
+async function drainUntilRateLimited(options: {
+  allowed: number;
+  allowedStatus: number;
+  /** Must match the binding's `simple.period` in wrangler.jsonc (all are 60 today). */
+  periodSeconds?: number;
+  send: (attempt: number) => Promise<Response>;
+}) {
+  const periodMs = (options.periodSeconds ?? 60) * 1000;
+  // Two full windows plus one: enough for a mid-drain rollover, not enough to hide
+  // a limiter that never throttles.
+  const maxAttempts = options.allowed * 3 + 1;
+  let epoch: number | undefined;
+  let permittedInEpoch = 0;
+  let filledAnEpoch = false;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await options.send(attempt);
+    // Sample after the limiter has run: sampling before `send` races the window edge.
+    const nowEpoch = Math.floor(Date.now() / periodMs);
+    if (epoch !== nowEpoch) {
+      epoch = nowEpoch;
+      permittedInEpoch = 0;
+    }
+    if (res.status === 429) {
+      // Full burst then throttle. `filledAnEpoch && permittedInEpoch === 0` covers the
+      // rare case where our clock rolls between the limiter's check and this sample.
+      expect(
+        permittedInEpoch === options.allowed || (permittedInEpoch === 0 && filledAnEpoch),
+      ).toBe(true);
+      return res;
+    }
+    expect(res.status).toBe(options.allowedStatus);
+    permittedInEpoch++;
+    expect(permittedInEpoch).toBeLessThanOrEqual(options.allowed);
+    if (permittedInEpoch === options.allowed) {
+      filledAnEpoch = true;
+    }
+  }
+  throw new Error(`never rate limited after ${maxAttempts} attempts`);
+}
+
 function stubConvexFetch(handler: (path: string, body: unknown) => Response | Promise<Response>) {
   vi.stubGlobal(
     "fetch",
@@ -307,20 +356,17 @@ describe("MCP Worker OAuth discovery", () => {
 
   it("rate-limits DCR registrations per IP", async () => {
     const ip = "198.51.100.54";
-    for (let i = 0; i < 20; i++) {
-      const res = await registerDcrClient({
-        clientName: `dcr-client-${i}`,
-        redirectUris: [`https://dcr-client.example/cb/${i}`],
-        ip,
-      });
-      expect(res.status).toBe(201);
-    }
-    const throttled = await registerDcrClient({
-      clientName: "dcr-client-20",
-      redirectUris: ["https://dcr-client.example/cb/20"],
-      ip,
+    const throttled = await drainUntilRateLimited({
+      // MCP_DCR_RATE_LIMITER in wrangler.jsonc.
+      allowed: 20,
+      allowedStatus: 201,
+      send: (attempt) =>
+        registerDcrClient({
+          clientName: `dcr-client-${attempt}`,
+          redirectUris: [`https://dcr-client.example/cb/${attempt}`],
+          ip,
+        }),
     });
-    expect(throttled.status).toBe(429);
     expect(await throttled.json()).toEqual({
       error: "temporarily_unavailable",
       error_description: "rate limited",
@@ -1983,16 +2029,11 @@ describe("MCP tools execution", () => {
       },
     };
 
-    for (let i = 0; i < options.allowedCalls; i++) {
-      const res = await sendMcpRequest(accessToken, { ...toolCall, id: i + 1 });
-      expect(res.status).toBe(200);
-    }
-
-    const throttled = await sendMcpRequest(accessToken, {
-      ...toolCall,
-      id: options.allowedCalls + 1,
+    const throttled = await drainUntilRateLimited({
+      allowed: options.allowedCalls,
+      allowedStatus: 200,
+      send: (attempt) => sendMcpRequest(accessToken, { ...toolCall, id: attempt }),
     });
-    expect(throttled.status).toBe(429);
     expect(await throttled.json()).toEqual({ error: "rate_limited" });
   }
 
@@ -2045,22 +2086,13 @@ describe("MCP tools execution", () => {
         }),
       });
 
-    // Limit is 30/60s; miniflare's limiter can be slightly soft, so drain until
-    // 429 instead of asserting an exact N+1 (CI flake: expected 429, got 401).
-    let throttled: Response | undefined;
-    let sawUnauthorized = false;
-    for (let i = 0; i < 60; i++) {
-      const res = await sendInvalid(i + 1);
-      if (res.status === 429) {
-        throttled = res;
-        break;
-      }
-      expect(res.status).toBe(401);
-      sawUnauthorized = true;
-    }
-    expect(sawUnauthorized).toBe(true);
-    expect(throttled?.status).toBe(429);
-    expect(await throttled?.json()).toEqual({ error: "rate_limited" });
+    const throttled = await drainUntilRateLimited({
+      // MCP_FAILED_AUTH_RATE_LIMITER in wrangler.jsonc.
+      allowed: 30,
+      allowedStatus: 401,
+      send: sendInvalid,
+    });
+    expect(await throttled.json()).toEqual({ error: "rate_limited" });
   });
 
   it("does not count bare WWW-Authenticate challenges toward failed-auth limits", async () => {
