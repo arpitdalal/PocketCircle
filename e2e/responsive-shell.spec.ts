@@ -1,5 +1,12 @@
-import type { Page } from "@playwright/test";
-import { circleChromeNav, circleSwitcher, expect, homeCircleCard, test } from "./fixtures.js";
+import type { Locator, Page } from "@playwright/test";
+import {
+  circleChromeNav,
+  circleSwitcher,
+  clickCircleChromeTab,
+  expect,
+  homeCircleCard,
+  test,
+} from "./fixtures.js";
 
 /**
  * Responsive shell chrome (issue #351). Viewports are pinned per describe rather than
@@ -138,5 +145,40 @@ test.describe("phone shell", () => {
     await bottomNav.getByRole("link", { name: "Transactions", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Transactions", exact: true })).toBeVisible();
     await expect(page.getByRole("banner")).toBeVisible();
+  });
+
+  test("phone form controls render at least 16px", async ({ page }) => {
+    async function expectTouchSafeControl(control: Locator) {
+      await expect(control).toBeVisible();
+      await expect
+        .poll(() =>
+          control.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)),
+        )
+        .toBeGreaterThanOrEqual(16);
+    }
+
+    await openPersonalCircleDashboard(page);
+
+    await clickCircleChromeTab(page, "Transactions");
+    await expectTouchSafeControl(page.getByLabel("Month", { exact: true }));
+    await page.getByRole("link", { name: "Add expense" }).click();
+    const form = page.getByRole("form", { name: /add expense/i });
+    await expectTouchSafeControl(form.getByLabel("Title"));
+    await expectTouchSafeControl(form.getByLabel(/Amount/));
+    await expectTouchSafeControl(form.getByLabel("Date"));
+    await expectTouchSafeControl(form.getByLabel("Note"));
+    await expectTouchSafeControl(form.getByRole("combobox", { name: "Categories" }));
+    await expectTouchSafeControl(form.getByLabel("Paid by"));
+
+    await clickCircleChromeTab(page, "Search");
+    await expectTouchSafeControl(page.getByRole("searchbox", { name: "Search title or note" }));
+
+    await page.getByRole("button", { name: /Filters/ }).click();
+    const filters = page.getByRole("dialog", { name: "Filters" });
+    await expectTouchSafeControl(filters.getByLabel("From"));
+    await expectTouchSafeControl(filters.getByLabel("To", { exact: true }));
+    await expectTouchSafeControl(filters.getByLabel("Amount min"));
+    await expectTouchSafeControl(filters.getByLabel("Amount max"));
+    await expectTouchSafeControl(filters.getByRole("combobox", { name: "Categories" }));
   });
 });

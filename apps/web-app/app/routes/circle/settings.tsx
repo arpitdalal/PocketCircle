@@ -322,7 +322,7 @@ export default function CircleSettings() {
               autoComplete="off"
               aria-invalid={nameError != null}
               aria-describedby={nameError ? "circle-settings-name-error" : undefined}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
             />
           </div>
           {nameError ? (
@@ -386,7 +386,7 @@ export default function CircleSettings() {
                 id="circle-settings-currency"
                 value={circle.currency}
                 onChange={(event) => void onPickCurrency(event.target.value)}
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
               >
                 {SUPPORTED_CURRENCIES.map((option) => (
                   <option key={option.code} value={option.code}>
@@ -454,7 +454,7 @@ export default function CircleSettings() {
                   setSetupError(null);
                 }
               }}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
             >
               <option value="">Not set</option>
               {CIRCLE_PURPOSES.map((option) => (
@@ -479,7 +479,7 @@ export default function CircleSettings() {
                     setSetupError(null);
                   }
                 }}
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
               >
                 <option value="">Not set</option>
                 {RESIDENCE_TYPES.map((option) => (

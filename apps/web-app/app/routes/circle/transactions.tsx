@@ -296,7 +296,7 @@ function LedgerFilterForm({
           type="search"
           value={draft.q}
           onChange={(event) => setDraft({ ...draft, q: event.currentTarget.value })}
-          className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
+          className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
         />
       </label>
       <Segmented
@@ -420,7 +420,7 @@ function MonthNavigator({
             commit();
           }
         }}
-        className="rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+        className="rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
       />
       <Button
         type="button"

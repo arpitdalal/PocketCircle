@@ -99,7 +99,7 @@ export default function EmailPreviewRoute() {
             <label key={field.key} className="flex flex-col gap-1 text-sm">
               <span>{field.label}</span>
               <input
-                className="rounded-md border bg-background px-3 py-2"
+                className="rounded-md border bg-background px-3 py-2 text-base md:text-sm"
                 value={values[field.key] ?? ""}
                 onChange={(event) => updateField(field.key, event.target.value)}
               />
