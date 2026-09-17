@@ -69,6 +69,40 @@ describe("changelog seen storage", () => {
     expect(window.localStorage.getItem(changelogSeenStorageKey(ADA))).toBe("v1.4.0");
     expect(renderHook(() => useChangelogUnread(ADA, "v1.5.0")).result.current).toBe(false);
   });
+
+  // The mirror is only this document's PENDING write. A tab that manages to persist a
+  // newer version is authoritative, so the mirror has to step aside — otherwise this tab
+  // would report the older pending version for the rest of its life.
+  it("yields to a newer version another tab managed to persist", () => {
+    markChangelogVersionSeen(ADA, "v1.4.0");
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+    markChangelogVersionSeen(ADA, "v1.5.0");
+    expect(readChangelogSeenVersion(ADA)).toBe("v1.5.0");
+
+    setItem.mockRestore();
+    simulateOtherTabMarkedSeen(ADA, "v1.6.0");
+
+    expect(readChangelogSeenVersion(ADA)).toBe("v1.6.0");
+    expect(renderHook(() => useChangelogUnread(ADA, "v1.6.0")).result.current).toBe(false);
+  });
+
+  // Same rule for a disappearing value: another tab clearing storage outranks a pending
+  // write, so the mirror must not resurrect it.
+  it("yields to another tab clearing the key", () => {
+    markChangelogVersionSeen(ADA, "v1.4.0");
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+    markChangelogVersionSeen(ADA, "v1.5.0");
+
+    setItem.mockRestore();
+    window.localStorage.clear();
+    window.dispatchEvent(new StorageEvent("storage", { key: null }));
+
+    expect(readChangelogSeenVersion(ADA)).toBeNull();
+  });
 });
 
 describe("subscribeChangelogSeen", () => {

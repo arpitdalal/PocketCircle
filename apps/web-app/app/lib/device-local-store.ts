@@ -7,8 +7,11 @@
  * mode throws `QuotaExceededError` on write and "block all cookies" throws on the
  * `window.localStorage` property access itself, so a failed write falls back to a
  * module-level mirror. The value then behaves correctly for the rest of the document's
- * life and is simply gone on the next visit. A write that DOES persist drops its mirror
- * entry, so another tab clearing the key is never resurrected from memory.
+ * life and is simply gone on the next visit.
+ *
+ * A mirrored value never outranks a later external one: it is dropped as soon as a write
+ * succeeds here, and as soon as storage reads back something other than what it held when
+ * the write failed — a write from another tab, or a `clear()`.
  *
  * Notifications cover the three ways a value can change: this document (`localStorage`
  * fires `storage` only in OTHER documents), another tab (`storage`), and a document
@@ -16,13 +19,26 @@
  * (`pageshow`).
  */
 
-/** Session mirror for keys whose write could not reach `localStorage`. */
-const unpersisted = new Map<string, string>();
+/**
+ * Session mirror for keys whose write could not reach `localStorage`, each remembering
+ * what was persisted at the moment the write failed. That pair is the whole validity
+ * rule: the mirror is this document's pending write, and it holds only while storage
+ * still reads back what it did then.
+ */
+const unpersisted = new Map<string, { value: string; storedAtFailure: string | null }>();
 const listeners = new Set<() => void>();
 
 function storageOrNull() {
   try {
     return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function storedValue(key: string) {
+  try {
+    return storageOrNull()?.getItem(key) ?? null;
   } catch {
     return null;
   }
@@ -35,19 +51,24 @@ function notify() {
 }
 
 export function readDeviceLocal(key: string) {
-  // The mirror wins: an entry only exists because storage refused this key's NEWEST
-  // write, and quota failures leave the older persisted value readable. Reading storage
-  // first would resurrect it — the changelog badge would never clear under quota
-  // pressure, which is exactly what the mirror exists to prevent.
+  const stored = storedValue(key);
   const mirrored = unpersisted.get(key);
-  if (mirrored !== undefined) {
-    return mirrored;
+  if (mirrored === undefined) {
+    return stored;
   }
-  try {
-    return storageOrNull()?.getItem(key) ?? null;
-  } catch {
-    return null;
+  // Storage has not moved on, so the mirror is still this key's newest value: a quota
+  // failure leaves the OLDER persisted value readable, and preferring it would resurrect
+  // it — the changelog badge would never clear under quota pressure, which is exactly
+  // what the mirror exists to prevent.
+  if (stored === mirrored.storedAtFailure) {
+    return mirrored.value;
   }
+  // Another document wrote this key since the failure. That value is newer than the
+  // pending one, so the mirror is obsolete — dropped here rather than in a `storage`
+  // listener, because the mirror must not outlive its premise even when nothing is
+  // subscribed. The returned value is the same either way, so snapshots stay stable.
+  unpersisted.delete(key);
+  return stored;
 }
 
 export function writeDeviceLocal(key: string, value: string) {
@@ -59,7 +80,7 @@ export function writeDeviceLocal(key: string, value: string) {
     storage.setItem(key, value);
     unpersisted.delete(key);
   } catch {
-    unpersisted.set(key, value);
+    unpersisted.set(key, { value, storedAtFailure: storedValue(key) });
   }
   notify();
 }
