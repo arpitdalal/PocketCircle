@@ -142,30 +142,48 @@ async function registerDcrClient(options: {
 /**
  * Sends until the limiter answers 429 and returns that response.
  *
- * Rate-limit windows are aligned to the wall clock (`epoch = now / period`, both
- * on Cloudflare and in miniflare's simulator), so a window rollover inside the
- * loop resets the count and lets more than `allowed` requests through. That
- * makes "the allowed+1th call is throttled" a coin flip on how the run happens
- * to line up with the minute — the assertion that always holds is that the
- * limiter permits at least the configured burst and then throttles.
+ * Rate-limit windows are aligned to the wall clock (`epoch = floor(now / period)`,
+ * Cloudflare and miniflare alike), so a rollover inside the loop resets the count
+ * and lets more than `allowed` through overall. The contract that still holds —
+ * and that a misconfigured higher limit would break — is per epoch: at most
+ * `allowed` successes, then a 429 after that burst in the same window.
  */
 async function drainUntilRateLimited(options: {
   allowed: number;
   allowedStatus: number;
+  /** Must match the binding's `simple.period` in wrangler.jsonc (all are 60 today). */
+  periodSeconds?: number;
   send: (attempt: number) => Promise<Response>;
 }) {
-  // A rollover can double the budget once; the cap only exists so a limiter that
-  // never throttles fails the test instead of looping forever.
+  const periodMs = (options.periodSeconds ?? 60) * 1000;
+  // Two full windows plus one: enough for a mid-drain rollover, not enough to hide
+  // a limiter that never throttles.
   const maxAttempts = options.allowed * 3 + 1;
-  let permitted = 0;
+  let epoch: number | undefined;
+  let permittedInEpoch = 0;
+  let filledAnEpoch = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await options.send(attempt);
+    // Sample after the limiter has run: sampling before `send` races the window edge.
+    const nowEpoch = Math.floor(Date.now() / periodMs);
+    if (epoch !== nowEpoch) {
+      epoch = nowEpoch;
+      permittedInEpoch = 0;
+    }
     if (res.status === 429) {
-      expect(permitted).toBeGreaterThanOrEqual(options.allowed);
+      // Full burst then throttle. `filledAnEpoch && permittedInEpoch === 0` covers the
+      // rare case where our clock rolls between the limiter's check and this sample.
+      expect(
+        permittedInEpoch === options.allowed || (permittedInEpoch === 0 && filledAnEpoch),
+      ).toBe(true);
       return res;
     }
     expect(res.status).toBe(options.allowedStatus);
-    permitted++;
+    permittedInEpoch++;
+    expect(permittedInEpoch).toBeLessThanOrEqual(options.allowed);
+    if (permittedInEpoch === options.allowed) {
+      filledAnEpoch = true;
+    }
   }
   throw new Error(`never rate limited after ${maxAttempts} attempts`);
 }
