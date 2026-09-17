@@ -859,7 +859,7 @@ export default function TransactionsNew() {
                   const match = id === null ? undefined : eligibleCircles.find((c) => c.id === id);
                   navigateTo(urlState.type, match?.ref, urlState.returnTo);
                 }}
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50"
               >
                 <option value="">Choose a Circle</option>
                 {eligibleCircles.map((circle) => (

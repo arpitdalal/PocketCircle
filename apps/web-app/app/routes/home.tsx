@@ -297,7 +297,7 @@ function CurrencyControl({
       <select
         value={selected}
         onChange={(e) => onSelect(e.target.value)}
-        className="rounded-md border border-border bg-card px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-md border border-border bg-card px-2 py-1 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {currencies.map((c) => (
           <option key={c} value={c}>

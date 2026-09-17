@@ -176,7 +176,7 @@ function MonthlyComparisonSection({
                 onRangeChange(next);
               }
             }}
-            className="rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+            className="rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
           >
             {COMPARISON_RANGE_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -245,7 +245,7 @@ function CategoryAnalyticsSection({
                 onTypeChange(next);
               }
             }}
-            className="rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+            className="rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
           >
             <option value="expense">Expenses</option>
             <option value="income">Income</option>

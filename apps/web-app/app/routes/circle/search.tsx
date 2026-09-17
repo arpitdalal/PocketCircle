@@ -463,7 +463,7 @@ function SearchFilterForm({
             value={draft.from}
             max={draft.to || undefined}
             onChange={(event) => setDraft({ ...draft, from: event.currentTarget.value })}
-            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
+            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
           />
         </label>
         <label className="block text-xs text-muted-foreground">
@@ -473,7 +473,7 @@ function SearchFilterForm({
             value={draft.to}
             min={draft.from || undefined}
             onChange={(event) => setDraft({ ...draft, to: event.currentTarget.value })}
-            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
+            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
           />
         </label>
       </div>
@@ -486,7 +486,7 @@ function SearchFilterForm({
             step="0.01"
             value={draft.min}
             onChange={(event) => setDraft({ ...draft, min: event.currentTarget.value })}
-            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
+            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
           />
         </label>
         <label className="block text-xs text-muted-foreground">
@@ -497,7 +497,7 @@ function SearchFilterForm({
             step="0.01"
             value={draft.max}
             onChange={(event) => setDraft({ ...draft, max: event.currentTarget.value })}
-            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
+            className="mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30 text-foreground"
           />
         </label>
       </div>

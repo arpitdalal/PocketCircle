@@ -106,7 +106,7 @@ function EditCategoryFormFields({
           autoComplete="off"
           aria-invalid={error != null}
           aria-describedby={error ? errorId : undefined}
-          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
+          className="w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm shadow-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring focus:ring-2 focus:ring-ring/30"
         />
       </div>
 
