@@ -103,6 +103,52 @@ describe("changelog seen storage", () => {
 
     expect(readChangelogSeenVersion(ADA)).toBeNull();
   });
+
+  // Only a DIFFERENT stored value outranks the mirror. A tab on an older bundle can
+  // re-write the very version the failed write read, which says nothing this document
+  // does not already know — adopting it would re-raise "New" on a release the User read
+  // here. Storage looks byte-identical either way, so nothing but the value can decide.
+  it("keeps the pending version when another tab re-writes the one it failed over", () => {
+    markChangelogVersionSeen(ADA, "v1.4.0");
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+    markChangelogVersionSeen(ADA, "v1.5.0");
+    setItem.mockRestore();
+
+    const { result } = renderHook(() => useChangelogUnread(ADA, "v1.5.0"));
+    expect(result.current).toBe(false);
+
+    act(() => {
+      simulateOtherTabMarkedSeen(ADA, "v1.4.0");
+    });
+
+    expect(readChangelogSeenVersion(ADA)).toBe("v1.5.0");
+    expect(result.current).toBe(false);
+  });
+
+  // …but an observable gap does outrank it, wherever it lands afterwards: the clear is a
+  // real cross-tab signal, so the mirror goes with it and the restore is just a new value.
+  it("yields to a clear even when another tab restores the same version", () => {
+    markChangelogVersionSeen(ADA, "v1.4.0");
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+    markChangelogVersionSeen(ADA, "v1.5.0");
+    setItem.mockRestore();
+
+    const { result } = renderHook(() => useChangelogUnread(ADA, "v1.5.0"));
+    act(() => {
+      window.localStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    });
+    act(() => {
+      simulateOtherTabMarkedSeen(ADA, "v1.4.0");
+    });
+
+    expect(readChangelogSeenVersion(ADA)).toBe("v1.4.0");
+    expect(result.current).toBe(true);
+  });
 });
 
 describe("subscribeChangelogSeen", () => {

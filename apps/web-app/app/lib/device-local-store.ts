@@ -60,6 +60,12 @@ export function readDeviceLocal(key: string) {
   // failure leaves the OLDER persisted value readable, and preferring it would resurrect
   // it — the changelog badge would never clear under quota pressure, which is exactly
   // what the mirror exists to prevent.
+  //
+  // The value is the whole test, deliberately, not "did any write happen": another
+  // document re-writing exactly what the failure read leaves storage byte-identical, so
+  // it carries nothing this document does not already know, and adopting it would undo a
+  // change the User made HERE. Any write that is distinguishable — including the moment a
+  // `clear()` is observed, before whatever lands next — takes the branch below.
   if (stored === mirrored.storedAtFailure) {
     return mirrored.value;
   }
