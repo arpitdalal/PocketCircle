@@ -17,7 +17,10 @@ import {
  * issue screenshot — then asserts every amount-bearing surface stays inside the
  * viewport: Home totals, Circle Dashboard, Monthly Ledger, recent rows, and
  * contribution links. Document scrollWidth is the WebKit regression gate (sr-only
- * chart table must not widen the page).
+ * chart table must not widen the page). After fonts settle, AnimatedMoney hosts
+ * showing this max exact must expose `data-compact-money` (bbox alone cannot see
+ * clip inside `overflow-hidden`); row `MoneyAmountCell`s are checked via
+ * scrollWidth so wrap regressions still fail.
  */
 
 const MAX_AMOUNT = "999999999.99";
@@ -35,7 +38,28 @@ async function assertNoMoneyOverflow(page: Page) {
     // ready can be replaced while status is still "loading" (WebKit quirk).
     if (fonts.status === "loading") await fonts.ready;
   });
-  return page.evaluate<string[]>(() => {
+  // After fonts, layout effects must flip compact on max AnimatedMoney hosts
+  // before we assert — otherwise we race the first post-font paint.
+  await page.waitForFunction(
+    (maxExact) => {
+      const hosts = [...document.querySelectorAll<HTMLElement>(`[data-money="${maxExact}"]`)];
+      const animated = hosts.filter((el) => {
+        const style = getComputedStyle(el);
+        return (
+          style.overflow === "hidden" ||
+          style.overflowX === "hidden" ||
+          style.overflowY === "hidden"
+        );
+      });
+      return animated.length === 0 || animated.every((el) => el.hasAttribute("data-compact-money"));
+    },
+    FORMATTED_MAX,
+    { timeout: 5_000 },
+  );
+  // Pass the max exact string so the page can assert AnimatedMoney compacted —
+  // overflow-hidden + NumberFlow digit strips make scrollWidth > clientWidth
+  // even when healthy, so bbox alone cannot catch a compact-format miss.
+  return page.evaluate<string[]>((maxExact) => {
     const bad: string[] = [];
     const root = document.documentElement;
     if (root.scrollWidth > root.clientWidth) {
@@ -52,9 +76,30 @@ async function assertNoMoneyOverflow(page: Page) {
           `${el.tagName}.${String(el.className).slice(0, 40)} outside viewport (${Math.round(r.left)}..${Math.round(r.right)})`,
         );
       }
+
+      const exact = el.getAttribute("data-money");
+      if (!exact) continue;
+
+      const style = getComputedStyle(el);
+      const clips =
+        style.overflow === "hidden" || style.overflowX === "hidden" || style.overflowY === "hidden";
+
+      if (clips) {
+        // AnimatedMoney: intentional clip for digit-strip spin. Max exact at the
+        // mobile budget must have switched to compact — otherwise exact is clipped.
+        if (exact === maxExact && !el.hasAttribute("data-compact-money")) {
+          bad.push(`AnimatedMoney still exact for ${maxExact} (compact miss / clipped)`);
+        }
+        continue;
+      }
+
+      // MoneyAmountCell (wrap, no clip): content wider than the box is a fail.
+      if (el.scrollWidth > el.clientWidth + 1) {
+        bad.push(`${el.tagName} content clipped (${el.scrollWidth} > ${el.clientWidth})`);
+      }
     }
     return bad;
-  });
+  }, FORMATTED_MAX);
 }
 
 test("max amounts stay inside every money surface at the 390px mobile budget", async ({
