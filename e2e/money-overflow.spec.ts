@@ -24,7 +24,17 @@ const MAX_AMOUNT = "999999999.99";
 const FORMATTED_MAX = "$999,999,999.99";
 const MOBILE_BUDGET = { width: 390, height: 844 } as const;
 
-function assertNoMoneyOverflow(page: Page) {
+async function assertNoMoneyOverflow(page: Page) {
+  // Wait for web fonts before measuring — AnimatedMoney may still be on exact
+  // NumberFlow until document.fonts settles, then compact. Asserting mid-swap
+  // can false-pass (clipped exact) or false-fail on layout.
+  await page.evaluate(async () => {
+    const fonts = document.fonts;
+    if (!fonts) return;
+    await fonts.ready;
+    // ready can be replaced while status is still "loading" (WebKit quirk).
+    if (fonts.status === "loading") await fonts.ready;
+  });
   return page.evaluate<string[]>(() => {
     const bad: string[] = [];
     const root = document.documentElement;

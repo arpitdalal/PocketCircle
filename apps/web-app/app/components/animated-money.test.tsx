@@ -230,6 +230,57 @@ describe("AnimatedMoney", () => {
     expect(document.querySelector("[data-compact-money]")).toBeNull();
   });
 
+  it("remeasures after document fonts settle so a late web-font swap can compact", async () => {
+    let resolveFontsReady!: () => void;
+    const fontsReady = new Promise<FontFaceSet>((resolve) => {
+      resolveFontsReady = () => resolve(document.fonts);
+    });
+    const listeners = new Set<() => void>();
+    const fontsStub = {
+      ready: fontsReady,
+      addEventListener(_type: string, listener: () => void) {
+        listeners.add(listener);
+      },
+      removeEventListener(_type: string, listener: () => void) {
+        listeners.delete(listener);
+      },
+    };
+    const previousFonts = Object.getOwnPropertyDescriptor(Document.prototype, "fonts");
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: fontsStub,
+    });
+
+    try {
+      const stubs = stubWidths({ container: 120, text: 80 });
+      renderMoney();
+      expect(screen.getByTestId("number-flow")).toHaveAttribute("data-notation", "standard");
+
+      stubs.measureText.mockReturnValue({
+        width: 300,
+        actualBoundingBoxAscent: 0,
+        actualBoundingBoxDescent: 0,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: 0,
+        fontBoundingBoxAscent: 0,
+        fontBoundingBoxDescent: 0,
+      });
+      await act(async () => {
+        resolveFontsReady();
+        await fontsReady;
+      });
+
+      expect(screen.getByTestId("number-flow")).toHaveAttribute("data-notation", "compact");
+      expect(screen.getByTestId("number-flow")).toHaveTextContent(compactUsd(5000));
+    } finally {
+      if (previousFonts) {
+        Object.defineProperty(Document.prototype, "fonts", previousFonts);
+      }
+      // Own property override from this test — drop it so later cases see the prototype.
+      Reflect.deleteProperty(document, "fonts");
+    }
+  });
+
   it("keeps the exact sr-only amount when compact NumberFlow is shown", () => {
     stubWidths({ container: 50, text: 250 });
     renderMoney({ minorUnits: 123_456_789 });

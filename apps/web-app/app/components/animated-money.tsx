@@ -25,7 +25,9 @@ import {
  * scrollWidth and breaks `position: fixed` chrome) decides format: exact fits →
  * full currency NumberFlow; else compact (`notation: "compact"`, still NumberFlow
  * so `$36K` animates). `overflow-hidden` clips digit-strip spin (no scrollbar).
- * Exact stays in sr-only + `title` when compact.
+ * Remeasure on ResizeObserver and `document.fonts` settle (`ready` +
+ * `loadingdone`) so Inter Variable swap cannot leave exact clipped. Exact stays
+ * in sr-only + `title` when compact.
  */
 export function AnimatedMoney({
   minorUnits,
@@ -69,8 +71,10 @@ export function AnimatedMoney({
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
+    let cancelled = false;
 
     const updateOverflow = () => {
+      if (cancelled) return;
       const style = getComputedStyle(container);
       const width = container.clientWidth;
       if (ctx) {
@@ -86,7 +90,27 @@ export function AnimatedMoney({
     const observer = new ResizeObserver(updateOverflow);
     observer.observe(container);
     updateOverflow();
-    return () => observer.disconnect();
+
+    // Font swap changes glyph widths without resizing the container — remeasure
+    // when the document font set settles (initial ready + later loadingdone).
+    // Canvas does not auto-refresh on web-font load the way HTML text does
+    // (https://developer.mozilla.org/en-US/docs/Web/API/FontFaceSet/ready).
+    const fonts = document.fonts;
+    if (fonts) {
+      fonts.addEventListener("loadingdone", updateOverflow);
+      void (async () => {
+        await fonts.ready;
+        // ready can be replaced while status is still "loading" (WebKit).
+        if (!cancelled && fonts.status === "loading") await fonts.ready;
+        updateOverflow();
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      fonts?.removeEventListener("loadingdone", updateOverflow);
+    };
   }, [formatted]);
 
   return (
