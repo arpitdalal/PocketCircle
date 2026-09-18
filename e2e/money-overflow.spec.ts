@@ -17,10 +17,12 @@ import {
  * issue screenshot — then asserts every amount-bearing surface stays inside the
  * viewport: Home totals, Circle Dashboard, Monthly Ledger, recent rows, and
  * contribution links. Document scrollWidth is the WebKit regression gate (sr-only
- * chart table must not widen the page). After fonts settle, AnimatedMoney hosts
- * showing this max exact must expose `data-compact-money` (bbox alone cannot see
- * clip inside `overflow-hidden`); row `MoneyAmountCell`s are checked via
- * scrollWidth so wrap regressions still fail.
+ * chart table must not widen the page).
+ *
+ * Clip detection (bbox alone misses exact NumberFlow clipped inside
+ * `overflow-hidden`): after fonts settle, re-run the same canvas measure
+ * AnimatedMoney uses — if exact cannot fit, `data-compact-money` must be set.
+ * Row `MoneyAmountCell`s (wrap, no clip) are checked via scrollWidth.
  */
 
 const MAX_AMOUNT = "999999999.99";
@@ -28,43 +30,51 @@ const FORMATTED_MAX = "$999,999,999.99";
 const MOBILE_BUDGET = { width: 390, height: 844 } as const;
 
 async function assertNoMoneyOverflow(page: Page) {
-  // Wait for web fonts before measuring — AnimatedMoney may still be on exact
-  // NumberFlow until document.fonts settles, then compact. Asserting mid-swap
-  // can false-pass (clipped exact) or false-fail on layout.
+  // Fonts + settle until AnimatedMoney's compact gate matches canvas measure
+  // (Home single-col can keep exact; Dashboard 3-up must compact — never require
+  // compact unconditionally).
   await page.evaluate(async () => {
     const fonts = document.fonts;
-    if (!fonts) return;
-    await fonts.ready;
-    // ready can be replaced while status is still "loading" (WebKit quirk).
-    if (fonts.status === "loading") await fonts.ready;
+    if (fonts) {
+      await fonts.ready;
+      if (fonts.status === "loading") await fonts.ready;
+    }
   });
-  // After fonts, layout effects must flip compact on max AnimatedMoney hosts
-  // before we assert — otherwise we race the first post-font paint.
   await page.waitForFunction(
-    (maxExact) => {
-      const hosts = [...document.querySelectorAll<HTMLElement>(`[data-money="${maxExact}"]`)];
-      const animated = hosts.filter((el) => {
+    () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return true;
+      for (const el of document.querySelectorAll<HTMLElement>("[data-money]")) {
+        if (el.closest(".sr-only") || el.clientWidth < 1) continue;
         const style = getComputedStyle(el);
-        return (
+        const clips =
           style.overflow === "hidden" ||
           style.overflowX === "hidden" ||
-          style.overflowY === "hidden"
-        );
-      });
-      return animated.length === 0 || animated.every((el) => el.hasAttribute("data-compact-money"));
+          style.overflowY === "hidden";
+        if (!clips) continue;
+        const exact = el.getAttribute("data-money");
+        if (!exact) continue;
+        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const needsCompact = ctx.measureText(exact).width > el.clientWidth;
+        if (needsCompact && !el.hasAttribute("data-compact-money")) return false;
+      }
+      return true;
     },
-    FORMATTED_MAX,
+    undefined,
     { timeout: 5_000 },
   );
-  // Pass the max exact string so the page can assert AnimatedMoney compacted —
-  // overflow-hidden + NumberFlow digit strips make scrollWidth > clientWidth
-  // even when healthy, so bbox alone cannot catch a compact-format miss.
-  return page.evaluate<string[]>((maxExact) => {
+
+  return page.evaluate<string[]>(() => {
     const bad: string[] = [];
     const root = document.documentElement;
     if (root.scrollWidth > root.clientWidth) {
       bad.push(`document ${root.scrollWidth} > ${root.clientWidth}`);
     }
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
     for (const el of document.querySelectorAll<HTMLElement>(
       "[data-money], [data-compact-money], [data-testid='circle-mobile-bottom-nav']",
     )) {
@@ -85,10 +95,15 @@ async function assertNoMoneyOverflow(page: Page) {
         style.overflow === "hidden" || style.overflowX === "hidden" || style.overflowY === "hidden";
 
       if (clips) {
-        // AnimatedMoney: intentional clip for digit-strip spin. Max exact at the
-        // mobile budget must have switched to compact — otherwise exact is clipped.
-        if (exact === maxExact && !el.hasAttribute("data-compact-money")) {
-          bad.push(`AnimatedMoney still exact for ${maxExact} (compact miss / clipped)`);
+        // Mirror AnimatedMoney: digit strips make scrollWidth noisy; canvas
+        // measure of the exact string is the compact gate.
+        if (!ctx) continue;
+        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const needsCompact = ctx.measureText(exact).width > el.clientWidth;
+        if (needsCompact && !el.hasAttribute("data-compact-money")) {
+          bad.push(
+            `AnimatedMoney exact clipped (measure ${Math.round(ctx.measureText(exact).width)} > ${el.clientWidth}, no data-compact-money)`,
+          );
         }
         continue;
       }
@@ -99,7 +114,7 @@ async function assertNoMoneyOverflow(page: Page) {
       }
     }
     return bad;
-  }, FORMATTED_MAX);
+  });
 }
 
 test("max amounts stay inside every money surface at the 390px mobile budget", async ({
