@@ -21,13 +21,78 @@ import {
  *
  * Clip detection (bbox alone misses exact NumberFlow clipped inside
  * `overflow-hidden`): after fonts settle, re-run the same canvas measure
- * AnimatedMoney uses — if exact cannot fit, `data-compact-money` must be set.
- * Row `MoneyAmountCell`s (wrap, no clip) are checked via scrollWidth.
+ * AnimatedMoney uses — if exact cannot fit, `data-compact-money` must be set
+ * and that compact string must also fit. Row `MoneyAmountCell`s (wrap, no clip)
+ * are checked via scrollWidth.
  */
 
 const MAX_AMOUNT = "999999999.99";
 const FORMATTED_MAX = "$999,999,999.99";
 const MOBILE_BUDGET = { width: 390, height: 844 } as const;
+
+/**
+ * Browser-side money overflow contract (must stay identical for settle-wait and
+ * assert). Playwright serializes this function into the page — keep it free of
+ * Node closures. `mode: "settled"` → boolean; `"problems"` → diagnostic strings.
+ */
+function inspectMoneyOverflow(mode: "settled" | "problems") {
+  const bad: string[] = [];
+  const root = document.documentElement;
+  if (root.scrollWidth > root.clientWidth) {
+    bad.push(`document ${root.scrollWidth} > ${root.clientWidth}`);
+  }
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  for (const el of document.querySelectorAll<HTMLElement>(
+    "[data-money], [data-compact-money], [data-testid='circle-mobile-bottom-nav']",
+  )) {
+    if (el.closest(".sr-only")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1) continue;
+    if (r.right > root.clientWidth + 1 || r.left < -1) {
+      bad.push(
+        `${el.tagName}.${String(el.className).slice(0, 40)} outside viewport (${Math.round(r.left)}..${Math.round(r.right)})`,
+      );
+    }
+
+    const exact = el.getAttribute("data-money");
+    if (!exact) continue;
+
+    const style = getComputedStyle(el);
+    const clips =
+      style.overflow === "hidden" || style.overflowX === "hidden" || style.overflowY === "hidden";
+
+    if (clips) {
+      // Mirror AnimatedMoney: digit strips make scrollWidth noisy; canvas
+      // measure of exact / compact strings is the fit gate.
+      if (!ctx) continue;
+      ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const exactWidth = ctx.measureText(exact).width;
+      const needsCompact = exactWidth > el.clientWidth;
+      const compact = el.getAttribute("data-compact-money");
+      if (needsCompact && !compact) {
+        bad.push(
+          `AnimatedMoney exact clipped (measure ${Math.round(exactWidth)} > ${el.clientWidth}, no data-compact-money)`,
+        );
+      }
+      if (compact && ctx.measureText(compact).width > el.clientWidth + 1) {
+        bad.push(
+          `AnimatedMoney compact clipped (measure ${Math.round(ctx.measureText(compact).width)} > ${el.clientWidth})`,
+        );
+      }
+      continue;
+    }
+
+    // MoneyAmountCell (wrap, no clip): content wider than the box is a fail.
+    if (el.scrollWidth > el.clientWidth + 1) {
+      bad.push(`${el.tagName} content clipped (${el.scrollWidth} > ${el.clientWidth})`);
+    }
+  }
+
+  return mode === "settled" ? bad.length === 0 : bad;
+}
 
 async function assertNoMoneyOverflow(page: Page) {
   // Fonts + settle until AnimatedMoney's compact gate matches canvas measure
@@ -40,81 +105,8 @@ async function assertNoMoneyOverflow(page: Page) {
       if (fonts.status === "loading") await fonts.ready;
     }
   });
-  await page.waitForFunction(
-    () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return true;
-      for (const el of document.querySelectorAll<HTMLElement>("[data-money]")) {
-        if (el.closest(".sr-only") || el.clientWidth < 1) continue;
-        const style = getComputedStyle(el);
-        const clips =
-          style.overflow === "hidden" ||
-          style.overflowX === "hidden" ||
-          style.overflowY === "hidden";
-        if (!clips) continue;
-        const exact = el.getAttribute("data-money");
-        if (!exact) continue;
-        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const needsCompact = ctx.measureText(exact).width > el.clientWidth;
-        if (needsCompact && !el.hasAttribute("data-compact-money")) return false;
-      }
-      return true;
-    },
-    undefined,
-    { timeout: 5_000 },
-  );
-
-  return page.evaluate<string[]>(() => {
-    const bad: string[] = [];
-    const root = document.documentElement;
-    if (root.scrollWidth > root.clientWidth) {
-      bad.push(`document ${root.scrollWidth} > ${root.clientWidth}`);
-    }
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-
-    for (const el of document.querySelectorAll<HTMLElement>(
-      "[data-money], [data-compact-money], [data-testid='circle-mobile-bottom-nav']",
-    )) {
-      if (el.closest(".sr-only")) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width < 1) continue;
-      if (r.right > root.clientWidth + 1 || r.left < -1) {
-        bad.push(
-          `${el.tagName}.${String(el.className).slice(0, 40)} outside viewport (${Math.round(r.left)}..${Math.round(r.right)})`,
-        );
-      }
-
-      const exact = el.getAttribute("data-money");
-      if (!exact) continue;
-
-      const style = getComputedStyle(el);
-      const clips =
-        style.overflow === "hidden" || style.overflowX === "hidden" || style.overflowY === "hidden";
-
-      if (clips) {
-        // Mirror AnimatedMoney: digit strips make scrollWidth noisy; canvas
-        // measure of the exact string is the compact gate.
-        if (!ctx) continue;
-        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const needsCompact = ctx.measureText(exact).width > el.clientWidth;
-        if (needsCompact && !el.hasAttribute("data-compact-money")) {
-          bad.push(
-            `AnimatedMoney exact clipped (measure ${Math.round(ctx.measureText(exact).width)} > ${el.clientWidth}, no data-compact-money)`,
-          );
-        }
-        continue;
-      }
-
-      // MoneyAmountCell (wrap, no clip): content wider than the box is a fail.
-      if (el.scrollWidth > el.clientWidth + 1) {
-        bad.push(`${el.tagName} content clipped (${el.scrollWidth} > ${el.clientWidth})`);
-      }
-    }
-    return bad;
-  });
+  await page.waitForFunction(inspectMoneyOverflow, "settled", { timeout: 5_000 });
+  return page.evaluate(inspectMoneyOverflow, "problems");
 }
 
 test("max amounts stay inside every money surface at the 390px mobile budget", async ({
