@@ -76,11 +76,11 @@ function HomeCashFlowTotalCard({
         ? "text-destructive"
         : "text-primary";
   return (
-    <fieldset className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm">
+    <fieldset className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
       <legend className="float-left w-full p-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </legend>
-      <p className={cn("clear-both mt-1 text-lg font-semibold tabular-nums", colorClass)}>
+      <p className={cn("clear-both mt-1 min-w-0 text-lg font-semibold tabular-nums", colorClass)}>
         <AnimatedMoney
           minorUnits={minorUnits}
           currency={currency}

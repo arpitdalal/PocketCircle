@@ -14,6 +14,8 @@ export type ScopeTotalsMinor = {
 /**
  * Three-card Income / Expenses / Net grid for a single month scope (Dashboard,
  * Monthly Ledger). Digits animate together via NumberFlowGroup (ADR 0032).
+ * Stays 3-up at the mobile budget; AnimatedMoney switches to compact notation
+ * when the exact amount would not fit, instead of stacking cards.
  */
 export function MonthScopeTotalsCards({
   legend,
@@ -42,16 +44,22 @@ export function MonthScopeTotalsCards({
   ] as const;
 
   return (
-    <fieldset aria-busy={busy || totals === undefined}>
+    <fieldset
+      className="min-w-0 max-w-full overflow-x-clip"
+      aria-busy={busy || totals === undefined}
+    >
       <legend className="sr-only">{legend}</legend>
       <NumberFlowGroup>
-        <dl className="grid grid-cols-3 gap-3">
+        <dl className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
           {stats.map((stat) => (
-            <div key={stat.label} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div
+              key={stat.label}
+              className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4"
+            >
               <dt className="text-xs text-muted-foreground">{stat.label}</dt>
               <dd
                 className={cn(
-                  "mt-1 font-display text-lg font-semibold tabular-nums sm:text-2xl",
+                  "mt-1 min-w-0 font-display text-base font-semibold tabular-nums sm:text-2xl",
                   stat.tone,
                 )}
               >

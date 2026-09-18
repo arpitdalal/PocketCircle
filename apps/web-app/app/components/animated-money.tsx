@@ -1,5 +1,6 @@
 import NumberFlow from "@number-flow/react";
 import { type CurrencyCode, getCurrency } from "@pocketcircle/domain";
+import { useLayoutEffect, useRef, useState } from "react";
 import { viewerLocale } from "~/lib/locale.js";
 import {
   EASE_OUT_QUART,
@@ -19,6 +20,12 @@ import {
  * `textContent` is not the formatted amount. A visually-hidden text node carries
  * the amount for AT; `data-money` is the test/E2E contract. The animated visual
  * is `aria-hidden` so it is not announced as an image.
+ *
+ * Canvas `measureText` (no DOM probe — a nowrap measure node widens document
+ * scrollWidth and breaks `position: fixed` chrome) decides format: exact fits →
+ * full currency NumberFlow; else compact (`notation: "compact"`, still NumberFlow
+ * so `$36K` animates). `overflow-hidden` clips digit-strip spin (no scrollbar).
+ * Exact stays in sr-only + `title` when compact.
  */
 export function AnimatedMoney({
   minorUnits,
@@ -39,22 +46,62 @@ export function AnimatedMoney({
   const { decimals } = getCurrency(currency);
   const value = minorUnits / 10 ** decimals;
   const locales = viewerLocale();
-  const format = {
+  const exactFormat = {
     style: "currency" as const,
     currency,
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   };
-  const formatted = new Intl.NumberFormat(locales, format).format(value);
+  const compactFormat = {
+    style: "currency" as const,
+    currency,
+    notation: "compact" as const,
+  };
+  const formatted = new Intl.NumberFormat(locales, exactFormat).format(value);
+  const compact = new Intl.NumberFormat(locales, compactFormat).format(value);
   const animated = useScopeChangeMotion(motionKey, `${currency}:${minorUnits}`, motion, pending);
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const updateOverflow = () => {
+      const style = getComputedStyle(container);
+      const width = container.clientWidth;
+      if (ctx) {
+        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        setOverflows(ctx.measureText(formatted).width > width);
+        return;
+      }
+      // No canvas (jsdom): ch-approx so overflow still flips without a DOM probe.
+      const fontSize = Number.parseFloat(style.fontSize) || 16;
+      setOverflows(formatted.length * fontSize * 0.55 > width);
+    };
+
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(container);
+    updateOverflow();
+    return () => observer.disconnect();
+  }, [formatted]);
 
   return (
-    <span data-money={formatted}>
+    <span
+      ref={containerRef}
+      className="relative block min-w-0 max-w-full overflow-hidden"
+      data-money={formatted}
+      data-compact-money={overflows ? compact : undefined}
+      title={overflows ? formatted : undefined}
+    >
       <span className="sr-only">{formatted}</span>
       <NumberFlow
         value={value}
         locales={locales}
-        format={format}
+        format={overflows ? compactFormat : exactFormat}
         animated={animated}
         aria-hidden
         spinTiming={{ duration: SCOPE_MONEY_SPIN_MS, easing: EASE_OUT_QUART }}

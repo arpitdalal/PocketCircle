@@ -78,27 +78,31 @@ export function CashFlowTrend({
         />
       </Suspense>
 
-      <table className="sr-only">
-        <caption>{tableCaption}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Month</th>
-            <th scope="col">Income</th>
-            <th scope="col">Expense</th>
-            <th scope="col">Net</th>
-          </tr>
-        </thead>
-        <tbody>
-          {series.map((entry) => (
-            <tr key={entry.month}>
-              <th scope="row">{formatMonthLabel(entry.month)}</th>
-              <td>{formatMinor(entry.incomeMinor)}</td>
-              <td>{formatMinor(entry.expenseMinor)}</td>
-              <td>{formatMinor(entry.netMinor)}</td>
+      {/* Wrap — WebKit ignores `sr-only` sizing on <table> itself and expands
+          document scrollWidth (~58px at 390), which breaks fixed bottom chrome. */}
+      <div className="sr-only">
+        <table>
+          <caption>{tableCaption}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Month</th>
+              <th scope="col">Income</th>
+              <th scope="col">Expense</th>
+              <th scope="col">Net</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {series.map((entry) => (
+              <tr key={entry.month}>
+                <th scope="row">{formatMonthLabel(entry.month)}</th>
+                <td>{formatMinor(entry.incomeMinor)}</td>
+                <td>{formatMinor(entry.expenseMinor)}</td>
+                <td>{formatMinor(entry.netMinor)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

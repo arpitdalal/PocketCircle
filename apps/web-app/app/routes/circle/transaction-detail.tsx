@@ -127,8 +127,8 @@ function TransactionDetailView({
         <p
           className={
             transaction.type === "income"
-              ? "font-display text-3xl font-semibold tabular-nums text-positive"
-              : "font-display text-3xl font-semibold tabular-nums text-foreground"
+              ? "min-w-0 font-display text-3xl font-semibold break-all tabular-nums text-positive"
+              : "min-w-0 font-display text-3xl font-semibold break-all tabular-nums text-foreground"
           }
         >
           {transaction.type === "income" ? "+" : "-"}

@@ -71,7 +71,11 @@ describe("CashFlowTrend", () => {
     rechartsGate.reset();
     render(<CashFlowTrend currency="USD" series={series} scopeKey="range:6" />);
 
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(table).toBeInTheDocument();
+    // Wrapper (not the table) carries sr-only — WebKit expands page scrollWidth when
+    // sr-only is on <table> itself (#398 horizontal overflow / clipped bottom nav).
+    expect(table.parentElement).toHaveClass("sr-only");
     expect(screen.getByRole("columnheader", { name: "Month" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Income" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Expense" })).toBeInTheDocument();

@@ -52,7 +52,9 @@ export function CashFlowTrendChart({
       <ResponsiveContainer
         width="100%"
         height="100%"
-        initialDimension={{ width: 600, height: 260 }}
+        // Mobile budget (~390) — a wide initialDimension expands page scrollWidth
+        // before measure and breaks fixed bottom chrome.
+        initialDimension={{ width: 320, height: 260 }}
       >
         <ComposedChart data={series} barGap={2}>
           <CartesianGrid stroke="var(--border)" vertical={false} />

@@ -31,6 +31,7 @@ import {
 import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { MoneyAmountCell } from "~/lib/money-display.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
 import { useCircle } from "~/routes/layouts/circle-layout.js";
@@ -328,7 +329,7 @@ function RecentRow({
 }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           <Link
             to={withReturnTo(transactionDetailHref(circle, txn), origin)}
@@ -343,15 +344,17 @@ function RecentRow({
           {txn.paidBy.displayName}
         </p>
       </div>
-      <span
+      <MoneyAmountCell
         className={cn(
-          "ml-auto text-sm font-semibold tabular-nums",
+          "text-sm font-semibold tabular-nums",
           txn.type === "income" ? "text-positive" : "text-foreground",
         )}
       >
-        {txn.type === "income" ? "+" : "-"}
-        {formatMoney(money(txn.amountMinorUnits, currency), viewerLocale())}
-      </span>
+        {`${txn.type === "income" ? "+" : "-"}${formatMoney(
+          money(txn.amountMinorUnits, currency),
+          viewerLocale(),
+        )}`}
+      </MoneyAmountCell>
     </li>
   );
 }

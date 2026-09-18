@@ -81,7 +81,7 @@ function ResolvedCircleLayout({ circle, showSkeleton }: { circle: Circle; showSk
 
   return (
     <>
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto min-w-0 max-w-4xl space-y-6 overflow-x-clip">
         <div className="flex items-center gap-3">
           <CircleMark mark={circle.mark} color={circle.color} className="size-11 text-base" />
           <div className="min-w-0 flex-1">
