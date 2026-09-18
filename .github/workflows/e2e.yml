@@ -71,9 +71,11 @@ jobs:
           pnpm exec convex env set E2E_TEST_AUTH "1"
           pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
           # E2E-only VAPID — generate at job time (no committed private key / GitGuardian).
+          # Pipe values via stdin: base64url can start with `-`/`_`, which `env set NAME $val`
+          # treats as a CLI flag (shard flake: `unknown option '-…'`).
           eval "$(node "$GITHUB_WORKSPACE/scripts/e2e-generate-vapid.mjs")"
-          pnpm exec convex env set VAPID_PUBLIC_KEY "$E2E_VAPID_PUBLIC_KEY"
-          pnpm exec convex env set VAPID_PRIVATE_KEY "$E2E_VAPID_PRIVATE_KEY"
+          printf '%s' "$E2E_VAPID_PUBLIC_KEY" | pnpm exec convex env set VAPID_PUBLIC_KEY
+          printf '%s' "$E2E_VAPID_PRIVATE_KEY" | pnpm exec convex env set VAPID_PRIVATE_KEY
           pnpm exec convex env set VAPID_SUBJECT "$E2E_VAPID_SUBJECT"
           pnpm exec convex env set VAPID_KEY_ID "$E2E_VAPID_KEY_ID"
           pnpm exec convex deploy -y

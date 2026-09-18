@@ -21,6 +21,8 @@ const pub = publicKey.toString("base64url");
 const priv = privateKey.toString("base64url");
 
 // Single-quoted so shell eval is safe (base64url has no quotes).
+// Callers must `printf '%s' "$E2E_VAPID_*_KEY" | convex env set NAME` — base64url
+// can start with `-`/`_`, which `env set NAME $val` treats as a CLI flag.
 process.stdout.write(
   [
     `E2E_VAPID_PUBLIC_KEY='${pub}'`,

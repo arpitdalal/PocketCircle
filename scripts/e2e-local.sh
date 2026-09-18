@@ -139,9 +139,11 @@ log "Configuring test-only auth env + deploying functions"
   pnpm exec convex env set E2E_TEST_AUTH "1"
   pnpm exec convex env set PUSH_DELIVERY_ENABLED "1"
   # E2E-only VAPID — generate at run time (no committed private key / GitGuardian).
+  # Pipe VAPID material via stdin — base64url may start with `-`/`_`, which
+  # `convex env set NAME $val` parses as a CLI flag.
   eval "$(node "$REPO_ROOT/scripts/e2e-generate-vapid.mjs")"
-  pnpm exec convex env set VAPID_PUBLIC_KEY "$E2E_VAPID_PUBLIC_KEY"
-  pnpm exec convex env set VAPID_PRIVATE_KEY "$E2E_VAPID_PRIVATE_KEY"
+  printf '%s' "$E2E_VAPID_PUBLIC_KEY" | pnpm exec convex env set VAPID_PUBLIC_KEY
+  printf '%s' "$E2E_VAPID_PRIVATE_KEY" | pnpm exec convex env set VAPID_PRIVATE_KEY
   pnpm exec convex env set VAPID_SUBJECT "$E2E_VAPID_SUBJECT"
   pnpm exec convex env set VAPID_KEY_ID "$E2E_VAPID_KEY_ID"
   pnpm exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_HMAC_SECRET"
