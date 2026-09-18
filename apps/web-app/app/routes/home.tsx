@@ -33,6 +33,7 @@ import { canonicalHomeSummaryParams, readHomeSummarySelection } from "~/lib/home
 import { keepScrollSearchParamsOptions } from "~/lib/keep-scroll-search-params.js";
 import { transactionDetailHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { MoneyAmountCell } from "~/lib/money-display.js";
 import { useReturnToOrigin, withReturnTo } from "~/lib/return-to-url.js";
 import { cn } from "~/lib/utils.js";
 
@@ -337,12 +338,12 @@ function ContributionsSection({
           <li key={c.circleId}>
             <Link
               to={href("/circles/:circleRef", { circleRef: c.circleRef })}
-              className="flex items-center justify-between px-4 py-3 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
-              <span className="font-medium">{c.name}</span>
-              <span className="text-muted-foreground">
-                {formatMinor(c.incomeMinor)} / {formatMinor(c.expenseMinor)}
-              </span>
+              <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+              <MoneyAmountCell className="text-muted-foreground">
+                {`${formatMinor(c.incomeMinor)} / ${formatMinor(c.expenseMinor)}`}
+              </MoneyAmountCell>
             </Link>
           </li>
         ))}
@@ -373,23 +374,22 @@ function RecentTransactionsSection({
                 transactionDetailHref({ ref: txn.circleRef }, { ref: txn.ref }),
                 origin,
               )}
-              className="flex items-center justify-between px-4 py-3 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{txn.title}</span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {txn.circleName}
                 </span>
               </span>
-              <span
+              <MoneyAmountCell
                 className={cn(
-                  "shrink-0 font-medium",
+                  "font-medium",
                   txn.type === "income" ? "text-positive" : "text-destructive",
                 )}
               >
-                {txn.type === "income" ? "+" : "−"}
-                {formatMinor(txn.amountMinorUnits)}
-              </span>
+                {`${txn.type === "income" ? "+" : "−"}${formatMinor(txn.amountMinorUnits)}`}
+              </MoneyAmountCell>
             </Link>
           </li>
         ))}

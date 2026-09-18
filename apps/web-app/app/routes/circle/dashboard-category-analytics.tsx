@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import type { CategoryAnalytics, CategoryAnalyticsRow } from "~/lib/data.js";
 import { ledgerDrilldownHref } from "~/lib/ledger-url.js";
 import { viewerLocale } from "~/lib/locale.js";
+import { MoneyAmountCell } from "~/lib/money-display.js";
 import { cn } from "~/lib/utils.js";
 
 /**
@@ -94,7 +95,7 @@ function CategoryAnalyticsRowItem({
       <div className="flex items-center gap-2">
         <span
           className={cn(
-            "min-w-0 truncate text-sm font-medium",
+            "min-w-0 flex-1 truncate text-sm font-medium",
             isArchived && "text-muted-foreground",
           )}
         >
@@ -111,9 +112,9 @@ function CategoryAnalyticsRowItem({
             Archived
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 text-sm font-semibold tabular-nums">
+        <MoneyAmountCell className="text-sm font-semibold tabular-nums">
           {formatMinor(row.taggedTotalMinor)}
-        </span>
+        </MoneyAmountCell>
       </div>
       <div
         aria-hidden="true"
