@@ -1,4 +1,4 @@
-import { searchResultTotalPages } from "@pocketcircle/domain";
+import { colorLabel, searchResultTotalPages } from "@pocketcircle/domain";
 import { SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect } from "react";
 import { useSearchParams } from "react-router";
@@ -209,11 +209,26 @@ function MyTransactionsFilterForm({
   circleOptions: ReturnType<typeof useMyTransactionCircles>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const options = (circleOptions ?? []).map((circle) => ({
-    value: circle.id,
-    label: circle.name,
-    detail: circle.status === "archived" ? `${circle.currency} · Archived` : circle.currency,
-  }));
+  const circles = circleOptions ?? [];
+  const nameCounts = new Map<string, number>();
+  for (const circle of circles) {
+    nameCounts.set(circle.name, (nameCounts.get(circle.name) ?? 0) + 1);
+  }
+  const options = circles.map((circle) => {
+    const color = colorLabel(circle.color);
+    const ambiguous = (nameCounts.get(circle.name) ?? 0) > 1;
+    const detailParts = [circle.currency, color];
+    if (circle.status === "archived") {
+      detailParts.push("Archived");
+    }
+    return {
+      value: circle.id,
+      // Same-name Circles (PRD 10) need Color in the chip/label — detail alone is not
+      // announced on selected chips (matches circle-switcher disambiguation).
+      label: ambiguous ? `${circle.name} (${color})` : circle.name,
+      detail: detailParts.join(" · "),
+    };
+  });
 
   return (
     <form id="my-transactions-filter-form" className="space-y-4" onSubmit={onSubmit}>

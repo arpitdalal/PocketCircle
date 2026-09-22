@@ -9,9 +9,8 @@ import {
 } from "./feature-announcements.js";
 
 describe("featureAnnouncementRouteScope", () => {
-  it("allows Home, My Transactions, Circle Dashboard, Ledger, and Categories list", () => {
+  it("allows Home, Circle Dashboard, Ledger, and Categories list", () => {
     expect(featureAnnouncementRouteScope("/")).toEqual({ kind: "home" });
-    expect(featureAnnouncementRouteScope("/my-transactions")).toEqual({ kind: "home" });
     expect(featureAnnouncementRouteScope("/circles/trip-abc")).toEqual({
       kind: "circle",
       circleRef: "trip-abc",
@@ -26,8 +25,9 @@ describe("featureAnnouncementRouteScope", () => {
     });
   });
 
-  it("excludes Search, Setup, create/edit/detail, Settings, Connections, and other routes", () => {
+  it("excludes Search, Setup, create/edit/detail, Settings, Connections, My Transactions, and other routes", () => {
     const excluded = [
+      "/my-transactions",
       "/search",
       "/settings",
       "/connections",

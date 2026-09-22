@@ -7,6 +7,7 @@ import {
   searchOffsetTotalCount,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
+import { mergedStream } from "convex-helpers/server/stream";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { query } from "./_generated/server.js";
 import { requireCurrentUser } from "./auth.js";
@@ -23,6 +24,9 @@ import { newViewCaches, toTransactionView } from "./transactions.js";
 const filterType = v.union(v.literal("all"), v.literal("expense"), v.literal("income"));
 const lifecycleFilter = v.union(v.literal("active"), v.literal("archived"), v.literal("all"));
 
+/** Index order after paid-by/status equality — same composite `mergedStream` needs. */
+const MY_TXN_MERGE_KEYS = ["date", "_creationTime"] as const;
+
 function selectedType(value: "all" | "expense" | "income") {
   return value === "all" ? undefined : value;
 }
@@ -36,16 +40,6 @@ function streamLifecycleStatuses(status: "active" | "archived" | undefined) {
     return [status];
   }
   return ["active", "archived"] as const;
-}
-
-function compareTxnDateDesc(a: Doc<"transactions">, b: Doc<"transactions">) {
-  if (a.date !== b.date) {
-    return a.date < b.date ? 1 : -1;
-  }
-  if (a.createdAt !== b.createdAt) {
-    return a.createdAt < b.createdAt ? 1 : -1;
-  }
-  return a._id < b._id ? 1 : -1;
 }
 
 function toMyTransactionCircle(circle: Doc<"circles">) {
@@ -76,8 +70,8 @@ export const listMyTransactionCircles = query({
 /**
  * My Transactions (#389 / ADR 0034): Paid-By-User list+filter across visible Circles.
  *
- * ponytail: O(circles × takeLimit) merge via per-Circle paidBy streams. Fine while Users
- * keep tens of Circles; upgrade path is a paidByUserId index / denorm for global range scans.
+ * Per-Circle paid-by+status streams are already date-desc; `mergedStream` k-way merges them
+ * so we only read ~takeLimit rows globally (not takeLimit × Circles × lifecycles).
  */
 export const searchMyTransactions = query({
   args: {
@@ -154,11 +148,10 @@ export const searchMyTransactions = query({
     const emptyCategoryIds = new Set<Id<"categories">>();
     const searchCaches = newSearchCaches();
 
-    const matched: Doc<"transactions">[] = [];
-    for (const entry of selected) {
+    const sources = selected.flatMap((entry) => {
       const paidByMemberIds = new Set<Id<"members">>([entry.membership._id]);
-      for (const streamStatus of streamLifecycleStatuses(status)) {
-        const source = streamByWindow(ctx, {
+      return streamLifecycleStatuses(status).map((streamStatus) =>
+        streamByWindow(ctx, {
           circleId: entry.circle._id,
           status: streamStatus,
           paidByMemberIds,
@@ -181,34 +174,22 @@ export const searchMyTransactions = query({
             },
             searchCaches,
           ),
-        );
-
-        let collected = 0;
-        let cursor: string | null = null;
-        let done = false;
-        while (!done && collected < takeLimit) {
-          const need = takeLimit - collected;
-          const batch = await source.paginate({
-            numItems: Math.min(need, pageSize * 4),
-            cursor,
-          });
-          matched.push(...batch.page);
-          collected += batch.page.length;
-          done = batch.isDone;
-          cursor = batch.continueCursor;
-        }
-      }
+        ),
+      );
+    });
+    if (sources.length === 0) {
+      return empty();
     }
+    const first = sources[0];
+    if (!first) {
+      return empty();
+    }
+    const source = sources.length === 1 ? first : mergedStream(sources, [...MY_TXN_MERGE_KEYS]);
 
-    matched.sort(compareTxnDateDesc);
-    const capped = matched.slice(0, takeLimit);
-    const { totalCount, totalCountCapped } = searchOffsetTotalCount(
-      capped.length,
-      takeLimit,
-      matched.length > takeLimit,
-    );
+    const matched = await source.take(takeLimit);
+    const { totalCount, totalCountCapped } = searchOffsetTotalCount(matched.length, takeLimit);
     const start = (page - 1) * pageSize;
-    const pageDocs = capped.slice(start, start + pageSize);
+    const pageDocs = matched.slice(start, start + pageSize);
 
     const viewCaches = newViewCaches();
     const transactions = await Promise.all(

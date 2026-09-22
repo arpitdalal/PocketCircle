@@ -67,8 +67,8 @@ export const FEATURE_ANNOUNCEMENTS = [
     ],
     ctaLabel: "Open My Transactions",
     ctaHref: "/my-transactions",
-    // Unreleased campaign — eligible for Users created before this cutoff.
-    eligibleBefore: "2026-12-31T00:00:00.000Z",
+    // Launch cutoff — Users created at/after this instant never see the migration card.
+    eligibleBefore: "2026-09-22T12:00:00.000Z",
   },
 ] as const satisfies readonly FeatureAnnouncement[];
 
@@ -109,12 +109,14 @@ export type FeatureAnnouncementRouteScope =
 const ANNOUNCEMENT_CIRCLE_CHILDREN = new Set(["transactions", "categories"]);
 
 /**
- * Allowed routes for the Feature Announcement card: Home, My Transactions,
- * Circle Dashboard, Ledger, Categories list. Circle identity comes from {@link circleRefOf};
- * this helper only applies the announcement child-route allowlist.
+ * Allowed routes for the Feature Announcement card: Home, Circle Dashboard,
+ * Ledger, Categories list. Not `/my-transactions` — that is this campaign's CTA
+ * destination, so promoting it over the destination itself is noise.
+ * Circle identity comes from {@link circleRefOf}; this helper only applies the
+ * announcement child-route allowlist.
  */
 export function featureAnnouncementRouteScope(pathname: string) {
-  if (pathname === "/" || pathname === "/my-transactions") {
+  if (pathname === "/") {
     return { kind: "home" } as const;
   }
 
