@@ -1,8 +1,15 @@
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
-import { addMember, seedOwnedFixture, seedPersonalFixture, seedTransaction } from "../test/seed.js";
+import {
+  addMember,
+  seedOwnedFixture,
+  seedPersonalFixture,
+  seedTransaction,
+  seedTransactionsBulk,
+} from "../test/seed.js";
 import { api } from "./_generated/api.js";
+import { MY_TRANSACTIONS_CANDIDATE_READ_CEILING } from "./myTransactions.js";
 import schema from "./schema.js";
 
 vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
@@ -262,6 +269,41 @@ describe("searchMyTransactions", () => {
     });
 
     expect(page.transactions.map((txn) => txn.title)).toEqual(["Newer create", "Older create"]);
+  });
+
+  it("marks scanIncomplete when the candidate budget ends before a sparse match", async () => {
+    const t = convexTest(schema, modules);
+    const personal = await t.run((ctx) =>
+      seedPersonalFixture(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      }),
+    );
+    signInAs(personal.owner);
+
+    await t.run(async (ctx) => {
+      // Newest-first scan: many expenses burn the budget before an older income match.
+      await seedTransactionsBulk(ctx, personal, MY_TRANSACTIONS_CANDIDATE_READ_CEILING + 1, {
+        titlePrefix: "noise",
+      });
+      await seedTransaction(ctx, personal, {
+        title: "Rare income",
+        type: "income",
+        date: "2020-01-01",
+        createdAt: 1,
+      });
+    });
+
+    const page = await t.query(api.myTransactions.searchMyTransactions, {
+      type: "income",
+      status: "all",
+      page: 1,
+    });
+
+    expect(page.scanIncomplete).toBe(true);
+    expect(page.transactions).toEqual([]);
+    expect(page.totalCountCapped).toBe(true);
   });
 
   it("filters by type and lifecycle", async () => {

@@ -32,7 +32,7 @@ const MY_TXN_MERGE_KEYS = ["date", "_creationTime"] as const;
  * Max underlying index rows scanned when text/type/amount post-filters thin matches.
  * One global budget (not per-Circle) so sparse filters cannot walk every Paid-By row.
  */
-const CANDIDATE_READ_CEILING = 4096;
+export const MY_TRANSACTIONS_CANDIDATE_READ_CEILING = 4096;
 
 function selectedType(value: "all" | "expense" | "income") {
   return value === "all" ? undefined : value;
@@ -95,7 +95,9 @@ async function collectMatchedTransactions(
   const hasSparsePostFilters = Boolean(
     args.queryText || args.type || args.amountMin !== undefined || args.amountMax !== undefined,
   );
-  const candidateBudget = hasSparsePostFilters ? CANDIDATE_READ_CEILING : args.takeLimit;
+  const candidateBudget = hasSparsePostFilters
+    ? MY_TRANSACTIONS_CANDIDATE_READ_CEILING
+    : args.takeLimit;
 
   const sources = args.selected.flatMap((entry) => {
     const paidByMemberIds = new Set<Id<"members">>([entry.membership._id]);
