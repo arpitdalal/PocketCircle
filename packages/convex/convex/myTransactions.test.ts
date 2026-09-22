@@ -1,25 +1,16 @@
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
 import { addMember, seedOwnedFixture, seedPersonalFixture, seedTransaction } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import schema from "./schema.js";
 
-const { mockCurrentUser } = vi.hoisted(() => ({ mockCurrentUser: vi.fn() }));
-vi.mock("./auth.js", () => ({
-  getCurrentUserOrNull: mockCurrentUser,
-  requireCurrentUser: async (ctx: unknown) => {
-    const user = await mockCurrentUser(ctx);
-    if (!user) {
-      throw new Error("Not authenticated");
-    }
-    return user;
-  },
-}));
+vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
 
 const modules = import.meta.glob("./**/*.ts");
 
 beforeEach(() => {
-  mockCurrentUser.mockReset();
+  resetMockCurrentUser();
 });
 
 describe("searchMyTransactions", () => {
@@ -35,7 +26,7 @@ describe("searchMyTransactions", () => {
     const trip = await t.run((ctx) =>
       seedOwnedFixture(ctx, personal.owner, { name: "Trip", currency: "CAD" }),
     );
-    mockCurrentUser.mockResolvedValue(personal.owner);
+    signInAs(personal.owner);
 
     await t.run(async (ctx) => {
       await seedTransaction(ctx, personal, {
@@ -86,7 +77,7 @@ describe("searchMyTransactions", () => {
       });
       return { personal, owned };
     });
-    mockCurrentUser.mockResolvedValue(trip.personal.owner);
+    signInAs(trip.personal.owner);
 
     const page = await t.query(api.myTransactions.searchMyTransactions, {
       type: "all",
@@ -110,7 +101,7 @@ describe("searchMyTransactions", () => {
       await seedTransaction(ctx, trip, { title: "Trip only", date: "2026-06-02" });
       return { personal, trip };
     });
-    mockCurrentUser.mockResolvedValue(seeded.personal.owner);
+    signInAs(seeded.personal.owner);
 
     const page = await t.query(api.myTransactions.searchMyTransactions, {
       circleIds: [seeded.trip.circleId, "not-a-circle"],
@@ -135,7 +126,7 @@ describe("searchMyTransactions", () => {
       await seedTransaction(ctx, trip, { title: "Uber", date: "2026-06-02" });
       return personal;
     });
-    mockCurrentUser.mockResolvedValue(seeded.owner);
+    signInAs(seeded.owner);
 
     const page = await t.query(api.myTransactions.searchMyTransactions, {
       query: "whole",
@@ -162,7 +153,7 @@ describe("searchMyTransactions", () => {
       await seedTransaction(ctx, archived, { title: "Archived circle spend", date: "2026-01-01" });
       return personal;
     });
-    mockCurrentUser.mockResolvedValue(seeded.owner);
+    signInAs(seeded.owner);
 
     const page = await t.query(api.myTransactions.searchMyTransactions, {
       type: "all",
@@ -182,7 +173,7 @@ describe("searchMyTransactions", () => {
         onboarded: true,
       }),
     );
-    mockCurrentUser.mockResolvedValue(personal.owner);
+    signInAs(personal.owner);
 
     await t.run(async (ctx) => {
       for (let index = 1; index <= 3; index += 1) {
@@ -225,7 +216,7 @@ describe("listMyTransactionCircles", () => {
       await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       return personal;
     });
-    mockCurrentUser.mockResolvedValue(seeded.owner);
+    signInAs(seeded.owner);
 
     const circles = await t.query(api.myTransactions.listMyTransactionCircles, {});
     expect(circles.map((circle) => circle.name).sort()).toEqual(["Ada's Circle", "Trip"].sort());

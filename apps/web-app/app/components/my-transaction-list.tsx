@@ -51,7 +51,7 @@ export function MyTransactionList({
 
 function MyTransactionRowItem({ txn, origin }: { txn: MyTransactionRow; origin: string }) {
   const circle = txn.circle;
-  const canEdit = circle.status === "active" && txn.canEditFields;
+  const canEdit = circle.status === "active" && txn.status === "active" && txn.canEditFields;
 
   return (
     <li className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm">

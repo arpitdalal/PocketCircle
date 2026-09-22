@@ -61,6 +61,28 @@ export default function MyTransactionsPage() {
   const totalPages = searchResultTotalPages(results.totalCount, results.pageSize);
   const filterCount = activeMyTransactionsFilterCount(filters);
 
+  useEffect(() => {
+    if (results.isLoading) {
+      return;
+    }
+    if (results.totalCount === 0) {
+      if (filters.page > 1) {
+        setSearchParams(
+          canonicalMyTransactionsParams({ ...filters, page: 1 }),
+          keepScrollSearchParamsOptions({ replace: true }),
+        );
+      }
+      return;
+    }
+    const maxPage = searchResultTotalPages(results.totalCount, results.pageSize);
+    if (filters.page > maxPage) {
+      setSearchParams(
+        canonicalMyTransactionsParams({ ...filters, page: maxPage }),
+        keepScrollSearchParamsOptions({ replace: true }),
+      );
+    }
+  }, [filters, results.isLoading, results.pageSize, results.totalCount, setSearchParams]);
+
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     if (hasReversedRange(draft)) {

@@ -86,6 +86,7 @@ export function useReturnToOrigin() {
  * Allowed destinations:
  * - In-Circle paths: `/circles/<ref>/…` (non-reserved)
  * - Home: `/` optionally with query and/or hash (`/?currency=CAD&range=3`)
+ * - My Transactions: `/my-transactions` with optional query/hash (ADR 0034)
  */
 export function parseReturnTo(raw: string | null, { fallback }: { fallback: string }) {
   if (!raw) {
@@ -109,6 +110,15 @@ export function parseReturnTo(raw: string | null, { fallback }: { fallback: stri
 
   // Home path: exactly `/` optionally followed by `?` or `#` (no further path segments).
   if (raw === "/" || raw.startsWith("/?") || raw.startsWith("/#")) {
+    return raw;
+  }
+
+  const isMyTransactions =
+    raw === "/my-transactions" ||
+    raw.startsWith("/my-transactions?") ||
+    raw.startsWith("/my-transactions#");
+
+  if (isMyTransactions) {
     return raw;
   }
 

@@ -33,7 +33,7 @@ test("a user creates a regular circle from the shell and can finish setup", asyn
 
   await finishCircleSetup(page);
   expect(page.url()).toMatch(/\/circles\/[^/]+-[^/]+$/);
-  await expect(page.getByRole("link", { name: "Transactions" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Transactions", exact: true })).toBeVisible();
 });
 
 test("the new circle appears in the switcher and is reachable again", async ({ page }) => {

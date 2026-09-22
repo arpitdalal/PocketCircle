@@ -15,7 +15,7 @@ import {
 
 /** Well before any campaign release cutoff — keeps E2E Users eligible. */
 const ANNOUNCEMENT_ELIGIBLE_CREATED_AT = Date.parse("2020-01-01T00:00:00.000Z");
-const ACTIVE_TITLE = /Connect PocketCircle to your AI assistant/i;
+const ACTIVE_TITLE = /Find every Transaction you paid for/i;
 
 async function establishAnnouncementEligibleSession(
   page: import("@playwright/test").Page,
@@ -38,7 +38,7 @@ async function establishAnnouncementEligibleSession(
   }, ANNOUNCEMENT_ELIGIBLE_CREATED_AT);
 }
 
-test("Feature Announcement CTA opens Connections and acknowledges the campaign", async ({
+test("Feature Announcement CTA opens My Transactions and acknowledges the campaign", async ({
   browser,
   baseURL,
 }, testInfo) => {
@@ -62,9 +62,9 @@ test("Feature Announcement CTA opens Connections and acknowledges the campaign",
     // attributes are covered by the component test instead.
     await expect(card.getByTestId("feature-announcement-hero")).toBeVisible();
     await expect(card.getByRole("listitem")).toHaveCount(3);
-    await card.getByRole("link", { name: "Open Connections" }).click();
+    await card.getByRole("link", { name: "Open My Transactions" }).click();
 
-    await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My Transactions", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: ACTIVE_TITLE })).toHaveCount(0);
     await expect(page.getByTestId("feature-announcement-ack")).toHaveAttribute(
       "data-result",

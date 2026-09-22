@@ -406,7 +406,7 @@ export function useMyTransactions(
 ) {
   const page = opts?.page ?? 1;
   const pageSize = opts?.pageSize ?? TRANSACTIONS_PAGE_SIZE;
-  const data = useQuery(
+  const stable = useStableQuery(
     api.myTransactions.searchMyTransactions,
     MOCKS
       ? "skip"
@@ -422,7 +422,7 @@ export function useMyTransactions(
       isLoading: false,
     } satisfies MyTransactionsResult;
   }
-  if (data === undefined) {
+  if (stable.value === undefined) {
     return {
       transactions: [],
       pageNumber: page,
@@ -432,7 +432,10 @@ export function useMyTransactions(
       isLoading: true,
     } satisfies MyTransactionsResult;
   }
-  return { ...data, isLoading: false } satisfies MyTransactionsResult;
+  return {
+    ...stable.value,
+    isLoading: stable.isPending,
+  } satisfies MyTransactionsResult;
 }
 
 export function useMyTransactionCircles() {

@@ -31,6 +31,13 @@ function selectedStatus(value: "active" | "archived" | "all") {
   return value === "all" ? undefined : value;
 }
 
+function streamLifecycleStatuses(status: "active" | "archived" | undefined) {
+  if (status) {
+    return [status];
+  }
+  return ["active", "archived"] as const;
+}
+
 function compareTxnDateDesc(a: Doc<"transactions">, b: Doc<"transactions">) {
   if (a.date !== b.date) {
     return a.date < b.date ? 1 : -1;
@@ -150,44 +157,46 @@ export const searchMyTransactions = query({
     const matched: Doc<"transactions">[] = [];
     for (const entry of selected) {
       const paidByMemberIds = new Set<Id<"members">>([entry.membership._id]);
-      const source = streamByWindow(ctx, {
-        circleId: entry.circle._id,
-        status,
-        paidByMemberIds,
-        recordedByMemberIds: emptyMemberIds,
-        start: window.start,
-        endExclusive: window.endExclusive,
-      }).filterWith((txn) =>
-        matchesFilters(
-          ctx,
-          txn,
-          {
-            type,
-            status,
-            categoryIds: emptyCategoryIds,
-            recordedByMemberIds: emptyMemberIds,
-            paidByMemberIds,
-            amountMin: args.amountMin,
-            amountMax: args.amountMax,
-            queryText,
-          },
-          searchCaches,
-        ),
-      );
+      for (const streamStatus of streamLifecycleStatuses(status)) {
+        const source = streamByWindow(ctx, {
+          circleId: entry.circle._id,
+          status: streamStatus,
+          paidByMemberIds,
+          recordedByMemberIds: emptyMemberIds,
+          start: window.start,
+          endExclusive: window.endExclusive,
+        }).filterWith((txn) =>
+          matchesFilters(
+            ctx,
+            txn,
+            {
+              type,
+              status,
+              categoryIds: emptyCategoryIds,
+              recordedByMemberIds: emptyMemberIds,
+              paidByMemberIds,
+              amountMin: args.amountMin,
+              amountMax: args.amountMax,
+              queryText,
+            },
+            searchCaches,
+          ),
+        );
 
-      let collected = 0;
-      let cursor: string | null = null;
-      let done = false;
-      while (!done && collected < takeLimit) {
-        const need = takeLimit - collected;
-        const batch = await source.paginate({
-          numItems: Math.min(need, pageSize * 4),
-          cursor,
-        });
-        matched.push(...batch.page);
-        collected += batch.page.length;
-        done = batch.isDone;
-        cursor = batch.continueCursor;
+        let collected = 0;
+        let cursor: string | null = null;
+        let done = false;
+        while (!done && collected < takeLimit) {
+          const need = takeLimit - collected;
+          const batch = await source.paginate({
+            numItems: Math.min(need, pageSize * 4),
+            cursor,
+          });
+          matched.push(...batch.page);
+          collected += batch.page.length;
+          done = batch.isDone;
+          cursor = batch.continueCursor;
+        }
       }
     }
 
