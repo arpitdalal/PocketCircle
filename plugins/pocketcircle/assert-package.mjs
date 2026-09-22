@@ -117,6 +117,49 @@ assert(
 );
 assert(spendingSkill.includes("cursor"), "spending skill must require cursor pagination");
 
+assert(
+  typeof manifest.version === "string" && /^0\.1\.1\+codex\.\d{14}$/.test(manifest.version),
+  "manifest.version must use 0.1.1+codex.<YYYYMMDDhhmmss> cachebuster",
+);
+assert(
+  /notify|Notification/i.test(manifest.interface.longDescription ?? ""),
+  "longDescription must disclose member Notifications",
+);
+assert(
+  /Currency/i.test(manifest.interface.longDescription ?? ""),
+  "longDescription must disclose first-Transaction Currency lock",
+);
+
+const annotationContractPath = join(root, "packages/mcp-worker/src/tool-annotation-contract.json");
+const submissionPath = join(root, "docs/submission/pocketcircle/chatgpt-app-submission.json");
+assert(existsSync(annotationContractPath), "missing tool-annotation-contract.json");
+assert(existsSync(submissionPath), "missing chatgpt-app-submission.json");
+const annotationContract = readJson(annotationContractPath);
+const submission = readJson(submissionPath);
+const contractNames = Object.keys(annotationContract);
+assert(contractNames.length === 25, "annotation contract must cover 25 tools");
+for (const name of contractNames) {
+  const expected = annotationContract[name];
+  const submitted = submission.tools?.[name]?.annotations;
+  assert(submitted, `submission missing tool ${name}`);
+  assert(
+    submitted.readOnlyHint === expected.readOnlyHint &&
+      submitted.openWorldHint === expected.openWorldHint &&
+      submitted.destructiveHint === expected.destructiveHint,
+    `submission annotations drift for ${name}`,
+  );
+}
+assert(
+  /locks that Circle/i.test(
+    submission.tools?.create_transaction?.justifications?.destructive_justification ?? "",
+  ),
+  "create_transaction destructive justification must name Currency lock",
+);
+assert(
+  /notify/i.test(submission.app_info?.description ?? ""),
+  "submission app description must disclose Notifications",
+);
+
 if (process.exitCode) {
   console.error("assert-package: failed");
   process.exit(process.exitCode);

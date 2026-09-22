@@ -20,7 +20,7 @@ export const ORDINARY_WRITE_TOOL_NAMES = new Set([
   "restore_transaction",
 ]);
 
-/** Archive tools — destructiveHint true; separate, tighter bucket. */
+/** Archive tools — tighter rate bucket than ordinary writes. Independent of MCP destructiveHint. */
 export const DESTRUCTIVE_TOOL_NAMES = new Set(["archive_category", "archive_transaction"]);
 
 export const READ_TOOL_NAMES = new Set([

@@ -8,5 +8,5 @@
     "declarationMap": false,
     "lib": ["ES2023"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.json"]
 }

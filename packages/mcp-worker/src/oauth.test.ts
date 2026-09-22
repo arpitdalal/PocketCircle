@@ -7,9 +7,11 @@ import {
   verifyMcpHandoff,
 } from "@pocketcircle/domain";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { defaultHandler } from "./authorize.js";
 import { createMcpApiHandler } from "./mcp-api.js";
 import { createOAuthProvider, pocketCircleOAuthApi } from "./oauth-options.js";
+import toolAnnotationContract from "./tool-annotation-contract.json" with { type: "json" };
 
 const REDIRECT_URI = "https://mcp-client.example/callback";
 const RESOURCE = "https://mcp.pocketcircle.app/mcp";
@@ -1580,85 +1582,35 @@ describe("MCP tools execution", () => {
     expect(JSON.stringify(body)).not.toMatch(/\$\{/);
     expect(JSON.stringify(body)).not.toContain("Coffee");
     expect(JSON.stringify(body)).not.toContain("@");
-    expect(body).toMatchObject({
-      jsonrpc: "2.0",
-      result: {
-        tools: expect.arrayContaining([
-          expect.objectContaining({
-            name: "create_transaction",
-            annotations: {
-              readOnlyHint: false,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: false,
-            },
+    const toolsListResultSchema = z.object({
+      jsonrpc: z.literal("2.0"),
+      result: z.object({
+        tools: z.array(
+          z.object({
+            name: z.string(),
+            description: z.string().optional(),
+            annotations: z.object({
+              readOnlyHint: z.boolean(),
+              openWorldHint: z.boolean(),
+              destructiveHint: z.boolean(),
+              idempotentHint: z.boolean(),
+            }),
           }),
-          expect.objectContaining({
-            name: "get_circle",
-            annotations: {
-              readOnlyHint: true,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: true,
-            },
-          }),
-          expect.objectContaining({
-            name: "list_members",
-            annotations: {
-              readOnlyHint: true,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: true,
-            },
-          }),
-          expect.objectContaining({
-            name: "list_circle_history",
-            annotations: {
-              readOnlyHint: true,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: true,
-            },
-          }),
-          expect.objectContaining({
-            name: "archive_transaction",
-            annotations: {
-              readOnlyHint: false,
-              openWorldHint: false,
-              destructiveHint: true,
-              idempotentHint: false,
-            },
-          }),
-          expect.objectContaining({
-            name: "restore_transaction",
-            annotations: {
-              readOnlyHint: false,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: false,
-            },
-          }),
-          expect.objectContaining({
-            name: "archive_category",
-            annotations: {
-              readOnlyHint: false,
-              openWorldHint: false,
-              destructiveHint: true,
-              idempotentHint: false,
-            },
-          }),
-          expect.objectContaining({
-            name: "restore_category",
-            annotations: {
-              readOnlyHint: false,
-              openWorldHint: false,
-              destructiveHint: false,
-              idempotentHint: false,
-            },
-          }),
-        ]),
-      },
+        ),
+      }),
     });
+    const parsed = toolsListResultSchema.parse(body);
+    const byName = new Map(parsed.result.tools.map((tool) => [tool.name, tool]));
+    expect(byName.size).toBe(Object.keys(toolAnnotationContract).length);
+    for (const [name, expected] of Object.entries(toolAnnotationContract)) {
+      expect(byName.get(name)?.annotations).toEqual(expected);
+    }
+    expect(byName.get("create_transaction")?.description).toMatch(/locks that Circle's Currency/i);
+    expect(byName.get("create_transaction")?.description).toMatch(/in-app notification/i);
+    expect(byName.get("restore_transaction")?.description).toMatch(/in-app notification/i);
+    expect(byName.get("restore_category")?.description).toMatch(/in-app notification/i);
+    expect(byName.get("archive_transaction")?.description).toMatch(/in-app notification/i);
+    expect(byName.get("archive_category")?.description).toMatch(/in-app notification/i);
   });
 
   it("calls Circle, Member, and Circle History reads with structured results", async () => {

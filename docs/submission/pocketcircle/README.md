@@ -4,8 +4,7 @@ Prepared for [#370](https://github.com/arpitdalal/PocketCircle/issues/370), 2026
 
 ## Files and listing
 
-- [Import JSON](chatgpt-app-submission.json): 25 tool annotations and justifications, exactly five positive cases, three required negative cases. The original Downloads file is unchanged.
-- Ready-to-import local copy: `~/Downloads/chatgpt-app-submission-370.json`.
+- [Import JSON](chatgpt-app-submission.json): 25 tool annotations and justifications, exactly five positive cases, three required negative cases. Use this repo file for portal import — not a Downloads copy.
 - [Production logo](../../../plugins/pocketcircle/assets/logo.png).
 - Publisher: Arpit Dalal, individual. Contact: arpitdalalm@gmail.com.
 - Name: PocketCircle. Subtitle: Track shared income & expenses. Category: Finance.
@@ -68,7 +67,7 @@ If a write response is lost, inspect records and histories before deciding wheth
 1. Open the existing draft and record its URL/ID. Confirm verified Arpit Dalal identity and Apps Management write access.
 2. Verify the Universal production URL and Google OAuth setup. Use the new JSON to update the draft's fields after reviewing import behavior.
 3. The production MCP challenge endpoint returned HTTP 200 with a 43-character body on 2026-09-09. This does not establish that it matches this draft. Compare the portal's exact token without exposing it publicly. Do not overwrite another submission's token. The parent website returned HTML at the challenge path, which is not a valid challenge response.
-4. Deploy the metadata correction before Scan Tools. Read tools advertise `readOnlyHint: true` (grant `lastUsedAt` telemetry is not a product write). `destructiveHint: true` only for update/archive tools that overwrite or remove from active use; create and restore stay `false`. Compare all 25 tools against the JSON; retain real server schemas and structured output definitions.
+4. Deploy the metadata correction before Scan Tools. Read tools advertise `readOnlyHint: true` (grant `lastUsedAt` telemetry is not a product write). `destructiveHint: true` for update/archive and for `create_transaction` (first Transaction permanently locks Circle Currency). Create Category and restore tools stay `false`, with notification side effects disclosed in descriptions/justifications. Compare all 25 tools against `packages/mcp-worker/src/tool-annotation-contract.json` and the import JSON; retain real server schemas and structured output definitions. Import the repo JSON at `docs/submission/pocketcircle/chatgpt-app-submission.json` — do not reuse a stale Downloads copy.
 5. Scan Tools, resolve actual validation errors, and inspect server instructions. Verify the three tested skills: `browse-authorized-records`, `spending-review`, `record-transactions`. If the server does not import them, use the portal's supported bundle upload with the existing [skill tree](../../../plugins/pocketcircle/skills/); do not treat an empty imported list as success.
 6. Select every country/region the portal permits. Export or transcribe the actual selected names/codes and record any disabled options or limitation. PocketCircle imposes no residence restriction. Currency support does not restrict residence. Do not invent a country list from API availability documentation.
 7. Save as draft. Leave policy attestations and submission to the maintainer, outside #370.
@@ -100,4 +99,4 @@ PASS below may rely on maintainer-confirmed manual completion. FAIL means remain
 
 No new submission, attestation, publication, or GitHub closure has been performed.
 
-Validation on 2026-09-22: option A annotations (reads `readOnlyHint: true`; create/restore `destructiveHint: false`; update/archive `destructiveHint: true`) match Worker + import JSON. Redeploy MCP Worker and re-run portal Scan Tools before resubmission.
+Validation on 2026-09-22: Worker annotations, submission JSON, and `tool-annotation-contract.json` share one matrix — reads `readOnlyHint: true`; restore/create_category `destructiveHint: false`; update/archive and `create_transaction` (currency lock) `destructiveHint: true`; Notifications and currency-lock disclosed. Redeploy MCP Worker and re-run portal Scan Tools before resubmission.
