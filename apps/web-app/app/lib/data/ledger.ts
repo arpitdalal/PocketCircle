@@ -462,11 +462,12 @@ function mockSearchMyTransactions(
 ) {
   const circles = mockMyTransactionCircles();
   const allowedIds = filters.circleIds ?? [];
-  const circle =
+  // Default (no circleIds) = all mock Circles, matching server default-all-visible.
+  const scopedCircles =
     allowedIds.length === 0
-      ? circles[0]
-      : circles.find((entry) => allowedIds.some((id) => id === entry.id));
-  if (!circle) {
+      ? circles
+      : circles.filter((entry) => allowedIds.some((id) => id === entry.id));
+  if (scopedCircles.length === 0) {
     return {
       transactions: [],
       pageNumber: opts.page,
@@ -476,7 +477,9 @@ function mockSearchMyTransactions(
       scanIncomplete: false,
     };
   }
-  const filtered = mockFilterTransactions(filters).map((txn) => ({ ...txn, circle }));
+  const filtered = scopedCircles.flatMap((entry) =>
+    mockFilterTransactions(filters).map((txn) => ({ ...txn, circle: entry })),
+  );
   const start = (opts.page - 1) * opts.pageSize;
   return {
     transactions: filtered.slice(start, start + opts.pageSize),

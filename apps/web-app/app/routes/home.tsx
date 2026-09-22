@@ -320,8 +320,14 @@ function CurrencyControl({
 
 function ZeroIncludedState({ currency }: { currency: string }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-6 text-center">
+    <div className="space-y-3 rounded-xl border border-border bg-card p-6 text-center">
       <p className="text-sm text-muted-foreground">No circles included in this {currency} scope.</p>
+      <Link
+        to="/my-transactions"
+        className="inline-block text-sm font-medium text-primary hover:underline"
+      >
+        View my transactions
+      </Link>
     </div>
   );
 }

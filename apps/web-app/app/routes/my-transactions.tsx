@@ -137,6 +137,12 @@ export default function MyTransactionsPage() {
         incompleteEmptyLabel="Couldn't scan far enough for this filter. Narrow by Circle or date range."
       />
 
+      {results.scanIncomplete && results.transactions.length > 0 ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Scan stopped early — older matches may be missing. Narrow by Circle or date range.
+        </p>
+      ) : null}
+
       <Pagination
         currentPage={filters.page}
         totalPages={totalPages}
@@ -288,6 +294,9 @@ function MyTransactionsFilterForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-xs text-muted-foreground">
           Min amount
+          <span className="mt-0.5 block font-normal text-muted-foreground/80">
+            Each Circle’s own Currency
+          </span>
           <input
             inputMode="decimal"
             value={draft.min}
@@ -297,6 +306,9 @@ function MyTransactionsFilterForm({
         </label>
         <label className="block text-xs text-muted-foreground">
           Max amount
+          <span className="mt-0.5 block font-normal text-muted-foreground/80">
+            Each Circle’s own Currency
+          </span>
           <input
             inputMode="decimal"
             value={draft.max}

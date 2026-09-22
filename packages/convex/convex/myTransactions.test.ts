@@ -202,6 +202,112 @@ describe("searchMyTransactions", () => {
     expect(page2.transactions.map((txn) => txn.title)).toEqual(["Row 1"]);
     expect(page1.totalCount).toBe(3);
   });
+
+  it("still returns Paid-By rows when the Circle is excluded from Home Summary", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await t.run(async (ctx) => {
+      const personal = await seedPersonalFixture(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      });
+      const trip = await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
+      await seedTransaction(ctx, trip, { title: "Excluded circle spend", date: "2026-06-01" });
+      await ctx.db.insert("homeSummaryExclusions", {
+        userId: personal.owner._id,
+        circleId: trip.circleId,
+        excludedAt: Date.now(),
+      });
+      return personal;
+    });
+    signInAs(seeded.owner);
+
+    const page = await t.query(api.myTransactions.searchMyTransactions, {
+      type: "all",
+      status: "all",
+      page: 1,
+    });
+
+    expect(page.transactions.some((txn) => txn.title === "Excluded circle spend")).toBe(true);
+  });
+
+  it("tiebreaks same Transaction Date by createdAt desc", async () => {
+    const t = convexTest(schema, modules);
+    const personal = await t.run((ctx) =>
+      seedPersonalFixture(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      }),
+    );
+    signInAs(personal.owner);
+
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, personal, {
+        title: "Older create",
+        date: "2026-06-01",
+        createdAt: 1,
+      });
+      await seedTransaction(ctx, personal, {
+        title: "Newer create",
+        date: "2026-06-01",
+        createdAt: 2,
+      });
+    });
+
+    const page = await t.query(api.myTransactions.searchMyTransactions, {
+      type: "all",
+      status: "all",
+      page: 1,
+    });
+
+    expect(page.transactions.map((txn) => txn.title)).toEqual(["Newer create", "Older create"]);
+  });
+
+  it("filters by type and lifecycle", async () => {
+    const t = convexTest(schema, modules);
+    const personal = await t.run((ctx) =>
+      seedPersonalFixture(ctx, {
+        email: "ada@example.com",
+        displayName: "Ada",
+        onboarded: true,
+      }),
+    );
+    signInAs(personal.owner);
+
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, personal, {
+        title: "Active expense",
+        type: "expense",
+        date: "2026-06-01",
+      });
+      await seedTransaction(ctx, personal, {
+        title: "Active income",
+        type: "income",
+        date: "2026-06-02",
+      });
+      await seedTransaction(ctx, personal, {
+        title: "Archived expense",
+        type: "expense",
+        date: "2026-06-03",
+        status: "archived",
+      });
+    });
+
+    const expenses = await t.query(api.myTransactions.searchMyTransactions, {
+      type: "expense",
+      status: "active",
+      page: 1,
+    });
+    const archived = await t.query(api.myTransactions.searchMyTransactions, {
+      type: "all",
+      status: "archived",
+      page: 1,
+    });
+
+    expect(expenses.transactions.map((txn) => txn.title)).toEqual(["Active expense"]);
+    expect(archived.transactions.map((txn) => txn.title)).toEqual(["Archived expense"]);
+  });
 });
 
 describe("listMyTransactionCircles", () => {
