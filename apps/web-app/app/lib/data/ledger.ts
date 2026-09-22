@@ -484,9 +484,9 @@ function mockSearchMyTransactions(
   const scopedById = new Map(scopedCircles.map((entry) => [entry.id, entry]));
   // Fixture Transactions are Personal-Circle ledger rows; attach that owner only
   // (never cross-product every txn × every selected Circle).
-  const personalMock = MOCK_CIRCLES[0];
+  const personalMock = MOCK_CIRCLES.find((circle) => circle.kind === "personal");
   if (!personalMock) {
-    throw new Error("MOCK_CIRCLES is empty");
+    throw new Error("MOCK_CIRCLES missing Personal Circle");
   }
   const ownerCircle = scopedById.get(personalMock.id);
   if (!ownerCircle) {
