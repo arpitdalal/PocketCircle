@@ -6,6 +6,7 @@ import {
   normalizeSearchText,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
+  TRANSACTION_SEARCH_INDEXED_RESULT_CEILING,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { mergedStream } from "convex-helpers/server/stream";
@@ -92,8 +93,8 @@ export const listMyTransactionCircles = query({
 
 /**
  * Text path: per-Circle `transactionSearchDocuments` search (same projection as Circle
- * Search), Paid-By scoped, then date-desc merge. Engine only returns text matches — no
- * full Paid-By table walk for rare queries.
+ * Search), Paid-By scoped. Takes the full indexed ceiling per Circle (relevance order),
+ * then date-desc merges globally so newer low-relevance hits are not dropped early.
  */
 async function collectIndexedMatches(
   ctx: OperationReader,
@@ -112,6 +113,7 @@ async function collectIndexedMatches(
   const emptyMemberIds = new Set<Id<"members">>();
   const emptyCategoryIds = new Set<Id<"categories">>();
   const matched: Doc<"transactions">[] = [];
+  let hitSearchCeiling = false;
   for (const entry of args.selected) {
     const paidByMemberIds = new Set<Id<"members">>([entry.membership._id]);
     const hits = await buildIndexedSearchSource(ctx, {
@@ -130,7 +132,10 @@ async function collectIndexedMatches(
       },
       viewerMemberId: entry.membership._id,
       viewerIsOwner: entry.membership.role === "owner",
-    }).take(args.takeLimit);
+    }).take(TRANSACTION_SEARCH_INDEXED_RESULT_CEILING);
+    if (hits.length >= TRANSACTION_SEARCH_INDEXED_RESULT_CEILING) {
+      hitSearchCeiling = true;
+    }
     for (const hit of hits) {
       const txn = await ctx.db.get(hit.transactionId);
       if (txn) {
@@ -139,12 +144,19 @@ async function collectIndexedMatches(
     }
   }
   matched.sort(compareTxnDateDesc);
-  return matched.slice(0, args.takeLimit);
+  if (matched.length > args.takeLimit) {
+    hitSearchCeiling = true;
+  }
+  return {
+    matched: matched.slice(0, args.takeLimit),
+    hitSearchCeiling,
+  };
 }
 
 /**
  * Date-ordered paid-by streams, k-way merged. When type/amount post-filters thin the
- * match rate, `maximumRowsRead` caps how many underlying index rows we scan.
+ * match rate, `maximumRowsRead` caps how many underlying index rows we scan — loop until
+ * `takeLimit` matches, the stream ends, or the candidate budget is spent.
  */
 async function collectStreamMatches(
   ctx: OperationReader,
@@ -197,23 +209,61 @@ async function collectStreamMatches(
     );
   });
   if (sources.length === 0) {
-    return { matched: [] as Doc<"transactions">[], hitCandidateBudget: false };
+    return {
+      matched: [] as Doc<"transactions">[],
+      streamDone: true,
+      hitCandidateBudget: false,
+    };
   }
   const first = sources[0];
   if (!first) {
-    return { matched: [] as Doc<"transactions">[], hitCandidateBudget: false };
+    return {
+      matched: [] as Doc<"transactions">[],
+      streamDone: true,
+      hitCandidateBudget: false,
+    };
   }
   const source = sources.length === 1 ? first : mergedStream(sources, [...MY_TXN_MERGE_KEYS]);
 
-  const page = await source.paginate({
-    numItems: args.takeLimit,
-    cursor: null,
-    maximumRowsRead: candidateBudget,
-  });
-  return {
-    matched: page.page,
-    hitCandidateBudget: page.pageStatus === "SplitRequired",
-  };
+  const matched: Doc<"transactions">[] = [];
+  let cursor: string | null = null;
+  let streamDone = false;
+  let candidatesRead = 0;
+  let hitCandidateBudget = false;
+
+  while (matched.length < args.takeLimit) {
+    const room = candidateBudget - candidatesRead;
+    if (room <= 0) {
+      hitCandidateBudget = true;
+      break;
+    }
+    const need = args.takeLimit - matched.length;
+    const page = await source.paginate({
+      numItems: need,
+      cursor,
+      maximumRowsRead: room,
+    });
+    matched.push(...page.page);
+    cursor = page.continueCursor;
+
+    if (page.pageStatus === "SplitRequired") {
+      candidatesRead += room;
+      if (candidatesRead >= candidateBudget) {
+        hitCandidateBudget = true;
+        break;
+      }
+      continue;
+    }
+
+    streamDone = page.isDone;
+    // Lower bound on rows examined this call (filtered-out rows also counted by the stream).
+    candidatesRead += Math.max(page.page.length, 1);
+    if (streamDone || page.page.length === 0) {
+      break;
+    }
+  }
+
+  return { matched, streamDone, hitCandidateBudget };
 }
 
 /**
@@ -297,9 +347,10 @@ export const searchMyTransactions = query({
       : searchOffsetTakeLimit(pageSize);
 
     let matched: Doc<"transactions">[];
-    let hitCandidateBudget = false;
+    let totalCount: number;
+    let totalCountCapped: boolean;
     if (queryText) {
-      matched = await collectIndexedMatches(ctx, {
+      const collected = await collectIndexedMatches(ctx, {
         selected,
         status,
         type,
@@ -310,6 +361,12 @@ export const searchMyTransactions = query({
         endExclusive: window.endExclusive,
         takeLimit,
       });
+      matched = collected.matched;
+      ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
+        matched.length,
+        takeLimit,
+        collected.hitSearchCeiling,
+      ));
     } else {
       const collected = await collectStreamMatches(ctx, {
         selected,
@@ -322,14 +379,19 @@ export const searchMyTransactions = query({
         takeLimit,
       });
       matched = collected.matched;
-      hitCandidateBudget = collected.hitCandidateBudget;
+      if (collected.hitCandidateBudget && matched.length < takeLimit) {
+        // Incomplete scan — report what we found; do not pretend takeLimit matches exist.
+        totalCount = matched.length;
+        totalCountCapped = true;
+      } else {
+        ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
+          matched.length,
+          takeLimit,
+          matched.length >= takeLimit && !collected.streamDone,
+        ));
+      }
     }
 
-    const { totalCount, totalCountCapped } = searchOffsetTotalCount(
-      matched.length,
-      takeLimit,
-      hitCandidateBudget,
-    );
     const start = (page - 1) * pageSize;
     const pageDocs = matched.slice(start, start + pageSize);
 
