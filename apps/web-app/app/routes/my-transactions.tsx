@@ -131,7 +131,11 @@ export default function MyTransactionsPage() {
         </Button>
       </div>
 
-      <MyTransactionList results={results} emptyLabel="No matching transactions." />
+      <MyTransactionList
+        results={results}
+        emptyLabel="No matching transactions."
+        incompleteEmptyLabel="Couldn't scan far enough for this filter. Narrow by Circle or date range."
+      />
 
       <Pagination
         currentPage={filters.page}

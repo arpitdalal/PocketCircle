@@ -19,9 +19,12 @@ type MyTransactionRow = MyTransactionsResult["transactions"][number];
 export function MyTransactionList({
   results,
   emptyLabel,
+  incompleteEmptyLabel,
 }: {
   results: MyTransactionsResult;
   emptyLabel: string;
+  /** Shown when the scan budget ended before any match (not an exhaustive empty). */
+  incompleteEmptyLabel: string;
 }) {
   const origin = useReturnToOrigin();
 
@@ -35,7 +38,7 @@ export function MyTransactionList({
   if (results.transactions.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        {emptyLabel}
+        {results.scanIncomplete ? incompleteEmptyLabel : emptyLabel}
       </p>
     );
   }

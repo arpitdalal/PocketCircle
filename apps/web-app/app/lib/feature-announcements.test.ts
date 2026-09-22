@@ -115,7 +115,7 @@ describe("selectActiveCatalogEntry", () => {
 describe("catalog shape", () => {
   it("requires a hero image and caps highlights at the small-phone height budget", () => {
     for (const announcement of FEATURE_ANNOUNCEMENTS) {
-      // Pins R2 webp (released campaigns) or local public SVG (unreleased until CDN upload).
+      // R2 versioned WebP or first-party public SVG (shipped heroes).
       // docs/research/announcement-card-media-and-motion.md — hero image asset spec.
       expect(announcement.heroImage.src, announcement.id).toMatch(
         /^(https:\/\/assets\.pocketcircle\.app\/announcements\/[a-z0-9-]+-v\d+\.webp|\/announcements\/[a-z0-9-]+\.svg)$/,

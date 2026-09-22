@@ -2,11 +2,9 @@ import {
   buildRef,
   clampSearchPage,
   clampSearchPageSize,
-  indexedSearchOffsetTakeLimit,
   normalizeSearchText,
   searchOffsetTakeLimit,
   searchOffsetTotalCount,
-  TRANSACTION_SEARCH_INDEXED_RESULT_CEILING,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { mergedStream } from "convex-helpers/server/stream";
@@ -16,7 +14,6 @@ import { requireCurrentUser } from "./auth.js";
 import type { OperationReader } from "./operationReader.js";
 import { listActiveMembershipsWithCirclesForUser } from "./operations.js";
 import {
-  buildIndexedSearchSource,
   matchesFilters,
   newSearchCaches,
   resolveSearchWindow,
@@ -32,8 +29,8 @@ const lifecycleFilter = v.union(v.literal("active"), v.literal("archived"), v.li
 const MY_TXN_MERGE_KEYS = ["date", "_creationTime"] as const;
 
 /**
- * Max underlying index rows scanned when type/amount post-filters thin matches.
- * Without this, `filterWith` + `take(takeLimit)` can walk every Paid-By row.
+ * Max underlying index rows scanned when text/type/amount post-filters thin matches.
+ * One global budget (not per-Circle) so sparse filters cannot walk every Paid-By row.
  */
 const CANDIDATE_READ_CEILING = 4096;
 
@@ -52,16 +49,6 @@ function streamLifecycleStatuses(status: "active" | "archived" | undefined) {
   return ["active", "archived"] as const;
 }
 
-function compareTxnDateDesc(a: Doc<"transactions">, b: Doc<"transactions">) {
-  if (a.date !== b.date) {
-    return a.date < b.date ? 1 : -1;
-  }
-  if (a.createdAt !== b.createdAt) {
-    return a.createdAt < b.createdAt ? 1 : -1;
-  }
-  return a._id < b._id ? 1 : -1;
-}
-
 type CircleMembershipEntry = Awaited<
   ReturnType<typeof listActiveMembershipsWithCirclesForUser>
 >[number];
@@ -78,25 +65,17 @@ function toMyTransactionCircle(circle: Doc<"circles">) {
   };
 }
 
-/**
- * Circle picker rows for My Transactions. Every visible Circle (active membership,
- * including Archived Circles) — independent of Home Summary inclusions.
- */
-export const listMyTransactionCircles = query({
-  args: {},
-  handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
-    const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
-    return entries.map((entry) => toMyTransactionCircle(entry.circle));
-  },
-});
+function emptyMatchedResult() {
+  const matched: Doc<"transactions">[] = [];
+  return { matched, streamDone: true, hitCandidateBudget: false };
+}
 
 /**
- * Text path: per-Circle `transactionSearchDocuments` search (same projection as Circle
- * Search), Paid-By scoped. Takes the full indexed ceiling per Circle (relevance order),
- * then date-desc merges globally so newer low-relevance hits are not dropped early.
+ * Date-desc paid-by streams, k-way merged (ADR 0034 sort). Text/type/amount are
+ * post-filters with one global candidate read budget — never a relevance-ranked
+ * prefix, never a per-Circle multiplied ceiling.
  */
-async function collectIndexedMatches(
+async function collectMatchedTransactions(
   ctx: OperationReader,
   args: {
     selected: CircleMembershipEntry[];
@@ -112,70 +91,9 @@ async function collectIndexedMatches(
 ) {
   const emptyMemberIds = new Set<Id<"members">>();
   const emptyCategoryIds = new Set<Id<"categories">>();
-  const matched: Doc<"transactions">[] = [];
-  let hitSearchCeiling = false;
-  for (const entry of args.selected) {
-    const paidByMemberIds = new Set<Id<"members">>([entry.membership._id]);
-    const hits = await buildIndexedSearchSource(ctx, {
-      circleId: entry.circle._id,
-      status: args.status,
-      paidByMemberIds,
-      recordedByMemberIds: emptyMemberIds,
-      start: args.start,
-      endExclusive: args.endExclusive,
-      filters: {
-        type: args.type,
-        queryText: args.queryText,
-        categoryIds: emptyCategoryIds,
-        amountMin: args.amountMin,
-        amountMax: args.amountMax,
-      },
-      viewerMemberId: entry.membership._id,
-      viewerIsOwner: entry.membership.role === "owner",
-    }).take(TRANSACTION_SEARCH_INDEXED_RESULT_CEILING);
-    if (hits.length >= TRANSACTION_SEARCH_INDEXED_RESULT_CEILING) {
-      hitSearchCeiling = true;
-    }
-    for (const hit of hits) {
-      const txn = await ctx.db.get(hit.transactionId);
-      if (txn) {
-        matched.push(txn);
-      }
-    }
-  }
-  matched.sort(compareTxnDateDesc);
-  if (matched.length > args.takeLimit) {
-    hitSearchCeiling = true;
-  }
-  return {
-    matched: matched.slice(0, args.takeLimit),
-    hitSearchCeiling,
-  };
-}
-
-/**
- * Date-ordered paid-by streams, k-way merged. When type/amount post-filters thin the
- * match rate, `maximumRowsRead` caps how many underlying index rows we scan — loop until
- * `takeLimit` matches, the stream ends, or the candidate budget is spent.
- */
-async function collectStreamMatches(
-  ctx: OperationReader,
-  args: {
-    selected: CircleMembershipEntry[];
-    status: "active" | "archived" | undefined;
-    type: "expense" | "income" | undefined;
-    amountMin?: number;
-    amountMax?: number;
-    start?: string;
-    endExclusive?: string;
-    takeLimit: number;
-  },
-) {
-  const emptyMemberIds = new Set<Id<"members">>();
-  const emptyCategoryIds = new Set<Id<"categories">>();
   const searchCaches = newSearchCaches();
   const hasSparsePostFilters = Boolean(
-    args.type || args.amountMin !== undefined || args.amountMax !== undefined,
+    args.queryText || args.type || args.amountMin !== undefined || args.amountMax !== undefined,
   );
   const candidateBudget = hasSparsePostFilters ? CANDIDATE_READ_CEILING : args.takeLimit;
 
@@ -201,7 +119,7 @@ async function collectStreamMatches(
             paidByMemberIds,
             amountMin: args.amountMin,
             amountMax: args.amountMax,
-            queryText: "",
+            queryText: args.queryText,
           },
           searchCaches,
         ),
@@ -209,19 +127,11 @@ async function collectStreamMatches(
     );
   });
   if (sources.length === 0) {
-    return {
-      matched: [] as Doc<"transactions">[],
-      streamDone: true,
-      hitCandidateBudget: false,
-    };
+    return emptyMatchedResult();
   }
   const first = sources[0];
   if (!first) {
-    return {
-      matched: [] as Doc<"transactions">[],
-      streamDone: true,
-      hitCandidateBudget: false,
-    };
+    return emptyMatchedResult();
   }
   const source = sources.length === 1 ? first : mergedStream(sources, [...MY_TXN_MERGE_KEYS]);
 
@@ -256,7 +166,6 @@ async function collectStreamMatches(
     }
 
     streamDone = page.isDone;
-    // Lower bound on rows examined this call (filtered-out rows also counted by the stream).
     candidatesRead += Math.max(page.page.length, 1);
     if (streamDone || page.page.length === 0) {
       break;
@@ -267,10 +176,24 @@ async function collectStreamMatches(
 }
 
 /**
+ * Circle picker rows for My Transactions. Every visible Circle (active membership,
+ * including Archived Circles) — independent of Home Summary inclusions.
+ */
+export const listMyTransactionCircles = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
+    const entries = await listActiveMembershipsWithCirclesForUser(ctx, user);
+    return entries.map((entry) => toMyTransactionCircle(entry.circle));
+  },
+});
+
+/**
  * My Transactions (#389 / ADR 0034): Paid-By-User list+filter across visible Circles.
  *
- * - Text: search-document index (Circle Search projection), then date-desc merge.
- * - No text: k-way merge of paid-by streams; candidate read budget when type/amount thin.
+ * One date-desc merged paid-by stream path (text included). Sparse post-filters share a
+ * global candidate budget; `scanIncomplete` is true when that budget ends before the
+ * stream does — never reported as an exhaustive empty result.
  */
 export const searchMyTransactions = query({
   args: {
@@ -294,6 +217,7 @@ export const searchMyTransactions = query({
       pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      scanIncomplete: false,
     });
 
     const user = await requireCurrentUser(ctx);
@@ -342,54 +266,34 @@ export const searchMyTransactions = query({
     const status = selectedStatus(args.status);
     const type = selectedType(args.type);
     const queryText = normalizeSearchText(args.query);
-    const takeLimit = queryText
-      ? indexedSearchOffsetTakeLimit(pageSize)
-      : searchOffsetTakeLimit(pageSize);
+    const takeLimit = searchOffsetTakeLimit(pageSize);
 
-    let matched: Doc<"transactions">[];
+    const collected = await collectMatchedTransactions(ctx, {
+      selected,
+      status,
+      type,
+      queryText,
+      amountMin: args.amountMin,
+      amountMax: args.amountMax,
+      start: window.start,
+      endExclusive: window.endExclusive,
+      takeLimit,
+    });
+    const matched = collected.matched;
+    const scanIncomplete = collected.hitCandidateBudget && !collected.streamDone;
+
     let totalCount: number;
     let totalCountCapped: boolean;
-    if (queryText) {
-      const collected = await collectIndexedMatches(ctx, {
-        selected,
-        status,
-        type,
-        queryText,
-        amountMin: args.amountMin,
-        amountMax: args.amountMax,
-        start: window.start,
-        endExclusive: window.endExclusive,
-        takeLimit,
-      });
-      matched = collected.matched;
+    if (scanIncomplete && matched.length < takeLimit) {
+      // Incomplete prefix — report found rows only; UI must not treat empty as exhaustive.
+      totalCount = matched.length;
+      totalCountCapped = true;
+    } else {
       ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
         matched.length,
         takeLimit,
-        collected.hitSearchCeiling,
+        matched.length >= takeLimit && !collected.streamDone,
       ));
-    } else {
-      const collected = await collectStreamMatches(ctx, {
-        selected,
-        status,
-        type,
-        amountMin: args.amountMin,
-        amountMax: args.amountMax,
-        start: window.start,
-        endExclusive: window.endExclusive,
-        takeLimit,
-      });
-      matched = collected.matched;
-      if (collected.hitCandidateBudget && matched.length < takeLimit) {
-        // Incomplete scan — report what we found; do not pretend takeLimit matches exist.
-        totalCount = matched.length;
-        totalCountCapped = true;
-      } else {
-        ({ totalCount, totalCountCapped } = searchOffsetTotalCount(
-          matched.length,
-          takeLimit,
-          matched.length >= takeLimit && !collected.streamDone,
-        ));
-      }
     }
 
     const start = (page - 1) * pageSize;
@@ -422,6 +326,7 @@ export const searchMyTransactions = query({
       pageSize,
       totalCount,
       totalCountCapped,
+      scanIncomplete,
     };
   },
 });

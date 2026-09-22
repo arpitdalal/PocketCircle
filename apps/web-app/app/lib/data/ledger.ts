@@ -429,6 +429,7 @@ export function useMyTransactions(
       pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      scanIncomplete: false,
       isLoading: true,
     } satisfies MyTransactionsResult;
   }
@@ -472,6 +473,7 @@ function mockSearchMyTransactions(
       pageSize: opts.pageSize,
       totalCount: 0,
       totalCountCapped: false,
+      scanIncomplete: false,
     };
   }
   const filtered = mockFilterTransactions(filters).map((txn) => ({ ...txn, circle }));
@@ -482,5 +484,6 @@ function mockSearchMyTransactions(
     pageSize: opts.pageSize,
     totalCount: filtered.length,
     totalCountCapped: false,
+    scanIncomplete: false,
   };
 }

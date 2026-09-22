@@ -23,9 +23,10 @@ export interface FeatureAnnouncement {
   readonly label: string;
   readonly title: string;
   /**
-   * Required hero image. Authoring spec (16:9, 1280x720 WebP, R2 filenames, the
-   * quiet top-right corner the close button covers):
-   * `docs/research/announcement-card-media-and-motion.md` — "Hero image asset spec".
+   * Required hero image. Authoring: 16:9, quiet top-right for the close control —
+   * `docs/research/announcement-card-media-and-motion.md`. Allowed `src` forms:
+   * versioned R2 WebP (`https://assets.pocketcircle.app/announcements/<id>-vN.webp`)
+   * or first-party public SVG (`/announcements/<id>.svg`).
    */
   readonly heroImage: {
     readonly src: string;
