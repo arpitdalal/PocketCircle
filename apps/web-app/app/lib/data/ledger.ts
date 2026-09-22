@@ -457,25 +457,21 @@ function mockSearchMyTransactions(
   opts: { page: number; pageSize: number },
 ) {
   const circles = mockMyTransactionCircles();
-  const circleById = new Map(circles.map((circle) => [circle.id, circle]));
-  const fallbackCircle = circles[0];
-  const filtered = mockFilterTransactions(filters).flatMap((txn) => {
-    const circle =
-      (filters.circleIds?.length
-        ? filters.circleIds.map((id) => circleById.get(id)).find(Boolean)
-        : fallbackCircle) ?? fallbackCircle;
-    if (!circle) {
-      return [];
-    }
-    if (
-      filters.circleIds &&
-      filters.circleIds.length > 0 &&
-      !filters.circleIds.includes(circle.id)
-    ) {
-      return [];
-    }
-    return [{ ...txn, circle }];
-  });
+  const allowedIds = filters.circleIds ?? [];
+  const circle =
+    allowedIds.length === 0
+      ? circles[0]
+      : circles.find((entry) => allowedIds.some((id) => id === entry.id));
+  if (!circle) {
+    return {
+      transactions: [],
+      pageNumber: opts.page,
+      pageSize: opts.pageSize,
+      totalCount: 0,
+      totalCountCapped: false,
+    };
+  }
+  const filtered = mockFilterTransactions(filters).map((txn) => ({ ...txn, circle }));
   const start = (opts.page - 1) * opts.pageSize;
   return {
     transactions: filtered.slice(start, start + opts.pageSize),
