@@ -4,200 +4,200 @@
   "app_info": {
     "display_name": "PocketCircle",
     "subtitle": "Track shared income & expenses",
-    "description": "PocketCircle tracks personal and shared income and expenses in authorized Circles. Review spending, search transactions, inspect members, categories, histories and monthly reports, and create, update, archive or restore transactions and categories within your permissions. Personal spending uses Paid By attribution and saved Home Summary exclusions; currencies stay separate. Financial records and member identities are returned to the host. Calls record connection usage, and some changes notify affected members inside PocketCircle. PocketCircle does not transfer money or settle balances.",
+    "description": "PocketCircle tracks personal and shared income and expenses in authorized Circles. Review spending, search transactions, inspect members, categories, histories and monthly reports, and create, update, archive or restore transactions and categories within your permissions. Personal spending uses Paid By attribution and saved Home Summary exclusions; currencies stay separate. Financial records and member identities are returned to the host. PocketCircle does not transfer money or settle balances.",
     "category": "FINANCE"
   },
   "tools": {
     "get_current_user": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves the authenticated user profile and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves the authenticated user profile and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_authorized_circles": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Lists the Circles authorized for this connection and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only lists Circles authorized for this connection and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_circle": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves Circle identity, currency, lifecycle and permissions and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves Circle identity, currency, lifecycle, and permissions and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_members": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Lists current or historical Circle members and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only lists current or historical Circle members and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_circle_history": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves Circle and membership history and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves Circle and membership history and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "search_transactions": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Searches and paginates Circle transactions and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only searches and paginates Circle transactions and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_transaction": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves a transaction and its permitted actions and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves a transaction and its permitted actions and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_transaction_history": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves transaction audit history and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves transaction audit history and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_monthly_ledger": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves monthly totals and active transactions and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves monthly totals and active transactions and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_dashboard": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves monthly totals and recent activity and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves monthly totals and recent activity and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_monthly_comparison": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Computes monthly income, expense and net comparisons and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only computes monthly income, expense, and net comparisons and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_category_analytics": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Computes non-additive category rankings and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only computes non-additive category rankings and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_categories": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Lists filtered Circle categories and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only lists filtered Circle categories and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "get_category": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves category details and permissions and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves category details and permissions and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_category_transactions": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves up to five recent transactions linked to a category and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves up to five recent transactions linked to a category and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "list_category_history": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves category audit history and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves category audit history and does not create, update, or delete records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send messages."
+        "destructive_justification": "Does not delete financial records, overwrite their fields, revoke access, or send irreversible messages."
       }
     },
     "create_category": {
@@ -207,9 +207,9 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Creates a private Circle category and records history and connection usage.",
+        "read_only_justification": "Creates a private Circle category and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Creates a category without deleting or replacing existing records."
+        "destructive_justification": "Adds a new category without deleting or overwriting existing records."
       }
     },
     "update_category": {
@@ -219,9 +219,9 @@
         "destructiveHint": true
       },
       "justifications": {
-        "read_only_justification": "Updates a private category name or color and records history and connection usage.",
+        "read_only_justification": "Updates a private category name or color and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Overwrites category fields after checking creator permission and active status, preserving changes in history."
+        "destructive_justification": "Overwrites category fields after checking creator permission and active status; prior values remain only in history."
       }
     },
     "archive_category": {
@@ -231,33 +231,33 @@
         "destructiveHint": true
       },
       "justifications": {
-        "read_only_justification": "Archives a private category, records history and connection usage, and may notify its creator in-app.",
+        "read_only_justification": "Archives a private category and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Removes a category from new transaction selections and may send its creator a notification after checking creator or owner permission."
+        "destructive_justification": "Removes a category from new transaction selections after checking creator or owner permission."
       }
     },
     "restore_category": {
       "annotations": {
         "readOnlyHint": false,
         "openWorldHint": false,
-        "destructiveHint": true
+        "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Restores a private category, records history and connection usage, and may notify its creator in-app.",
+        "read_only_justification": "Restores a private category and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "May send the category creator an in-app notification that cannot be recalled by this tool, after checking creator or owner permission."
+        "destructive_justification": "Restores an archived category to active use without deleting or overwriting other records."
       }
     },
     "create_transaction": {
       "annotations": {
         "readOnlyHint": false,
         "openWorldHint": false,
-        "destructiveHint": true
+        "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Creates a private expense or income record, updates totals and history, records connection usage, and may notify another Paid By member in-app.",
+        "read_only_justification": "Creates a private expense or income record and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "May send another Paid By member an in-app notification that cannot be recalled by this tool, after validating membership and currency."
+        "destructive_justification": "Adds a new transaction without deleting or overwriting existing records."
       }
     },
     "update_transaction": {
@@ -267,9 +267,9 @@
         "destructiveHint": true
       },
       "justifications": {
-        "read_only_justification": "Updates a private transaction and related totals and history, and records connection usage.",
+        "read_only_justification": "Updates a private transaction and related totals and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Overwrites transaction fields after checking recorder permission and active status, preserving changes in history."
+        "destructive_justification": "Overwrites transaction fields after checking recorder permission and active status; prior values remain only in history."
       }
     },
     "archive_transaction": {
@@ -279,31 +279,31 @@
         "destructiveHint": true
       },
       "justifications": {
-        "read_only_justification": "Archives a private transaction, updates totals and history, records connection usage, and may notify its recorder in-app.",
+        "read_only_justification": "Archives a private transaction and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "Removes the transaction from active reports and may notify its recorder after checking recorder or owner permission."
+        "destructive_justification": "Removes the transaction from active reports after checking recorder or owner permission."
       }
     },
     "restore_transaction": {
       "annotations": {
         "readOnlyHint": false,
         "openWorldHint": false,
-        "destructiveHint": true
+        "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Restores a private transaction to active reports, records history and connection usage, and may notify its recorder in-app.",
+        "read_only_justification": "Restores a private transaction and is not a retrieval-only operation.",
         "open_world_justification": "Operates only within authorized private PocketCircle data and does not publish content or modify third-party systems.",
-        "destructive_justification": "May send the transaction recorder an in-app notification that cannot be recalled by this tool, after checking recorder or owner permission."
+        "destructive_justification": "Restores an archived transaction to active reports without deleting or overwriting other records."
       }
     },
     "get_home_summary_preferences": {
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Retrieves saved Home Summary exclusions limited to authorized Circles and records connection usage metadata without changing financial records.",
+        "read_only_justification": "Only retrieves saved Home Summary exclusions for authorized Circles and does not modify records.",
         "open_world_justification": "Operates only within authorized private PocketCircle data.",
         "destructive_justification": "Does not delete or overwrite financial records or revoke access."
       }
