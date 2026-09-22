@@ -1,6 +1,6 @@
 {
   "name": "pocketcircle",
-  "version": "0.1.1+codex.20260909230743",
+  "version": "0.1.1+codex.20260922151906",
   "description": "Track shared income and expenses in authorized Circles. View and manage Transactions and Categories when your connection grants write access \u2014 not a read-only product.",
   "author": {
     "name": "Arpit Dalal",
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "PocketCircle",
     "shortDescription": "Track shared income & expenses",
-    "longDescription": "PocketCircle helps users track personal and shared income and expenses in authorized Circles. View members, transactions, categories, history and monthly reports; create, update, archive and restore transactions and categories within your permissions. Financial records and member identities are returned to ChatGPT. Calls record connection usage, and some changes notify affected members inside PocketCircle. Write tools remain available when the connection grants write access \u2014 this plugin is not read-only.",
+    "longDescription": "PocketCircle helps users track personal and shared income and expenses in authorized Circles. View members, transactions, categories, history and monthly reports; create, update, archive and restore transactions and categories within your permissions. Financial records and member identities are returned to ChatGPT. Some writes may notify other Circle members inside PocketCircle. Creating the first Transaction in a Circle permanently locks that Circle's Currency. Write tools remain available when the connection grants write access \u2014 this plugin is not read-only.",
     "developerName": "Arpit Dalal",
     "category": "Finance",
     "capabilities": ["Read", "Write"],

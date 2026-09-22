@@ -1,0 +1,152 @@
+{
+  "get_current_user": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_authorized_circles": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_home_summary_preferences": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_circle": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_members": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_circle_history": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "search_transactions": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_transaction": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_transaction_history": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_monthly_ledger": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_dashboard": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_monthly_comparison": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_category_analytics": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_categories": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "get_category": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_category_transactions": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "list_category_history": {
+    "readOnlyHint": true,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true
+  },
+  "create_category": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false
+  },
+  "update_category": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true
+  },
+  "archive_category": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false
+  },
+  "restore_category": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false
+  },
+  "create_transaction": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false
+  },
+  "update_transaction": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true
+  },
+  "archive_transaction": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false
+  },
+  "restore_transaction": {
+    "readOnlyHint": false,
+    "openWorldHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false
+  }
+}

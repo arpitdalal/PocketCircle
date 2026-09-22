@@ -69,6 +69,7 @@ import {
   MCP_SERVER_INSTRUCTIONS,
   MCP_WRITE_CONFIRMATION_INSTRUCTIONS,
 } from "./server-instructions.js";
+import toolAnnotationContract from "./tool-annotation-contract.json" with { type: "json" };
 
 function hostnameOf(urlString: string | undefined) {
   if (!urlString) {
@@ -242,7 +243,7 @@ function mcpToolErrorText(error: string) {
 }
 
 export function buildMcpServer(env: Env, request?: Request) {
-  // Reads also persist grant usage through /mcp/operation, so no tool is read-only.
+  // Grant lastUsedAt telemetry is not a product write for readOnlyHint.
   const server = new McpServer(
     { name: "PocketCircle MCP", version: "0.1.0" },
     { instructions: MCP_SERVER_INSTRUCTIONS },
@@ -256,12 +257,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get the authenticated PocketCircle account User (id, display name, image, createdAt). The returned id is an account User id, not a Circle Member id — do not pass it to paidByMemberIds, recordedByMemberIds, or paidByMemberId; use list_members (isSelf) instead.",
       inputSchema: z.object({}),
       outputSchema: mcpCurrentUserViewSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_current_user,
     },
     async (_args, ctx) =>
       handleToolExecution(
@@ -281,12 +277,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List Circles this connection may access. Newly created or joined Circles stay excluded until the User reauthorizes. Use each circle.ref in later tools.",
       inputSchema: z.object({}),
       outputSchema: listCirclesOutputSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_authorized_circles,
     },
     async (_args, ctx) =>
       handleToolExecution(
@@ -306,12 +297,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get saved Home Summary Circle exclusions for this connection. Only exclusions for currently authorized Circles are returned; this does not reveal other Circles.",
       inputSchema: z.object({}),
       outputSchema: mcpHomeSummaryPreferencesSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_home_summary_preferences,
     },
     async (_args, ctx) =>
       handleToolExecution(
@@ -331,12 +317,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get safe identity, currency, lifecycle, setup, and permissions for an authorized Circle",
       inputSchema: circleRefInputSchema,
       outputSchema: mcpCircleViewSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_circle,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -356,12 +337,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List Circle Members (id, displayName, role, status, isSelf). Member id is Circle-specific and is what paidByMemberIds, recordedByMemberIds, and paidByMemberId require — not get_current_user.id. For personal filters, use the Member with isSelf: true. Pass includeHistorical for removed Members when attributing history. Paginate with optional paginationOpts (omit for first page; cursor null = page 1).",
       inputSchema: listMembersInputSchema,
       outputSchema: mcpPaginatedMembersSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_members,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -388,12 +364,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List paginated Circle, membership, ownership, lifecycle, invitation, and settings history",
       inputSchema: listCircleHistoryInputSchema,
       outputSchema: mcpPaginatedCircleHistorySchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_circle_history,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -417,12 +388,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Search and page Transactions in an authorized Circle using the same filters as Transaction Search and Monthly Ledger. paidByMemberIds and recordedByMemberIds take Circle Member ids from list_members for this Circle (isSelf: true for personal spending), never get_current_user.id — a User id matches nothing and is not proof of zero spending. Use either offset pagination (page/pageSize) or cursor paginationOpts — never both. Prefer omitting pagination for the first page defaults; if using paginationOpts, cursor null means page 1.",
       inputSchema: mcpSearchTransactionsInputSchema,
       outputSchema: mcpSearchTransactionsResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.search_transactions,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -449,12 +415,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get one Transaction with Amount, Currency, Categories, attribution, Audit Metadata, and permitted actions",
       inputSchema: transactionRefInputSchema,
       outputSchema: mcpTransactionDetailSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_transaction,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -478,12 +439,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List paginated immutable Transaction history with actor, changed fields, and display values",
       inputSchema: listTransactionHistoryInputSchema,
       outputSchema: mcpPaginatedTransactionHistorySchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_transaction_history,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -508,12 +464,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get one authorized Circle-month's active Income, Expense, and Net totals in minor units plus deterministically date-ordered active Transactions. Archived Transactions are excluded from totals and the list.",
       inputSchema: monthlyLedgerInputSchema,
       outputSchema: mcpMonthlyLedgerSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_monthly_ledger,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -538,12 +489,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get the selected month's active Income, Expense, and Net totals plus a bounded recent-activity feed for an authorized Circle. month must be the caller's local YYYY-MM. Archived Transactions are excluded.",
       inputSchema: dashboardInputSchema,
       outputSchema: mcpDashboardSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_dashboard,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -567,12 +513,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Compare active Income, Expense, and Net in minor units across the supported 1, 3, 6, or 12 month Comparison Ranges ending at endMonth. endMonth must be the caller's local YYYY-MM. Archived Transactions are excluded.",
       inputSchema: monthlyComparisonInputSchema,
       outputSchema: mcpMonthlyComparisonSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_monthly_comparison,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -597,12 +538,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get ranked, non-additive active tagged spend or income by Category for one bounded month in an authorized Circle. type selects expense or income Categories; month must be the caller's local YYYY-MM. Multi-Category Transactions contribute their full amount to each Category row, so row totals must not be summed. Archived Transactions are excluded. Results paginate via paginationOpts (default first 50 rows) using a rankingRevision-tied cursor; restart from page 1 when stale_pagination is returned.",
       inputSchema: categoryAnalyticsInputSchema,
       outputSchema: mcpCategoryAnalyticsSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_category_analytics,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -628,12 +564,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List Categories in an authorized Circle with optional Transaction type, lifecycle scope (active, archived, or all), and case-insensitive name filtering. Defaults to active Categories. Archived Categories remain readable for history but are not valid new Transaction selections. paginationOpts is optional — omit it for the default first 50 rows; if provided, set cursor to null for page 1 (not 1), then reuse continueCursor.",
       inputSchema: listCategoriesInputSchema,
       outputSchema: mcpPaginatedCategoriesSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_categories,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -658,12 +589,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Get one Category's name, Transaction type, color, lifecycle status, creator attribution, and permitted actions. Archived Categories remain readable because they stay attached to historical Transactions.",
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpCategoryDetailSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.get_category,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -687,12 +613,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List up to five recent Transactions linked to a Category, ordered by Transaction Date then creation time. Includes active and archived Transactions. Archived Categories remain readable.",
       inputSchema: categoryRefInputSchema,
       outputSchema: mcpListCategoryTransactionsResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_category_transactions,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -716,12 +637,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "List paginated immutable Category history with actor, changed fields, and display values. Archived Categories remain readable.",
       inputSchema: listCategoryHistoryInputSchema,
       outputSchema: mcpPaginatedCategoryHistorySchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.list_category_history,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -746,12 +662,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         "Create an Expense or Income Category in an authorized, setup-complete Circle. The authenticated Member becomes the creator. Names are case-insensitively unique per Circle and Transaction type, including names held by Archived Categories. Repeating the same call may create another Category when the name differs. If the active connection lacks pocketcircle:write, report write access denied and do not retry or automatically request reauthorization; offer reconnecting with write access only as an optional User-directed next step.",
       inputSchema: mcpCreateCategoryInputSchema,
       outputSchema: mcpCreateCategoryResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.create_category,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -780,12 +691,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpUpdateCategoryInputSchema,
       outputSchema: mcpUpdateCategoryResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.update_category,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -808,15 +714,10 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Archive Category",
       description:
-        "Archive an active Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Archiving keeps the Category on historical Transactions and readable in Category Detail and History, but removes it from valid new Transaction selections. Confirm the exact categoryRef before calling. Repeating archive on an already-archived Category returns an error.",
+        "Archive an active Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Archiving keeps the Category on historical Transactions and readable in Category Detail and History, but removes it from valid new Transaction selections. When the actor is not the Category creator, the creator may receive an in-app notification. Confirm the exact categoryRef before calling. Repeating archive on an already-archived Category returns an error.",
       inputSchema: mcpArchiveCategoryInputSchema,
       outputSchema: mcpArchiveCategoryResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.archive_category,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -837,16 +738,11 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Restore Category",
       description:
-        "Restore an Archived Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Restoring makes the Category selectable for new Transactions again when uniqueness and lifecycle rules allow. Repeating restore on an already-active Category returns an error. " +
+        "Restore an Archived Category in an authorized, setup-complete Circle. Requires Category creator or Circle Owner permission. Restoring makes the Category selectable for new Transactions again when uniqueness and lifecycle rules allow. When the actor is not the Category creator, the creator may receive an in-app notification. Repeating restore on an already-active Category returns an error. " +
         MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpRestoreCategoryInputSchema,
       outputSchema: mcpRestoreCategoryResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.restore_category,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -867,18 +763,13 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Create Transaction",
       description:
-        "Create an Expense or Income in an authorized, setup-complete Circle. Recorded By is always the authenticated Member. Paid By defaults to Recorded By. Category references must be active, unique, in the same Circle, and match the Transaction type. Expected Currency must match the Circle Currency. Repeating the same call may create another Transaction." +
+        "Create an Expense or Income in an authorized, setup-complete Circle. Recorded By is always the authenticated Member. Paid By defaults to Recorded By. Category references must be active, unique, in the same Circle, and match the Transaction type. Expected Currency must match the Circle Currency. The first Transaction in a Circle permanently locks that Circle's Currency. When Paid By is another Member, that Member may receive an in-app notification. Repeating the same call may create another Transaction." +
         " " +
         MCP_MONEY_DISPLAY_INSTRUCTIONS +
         " If the active connection lacks pocketcircle:write, report write access denied and do not retry or automatically request reauthorization; offer reconnecting with write access only as an optional User-directed next step.",
       inputSchema: mcpCreateTransactionInputSchema,
       outputSchema: mcpCreateTransactionResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.create_transaction,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -915,12 +806,7 @@ export function buildMcpServer(env: Env, request?: Request) {
         MCP_MONEY_DISPLAY_INSTRUCTIONS,
       inputSchema: mcpUpdateTransactionInputSchema,
       outputSchema: mcpUpdateTransactionResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-      },
+      annotations: toolAnnotationContract.update_transaction,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -953,15 +839,10 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Archive Transaction",
       description:
-        "Archive an active Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Archiving freezes the Transaction and removes it from Dashboard and report totals without deleting it. Confirm the exact transactionRef before calling. Repeating archive on an already-archived Transaction returns an error.",
+        "Archive an active Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Archiving freezes the Transaction and removes it from Dashboard and report totals without deleting it. When the actor is not the Recorded By Member, that Member may receive an in-app notification. Confirm the exact transactionRef before calling. Repeating archive on an already-archived Transaction returns an error.",
       inputSchema: mcpArchiveTransactionInputSchema,
       outputSchema: mcpArchiveTransactionResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.archive_transaction,
     },
     async (args, ctx) =>
       handleToolExecution(
@@ -982,16 +863,11 @@ export function buildMcpServer(env: Env, request?: Request) {
     {
       title: "Restore Transaction",
       description:
-        "Restore an archived Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Restoring returns the Transaction to active reporting and field editing for the Recorded By Member. Repeating restore on an already-active Transaction returns an error. " +
+        "Restore an archived Transaction in an authorized, setup-complete Circle. Requires Recorded By Member or Circle Owner permission. Restoring returns the Transaction to active reporting and field editing for the Recorded By Member. When the actor is not the Recorded By Member, that Member may receive an in-app notification. Repeating restore on an already-active Transaction returns an error. " +
         MCP_ARCHIVED_EDIT_INSTRUCTIONS,
       inputSchema: mcpRestoreTransactionInputSchema,
       outputSchema: mcpRestoreTransactionResultSchema,
-      annotations: {
-        readOnlyHint: false,
-        openWorldHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      },
+      annotations: toolAnnotationContract.restore_transaction,
     },
     async (args, ctx) =>
       handleToolExecution(
