@@ -17,6 +17,7 @@ import { useState } from "react";
 import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
+  MOCK_CIRCLES,
   MOCK_MEMBERS,
   MOCK_MONTHLY_SUMMARY,
   mockFilterTransactions,
@@ -417,11 +418,7 @@ export function useMyTransactions(
   );
   if (MOCKS) {
     return {
-      transactions: [],
-      pageNumber: page,
-      pageSize,
-      totalCount: 0,
-      totalCountCapped: false,
+      ...mockSearchMyTransactions(filters, { page, pageSize }),
       isLoading: false,
     } satisfies MyTransactionsResult;
   }
@@ -439,5 +436,52 @@ export function useMyTransactions(
 }
 
 export function useMyTransactionCircles() {
-  return useQuery(api.myTransactions.listMyTransactionCircles, MOCKS ? "skip" : {});
+  const queried = useQuery(api.myTransactions.listMyTransactionCircles, MOCKS ? "skip" : {});
+  return MOCKS ? mockMyTransactionCircles() : queried;
+}
+
+function mockMyTransactionCircles() {
+  return MOCK_CIRCLES.map((circle) => ({
+    id: circle.id,
+    ref: circle.ref,
+    name: circle.name,
+    color: circle.color,
+    mark: circle.mark,
+    currency: circle.currency,
+    status: circle.status,
+  }));
+}
+
+function mockSearchMyTransactions(
+  filters: MyTransactionsFiltersQuery,
+  opts: { page: number; pageSize: number },
+) {
+  const circles = mockMyTransactionCircles();
+  const circleById = new Map(circles.map((circle) => [circle.id, circle]));
+  const fallbackCircle = circles[0];
+  const filtered = mockFilterTransactions(filters).flatMap((txn) => {
+    const circle =
+      (filters.circleIds?.length
+        ? filters.circleIds.map((id) => circleById.get(id)).find(Boolean)
+        : fallbackCircle) ?? fallbackCircle;
+    if (!circle) {
+      return [];
+    }
+    if (
+      filters.circleIds &&
+      filters.circleIds.length > 0 &&
+      !filters.circleIds.includes(circle.id)
+    ) {
+      return [];
+    }
+    return [{ ...txn, circle }];
+  });
+  const start = (opts.page - 1) * opts.pageSize;
+  return {
+    transactions: filtered.slice(start, start + opts.pageSize),
+    pageNumber: opts.page,
+    pageSize: opts.pageSize,
+    totalCount: filtered.length,
+    totalCountCapped: false,
+  };
 }
