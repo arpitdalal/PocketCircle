@@ -7,9 +7,22 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-09-22
+
 ### Added
 
 - **My Transactions** — find Transactions paid by you across Circles with search and filters, without opening each Circle.
+- Notifications now cover Circle invitations (including before they expire), and Settings can enable Push so Notification Center updates can appear on your devices.
+
+### Changed
+
+- On large screens, the app uses a left sidebar for Circles, destinations, and account instead of the top header and Circle tabs.
+- Connected AI assistants advertise clearer read and write safety hints, including when creating a Transaction locks a Circle's Currency.
+
+### Fixed
+
+- Phone Safari no longer zooms the page when focusing form fields.
+- Large money amounts no longer push mobile layouts sideways or break the bottom navigation.
 
 ## [v0.6.0] - 2026-09-10
 
