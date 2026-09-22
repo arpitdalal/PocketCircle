@@ -17,6 +17,7 @@ import { useState } from "react";
 import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
+  MOCK_CIRCLES,
   MOCK_MEMBERS,
   MOCK_MONTHLY_SUMMARY,
   mockFilterTransactions,
@@ -379,5 +380,134 @@ export function useExportTransactions(circleId: Circle["id"]) {
       return mockExportRows(filters);
     }
     return await convex.query(api.export.exportTransactions, { circleId, ...filters });
+  };
+}
+
+export type MyTransactionsPage = NonNullable<
+  FunctionReturnType<typeof api.myTransactions.searchMyTransactions>
+>;
+
+export type MyTransactionsResult = MyTransactionsPage & { isLoading: boolean };
+
+export type MyTransactionsFiltersQuery = {
+  type: FilterType;
+  status: LifecycleFilter;
+  query?: string;
+  circleIds?: string[];
+  dateFrom?: string;
+  dateTo?: string;
+  amountMin?: number;
+  amountMax?: number;
+};
+
+export function useMyTransactions(
+  filters: MyTransactionsFiltersQuery,
+  opts?: { page?: number; pageSize?: number },
+) {
+  const page = opts?.page ?? 1;
+  const pageSize = opts?.pageSize ?? TRANSACTIONS_PAGE_SIZE;
+  const stable = useStableQuery(
+    api.myTransactions.searchMyTransactions,
+    MOCKS
+      ? "skip"
+      : {
+          ...filters,
+          page,
+          pageSize,
+        },
+  );
+  if (MOCKS) {
+    return {
+      ...mockSearchMyTransactions(filters, { page, pageSize }),
+      isLoading: false,
+    } satisfies MyTransactionsResult;
+  }
+  if (stable.value === undefined) {
+    return {
+      transactions: [],
+      pageNumber: page,
+      pageSize,
+      totalCount: 0,
+      totalCountCapped: false,
+      scanIncomplete: false,
+      isLoading: true,
+    } satisfies MyTransactionsResult;
+  }
+  return {
+    ...stable.value,
+    isLoading: stable.isPending,
+  } satisfies MyTransactionsResult;
+}
+
+export function useMyTransactionCircles() {
+  const queried = useQuery(api.myTransactions.listMyTransactionCircles, MOCKS ? "skip" : {});
+  return MOCKS ? mockMyTransactionCircles() : queried;
+}
+
+function mockMyTransactionCircles() {
+  return MOCK_CIRCLES.map((circle) => ({
+    id: circle.id,
+    ref: circle.ref,
+    name: circle.name,
+    color: circle.color,
+    mark: circle.mark,
+    currency: circle.currency,
+    status: circle.status,
+  }));
+}
+
+function mockEmptyMyTransactionsPage(opts: { page: number; pageSize: number }) {
+  return {
+    transactions: [],
+    pageNumber: opts.page,
+    pageSize: opts.pageSize,
+    totalCount: 0,
+    totalCountCapped: false,
+    scanIncomplete: false,
+  };
+}
+
+function mockSearchMyTransactions(
+  filters: MyTransactionsFiltersQuery,
+  opts: { page: number; pageSize: number },
+) {
+  const circles = mockMyTransactionCircles();
+  // Match server: omit circleIds → all visible; explicit [] / unknown-only → none.
+  const circleIds = filters.circleIds;
+  const scopedCircles =
+    circleIds === undefined
+      ? circles
+      : circles.filter((entry) => circleIds.some((id) => id === entry.id));
+  if (scopedCircles.length === 0) {
+    return mockEmptyMyTransactionsPage(opts);
+  }
+  const scopedById = new Map(scopedCircles.map((entry) => [entry.id, entry]));
+  // Fixture Transactions are Personal-Circle ledger rows; attach that owner only
+  // (never cross-product every txn × every selected Circle).
+  const personalMock = MOCK_CIRCLES.find((circle) => circle.kind === "personal");
+  if (!personalMock) {
+    throw new Error("MOCK_CIRCLES missing Personal Circle");
+  }
+  const ownerCircle = scopedById.get(personalMock.id);
+  if (!ownerCircle) {
+    return mockEmptyMyTransactionsPage(opts);
+  }
+  const filtered = mockFilterTransactions({
+    query: filters.query,
+    type: filters.type,
+    status: filters.status,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    amountMin: filters.amountMin,
+    amountMax: filters.amountMax,
+  }).map((txn) => ({ ...txn, circle: ownerCircle }));
+  const start = (opts.page - 1) * opts.pageSize;
+  return {
+    transactions: filtered.slice(start, start + opts.pageSize),
+    pageNumber: opts.page,
+    pageSize: opts.pageSize,
+    totalCount: filtered.length,
+    totalCountCapped: false,
+    scanIncomplete: false,
   };
 }

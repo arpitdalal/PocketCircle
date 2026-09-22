@@ -35,7 +35,7 @@ vi.mock("posthog-js", async () => (await import("~/test/posthog-mock.js")).posth
 
 const VAPID = { publicKey: "BPtestPublicKey", keyId: "primary" };
 const STRIP_TITLE = /Enable notifications on this device/i;
-const FEATURE_ANNOUNCEMENT_TITLE = /Connect PocketCircle to your AI assistant/i;
+const FEATURE_ANNOUNCEMENT_TITLE = /Find every Transaction you paid for/i;
 
 beforeEach(async () => {
   resetNotificationAnnouncementMemory();
@@ -73,7 +73,7 @@ function renderStrip(
       // Keep Feature Announcement eligible when coexistence is under test.
       acknowledgedFeatureAnnouncementIds: opts.withFeatureAnnouncement
         ? []
-        : ["mcp-connections", "duplicate-transaction"],
+        : ["my-transactions", "mcp-connections", "duplicate-transaction"],
     }),
     pushVapidPublicKey: opts.pushVapidPublicKey === undefined ? VAPID : opts.pushVapidPublicKey,
     enablePushSubscription: opts.enablePushSubscription,

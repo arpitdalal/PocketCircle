@@ -7,6 +7,10 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **My Transactions** — find Transactions paid by you across Circles with search and filters, without opening each Circle.
+
 ## [v0.6.0] - 2026-09-10
 
 ### Added

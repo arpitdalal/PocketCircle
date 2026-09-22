@@ -1,4 +1,4 @@
-import { House } from "lucide-react";
+import { House, ReceiptText } from "lucide-react";
 import { useId } from "react";
 import { href, Link, matchPath, NavLink, useLocation } from "react-router";
 import { AccountMenu } from "~/components/account-menu.js";
@@ -43,6 +43,8 @@ export function AppSidebar({ user, showSignOut }: { user: SessionUser; showSignO
   const location = useLocation();
   const circleRef = circleRefOf(location.pathname);
   const homeActive = matchPath({ path: href("/"), end: true }, location.pathname) !== null;
+  const myTransactionsActive =
+    matchPath({ path: href("/my-transactions"), end: true }, location.pathname) !== null;
 
   return (
     <Sidebar aria-label="PocketCircle">
@@ -76,6 +78,15 @@ export function AppSidebar({ user, showSignOut }: { user: SessionUser; showSignO
                   >
                     <House aria-hidden />
                     <span>Home</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={myTransactionsActive}
+                    render={<NavLink to={href("/my-transactions")} end prefetch="intent" />}
+                  >
+                    <ReceiptText aria-hidden />
+                    <span>My Transactions</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>

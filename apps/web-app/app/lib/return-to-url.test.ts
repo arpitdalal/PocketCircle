@@ -53,6 +53,12 @@ describe("parseReturnTo", () => {
     ],
     ["honors Home with a hash fragment", "/#section", "/#section"],
     ["honors Home with query and hash", "/?currency=EUR&range=3#top", "/?currency=EUR&range=3#top"],
+    ["honors the bare My Transactions path", "/my-transactions", "/my-transactions"],
+    [
+      "honors My Transactions with filters and page",
+      "/my-transactions?q=coffee&page=2",
+      "/my-transactions?q=coffee&page=2",
+    ],
     ["honors the bare MCP authorize path", "/mcp/authorize", "/mcp/authorize"],
     [
       "honors MCP authorize with handoff query",

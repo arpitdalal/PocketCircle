@@ -8,7 +8,11 @@
  * who acknowledged it still carry it in `acknowledgedFeatureAnnouncementIds`, so
  * reusing the name would silently hide the new campaign from all of them.
  */
-export const FEATURE_ANNOUNCEMENT_IDS = ["duplicate-transaction", "mcp-connections"] as const;
+export const FEATURE_ANNOUNCEMENT_IDS = [
+  "duplicate-transaction",
+  "mcp-connections",
+  "my-transactions",
+] as const;
 
 export type FeatureAnnouncementId = (typeof FEATURE_ANNOUNCEMENT_IDS)[number];
 
