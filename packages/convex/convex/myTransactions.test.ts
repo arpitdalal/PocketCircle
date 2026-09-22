@@ -1,6 +1,6 @@
-import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
+import { ADA_PERSONAL, beginMyTransactionsTest } from "../test/myTransactionsFixture.js";
 import {
   addMember,
   seedOwnedFixture,
@@ -10,7 +10,6 @@ import {
 } from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import { MY_TRANSACTIONS_CANDIDATE_READ_CEILING } from "./myTransactions.js";
-import schema from "./schema.js";
 
 vi.mock("./auth.js", async () => (await import("../test/mockAuth.js")).authMockModule());
 
@@ -22,18 +21,11 @@ beforeEach(() => {
 
 describe("searchMyTransactions", () => {
   it("returns Paid-By-me Transactions across Circles, newest date first", async () => {
-    const t = convexTest(schema, modules);
-    const personal = await t.run((ctx) =>
-      seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
+    const { t, signedInPersonal } = beginMyTransactionsTest(modules);
+    const personal = await signedInPersonal();
     const trip = await t.run((ctx) =>
       seedOwnedFixture(ctx, personal.owner, { name: "Trip", currency: "CAD" }),
     );
-    signInAs(personal.owner);
 
     await t.run(async (ctx) => {
       await seedTransaction(ctx, personal, {
@@ -68,13 +60,9 @@ describe("searchMyTransactions", () => {
   });
 
   it("includes Transactions recorded by someone else when Paid By is me", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const trip = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       const owned = await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       const sam = await addMember(ctx, owned.circleId, "sam@example.com", "Sam");
       await seedTransaction(ctx, owned, {
@@ -96,13 +84,9 @@ describe("searchMyTransactions", () => {
   });
 
   it("narrows to selected Circles and ignores unknown ids", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const seeded = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       const trip = await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       await seedTransaction(ctx, personal, { title: "Personal only", date: "2026-06-01" });
       await seedTransaction(ctx, trip, { title: "Trip only", date: "2026-06-02" });
@@ -121,13 +105,9 @@ describe("searchMyTransactions", () => {
   });
 
   it("filters by title text across Circles", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const seeded = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       const trip = await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       await seedTransaction(ctx, personal, { title: "Whole Foods", date: "2026-06-01" });
       await seedTransaction(ctx, trip, { title: "Uber", date: "2026-06-02" });
@@ -146,13 +126,9 @@ describe("searchMyTransactions", () => {
   });
 
   it("includes Archived Circle Transactions when membership remains", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const seeded = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       const archived = await seedOwnedFixture(ctx, personal.owner, {
         name: "Old Trip",
         archived: true,
@@ -172,15 +148,8 @@ describe("searchMyTransactions", () => {
   });
 
   it("paginates with numbered pages", async () => {
-    const t = convexTest(schema, modules);
-    const personal = await t.run((ctx) =>
-      seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    signInAs(personal.owner);
+    const { t, signedInPersonal } = beginMyTransactionsTest(modules);
+    const personal = await signedInPersonal();
 
     await t.run(async (ctx) => {
       for (let index = 1; index <= 3; index += 1) {
@@ -211,13 +180,9 @@ describe("searchMyTransactions", () => {
   });
 
   it("still returns Paid-By rows when the Circle is excluded from Home Summary", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const seeded = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       const trip = await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       await seedTransaction(ctx, trip, { title: "Excluded circle spend", date: "2026-06-01" });
       await ctx.db.insert("homeSummaryExclusions", {
@@ -239,15 +204,8 @@ describe("searchMyTransactions", () => {
   });
 
   it("tiebreaks same Transaction Date by createdAt desc", async () => {
-    const t = convexTest(schema, modules);
-    const personal = await t.run((ctx) =>
-      seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    signInAs(personal.owner);
+    const { t, signedInPersonal } = beginMyTransactionsTest(modules);
+    const personal = await signedInPersonal();
 
     await t.run(async (ctx) => {
       await seedTransaction(ctx, personal, {
@@ -272,15 +230,8 @@ describe("searchMyTransactions", () => {
   });
 
   it("marks scanIncomplete when the candidate budget ends before a sparse match", async () => {
-    const t = convexTest(schema, modules);
-    const personal = await t.run((ctx) =>
-      seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    signInAs(personal.owner);
+    const { t, signedInPersonal } = beginMyTransactionsTest(modules);
+    const personal = await signedInPersonal();
 
     await t.run(async (ctx) => {
       // Newest-first scan: many expenses burn the budget before an older income match.
@@ -307,15 +258,8 @@ describe("searchMyTransactions", () => {
   });
 
   it("filters by type and lifecycle", async () => {
-    const t = convexTest(schema, modules);
-    const personal = await t.run((ctx) =>
-      seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      }),
-    );
-    signInAs(personal.owner);
+    const { t, signedInPersonal } = beginMyTransactionsTest(modules);
+    const personal = await signedInPersonal();
 
     await t.run(async (ctx) => {
       await seedTransaction(ctx, personal, {
@@ -354,13 +298,9 @@ describe("searchMyTransactions", () => {
 
 describe("listMyTransactionCircles", () => {
   it("lists visible Circles for the filter", async () => {
-    const t = convexTest(schema, modules);
+    const { t } = beginMyTransactionsTest(modules);
     const seeded = await t.run(async (ctx) => {
-      const personal = await seedPersonalFixture(ctx, {
-        email: "ada@example.com",
-        displayName: "Ada",
-        onboarded: true,
-      });
+      const personal = await seedPersonalFixture(ctx, ADA_PERSONAL);
       await seedOwnedFixture(ctx, personal.owner, { name: "Trip" });
       return personal;
     });

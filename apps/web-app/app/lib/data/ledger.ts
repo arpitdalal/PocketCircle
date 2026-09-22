@@ -456,30 +456,51 @@ function mockMyTransactionCircles() {
   }));
 }
 
+function mockEmptyMyTransactionsPage(opts: { page: number; pageSize: number }) {
+  return {
+    transactions: [],
+    pageNumber: opts.page,
+    pageSize: opts.pageSize,
+    totalCount: 0,
+    totalCountCapped: false,
+    scanIncomplete: false,
+  };
+}
+
 function mockSearchMyTransactions(
   filters: MyTransactionsFiltersQuery,
   opts: { page: number; pageSize: number },
 ) {
   const circles = mockMyTransactionCircles();
-  const allowedIds = filters.circleIds ?? [];
-  // Default (no circleIds) = all mock Circles, matching server default-all-visible.
+  // Match server: omit circleIds → all visible; explicit [] / unknown-only → none.
+  const circleIds = filters.circleIds;
   const scopedCircles =
-    allowedIds.length === 0
+    circleIds === undefined
       ? circles
-      : circles.filter((entry) => allowedIds.some((id) => id === entry.id));
+      : circles.filter((entry) => circleIds.some((id) => id === entry.id));
   if (scopedCircles.length === 0) {
-    return {
-      transactions: [],
-      pageNumber: opts.page,
-      pageSize: opts.pageSize,
-      totalCount: 0,
-      totalCountCapped: false,
-      scanIncomplete: false,
-    };
+    return mockEmptyMyTransactionsPage(opts);
   }
-  const filtered = scopedCircles.flatMap((entry) =>
-    mockFilterTransactions(filters).map((txn) => ({ ...txn, circle: entry })),
-  );
+  const scopedById = new Map(scopedCircles.map((entry) => [entry.id, entry]));
+  // Fixture Transactions are Personal-Circle ledger rows; attach that owner only
+  // (never cross-product every txn × every selected Circle).
+  const personalMock = MOCK_CIRCLES[0];
+  if (!personalMock) {
+    throw new Error("MOCK_CIRCLES is empty");
+  }
+  const ownerCircle = scopedById.get(personalMock.id);
+  if (!ownerCircle) {
+    return mockEmptyMyTransactionsPage(opts);
+  }
+  const filtered = mockFilterTransactions({
+    query: filters.query,
+    type: filters.type,
+    status: filters.status,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    amountMin: filters.amountMin,
+    amountMax: filters.amountMax,
+  }).map((txn) => ({ ...txn, circle: ownerCircle }));
   const start = (opts.page - 1) * opts.pageSize;
   return {
     transactions: filtered.slice(start, start + opts.pageSize),
