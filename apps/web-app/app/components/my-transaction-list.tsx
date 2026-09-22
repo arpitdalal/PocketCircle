@@ -1,5 +1,6 @@
 import { formatMoney, money, toCurrencyCode } from "@pocketcircle/domain";
 import { Link } from "react-router";
+import { CircleMark } from "~/components/circle-mark.js";
 import { RowsSkeleton, SkeletonRegion } from "~/components/skeleton.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
 import type { MyTransactionsResult } from "~/lib/data.js";
@@ -54,6 +55,7 @@ function MyTransactionRowItem({ txn, origin }: { txn: MyTransactionRow; origin: 
 
   return (
     <li className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm">
+      <CircleMark mark={circle.mark} color={circle.color} className="size-8 shrink-0 text-xs" />
       <div className="min-w-0 flex-1">
         <p
           className={cn(
