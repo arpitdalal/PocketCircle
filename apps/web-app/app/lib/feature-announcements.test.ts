@@ -9,8 +9,9 @@ import {
 } from "./feature-announcements.js";
 
 describe("featureAnnouncementRouteScope", () => {
-  it("allows Home, Circle Dashboard, Ledger, and Categories list", () => {
+  it("allows Home, My Transactions, Circle Dashboard, Ledger, and Categories list", () => {
     expect(featureAnnouncementRouteScope("/")).toEqual({ kind: "home" });
+    expect(featureAnnouncementRouteScope("/my-transactions")).toEqual({ kind: "home" });
     expect(featureAnnouncementRouteScope("/circles/trip-abc")).toEqual({
       kind: "circle",
       circleRef: "trip-abc",
@@ -103,7 +104,7 @@ describe("selectActiveCatalogEntry", () => {
   it("gives the slot only to the newest entry with no older fallback", () => {
     expect(selectActiveCatalogEntry([])).toBeNull();
     expect(selectActiveCatalogEntry([{ id: "older" }, { id: "newer" }])).toEqual({ id: "newer" });
-    expect(activeFeatureAnnouncement()?.id).toBe("mcp-connections");
+    expect(activeFeatureAnnouncement()?.id).toBe("my-transactions");
   });
 
   it("keeps only reachable entries — an ended campaign is deleted, not kept as data", () => {
@@ -114,12 +115,10 @@ describe("selectActiveCatalogEntry", () => {
 describe("catalog shape", () => {
   it("requires a hero image and caps highlights at the small-phone height budget", () => {
     for (const announcement of FEATURE_ANNOUNCEMENTS) {
-      // Pins the agreed R2 origin, prefix, version suffix, and format so a
-      // mistyped asset path fails here instead of shipping a broken hero — E2E
-      // deliberately never load-tests the CDN, so this is the only in-repo guard.
+      // Pins R2 webp (released campaigns) or local public SVG (unreleased until CDN upload).
       // docs/research/announcement-card-media-and-motion.md — hero image asset spec.
       expect(announcement.heroImage.src, announcement.id).toMatch(
-        /^https:\/\/assets\.pocketcircle\.app\/announcements\/[a-z0-9-]+-v\d+\.webp$/,
+        /^(https:\/\/assets\.pocketcircle\.app\/announcements\/[a-z0-9-]+-v\d+\.webp|\/announcements\/[a-z0-9-]+\.svg)$/,
       );
       // Required, not decorative: the hero carries product meaning.
       expect(announcement.heroImage.alt.length, announcement.id).toBeGreaterThan(0);

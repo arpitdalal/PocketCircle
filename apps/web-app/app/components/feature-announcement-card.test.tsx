@@ -44,8 +44,8 @@ function installMedia(opts: { reducedMotion?: boolean } = {}) {
   });
 }
 
-const ACTIVE_TITLE = /Connect PocketCircle to your AI assistant/i;
-const ACTIVE_ID = "mcp-connections" as const;
+const ACTIVE_TITLE = /Find every Transaction you paid for/i;
+const ACTIVE_ID = "my-transactions" as const;
 
 beforeEach(async () => {
   sessionStorage.clear();
@@ -114,8 +114,11 @@ describe("FeatureAnnouncementCard", () => {
     expect(region).toBeVisible();
     expect(region.className).toContain("animate-slide-up");
 
-    const cta = screen.getByRole("link", { name: "Open Connections" });
-    expect(cta).toHaveAttribute("href", "/connections?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3");
+    const cta = screen.getByRole("link", { name: "Open My Transactions" });
+    expect(cta).toHaveAttribute(
+      "href",
+      "/my-transactions?returnTo=%2F%3Fcurrency%3DUSD%26range%3D3",
+    );
     // The polite region is mounted empty and only then updated, so the spoken
     // text arrives in a later task — assert the update, not the first paint.
     await waitFor(() => {
@@ -251,7 +254,7 @@ describe("FeatureAnnouncementCard", () => {
     // box must not collapse or the close button lands over the copy.
     expect(heroBox?.className).toContain("aspect-video");
     expect(within(region).getByRole("button", { name: "Close" })).toBeVisible();
-    expect(within(region).getByRole("link", { name: "Open Connections" })).toBeVisible();
+    expect(within(region).getByRole("link", { name: "Open My Transactions" })).toBeVisible();
   });
 
   it("never steals focus, exposes a labelled region and accessible close, and ignores Escape", async () => {

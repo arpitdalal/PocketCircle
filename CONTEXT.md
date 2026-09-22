@@ -213,8 +213,12 @@ A per-**Circle** summary of money activity. The v1 Dashboard shows current-month
 _Avoid_: Overview
 
 **Home Summary**:
-A cross-**Circle** summary of a **User's** attributed cash flow across the visible Circles they include in reporting. It counts active **Transactions** whose **Paid By** resolves to the User, and presents Income, Expenses, Net cash flow, monthly trends, recent Transactions, and per-Circle contribution for one Currency and one 1/3/6/12-calendar-month range at a time. Headline totals cover the entire selected range. Every visible Circle is initially included; exclusions persist for reporting only and do not change Circle Visibility, navigation, or per-Circle reporting. Different Currencies remain separate and are never converted or added together. Home Summary does not represent account balance, net worth, the User's economic share of a shared Expense, or money receivable/payable from other Members.
+A cross-**Circle** summary of a **User's** attributed cash flow across the visible Circles they include in reporting. It counts active **Transactions** whose **Paid By** resolves to the User, and presents Income, Expenses, Net cash flow, monthly trends, recent Transactions, and per-Circle contribution for one Currency and one 1/3/6/12-calendar-month range at a time. Headline totals cover the entire selected range. Every visible Circle is initially included; exclusions persist for reporting only and do not change Circle Visibility, navigation, or per-Circle reporting. Different Currencies remain separate and are never converted or added together. Home Summary does not represent account balance, net worth, the User's economic share of a shared Expense, or money receivable/payable from other Members. Distinct from **My Transactions**, which is the Paid-By list-and-filter find surface rather than cash-flow reporting.
 _Avoid_: Global Dashboard, Overview, Balance, Financial Position, My Spending
+
+**My Transactions**:
+A cross-**Circle** list-and-filter surface of **Transactions** whose **Paid By** resolves to the **User**, regardless of **Recorded By**. Default scope is all-time; filters are Title/Note text, Circle, Transaction type, lifecycle scope, date range, and amount range (no Category or Recorded By in v1). Results sort by Transaction Date descending then created-at descending. Rows show Circle and Currency; no cash-flow totals and no Export in v1. Circle filter defaults to all visible Circles (including Archived Circles the User can still view) and is independent of Home Summary inclusions. A primary app destination alongside Home, also reached from Home; additive to per-Circle **Monthly Ledger** and **Transaction Search**.
+_Avoid_: Global Search, Global Ledger, Personal Ledger, Cross-Circle Transaction Search, Cross-Circle Ledger
 
 **Monthly Ledger**:
 The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, and that month's Transactions sorted by Transaction Date descending and then created-at descending.
@@ -229,7 +233,7 @@ The time window used by the Dashboard's month-over-month comparison. It defaults
 _Avoid_: Date Range
 
 **Transaction Search**:
-A dedicated per-**Circle** way to find **Transactions** by Title, Note, type, Category, Recorded By, Paid By, lifecycle scope, date range or all-time scope, and amount range. Transaction Search is separate from the **Monthly Ledger** and offers all Categories and all current or Removed Members as filter options; Archived Circles remain searchable through their read-only Circle routes.
+A dedicated per-**Circle** way to find **Transactions** by Title, Note, type, Category, Recorded By, Paid By, lifecycle scope, date range or all-time scope, and amount range. Transaction Search is separate from the **Monthly Ledger** and offers all Categories and all current or Removed Members as filter options; Archived Circles remain searchable through their read-only Circle routes. Distinct from **My Transactions**, which is the User's Paid-By find surface across Circles.
 _Avoid_: Search, Global Search
 
 **Export**:
@@ -407,3 +411,15 @@ _Avoid_: Announcement Modal, Feature Checklist, Changelog Popup
 **Engineer**: "Can Transaction Search find Categories without Transactions?"
 
 **Product**: "No. Transaction Search finds Transactions. Categories are structured filters, not text matches."
+
+**Engineer**: "Where do I browse or search all my Transactions across Circles?"
+
+**Product**: "My Transactions. It lists Paid-By-you Transactions across visible Circles with search and filters. It does not replace per-Circle Monthly Ledger or Transaction Search, and it is not Home Summary cash-flow reporting."
+
+**Engineer**: "Does My Transactions include Transactions I recorded for someone else?"
+
+**Product**: "No. Only Paid By = you, no matter who recorded them. Use Circle Transaction Search when you need Recorded-By or full Circle browse."
+
+**Engineer**: "Can My Transactions sum USD and CAD?"
+
+**Product**: "No. Rows show Currency; the page has no totals. Home Summary reports one Currency at a time."

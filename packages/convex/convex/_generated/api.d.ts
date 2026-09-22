@@ -47,6 +47,7 @@ import type * as model from "../model.js";
 import type * as monthActivity from "../monthActivity.js";
 import type * as monthTotals from "../monthTotals.js";
 import type * as monthTotalsBackfill from "../monthTotalsBackfill.js";
+import type * as myTransactions from "../myTransactions.js";
 import type * as notifications from "../notifications.js";
 import type * as notify from "../notify.js";
 import type * as opaqueToken from "../opaqueToken.js";
@@ -110,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   monthActivity: typeof monthActivity;
   monthTotals: typeof monthTotals;
   monthTotalsBackfill: typeof monthTotalsBackfill;
+  myTransactions: typeof myTransactions;
   notifications: typeof notifications;
   notify: typeof notify;
   opaqueToken: typeof opaqueToken;

@@ -260,9 +260,17 @@ function CashFlowSection({
               formatMinor={formatMinor}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">
-              No transactions in the selected {summary.selectedCurrency} scope yet.
-            </p>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                No transactions in the selected {summary.selectedCurrency} scope yet.
+              </p>
+              <Link
+                to="/my-transactions"
+                className="inline-block text-sm font-medium text-primary hover:underline"
+              >
+                View my transactions
+              </Link>
+            </div>
           )}
         </>
       )}
@@ -363,9 +371,17 @@ function RecentTransactionsSection({
 }) {
   return (
     <section aria-labelledby="recent-transactions-heading" className="space-y-2">
-      <h3 id="recent-transactions-heading" className="text-sm font-medium text-muted-foreground">
-        Recent transactions
-      </h3>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 id="recent-transactions-heading" className="text-sm font-medium text-muted-foreground">
+          Recent transactions
+        </h3>
+        <Link
+          to="/my-transactions"
+          className="shrink-0 text-sm font-medium text-primary hover:underline"
+        >
+          View my transactions
+        </Link>
+      </div>
       <ul className="divide-y divide-border rounded-xl border border-border bg-card">
         {recent.map((txn) => (
           <li key={txn.id}>

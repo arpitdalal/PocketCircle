@@ -55,6 +55,9 @@ export default [
     // with the Circle-scoped create route below, without merging their
     // navigation contracts (ADR 0016/0017).
     route("transactions/new", "routes/transactions-new.tsx"),
+    // My Transactions (#389): Paid-By-User cross-Circle list+filter. Top-level
+    // like Global Add — not Circle-scoped (ADR 0034).
+    route("my-transactions", "routes/my-transactions.tsx"),
     // Circle-scoped routes. The Circle guard resolves/canonicalizes/guards the
     // Circle and provides it to children via Outlet context; object routes
     // resolve their own ref within the resolved Circle (ADR 0016/0017).

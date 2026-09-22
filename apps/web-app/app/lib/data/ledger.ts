@@ -381,3 +381,63 @@ export function useExportTransactions(circleId: Circle["id"]) {
     return await convex.query(api.export.exportTransactions, { circleId, ...filters });
   };
 }
+
+export type MyTransactionsPage = NonNullable<
+  FunctionReturnType<typeof api.myTransactions.searchMyTransactions>
+>;
+
+export type MyTransactionsResult = MyTransactionsPage & { isLoading: boolean };
+
+export type MyTransactionsFiltersQuery = {
+  type: FilterType;
+  status: LifecycleFilter;
+  query?: string;
+  circleIds?: string[];
+  dateFrom?: string;
+  dateTo?: string;
+  amountMin?: number;
+  amountMax?: number;
+};
+
+export function useMyTransactions(
+  filters: MyTransactionsFiltersQuery,
+  opts?: { page?: number; pageSize?: number },
+) {
+  const page = opts?.page ?? 1;
+  const pageSize = opts?.pageSize ?? TRANSACTIONS_PAGE_SIZE;
+  const data = useQuery(
+    api.myTransactions.searchMyTransactions,
+    MOCKS
+      ? "skip"
+      : {
+          ...filters,
+          page,
+          pageSize,
+        },
+  );
+  if (MOCKS) {
+    return {
+      transactions: [],
+      pageNumber: page,
+      pageSize,
+      totalCount: 0,
+      totalCountCapped: false,
+      isLoading: false,
+    } satisfies MyTransactionsResult;
+  }
+  if (data === undefined) {
+    return {
+      transactions: [],
+      pageNumber: page,
+      pageSize,
+      totalCount: 0,
+      totalCountCapped: false,
+      isLoading: true,
+    } satisfies MyTransactionsResult;
+  }
+  return { ...data, isLoading: false } satisfies MyTransactionsResult;
+}
+
+export function useMyTransactionCircles() {
+  return useQuery(api.myTransactions.listMyTransactionCircles, MOCKS ? "skip" : {});
+}

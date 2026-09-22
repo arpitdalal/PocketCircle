@@ -42,6 +42,20 @@ export interface SearchFilters extends BaseTransactionFilters {
   page: number;
 }
 
+/** My Transactions (#389) — Paid-By-User cross-Circle find; no Category/Recorded By/Paid By. */
+export interface MyTransactionsFilters {
+  q: string;
+  type: TypeFilter;
+  status: LifecycleFilter;
+  circles: string[];
+  from: string;
+  to: string;
+  min: string;
+  max: string;
+  /** 1-based; omitted from URL when 1. */
+  page: number;
+}
+
 export const DEFAULT_TYPE: TypeFilter = "all";
 export const DEFAULT_STATUS: LifecycleFilter = "all";
 export const LEDGER_FILTER_PARAMS = ["q", "type", "status", "categories", "recordedBy", "paidBy"];
@@ -59,6 +73,18 @@ export const SEARCH_FILTER_PARAMS = [
   "max",
   "page",
 ];
+
+export const MY_TRANSACTIONS_FILTER_PARAMS = [
+  "q",
+  "type",
+  "status",
+  "circles",
+  "from",
+  "to",
+  "min",
+  "max",
+  "page",
+] as const;
 
 function readType(value: string | null): TypeFilter {
   return value === "expense" || value === "income" || value === "all" ? value : DEFAULT_TYPE;
@@ -115,6 +141,20 @@ export function readSearchFilters(searchParams: URLSearchParams) {
   };
 }
 
+export function readMyTransactionsFilters(searchParams: URLSearchParams) {
+  return {
+    q: cleanText(searchParams.get("q")),
+    type: readType(searchParams.get("type")),
+    status: readStatus(searchParams.get("status")),
+    circles: readIds(searchParams.get("circles")),
+    from: isValidPlainDate(searchParams.get("from")) ? (searchParams.get("from") ?? "") : "",
+    to: isValidPlainDate(searchParams.get("to")) ? (searchParams.get("to") ?? "") : "",
+    min: validAmountInput(searchParams.get("min")),
+    max: validAmountInput(searchParams.get("max")),
+    page: readPositiveIntPageParam(searchParams.get("page"), TRANSACTION_SEARCH_MAX_PAGE),
+  };
+}
+
 export function writeLedgerFilters(params: URLSearchParams, filters: LedgerFilters) {
   params.set("month", filters.month);
   writeBase(params, filters);
@@ -122,6 +162,34 @@ export function writeLedgerFilters(params: URLSearchParams, filters: LedgerFilte
 
 export function writeSearchFilters(params: URLSearchParams, filters: SearchFilters) {
   writeBase(params, filters);
+  if (filters.from && isValidPlainDate(filters.from)) {
+    params.set("from", filters.from);
+  } else {
+    params.delete("from");
+  }
+  if (filters.to && isValidPlainDate(filters.to)) {
+    params.set("to", filters.to);
+  } else {
+    params.delete("to");
+  }
+  writeAmount(params, "min", filters.min);
+  writeAmount(params, "max", filters.max);
+  writePositiveIntPageParam(params, "page", filters.page, TRANSACTION_SEARCH_MAX_PAGE);
+}
+
+export function writeMyTransactionsFilters(
+  params: URLSearchParams,
+  filters: MyTransactionsFilters,
+) {
+  params.set("type", filters.type);
+  params.set("status", filters.status);
+  const q = cleanText(filters.q);
+  if (q) {
+    params.set("q", q);
+  } else {
+    params.delete("q");
+  }
+  writeIds(params, "circles", filters.circles);
   if (filters.from && isValidPlainDate(filters.from)) {
     params.set("from", filters.from);
   } else {
@@ -154,6 +222,12 @@ export function canonicalSearchParams(filters: SearchFilters) {
   return params;
 }
 
+export function canonicalMyTransactionsParams(filters: MyTransactionsFilters) {
+  const params = new URLSearchParams();
+  writeMyTransactionsFilters(params, filters);
+  return params;
+}
+
 export function defaultLedgerFilters(month: PlainMonth): LedgerFilters {
   return {
     month,
@@ -182,6 +256,20 @@ export function defaultSearchFilters(): SearchFilters {
   };
 }
 
+export function defaultMyTransactionsFilters(): MyTransactionsFilters {
+  return {
+    q: "",
+    type: DEFAULT_TYPE,
+    status: DEFAULT_STATUS,
+    circles: [],
+    from: "",
+    to: "",
+    min: "",
+    max: "",
+    page: 1,
+  };
+}
+
 export function activeFilterCount(filters: BaseTransactionFilters | SearchFilters) {
   let count = 0;
   if (filters.q) count += 1;
@@ -194,6 +282,19 @@ export function activeFilterCount(filters: BaseTransactionFilters | SearchFilter
   if ("to" in filters && filters.to) count += 1;
   if ("min" in filters && filters.min) count += 1;
   if ("max" in filters && filters.max) count += 1;
+  return count;
+}
+
+export function activeMyTransactionsFilterCount(filters: MyTransactionsFilters) {
+  let count = 0;
+  if (filters.q) count += 1;
+  if (filters.type !== DEFAULT_TYPE) count += 1;
+  if (filters.status !== DEFAULT_STATUS) count += 1;
+  if (filters.circles.length > 0) count += 1;
+  if (filters.from) count += 1;
+  if (filters.to) count += 1;
+  if (filters.min) count += 1;
+  if (filters.max) count += 1;
   return count;
 }
 
@@ -219,6 +320,14 @@ export function dropUnknownIds(
     categories: filters.categories.filter((id) => categories.has(id)),
     recordedBy: filters.recordedBy.filter((id) => members.has(id)),
     paidBy: filters.paidBy.filter((id) => members.has(id)),
+  };
+}
+
+export function dropUnknownCircleIds(filters: MyTransactionsFilters, circleIds: string[]) {
+  const known = new Set(circleIds);
+  return {
+    ...filters,
+    circles: filters.circles.filter((id) => known.has(id)),
   };
 }
 

@@ -1,6 +1,6 @@
 import type { FeatureAnnouncementId } from "@pocketcircle/domain";
 import type { LucideIcon } from "lucide-react";
-import { KeyRoundIcon, MessageSquareTextIcon, ShieldCheckIcon } from "lucide-react";
+import { FilterIcon, ReceiptTextIcon, SearchIcon } from "lucide-react";
 import { circleRefOf } from "./circle-path.js";
 
 /** One icon + copy row under the headline. At most three; the card has no body paragraph. */
@@ -41,34 +41,34 @@ export interface FeatureAnnouncement {
 
 export const FEATURE_ANNOUNCEMENTS = [
   {
-    id: "mcp-connections",
+    id: "my-transactions",
     label: "New",
-    title: "Connect PocketCircle to your AI assistant",
+    title: "Find every Transaction you paid for",
     heroImage: {
-      src: "https://assets.pocketcircle.app/announcements/mcp-connections-v1.webp",
-      alt: "An AI assistant answering a question about a PocketCircle Circle's spending.",
+      src: "/announcements/my-transactions.svg",
+      alt: "A list of Transactions across Circles with search and filters.",
     },
     highlights: [
       {
-        icon: KeyRoundIcon,
-        title: "Paste one URL",
-        body: "Copy the MCP URL from Connections.",
+        icon: ReceiptTextIcon,
+        title: "All your Circles",
+        body: "One list of Transactions paid by you.",
       },
       {
-        icon: ShieldCheckIcon,
-        title: "Approve each Circle",
-        body: "Pick its Circles; revoke any time.",
+        icon: SearchIcon,
+        title: "Search anytime",
+        body: "Title, note, dates, and amounts — not stuck to one month.",
       },
       {
-        icon: MessageSquareTextIcon,
-        title: "Just ask",
-        body: "Ask in plain language, app closed.",
+        icon: FilterIcon,
+        title: "Filter by Circle",
+        body: "Narrow without leaving Home-level navigation.",
       },
     ],
-    ctaLabel: "Open Connections",
-    ctaHref: "/connections",
-    // MCP Connections went live with v0.4.1 (2026-09-04T19:24:27Z).
-    eligibleBefore: "2026-09-04T19:25:00.000Z",
+    ctaLabel: "Open My Transactions",
+    ctaHref: "/my-transactions",
+    // Unreleased campaign — eligible for Users created before this cutoff.
+    eligibleBefore: "2026-12-31T00:00:00.000Z",
   },
 ] as const satisfies readonly FeatureAnnouncement[];
 
@@ -109,12 +109,12 @@ export type FeatureAnnouncementRouteScope =
 const ANNOUNCEMENT_CIRCLE_CHILDREN = new Set(["transactions", "categories"]);
 
 /**
- * Allowed routes for the Feature Announcement card: Home, Circle Dashboard,
- * Ledger, Categories list. Circle identity comes from {@link circleRefOf};
+ * Allowed routes for the Feature Announcement card: Home, My Transactions,
+ * Circle Dashboard, Ledger, Categories list. Circle identity comes from {@link circleRefOf};
  * this helper only applies the announcement child-route allowlist.
  */
 export function featureAnnouncementRouteScope(pathname: string) {
-  if (pathname === "/") {
+  if (pathname === "/" || pathname === "/my-transactions") {
     return { kind: "home" } as const;
   }
 

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   activeFilterCount,
   canonicalLedgerParams,
+  canonicalMyTransactionsParams,
   canonicalSearchParams,
   defaultLedgerFilters,
+  defaultMyTransactionsFilters,
   defaultSearchFilters,
   dropUnknownIds,
   readLedgerFilters,
+  readMyTransactionsFilters,
   readSearchFilters,
   toMinorUnits,
   writeLedgerFilters,
@@ -276,5 +279,45 @@ describe("dropUnknownIds", () => {
       recordedBy: ["known-m"],
       paidBy: ["known-m"],
     });
+  });
+});
+
+describe("readMyTransactionsFilters", () => {
+  it("reads circle ids and omits Category/Recorded By/Paid By", () => {
+    expect(
+      readMyTransactionsFilters(
+        new URLSearchParams(
+          "q=coffee&type=expense&status=active&circles=c1,c2&from=2026-01-01&to=2026-01-31&min=1&max=50&page=2",
+        ),
+      ),
+    ).toEqual({
+      q: "coffee",
+      type: "expense",
+      status: "active",
+      circles: ["c1", "c2"],
+      from: "2026-01-01",
+      to: "2026-01-31",
+      min: "1",
+      max: "50",
+      page: 2,
+    });
+  });
+
+  it("defaults empty circles and page 1", () => {
+    expect(readMyTransactionsFilters(new URLSearchParams())).toEqual(
+      defaultMyTransactionsFilters(),
+    );
+  });
+});
+
+describe("canonicalMyTransactionsParams", () => {
+  it("round-trips filters without Category params", () => {
+    const filters = {
+      ...defaultMyTransactionsFilters(),
+      q: "rent",
+      circles: ["abc"],
+      page: 3,
+    };
+    expect(readMyTransactionsFilters(canonicalMyTransactionsParams(filters))).toEqual(filters);
   });
 });
