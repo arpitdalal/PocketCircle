@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Browser, BrowserContext, Locator, Page, TestInfo } from "@playwright/test";
 import { test as base, expect } from "@playwright/test";
+import { LOCAL_APP_ORIGIN } from "../packages/domain/src/origins.js";
 
 const SM_BREAKPOINT_PX = 640;
 /** Tailwind `lg`: the desktop sidebar replaces the header and Circle tabs (issue #351). */
@@ -575,6 +576,15 @@ async function ensureAppShellReady(page: Page) {
 }
 
 /**
+ * Origin the suite drives the app on. Playwright always sets `use.baseURL`, but
+ * every spec used to spell its own fallback, so a change of local origin had to
+ * be applied in a dozen files. One helper, one origin (#404).
+ */
+export function appBaseUrl(baseURL: string | undefined) {
+  return baseURL || LOCAL_APP_ORIGIN;
+}
+
+/**
  * Drive the flag-gated email+password test-auth bypass (ADR 0019) on `page` until it
  * lands authenticated on the app shell. Signs up (first run for a unique email) then
  * signs in via `window.__scE2E`, leaving a REAL Better Auth session in the page's
@@ -708,11 +718,8 @@ export const test = base.extend<object, { workerStorageState: string }>({
 
   workerStorageState: [
     async ({ browser }, use, workerInfo) => {
-      const raw = workerInfo.project.use.baseURL;
-      const resolvedBase =
-        typeof raw === "string" && raw.length > 0 ? raw : "http://127.0.0.1:5173";
       const pathToState = await signUpUserAndSaveStorageState({
-        baseURL: resolvedBase,
+        baseURL: appBaseUrl(workerInfo.project.use.baseURL),
         workerIndex: workerInfo.workerIndex,
         browser,
       });

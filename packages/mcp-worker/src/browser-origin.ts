@@ -1,29 +1,21 @@
 /**
  * Browser Origin checks for MCP Worker consent / revoke endpoints.
  * Loopback hostnames are interchangeable when APP_ORIGIN is also loopback
- * (Vite may serve `localhost` while .dev.vars pins `127.0.0.1`).
+ * (Vite may serve `localhost` while .dev.vars pins `127.0.0.1`), so the trusted
+ * set comes from `@pocketcircle/domain` — the one place that rule is written
+ * down (#404).
  */
-
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-function isLoopbackHostname(hostname: string) {
-  return LOOPBACK_HOSTS.has(hostname);
-}
+import { loopbackTrustedOrigins } from "@pocketcircle/domain";
 
 export function browserOriginAllowed(requestOrigin: string | null, appOrigin: string) {
   if (!requestOrigin) {
     return false;
   }
-  if (requestOrigin === appOrigin) {
-    return true;
-  }
   try {
-    const request = new URL(requestOrigin);
-    const app = new URL(appOrigin);
-    if (request.protocol !== app.protocol || request.port !== app.port) {
-      return false;
-    }
-    return isLoopbackHostname(request.hostname) && isLoopbackHostname(app.hostname);
+    // Normalize the presented origin too: a hand-written `Origin` header may
+    // carry a path or a trailing slash, and `loopbackTrustedOrigins` compares
+    // bare origins.
+    return loopbackTrustedOrigins(appOrigin).includes(new URL(requestOrigin).origin);
   } catch {
     return false;
   }

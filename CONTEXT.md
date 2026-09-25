@@ -260,6 +260,22 @@ _Avoid_: Activity Email
 An in-app way for a **User** to report a bug or request a feature, including requests to add a supported Currency. Feedback has a type, required message, optional current Circle context, and automatically includes User email, Display Name, and app build information when available; it sends an email to the configured support address and does not create app data inside a Circle.
 _Avoid_: Support Ticket
 
+**Apex**:
+The public hostname PocketCircle serves its marketing surfaces from. It owns the marketing pages and the public support and legal mailboxes, and it carries no authentication trust.
+_Avoid_: Marketing Domain, Website Domain
+
+**App Origin**:
+The origin the authenticated product app is served from, and the origin a signed-in browser presents. Distinct from the **Apex**, though the same host until the two are split. Anything a signed-in browser reaches — a consent origin, a sign-in link, a redirect target — follows the **App Origin**, never the **Apex**.
+_Avoid_: Web Origin, Site URL
+
+**MCP Origin**:
+The origin of the hosted MCP server. It is the OAuth issuer clients discover and the resource identifier an access token is bound to.
+_Avoid_: MCP Server URL, Plugin URL
+
+**Marketing Site**:
+The statically generated site served from the **Apex**: the product's public documentation, readable without a session or a backend. The authenticated product is not part of it.
+_Avoid_: Landing Page, Homepage
+
 **App Version**:
 The released app version and build identifier shown in Settings and included in **Feedback** when available.
 _Avoid_: Release Notes

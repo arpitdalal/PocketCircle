@@ -1,4 +1,5 @@
 import type { ClientRegistrationCallbackResult } from "@cloudflare/workers-oauth-provider";
+import { isLoopbackHostname } from "@pocketcircle/domain";
 import { z } from "zod";
 
 /** Cap matches admin provisioning (`client-provisioning.ts`). */
@@ -64,8 +65,9 @@ export function isAllowedDcrRedirectUri(
     return true;
   }
   if (url.protocol === "http:") {
-    const host = url.hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    // Loopback http redirects are a local-dev affordance (MCP clients that
+    // cannot use a custom scheme); the loopback set lives in one place (#404).
+    return isLoopbackHostname(url.hostname.toLowerCase());
   }
   if (!allowedCustomSchemes.has(scheme)) {
     return false;

@@ -1,5 +1,6 @@
 import {
   LEGAL_DOCUMENTS,
+  MCP_RESOURCE_URI,
   POCKETCIRCLE_LEGAL_EMAIL,
   POCKETCIRCLE_SUPPORT_EMAIL,
 } from "@pocketcircle/domain";
@@ -88,7 +89,7 @@ describe("legal pages", () => {
     expect(screen.getByText("Updated September 7, 2026")).toBeVisible();
     expect(screen.getByRole("heading", { name: /Connect an AI assistant$/ })).toBeVisible();
     expect(screen.getByRole("heading", { name: /Troubleshooting$/ })).toBeVisible();
-    expect(screen.getByText("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByText(MCP_RESOURCE_URI)).toBeVisible();
     expect(screen.getByText(/Do not email passwords/i)).toBeVisible();
     expect(screen.getByText(/does not convert or sum different Currencies/i)).toBeVisible();
     expect(screen.getByText(/reinstall\/update the PocketCircle package/i)).toBeVisible();

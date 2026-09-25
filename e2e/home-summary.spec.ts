@@ -1,6 +1,7 @@
 import type { Browser, Page } from "@playwright/test";
 import { addMonths, currentMonth } from "../packages/domain/src/date.ts";
 import {
+  appBaseUrl,
   clickCircleChromeTab,
   createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
@@ -47,7 +48,7 @@ async function openIsolatedHomeSession(
   email: string,
   name: string,
 ) {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
   await establishE2ESession(page, { baseURL: resolvedBase, email, name });

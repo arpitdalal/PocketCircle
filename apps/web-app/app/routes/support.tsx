@@ -1,4 +1,4 @@
-import { MCP_RESOURCE_URI, POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
+import { APP_HOSTNAME, MCP_RESOURCE_URI, POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
 import { href, Link } from "react-router";
 import { LegalDocument, LegalList, LegalSection } from "~/components/legal-document.js";
 
@@ -32,7 +32,7 @@ export default function Support() {
               to={href("/signin")}
               className="font-medium text-primary underline underline-offset-4"
             >
-              pocketcircle.app/signin
+              {APP_HOSTNAME}/signin
             </Link>{" "}
             with Google.
           </li>

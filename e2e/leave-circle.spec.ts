@@ -1,4 +1,5 @@
 import {
+  appBaseUrl,
   circleSwitcher,
   clickCircleChromeTab,
   createRegularCircleAndFinishSetup,
@@ -20,7 +21,7 @@ test("a non-owner member leaves a regular circle and lands on home without it", 
   baseURL,
 }, testInfo) => {
   test.setTimeout(60_000);
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const circleName = `E2E Leave ${Date.now()}`;
   const memberEmail = `e2e+leave-member-${Date.now()}@example.com`;
 

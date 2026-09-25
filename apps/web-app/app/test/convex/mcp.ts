@@ -1,4 +1,5 @@
 import { api } from "@pocketcircle/convex";
+import { MCP_RESOURCE_URI } from "@pocketcircle/domain";
 import { getFunctionName } from "convex/server";
 import type { Mock } from "vitest";
 import type { McpConnection, McpHandoffView } from "~/lib/data.js";
@@ -86,7 +87,7 @@ export function makeMcpHandoffView(over: Partial<McpHandoffView> = {}) {
     clientUri: over.clientUri ?? "https://client.example",
     logoUri: over.logoUri,
     redirectUri: over.redirectUri ?? "https://client.example/callback",
-    resource: over.resource ?? "https://mcp.pocketcircle.app/mcp",
+    resource: over.resource ?? MCP_RESOURCE_URI,
     scopes: over.scopes ?? ["pocketcircle:read"],
     refreshDurationLabel: over.refreshDurationLabel ?? "30 days",
   } satisfies McpHandoffView;

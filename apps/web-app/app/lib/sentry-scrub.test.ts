@@ -1,4 +1,4 @@
-import { buildRef } from "@pocketcircle/domain";
+import { buildRef, LOCAL_APP_ORIGIN } from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
 import {
   scrubAppErrorExtra,
@@ -13,7 +13,7 @@ const circleRef = buildRef("Family Trip", "c1abc");
 describe("scrubUrlForSentry", () => {
   it("redacts title-bearing transaction and circle refs in the path", () => {
     const scrubbed = scrubUrlForSentry(
-      `http://127.0.0.1:5173/circles/${circleRef}/transactions/${txnRef}/edit`,
+      `${LOCAL_APP_ORIGIN}/circles/${circleRef}/transactions/${txnRef}/edit`,
     );
 
     expect(scrubbed).not.toContain("weekly-grocery-shop");
@@ -110,7 +110,7 @@ describe("scrubSentryEvent", () => {
     const event = {
       type: undefined,
       request: {
-        url: `http://127.0.0.1:5173/circles/${circleRef}/transactions/${txnRef}/edit?returnTo=${encodeURIComponent(origin)}`,
+        url: `${LOCAL_APP_ORIGIN}/circles/${circleRef}/transactions/${txnRef}/edit?returnTo=${encodeURIComponent(origin)}`,
       },
       breadcrumbs: [
         {

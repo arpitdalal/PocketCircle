@@ -1,5 +1,6 @@
 import {
   accountMenuButton,
+  appBaseUrl,
   createIsolatedBrowserContext,
   establishE2ESession,
   expect,
@@ -24,7 +25,7 @@ import {
  * `baseURL` also means the worker auth fixture is never instantiated for this spec.)
  */
 test("signing out clears the session and lands signed out", async ({ browser, baseURL }) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const email = `e2e+signout-${Date.now()}@example.com`;
 
   const context = await createIsolatedBrowserContext(browser);

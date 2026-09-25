@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { LOCAL_APP_HOSTNAME, LOCAL_APP_ORIGIN } from "./packages/domain/src/origins.js";
 
 /**
  * End-to-end tests run against a REAL, self-hosted Convex backend (ADR 0019):
@@ -14,8 +15,7 @@ import { defineConfig, devices } from "@playwright/test";
  * The CI workflow sets VITE_CONVEX_URL / VITE_CONVEX_SITE_URL to the self-hosted
  * backend's origins; locally they default to the docker-compose ports.
  */
-const PORT = 5173;
-const baseURL = `http://127.0.0.1:${PORT}`;
+const baseURL = LOCAL_APP_ORIGIN;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -55,7 +55,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm --filter @pocketcircle/web-app dev --host 127.0.0.1",
+    command: `pnpm --filter @pocketcircle/web-app dev --host ${LOCAL_APP_HOSTNAME}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

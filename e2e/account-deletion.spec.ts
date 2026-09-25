@@ -1,4 +1,5 @@
 import {
+  appBaseUrl,
   createIsolatedBrowserContext,
   establishE2ESession,
   expect,
@@ -19,7 +20,7 @@ test("account deletion verifies, signs out, and blocks protected access", async 
   // heading wait alone allows 60s.
   test.setTimeout(120_000);
 
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const email = `e2e+delete-${Date.now()}@example.com`;
 
   const context = await createIsolatedBrowserContext(browser);

@@ -38,6 +38,16 @@ if [[ -z "${CONVEX_IMAGE:-}" ]]; then
   exit 1
 fi
 
+# Canonical origins live in one module (#404). Read them from there instead of
+# repeating the literals, so this script cannot point the backend at an origin
+# other than the one the suite is served on.
+origin_constant() {
+  node -e \
+    "import(process.argv[2]).then((m) => process.stdout.write(String(m[process.argv[1]])))" \
+    "$1" "${REPO_ROOT}/packages/domain/src/origins.ts"
+}
+APP_ORIGIN="$(origin_constant LOCAL_APP_ORIGIN)"
+
 # These mirror the CI job's env. Exporting them makes the run deterministic
 # regardless of what the shell or .env.local say.
 export CONVEX_SELF_HOSTED_URL="http://127.0.0.1:3210"
@@ -133,7 +143,7 @@ log "Configuring test-only auth env + deploying functions"
 (
   cd "$CONVEX_DIR"
   pnpm exec convex env set BETTER_AUTH_SECRET "local-$(openssl rand -hex 16)"
-  pnpm exec convex env set SITE_URL "http://127.0.0.1:5173"
+  pnpm exec convex env set SITE_URL "$APP_ORIGIN"
   pnpm exec convex env set GOOGLE_CLIENT_ID "local-dummy"
   pnpm exec convex env set GOOGLE_CLIENT_SECRET "local-dummy"
   pnpm exec convex env set E2E_TEST_AUTH "1"
@@ -164,7 +174,7 @@ log "Booting local MCP Worker with Wrangler"
   cd "$MCP_DIR"
   exec pnpm exec wrangler dev --local --ip 127.0.0.1 --port 8787 \
     --persist-to "$MCP_STATE_DIR" \
-    --var "APP_ORIGIN:http://127.0.0.1:5173" \
+    --var "APP_ORIGIN:$APP_ORIGIN" \
     --var "CONVEX_SITE_URL:$VITE_CONVEX_SITE_URL" \
     --var "MCP_ISSUER:$MCP_E2E_WORKER_ORIGIN" \
     --var "MCP_RESOURCE_URI:$MCP_E2E_WORKER_ORIGIN/mcp" \

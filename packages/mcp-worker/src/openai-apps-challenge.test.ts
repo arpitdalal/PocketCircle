@@ -1,4 +1,5 @@
 import { env, SELF } from "cloudflare:test";
+import { MCP_ORIGIN } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   OPENAI_APPS_CHALLENGE_PATH,
@@ -24,15 +25,17 @@ describe("openaiAppsChallengeResponse", () => {
 });
 
 describe("GET /.well-known/openai-apps-challenge", () => {
+  const challengeUrl = `${MCP_ORIGIN}${OPENAI_APPS_CHALLENGE_PATH}`;
+
   it("serves the Worker secret when set", async () => {
     env.OPENAI_APPS_CHALLENGE_TOKEN = "portal-challenge-token";
-    const response = await SELF.fetch(`https://mcp.pocketcircle.app${OPENAI_APPS_CHALLENGE_PATH}`);
+    const response = await SELF.fetch(challengeUrl);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("portal-challenge-token");
   });
 
   it("returns 404 when the secret is absent", async () => {
-    const response = await SELF.fetch(`https://mcp.pocketcircle.app${OPENAI_APPS_CHALLENGE_PATH}`);
+    const response = await SELF.fetch(challengeUrl);
     expect(response.status).toBe(404);
   });
 });

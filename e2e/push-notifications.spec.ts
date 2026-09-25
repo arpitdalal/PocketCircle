@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import {
+  appBaseUrl,
   createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
   establishE2ESession,
@@ -101,7 +102,7 @@ test("Push: announcement enable → simulated delivery → click resolves and ma
   baseURL,
 }, testInfo) => {
   test.setTimeout(120_000);
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const stamp = `${Date.now()}-${testInfo.project.name}`;
   const inviteeEmail = `e2e+push-invitee-${stamp}@example.com`;
   const ownerEmail = `e2e+push-owner-${stamp}@example.com`;
@@ -167,7 +168,7 @@ test("Push: announcement enable → simulated delivery → click resolves and ma
 test("Push: Settings enable subscribes when announcement already dismissed", async ({
   baseURL,
 }, testInfo) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const stamp = `${Date.now()}-${testInfo.project.name}-settings`;
   const context = await createPushE2EBrowserContext(testInfo.project.use);
   const page = await context.newPage();

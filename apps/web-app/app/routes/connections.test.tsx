@@ -1,3 +1,4 @@
+import { MCP_ORIGIN, MCP_RESOURCE_URI } from "@pocketcircle/domain";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
@@ -31,7 +32,7 @@ function renderConnections() {
 
 beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
-  vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "https://mcp.pocketcircle.app");
+  vi.stubEnv("VITE_MCP_WORKER_ORIGIN", MCP_ORIGIN);
 });
 
 describe("Connections", () => {
@@ -43,7 +44,7 @@ describe("Connections", () => {
     renderConnections();
 
     expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
-    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByDisplayValue(MCP_RESOURCE_URI)).toBeVisible();
     expect(screen.getByText(/Paste this URL into your AI assistant/i)).toBeVisible();
     expect(screen.getByText(/No Client ID is required/i)).toBeVisible();
     expect(screen.getByText(/Add a remote MCP server and paste the URL above/i)).toBeVisible();
@@ -64,7 +65,7 @@ describe("Connections", () => {
 
     expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "No connected assistants yet" })).toBeVisible();
-    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByDisplayValue(MCP_RESOURCE_URI)).toBeVisible();
   });
 
   it("keeps the connect panel while the ledger is still loading", async () => {
@@ -76,7 +77,7 @@ describe("Connections", () => {
     renderConnections();
 
     expect(await screen.findByRole("heading", { name: "Connect an assistant" })).toBeVisible();
-    expect(screen.getByDisplayValue("https://mcp.pocketcircle.app/mcp")).toBeVisible();
+    expect(screen.getByDisplayValue(MCP_RESOURCE_URI)).toBeVisible();
     expect(screen.getByLabelText("Loading connections")).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "No connected assistants yet" }),
@@ -183,7 +184,7 @@ describe("Connections", () => {
       expect(revokeMcpConnection).toHaveBeenCalledWith({ connectionId: connection.id });
     });
     expect(workerFetch).toHaveBeenCalledTimes(1);
-    expect(String(workerFetch.mock.calls[0]?.[0])).toBe("https://mcp.pocketcircle.app/revoke");
+    expect(String(workerFetch.mock.calls[0]?.[0])).toBe(`${MCP_ORIGIN}/revoke`);
     expect(workerFetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
     expect(await screen.findByText("Connection revoked.")).toBeVisible();
     workerFetch.mockRestore();

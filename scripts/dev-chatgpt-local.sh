@@ -7,11 +7,20 @@ set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Canonical origins live in one module (#404); read the app origin from there so
+# this script cannot drift from the Vite `server` block it waits on.
+origin_constant() {
+  node -e \
+    "import(process.argv[2]).then((m) => process.stdout.write(String(m[process.argv[1]])))" \
+    "$1" "$(pwd)/packages/domain/src/origins.ts"
+}
+LOCAL_WEB_URL="$(origin_constant LOCAL_APP_ORIGIN)"
+LOCAL_WEB_PORT="$(origin_constant LOCAL_APP_PORT)"
+
 TUNNEL_HOST="${POCKETCIRCLE_MCP_TUNNEL_HOST:-mcp-dev.pocketcircle.app}"
 TUNNEL_NAME="${POCKETCIRCLE_MCP_TUNNEL_NAME:-pocketcircle-dev}"
 CLOUDFLARED_DIR="${CLOUDFLARED_DIR:-${HOME}/.cloudflared}"
 TUNNEL_CONFIG="${POCKETCIRCLE_MCP_TUNNEL_CONFIG:-${CLOUDFLARED_DIR}/${TUNNEL_NAME}.yml}"
-LOCAL_WEB_URL="http://127.0.0.1:5173"
 LOCAL_MCP_URL="http://127.0.0.1:8788"
 PUBLIC_MCP_URL="https://${TUNNEL_HOST}"
 
@@ -61,7 +70,7 @@ grep -q '<random-secret>\|<private-jwk-json>\|<your-deployment>' packages/mcp-wo
   fail "packages/mcp-worker/.dev.vars still contains placeholders"
 
 if command -v lsof >/dev/null 2>&1; then
-  for port in 5173 8788; do
+  for port in "$LOCAL_WEB_PORT" 8788; do
     if lsof -nP -iTCP:"$port" -sTCP:LISTEN -t | grep -q .; then
       fail "Port $port is already in use. Stop the existing dev service, then rerun pnpm dev:chatgpt."
     fi
