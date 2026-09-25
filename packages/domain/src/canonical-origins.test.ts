@@ -39,7 +39,10 @@ const repoRoot = join(import.meta.dirname, "../../..");
 
 /** Build output, caches, and vendored trees — never source we own. */
 const SKIPPED_DIRECTORIES = new Set([
+  ".agents",
   ".auth",
+  ".claude",
+  ".cursor",
   ".git",
   ".react-router",
   ".wrangler",
@@ -104,10 +107,10 @@ function readRepoFile(path: string) {
  * requiring a scheme keeps a bare hostname out of scope — a wrangler route
  * pattern is a hostname, not an origin, and is asserted separately below.
  */
+const OWNED_HOSTNAMES: readonly string[] = [APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME];
+
 const OWNED_ORIGIN = new RegExp(
-  `(?<![\\w.-])https?://(?:${[APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME]
-    .map(escapeForRegExp)
-    .join("|")})(?![\\w-])`,
+  `(?<![\\w.-])https?://(?:${OWNED_HOSTNAMES.map(escapeForRegExp).join("|")})(?![\\w-])`,
   "g",
 );
 
@@ -115,6 +118,8 @@ const LOCAL_APP_ORIGIN_PATTERN = new RegExp(
   `https?://${escapeForRegExp(LOCAL_APP_ORIGIN.slice("http://".length))}(?![\\d/])`,
   "g",
 );
+
+const CUSTOM_DOMAIN_ROUTE = /"pattern":\s*"([^"]+)",\s*"custom_domain":\s*true/g;
 
 const FORBIDDEN = [
   { label: "a public origin", pattern: OWNED_ORIGIN },
@@ -170,17 +175,34 @@ function collectSourceFiles(dir: string): string[] {
   return results;
 }
 
-/** Custom-domain routes a wrangler config claims, in declaration order. */
-function claimedCustomDomains(path: string) {
-  return [...readRepoFile(path).matchAll(/"pattern":\s*"([^"]+)",\s*"custom_domain":\s*true/g)].map(
-    ([, pattern]) => pattern,
-  );
+/** Every scanned file, walked once — the assertions below all read this list. */
+const scannedFiles = collectSourceFiles(repoRoot);
+
+/** Hostnames a wrangler config claims as its own custom domain, repo-wide. */
+function customDomainClaims() {
+  const claims = new Map<string, string[]>();
+  for (const file of scannedFiles) {
+    for (const match of readFileSync(file, "utf8").matchAll(CUSTOM_DOMAIN_ROUTE)) {
+      const hostname = match[1] ?? "";
+      claims.set(hostname, [...(claims.get(hostname) ?? []), repoPath(file)]);
+    }
+  }
+  return claims;
 }
 
 describe("canonical origins are written down exactly once", () => {
+  it("reads the whole repo, so the scan cannot pass by scanning nothing", () => {
+    const scanned = scannedFiles.map(repoPath);
+    // A sentinel on both sides of the tree, plus every allowance entry, so a
+    // moved repo root or a renamed file fails loudly instead of going vacuous.
+    expect(scanned).toContain("apps/web-app/app/routes/support.tsx");
+    expect(scanned).toContain("scripts/e2e-local.sh");
+    expect(scanned).toEqual(expect.arrayContaining(Object.keys(ALLOWED_LITERALS)));
+  }, 30_000);
+
   it("no source, config, or script hardcodes an origin this module owns", () => {
     const violations: string[] = [];
-    for (const file of collectSourceFiles(repoRoot)) {
+    for (const file of scannedFiles) {
       const path = repoPath(file);
       const content = readFileSync(file, "utf8");
       for (const finding of [
@@ -195,14 +217,20 @@ describe("canonical origins are written down exactly once", () => {
 });
 
 describe("the files that cannot import the module still match it", () => {
-  it("the product app Worker claims the app custom domain and nothing else", () => {
-    // Two Workers cannot both claim one hostname (ADR 0035), so the apex is not
-    // an acceptable answer here once the marketing Site exists.
-    expect(claimedCustomDomains("wrangler.jsonc")).toEqual([APP_HOSTNAME]);
+  it("each Worker claims its own custom domain", () => {
+    const claims = customDomainClaims();
+    expect(claims.get(APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
+    expect(claims.get(MCP_HOSTNAME)).toEqual(["packages/mcp-worker/wrangler.jsonc"]);
   });
 
-  it("the MCP Worker claims the MCP custom domain and trusts the app origin", () => {
-    expect(claimedCustomDomains("packages/mcp-worker/wrangler.jsonc")).toEqual([MCP_HOSTNAME]);
+  it("no two Workers claim one hostname, and every claim is a host this module owns", () => {
+    // Two Workers cannot both claim one hostname (ADR 0035), so a third
+    // wrangler config appearing anywhere is only safe if it takes a free host.
+    const claims = customDomainClaims();
+    expect([...claims].filter(([, files]) => files.length > 1)).toEqual([]);
+    expect([...claims.keys()].filter((hostname) => !OWNED_HOSTNAMES.includes(hostname))).toEqual(
+      [],
+    );
   });
 
   it("the deploy workflow reports the production app as the deployment", () => {

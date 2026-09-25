@@ -10,7 +10,7 @@
  * | Consumer                                    | Constant                | Where it comes from                                     |
  * | ------------------------------------------- | ----------------------- | ------------------------------------------------------- |
  * | Marketing copy, `robots.txt`, sitemap        | `APEX_ORIGIN`           | Baked in — the same on every deployment                  |
- * | Browser `Origin` allowlists, consent URLs    | `APP_ORIGIN`            | Baked in, plus the `APP_ORIGIN` env override            |
+ * | Browser `Origin` allowlists, consent URLs    | `APP_HOSTNAME`           | Baked in, plus the host of the `APP_ORIGIN` override    |
  * | MCP issuer / resource URI, plugin manifests  | `MCP_ORIGIN`            | Baked in, plus the `MCP_ISSUER` env override            |
  * | Support and legal mailboxes                  | `APEX_HOSTNAME`         | Baked in                                               |
  * | Vite dev server, Playwright base URL          | `LOCAL_APP_ORIGIN`      | Baked in; local dev and E2E only                        |
