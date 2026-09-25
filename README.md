@@ -83,6 +83,12 @@ Open `/dev/email-preview` while running the web app in dev (or E2E) to render br
 
 ## Run App
 
+The marketing site is a separate static build. To serve it locally:
+
+```sh
+pnpm --filter @pocketcircle/site dev
+```
+
 ### ChatGPT local MCP testing
 
 After the one-time setup below, start the complete host-testing stack with:
@@ -191,6 +197,7 @@ pnpm dev:web:mocks -- --host 127.0.0.1
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm build:site
 node plugins/pocketcircle/assert-package.mjs
 ```
 
@@ -217,9 +224,20 @@ canonical record.
 
 `.github/workflows/deploy.yml` validates and builds the app, deploys the Convex
 backend, publishes `apps/web-app/build/client` as Cloudflare Worker static
-assets, then deploys and smoke-tests the MCP Worker. Cloudflare's
-`single-page-application` fallback in `wrangler.jsonc` serves `index.html` for
-direct navigation to client routes.
+assets, then deploys and smoke-tests the MCP Worker, and finally publishes the
+marketing site. Cloudflare's `single-page-application` fallback in
+`wrangler.jsonc` serves `index.html` for direct navigation to client routes.
+
+The marketing site is its own Worker (`apps/site/wrangler.jsonc`): static HTML
+from `pnpm --filter @pocketcircle/site build`, no Worker script, and
+`workers.dev` only — it claims no custom domain, so nothing a visitor sees in
+production changes while the apex is still the product app's. The two surfaces
+share one palette, font, and shape from
+[`packages/brand/src/tokens.css`](packages/brand/src/tokens.css), which
+`tokens.test.ts` guards against redefinition, and the site build derives its
+`_headers` from the product's, so the two origins serve one security-header
+policy. ADR 0035 covers the cutover that eventually moves the apex to this site.
+It needs no extra Cloudflare permission: no route, no binding, no secret.
 
 Configure the GitHub `production` environment before the first deployment:
 

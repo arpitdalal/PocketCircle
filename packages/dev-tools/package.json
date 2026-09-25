@@ -2,10 +2,22 @@
   "name": "@pocketcircle/dev-tools",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
+  "exports": {
+    "./repo-walk": {
+      "types": "./src/repo-walk.ts",
+      "default": "./src/repo-walk.ts"
+    }
+  },
   "scripts": {
-    "react-compiler:healthcheck": "node ./react-compiler-healthcheck.cjs"
+    "react-compiler:healthcheck": "node ./react-compiler-healthcheck.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "react-compiler-healthcheck": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^6.0.3"
   }
 }

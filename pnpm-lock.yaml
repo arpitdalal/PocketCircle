@@ -41,6 +41,46 @@ importers:
         specifier: 4.121.0
         version: 4.121.0(@cloudflare/workers-types@5.20260826.1)
 
+  apps/site:
+    dependencies:
+      '@fontsource-variable/bricolage-grotesque':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource-variable/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@pocketcircle/brand':
+        specifier: workspace:*
+        version: link:../../packages/brand
+    devDependencies:
+      '@pocketcircle/dev-tools':
+        specifier: workspace:*
+        version: link:../../packages/dev-tools
+      '@pocketcircle/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@26.2.0)(typescript@6.0.3))(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
+      wrangler:
+        specifier: 4.121.0
+        version: 4.121.0(@cloudflare/workers-types@5.20260826.1)
+
   apps/web-app:
     dependencies:
       '@base-ui/react':
@@ -58,6 +98,9 @@ importers:
       '@number-flow/react':
         specifier: ^0.6.2
         version: 0.6.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@pocketcircle/brand':
+        specifier: workspace:*
+        version: link:../../packages/brand
       '@pocketcircle/convex':
         specifier: workspace:*
         version: link:../../packages/convex
@@ -174,6 +217,21 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@26.2.0)(typescript@6.0.3))(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
 
+  packages/brand:
+    devDependencies:
+      '@pocketcircle/dev-tools':
+        specifier: workspace:*
+        version: link:../dev-tools
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@26.2.0)(typescript@6.0.3))(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
+
   packages/convex:
     dependencies:
       '@convex-dev/better-auth':
@@ -228,6 +286,13 @@ importers:
       react-compiler-healthcheck:
         specifier: 1.0.0
         version: 1.0.0(supports-color@10.2.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   packages/domain:
     dependencies:
@@ -241,6 +306,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@pocketcircle/dev-tools':
+        specifier: workspace:*
+        version: link:../dev-tools
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

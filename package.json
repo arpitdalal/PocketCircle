@@ -16,6 +16,7 @@
     "dev:chatgpt": "./scripts/dev-chatgpt-local.sh",
     "dev:convex": "pnpm --filter @pocketcircle/convex dev",
     "build": "pnpm --filter @pocketcircle/web-app build",
+    "build:site": "pnpm --filter @pocketcircle/site build",
     "start": "wrangler dev",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check . && pnpm --filter @pocketcircle/web-app lint:react-compiler",

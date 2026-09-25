@@ -7,9 +7,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: [
+      "packages/brand/vitest.config.ts",
       "packages/domain/vitest.config.ts",
       "packages/convex/vitest.config.ts",
       "packages/mcp-worker/vitest.config.ts",
+      "apps/site/vitest.config.ts",
       "apps/web-app/vitest.config.ts",
     ],
   },
