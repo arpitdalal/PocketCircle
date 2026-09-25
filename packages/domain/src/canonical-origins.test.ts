@@ -70,7 +70,7 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker, once served from the app subdomain (ADR 0035).
   "wrangler.jsonc": [],
   "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
-  ".github/workflows/deploy.yml": [APEX_ORIGIN],
+  ".github/workflows/deploy.yml": [APP_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
   // Shipped plugin manifests: read by ChatGPT/Codex, never executed here.
@@ -206,7 +206,7 @@ describe("the files that cannot import the module still match it", () => {
   });
 
   it("the deploy workflow reports the production app as the deployment", () => {
-    expect(readRepoFile(".github/workflows/deploy.yml")).toContain(`url: ${APEX_ORIGIN}`);
+    expect(readRepoFile(".github/workflows/deploy.yml")).toContain(`url: ${APP_ORIGIN}`);
   });
 
   it("the shipped plugin points at the production MCP resource and apex pages", () => {

@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 # this script cannot drift from the Vite `server` block it waits on.
 origin_constant() {
   node -e \
-    "import('$(pwd)/packages/domain/src/origins.ts').then((m) => process.stdout.write(m[process.argv[1]]))" \
+    "import('$(pwd)/packages/domain/src/origins.ts').then((m) => process.stdout.write(String(m[process.argv[1]])))" \
     "$1"
 }
 LOCAL_WEB_URL="$(origin_constant LOCAL_APP_ORIGIN)"

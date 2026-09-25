@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      # Must equal `APEX_ORIGIN` in packages/domain/src/origins.ts — a workflow
+      # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
       # cannot import it, so `canonical-origins.test.ts` asserts the match.
       url: https://pocketcircle.app
     steps:
