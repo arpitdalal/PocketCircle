@@ -17,10 +17,14 @@ const page = resolveSiteHtml(authored);
 
 /** Every anchor in a document, as `{ href, text }`, in document order. */
 function anchorsOf(html: string) {
-  return [...html.matchAll(/<a\b[^>]*\shref="([^"]*)"[^>]*>([\s\S]*?)<\/a\s*>/g)].map((match) => ({
-    href: match[1] ?? "",
-    text: (match[2] ?? "").replace(/<[^>]*>/g, "").trim(),
-  }));
+  // Either quote style: an href written with single quotes is still an href, and
+  // a check that cannot see it would pass by not looking.
+  return [...html.matchAll(/<a\b[^>]*\shref=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a\s*>/g)].map(
+    (match) => ({
+      href: match[1] ?? "",
+      text: (match[2] ?? "").replace(/<[^>]*>/g, "").trim(),
+    }),
+  );
 }
 
 const links = anchorsOf(page);

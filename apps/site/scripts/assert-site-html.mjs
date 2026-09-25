@@ -11,41 +11,84 @@ import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
  * canonical origin left as a placeholder, a Tailwind class that never compiled,
  * or a `_headers` rule Workers cannot parse are all invisible once the artifact
  * is uploaded — the Worker serves whatever it was given.
+ *
+ * Every check below reads attributes by name, not by position. A gate that
+ * demands `<link rel="canonical" href="…">` in that exact order fails a document
+ * that means the same thing, and nothing else in this repo is allowed to depend
+ * on the order a serializer happened to emit.
  */
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
 const html = readFileSync(join(distDir, "index.html"), "utf8");
 
-const checks = [
-  ["a title", /<title>[^<]+<\/title>/],
-  ["a description", /<meta\s+name="description"\s+content="[^"]+"/],
-  ["the product description", /PocketCircle helps you track spending together in shared Circles/],
-];
+/** Every opening tag named `name` in the document, as the raw text written. */
+function openingTags(name) {
+  return [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, "g"))].map(([tag]) => tag);
+}
 
-const missing = checks.filter(([, pattern]) => !pattern.test(html)).map(([what]) => what);
+/** An attribute's value on a raw tag, in whatever order and quote style was used. */
+function attribute(tag, name) {
+  return new RegExp(`\\s${name}=["']([^"']*)["']`).exec(tag)?.[1];
+}
+
+/** Whether any tag named `name` carries every one of `attributes`. */
+function hasTag(name, attributes) {
+  return openingTags(name).some((tag) =>
+    attributes.every(([attributeName, value]) => attribute(tag, attributeName) === value),
+  );
+}
+
+const DESCRIPTION = "PocketCircle helps you track spending together in shared Circles.";
+
+const missing = [
+  ["a title", /<title>[^<]+<\/title>/.test(html)],
+  [
+    "a description",
+    openingTags("meta").some(
+      (tag) =>
+        attribute(tag, "name") === "description" && (attribute(tag, "content") ?? "").length > 0,
+    ),
+  ],
+  ["the product description", html.includes(DESCRIPTION)],
+  [
+    "a canonical link",
+    hasTag("link", [
+      ["rel", "canonical"],
+      ["href", `${APEX_ORIGIN}/`],
+    ]),
+  ],
+  [
+    "an og:url",
+    hasTag("meta", [
+      ["property", "og:url"],
+      ["content", `${APEX_ORIGIN}/`],
+    ]),
+  ],
+  // Which origin owns a destination — ADR 0035 puts the marketing surfaces on
+  // the apex and sign-in on the app — is asserted in `src/marketing-home.test.ts`,
+  // because the two are one string until the cutover gives the app its
+  // subdomain. What is asserted here is that each destination is still written
+  // down at all, and absolutely rather than relative to the staging host.
+  ["a sign-in link to the app origin", hasTag("a", [["href", `${APP_ORIGIN}/signin`]])],
+  ["a Terms link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/terms`]])],
+  ["a Privacy link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/privacy`]])],
+]
+  .filter(([, present]) => !present)
+  .map(([what]) => what);
 
 if (missing.length > 0) {
   throw new Error(`dist/index.html is missing ${missing.join(", ")}`);
 }
 
-// Substring checks, not patterns: the origin is data, and a regex built from it
-// would treat its dots as wildcards. These prove each destination is *present*;
-// which origin owns it (ADR 0035 puts the marketing surfaces on the apex and
-// sign-in on the app) is asserted in `src/marketing-home.test.ts`, because the
-// two are one string until the cutover gives the app its subdomain, and by then
-// this document is the one that has to be right.
-for (const [what, tag] of [
-  ["a canonical link", `<link rel="canonical" href="${APEX_ORIGIN}/"`],
-  ["an og:url", `<meta property="og:url" content="${APEX_ORIGIN}/"`],
-  ["a sign-in link to the app origin", `href="${APP_ORIGIN}/signin"`],
-  ["a Terms link on the apex", `href="${APEX_ORIGIN}/terms"`],
-  ["a Privacy link on the apex", `href="${APEX_ORIGIN}/privacy"`],
-]) {
-  if (!html.includes(tag)) {
-    throw new Error(`dist/index.html is missing ${what}`);
-  }
-}
+/** The stylesheet the page's styling depends on, as a path relative to `dist/`. */
+const stylesheet = openingTags("link")
+  .filter((tag) => attribute(tag, "rel") === "stylesheet")
+  .map((tag) => attribute(tag, "href"))
+  .find((href) => href !== undefined);
 
+if (stylesheet === undefined) {
+  throw new Error("dist/index.html links no stylesheet");
+}
 /**
  * The homepage's sections, in order, as `[level, text]` — the one place the copy
  * order is written down. It lives here rather than beside the source because
@@ -78,10 +121,6 @@ if (JSON.stringify(sections) !== JSON.stringify(expectedSections)) {
   );
 }
 
-const stylesheet = /<link rel="stylesheet"[^>]*href="([^"]+)"/.exec(html)?.[1];
-if (stylesheet === undefined) {
-  throw new Error("dist/index.html links no stylesheet");
-}
 // Tailwind escapes a variant in the selector it generates (`.sm\:text-5xl`), so
 // the backslashes come out before a class name is looked for in it.
 const css = readFileSync(join(distDir, stylesheet), "utf8").replaceAll("\\", "");
