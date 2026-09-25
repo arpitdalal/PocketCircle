@@ -105,7 +105,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
   const authRuntime = authRuntimeConfig(process.env.SITE_URL);
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
-  const [, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
+  const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -145,7 +145,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     // crossDomain adds siteUrl to trustedOrigins. Add only the loopback twin here
     // so localhost and 127.0.0.1 both work in local dev without duplicating siteUrl.
     ...(loopbackTwin ? { trustedOrigins: [loopbackTwin] } : {}),
-    plugins: [convex({ authConfig }), crossDomain({ siteUrl: authRuntime.siteUrl })],
+    plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };
 

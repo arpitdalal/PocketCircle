@@ -24,6 +24,11 @@
  * runs somewhere else; they are **not** defaulted from the constants below, so
  * an unset override means "unconfigured", not "production".
  *
+ * Out of scope, deliberately: the loopback origins of *auxiliary* local services
+ * — the MCP Worker's dev port and the self-hosted Convex backend. Convex assigns
+ * its own production subdomain, so there is no canonical value to record for it,
+ * and the local ports are per-tool dev wiring documented in the env templates.
+ *
  * `127.0.0.1` and `localhost` are different browser origins even though they
  * are the same machine, and Vite may serve one while `.dev.vars` / `SITE_URL`
  * pin the other — so a loopback origin is trusted as a *pair*.
@@ -73,9 +78,10 @@ export const LOCAL_APP_ORIGIN = `http://${LOCAL_APP_HOSTNAME}:${LOCAL_APP_PORT}`
 export const LOOPBACK_HOSTNAMES: readonly string[] = ["localhost", "127.0.0.1", "::1", "[::1]"];
 
 /**
- * Interchangeable loopback hostnames. Only the IPv4/IPv6 *name* pair is a twin:
- * `localhost` and `127.0.0.1` are the same machine, while `::1` may not even be
- * the address the local server bound.
+ * Interchangeable loopback hostnames. `localhost` and `127.0.0.1` are two names
+ * for one address, so either may be presented for the other. `::1` is a
+ * different address on the same machine — loopback, but not a stand-in: a server
+ * bound to one is not necessarily reachable on the other.
  */
 const LOOPBACK_TWIN_HOSTNAMES: ReadonlyMap<string, string> = new Map([
   ["localhost", "127.0.0.1"],
@@ -88,10 +94,10 @@ export function isLoopbackHostname(hostname: string) {
 
 /**
  * Every origin a browser may legitimately present as `origin`, given the origin
- * the deployment is configured with: `origin` itself, plus its loopback twin when
- * it has one. Throws on an unparseable origin, exactly as `new URL` does.
+ * the deployment is configured with — `[origin]`, or `[origin, twin]` when it is
+ * loopback with a twin. Throws on an unparseable origin, as `new URL` does.
  */
-export function loopbackTrustedOrigins(origin: string) {
+export function loopbackTrustedOrigins(origin: string): [string] | [string, string] {
   const url = new URL(origin);
   const twinHostname = LOOPBACK_TWIN_HOSTNAMES.get(url.hostname);
   if (!twinHostname) {

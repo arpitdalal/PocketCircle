@@ -210,6 +210,8 @@ describe("the files that cannot import the module still match it", () => {
   });
 
   it("the shipped plugin points at the production MCP resource and apex pages", () => {
+    // `assert-package.mjs` asserts the same URLs for a human running the
+    // packaging gate; this copy is the one CI runs, which is the point.
     expect(readRepoFile("plugins/pocketcircle/.mcp.json")).toContain(MCP_RESOURCE_URI);
     expect(readRepoFile("plugins/pocketcircle/.codex-plugin/plugin.json")).toContain(
       `"homepage": "${APEX_ORIGIN}"`,

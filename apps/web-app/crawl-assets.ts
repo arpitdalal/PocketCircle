@@ -4,6 +4,10 @@ import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
  * Crawl directives for the deployed site. Generated from the canonical apex
  * origin (#404) rather than checked in as static files, so an origin move
  * cannot leave a sitemap or robots.txt advertising the old host.
+ *
+ * These paths are served by the app today. The ADR 0035 cutover hands the apex
+ * to the marketing Site, and this file moves with those routes into `apps/site`
+ * — the product Worker stops publishing them.
  */
 
 /** Marketing paths the apex owns (ADR 0035). */
