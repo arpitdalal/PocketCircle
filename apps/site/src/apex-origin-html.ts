@@ -13,8 +13,8 @@ export const APEX_ORIGIN_TOKEN = "%APEX_ORIGIN%";
 
 /**
  * Replaces {@link APEX_ORIGIN_TOKEN} in the HTML entry, in dev and in the
- * build. Every other origin the Site grows — an app link, a sitemap,
- * robots.txt — reaches for the same module the same way.
+ * build. `assert-site-html.mjs` then asserts the built document carries the
+ * canonical apex origin and no surviving placeholder.
  */
 export function resolveApexOrigin(html: string) {
   return html.replaceAll(APEX_ORIGIN_TOKEN, APEX_ORIGIN);
