@@ -3,12 +3,12 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
-import { SITE_PLACEHOLDER_TOKENS } from "../src/site-html.ts";
+import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
- * so the built document *is* the product: a canonical origin left as a
- * placeholder, a page the build dropped, a Tailwind class that never compiled,
+ * so the built document *is* the product: a section the build dropped, a
+ * canonical origin left as a placeholder, a Tailwind class that never compiled,
  * or a `_headers` rule Workers cannot parse are all invisible once the artifact
  * is uploaded — the Worker serves whatever it was given.
  */
@@ -29,17 +29,53 @@ if (missing.length > 0) {
 }
 
 // Substring checks, not patterns: the origin is data, and a regex built from it
-// would treat its dots as wildcards.
+// would treat its dots as wildcards. These prove each destination is *present*;
+// which origin owns it (ADR 0035 puts the marketing surfaces on the apex and
+// sign-in on the app) is asserted in `src/marketing-home.test.ts`, because the
+// two are one string until the cutover gives the app its subdomain, and by then
+// this document is the one that has to be right.
 for (const [what, tag] of [
   ["a canonical link", `<link rel="canonical" href="${APEX_ORIGIN}/"`],
   ["an og:url", `<meta property="og:url" content="${APEX_ORIGIN}/"`],
-  // The apex canonicalises this page; the app origin is everywhere a visitor
-  // goes next. A relative href here would resolve against the marketing origin.
-  ["a sign-in call to action", `class="cta" href="${APP_ORIGIN}/signin"`],
+  ["a sign-in link to the app origin", `href="${APP_ORIGIN}/signin"`],
+  ["a Terms link on the apex", `href="${APEX_ORIGIN}/terms"`],
+  ["a Privacy link on the apex", `href="${APEX_ORIGIN}/privacy"`],
 ]) {
   if (!html.includes(tag)) {
     throw new Error(`dist/index.html is missing ${what}`);
   }
+}
+
+/**
+ * The homepage's sections, in order, as `[level, text]` — the one place the copy
+ * order is written down. It lives here rather than beside the source because
+ * this is the artifact a visitor is served: an assertion about the checked-in
+ * file would only ever prove the build did what it did last time.
+ */
+const sections = [...html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map((match) => [
+  Number(match[1]),
+  (match[2] ?? "").replace(/\s+/g, " ").trim(),
+]);
+
+const expectedSections = [
+  [1, "PocketCircle"],
+  [2, "Circles for every shared life"],
+  [2, "Stay aligned without the spreadsheet"],
+  [3, "Record expenses and income"],
+  [3, "Organize with Categories"],
+  [3, "See who did what"],
+  [2, "AI-native, with you in control"],
+  [2, "Up and running in minutes"],
+  [3, "Continue with Google"],
+  [3, "Open a Circle"],
+  [3, "Invite and record"],
+  [2, "Start your first Circle"],
+];
+
+if (JSON.stringify(sections) !== JSON.stringify(expectedSections)) {
+  throw new Error(
+    `dist/index.html does not carry the homepage's sections in order.\n  found:    ${JSON.stringify(sections)}\n  expected: ${JSON.stringify(expectedSections)}`,
+  );
 }
 
 const stylesheet = /<link rel="stylesheet"[^>]*href="([^"]+)"/.exec(html)?.[1];
@@ -85,7 +121,7 @@ if (unpublished.length > 0) {
 // The placeholders reach HTML through the transform, and nothing else — a token
 // in any other published file would ship to production as a literal.
 const unsubstituted = published.filter((file) =>
-  SITE_PLACEHOLDER_TOKENS.some((token) =>
+  Object.keys(SITE_PLACEHOLDERS).some((token) =>
     readFileSync(join(distDir, file), "utf8").includes(token),
   ),
 );
@@ -112,5 +148,5 @@ if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
 }
 
 console.log(
-  `Site HTML ok (${authoredPages.length} page + title + description + canonical apex origin + app-origin calls to action + compiled classes + _headers).`,
+  `Site HTML ok (${authoredPages.length} page + ${expectedSections.length} sections in order + title + description + canonical apex origin + split-origin links + compiled classes + _headers).`,
 );

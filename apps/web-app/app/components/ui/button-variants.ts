@@ -2,8 +2,11 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 // shadcn/ui-style button variants (ADR 0005). Kept separate from `button.tsx` so
 // the component file only exports components (fast refresh / react-doctor).
+// `scale` is in the transition list because Tailwind v4's `scale-*` sets the
+// `scale` property rather than `transform`, so without it the press below snaps
+// instead of easing. `apps/site`'s `.cta` mirrors this list for the same reason.
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,border-color,color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 motion-reduce:active:scale-100",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,border-color,color,transform,scale] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 motion-reduce:active:scale-100",
   {
     variants: {
       variant: {

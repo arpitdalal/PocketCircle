@@ -13,11 +13,19 @@
  */
 @layer base {
   :root {
-    /* Device chrome insets (0 when viewport-fit≠cover or no hardware intrusion). */
+    /* Device chrome insets (0 when viewport-fit≠cover or no hardware intrusion).
+       The header and footer pad against the vertical pair; the horizontal pair is
+       declared with them because they are one set, and this document's side
+       padding is the ported treatment rather than a new one. */
     --safe-area-top: env(safe-area-inset-top, 0px);
     --safe-area-right: env(safe-area-inset-right, 0px);
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --safe-area-left: env(safe-area-inset-left, 0px);
+  }
+
+  /* Matches the product: a definite root height for any full-height utility. */
+  html {
+    height: 100%;
   }
 
   /*
@@ -25,10 +33,6 @@
    * visible area; dvh tracks the current visual viewport. min-height (not height)
    * so long pages still grow. dvh is baseline in current Safari/Chrome/Firefox.
    */
-  html {
-    height: 100%;
-  }
-
   body {
     min-height: 100dvh;
     background-color: var(--background);
@@ -38,15 +42,18 @@
   }
 }
 
-@layer components {
-  /*
-   * The sign-in call to action. The product assembles the same treatment from
-   * `buttonVariants`; a document with no runtime gets it as one class, and the
-   * `disabled:` rules stay behind because a link is never disabled.
-   */
-  .cta {
-    @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform] duration-150 bg-primary text-primary-foreground hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] motion-reduce:active:scale-100;
-  }
+/*
+ * The sign-in call to action. The product assembles the same treatment from
+ * `buttonVariants`; a document with no runtime gets it as one class, and the
+ * `disabled:` rules stay behind because a link is never disabled.
+ *
+ * `@utility`, not `@layer components`: Tailwind v4 uses native cascade layers, so
+ * a class written in a layer is unconditionally outranked by every utility and
+ * cannot take a variant. `scale` is in the transition list because v4's `scale-*`
+ * sets the `scale` property, not `transform` — without it the press would snap.
+ */
+@utility cta {
+  @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform,scale] duration-150 bg-primary text-primary-foreground hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] motion-reduce:active:scale-100;
 }
 
 /* Global reduced-motion reset. Deliberately UNLAYERED: unlayered declarations

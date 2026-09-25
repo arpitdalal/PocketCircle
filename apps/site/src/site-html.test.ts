@@ -6,7 +6,7 @@ import {
   APEX_ORIGIN_TOKEN,
   APP_ORIGIN_TOKEN,
   resolveSiteHtml,
-  SITE_PLACEHOLDER_TOKENS,
+  SITE_PLACEHOLDERS,
   siteHtmlPlugin,
   YEAR_TOKEN,
 } from "./site-html.js";
@@ -29,7 +29,7 @@ describe("the Site's build-time values", () => {
 
   it("resolve every placeholder the checked-in page writes", () => {
     const html = resolveSiteHtml(indexHtml);
-    for (const token of SITE_PLACEHOLDER_TOKENS) {
+    for (const token of Object.keys(SITE_PLACEHOLDERS)) {
       expect(indexHtml).toContain(token);
       expect(html).not.toContain(token);
     }

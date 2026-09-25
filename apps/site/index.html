@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding below are written against — without it those insets are 0
+      and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <title>PocketCircle</title>
     <meta
       name="description"
@@ -24,8 +32,14 @@
       The marketing homepage (#406), ported from the product SPA's React
       `MarketingHome` with the same copy, section order, and classes. It is
       checked in as the document it is: no runtime, no hydration, nothing to
-      replace it. Anything a visitor reaches after leaving here is a link to the
-      app origin, never a relative path.
+      replace it. The React page stays in the app until #412 retires the interim
+      shell, and #407 replaces both with the real design, so this is a port, not
+      a fork to keep in step.
+
+      Every link is absolute, and which origin it names is a decision, not a
+      default (ADR 0035): the apex keeps canonical ownership of the marketing
+      surfaces — legal, support, What's New, sitemap — so those stay on it, and
+      only sign-in crosses to the app origin, which is where the session lives.
     -->
     <div class="relative flex min-h-dvh flex-col overflow-x-hidden bg-background text-foreground">
       <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
@@ -88,11 +102,11 @@
                 <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
                 <p class="text-xs text-muted-foreground">
                   By continuing you agree to our
-                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APP_ORIGIN%/terms">Terms</a>
+                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APEX_ORIGIN%/terms">Terms</a>
                   and
                   <a
                     class="underline underline-offset-2 transition-colors hover:text-foreground"
-                    href="%APP_ORIGIN%/privacy"
+                    href="%APEX_ORIGIN%/privacy"
                     >Privacy Policy</a
                   >.
                 </p>
@@ -539,11 +553,11 @@
                 <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
                 <p class="text-xs text-muted-foreground">
                   By continuing you agree to our
-                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APP_ORIGIN%/terms">Terms</a>
+                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APEX_ORIGIN%/terms">Terms</a>
                   and
                   <a
                     class="underline underline-offset-2 transition-colors hover:text-foreground"
-                    href="%APP_ORIGIN%/privacy"
+                    href="%APEX_ORIGIN%/privacy"
                     >Privacy Policy</a
                   >.
                 </p>
@@ -623,14 +637,14 @@
               <li>
                 <a
                   class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/whats-new"
+                  href="%APEX_ORIGIN%/whats-new"
                   >What's new</a
                 >
               </li>
               <li>
                 <a
                   class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/support"
+                  href="%APEX_ORIGIN%/support"
                   >Support</a
                 >
               </li>
@@ -645,21 +659,21 @@
               <li>
                 <a
                   class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/privacy"
+                  href="%APEX_ORIGIN%/privacy"
                   >Privacy Policy</a
                 >
               </li>
               <li>
                 <a
                   class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/terms"
+                  href="%APEX_ORIGIN%/terms"
                   >Terms</a
                 >
               </li>
               <li>
                 <a
                   class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/sitemap.xml"
+                  href="%APEX_ORIGIN%/sitemap.xml"
                   >Sitemap</a
                 >
               </li>
