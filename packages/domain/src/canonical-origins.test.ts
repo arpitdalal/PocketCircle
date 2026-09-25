@@ -155,9 +155,11 @@ describe("canonical origins are written down exactly once", () => {
 });
 
 describe("files that cannot import the origins module still match it", () => {
-  it("the app Worker claims the apex custom domain", () => {
+  it("the app Worker claims the app custom domain", () => {
+    // The apex is still the app origin today; the ADR 0035 cutover gives the
+    // apex to the marketing Site and moves this route to `app.`.
     const config = readJsoncFile("wrangler.jsonc", routesSchema);
-    expect(config.routes.map((route) => route.pattern)).toContain(APEX_HOSTNAME);
+    expect(config.routes.map((route) => route.pattern)).toContain(APP_HOSTNAME);
   });
 
   it("the MCP Worker claims the MCP custom domain and trusts the app origin", () => {
