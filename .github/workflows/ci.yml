@@ -34,6 +34,11 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter @pocketcircle/web-app react-compiler:healthcheck
 
+      # Plugin packaging invariants (#365): stable id, relative paths, the
+      # production MCP endpoint, and manifest/annotation parity with the
+      # submission. It is a script, not a test, so it needs its own step.
+      - run: node plugins/pocketcircle/assert-package.mjs
+
       # The SPA prerender evaluates the module graph, which constructs the
       # ConvexReactClient at import time (app/lib/convex.ts); its constructor
       # throws on an empty address. This job only checks that the build
