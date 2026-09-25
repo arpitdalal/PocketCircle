@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pocketcircle-site",
+  "compatibility_date": "2026-08-11",
+  // workers.dev only. This Worker claims no custom domain until the ADR 0035
+  // cutover hands the apex over, and until then the apex is the product app's —
+  // two Workers cannot claim one hostname, which `canonical-origins.test.ts`
+  // enforces repo-wide.
+  "workers_dev": true,
+  // Assets-only (no `main`): every request is a static file, so the marketing
+  // homepage costs zero Worker invocations and stays inside the free tier. The
+  // no-`main` shape is also what lets a future edge behaviour be added later
+  // without moving the site off Workers (ADR 0035).
+  "assets": {
+    "directory": "./dist"
+  }
+}

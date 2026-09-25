@@ -47,3 +47,7 @@ jobs:
         env:
           VITE_CONVEX_URL: https://placeholder.convex.cloud
           VITE_CONVEX_SITE_URL: https://placeholder.convex.site
+
+      # The marketing Site is a static document with no runtime, so its build is
+      # the only thing that can catch a broken stylesheet or origin placeholder.
+      - run: pnpm build:site

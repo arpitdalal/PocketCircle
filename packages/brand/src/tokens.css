@@ -1,0 +1,114 @@
+/*
+ * PocketCircle brand tokens (ADR 0005, dark-first). One definition of the
+ * palette, type, and shape, imported by every surface that renders the brand:
+ * the product SPA (`apps/web-app/app/app.css`) and the marketing Site
+ * (`apps/site/src/site.css`). `tokens.test.ts` fails the build if a consumer
+ * redefines a token here, so the two surfaces cannot drift.
+ *
+ * Surfaces are violet-tinted ink rather than flat neutral so the product reads
+ * warm and communal; one iris-purple accent carries all interactive state. The
+ * `.light` palette is defined and ready but unwired — theme switching is a
+ * future slice, dark stays the default.
+ *
+ * Tokens that only one surface uses (the product's sidebar chrome, safe-area
+ * insets, keyframes) stay in that surface's stylesheet: sharing them would make
+ * this file a dumping ground and give the Site chrome it will never render.
+ */
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* Surfaces */
+    --background: oklch(0.155 0.018 295);
+    --foreground: oklch(0.94 0.01 290);
+    --card: oklch(0.195 0.022 295);
+    --card-foreground: oklch(0.94 0.01 290);
+    --popover: oklch(0.215 0.024 295);
+    --popover-foreground: oklch(0.94 0.01 290);
+
+    /* Muted / borders */
+    --muted: oklch(0.245 0.025 295);
+    --muted-foreground: oklch(0.67 0.025 290);
+    --faint-foreground: oklch(0.55 0.025 290);
+    --border: oklch(0.285 0.03 295);
+    --input: oklch(0.32 0.032 295);
+
+    /* Iris accent */
+    --primary: oklch(0.63 0.2 295);
+    --primary-foreground: oklch(0.985 0.005 295);
+    --primary-soft: oklch(0.63 0.2 295 / 14%);
+    --ring: oklch(0.68 0.18 295);
+
+    /* Semantic money + state */
+    --positive: oklch(0.78 0.15 162);
+    --destructive: oklch(0.7 0.18 22);
+    --destructive-foreground: oklch(0.985 0.005 22);
+    --destructive-soft: oklch(0.7 0.18 22 / 14%);
+    /* Automatic-reset field warnings (amber) — distinct from destructive/invalid. */
+    --warning: oklch(0.8 0.14 80);
+
+    --radius: 0.625rem;
+  }
+
+  /* Light palette — ready for the theme-switching slice; nothing applies it yet. */
+  .light {
+    color-scheme: light;
+
+    --background: oklch(0.977 0.006 300);
+    --foreground: oklch(0.25 0.03 295);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.25 0.03 295);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.25 0.03 295);
+
+    --muted: oklch(0.94 0.012 297);
+    --muted-foreground: oklch(0.5 0.03 293);
+    --faint-foreground: oklch(0.6 0.025 293);
+    --border: oklch(0.89 0.016 296);
+    --input: oklch(0.84 0.02 296);
+
+    --primary: oklch(0.54 0.21 295);
+    --primary-foreground: oklch(0.985 0.005 295);
+    --primary-soft: oklch(0.54 0.21 295 / 10%);
+    --ring: oklch(0.54 0.21 295);
+
+    --positive: oklch(0.55 0.14 162);
+    --destructive: oklch(0.55 0.2 25);
+    --destructive-foreground: oklch(0.985 0.005 25);
+    --destructive-soft: oklch(0.55 0.2 25 / 10%);
+    --warning: oklch(0.6 0.13 75);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-ring: var(--ring);
+  --color-positive: var(--positive);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-warning: var(--warning);
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Inter Variable", ui-sans-serif, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+}

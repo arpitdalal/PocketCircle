@@ -206,6 +206,12 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
+      # The marketing Site is static HTML built from the shared brand tokens and
+      # published to workers.dev only — no hostname, no Worker script, and
+      # nothing a user sees in production changes while it is staged there.
+      - name: Build marketing Site
+        run: pnpm build:site
+
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously
       # deployed Worker remain valid while the new Worker rolls out.
@@ -474,6 +480,19 @@ jobs:
           else
             pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
+
+      # Third Worker, and the only one that is not part of the product rollout:
+      # the push-delivery gate above wraps the Convex deploy and the product
+      # Worker because silent Push can make Safari revoke permission. The Site
+      # serves no push code, so it deploys after that gate, and a failure here
+      # leaves the product rollout and its gate exactly as they were.
+      - name: Deploy marketing Site
+        uses: cloudflare/wrangler-action@v4
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: "4.121.0"
+          workingDirectory: apps/site
 
   release:
     needs: deploy
