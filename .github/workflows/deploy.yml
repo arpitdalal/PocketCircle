@@ -228,15 +228,20 @@ jobs:
 
       # What a visitor gets on the staging hostname, asserted on the deployed
       # origin rather than on the artifact: the canonical apex origin the build
-      # injected, the security headers derived from the product's policy, and the
+      # injected, the security headers derived from the product's policy, the
       # noindex that keeps `workers.dev` out of search results until the apex
-      # cutover removes it. Retries because the asset manifest takes a moment to
-      # propagate, the same reason the MCP discovery check below retries.
+      # cutover removes it, and the homepage sections — the document is fetched,
+      # never executed, so what is asserted here is what a browser without
+      # JavaScript would be given. Retries because the asset manifest takes a
+      # moment to propagate, the same reason the MCP discovery check below
+      # retries.
       - name: Verify marketing Site
-        # APEX_ORIGIN must equal `APEX_ORIGIN` in packages/domain/src/origins.ts —
-        # a workflow cannot import it, so `canonical-origins.test.ts` asserts it.
+        # APEX_ORIGIN and APP_ORIGIN must equal the constants in
+        # packages/domain/src/origins.ts — a workflow cannot import it, so
+        # `canonical-origins.test.ts` asserts it.
         env:
           APEX_ORIGIN: https://pocketcircle.app
+          APP_ORIGIN: https://pocketcircle.app
           SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
         run: |
           node --input-type=module <<'EOF'
@@ -264,6 +269,23 @@ jobs:
             }
             if (html.includes("%APEX_ORIGIN%")) {
               throw new Error("homepage still contains the apex origin placeholder");
+            }
+            // The homepage is a document, not a shell: without executing anything,
+            // the response has to already carry every section and a sign-in link
+            // to the app.
+            for (const section of [
+              "Circles for every shared life",
+              "Stay aligned without the spreadsheet",
+              "AI-native, with you in control",
+              "Up and running in minutes",
+              "Start your first Circle",
+            ]) {
+              if (!html.includes(section)) {
+                throw new Error(`homepage is missing the section "${section}"`);
+              }
+            }
+            if (!html.includes(`href="${process.env.APP_ORIGIN}/signin"`)) {
+              throw new Error("homepage does not link to the app's sign-in");
             }
           }
 

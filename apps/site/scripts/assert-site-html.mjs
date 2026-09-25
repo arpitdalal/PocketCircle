@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
-import { APEX_ORIGIN_TOKEN } from "../src/apex-origin-html.ts";
+import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
+import { SITE_PLACEHOLDER_TOKENS } from "../src/site-html.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
@@ -33,9 +33,12 @@ if (missing.length > 0) {
 for (const [what, tag] of [
   ["a canonical link", `<link rel="canonical" href="${APEX_ORIGIN}/"`],
   ["an og:url", `<meta property="og:url" content="${APEX_ORIGIN}/"`],
+  // The apex canonicalises this page; the app origin is everywhere a visitor
+  // goes next. A relative href here would resolve against the marketing origin.
+  ["a sign-in call to action", `class="cta" href="${APP_ORIGIN}/signin"`],
 ]) {
   if (!html.includes(tag)) {
-    throw new Error(`dist/index.html is missing ${what} on the canonical apex origin`);
+    throw new Error(`dist/index.html is missing ${what}`);
   }
 }
 
@@ -79,14 +82,16 @@ if (unpublished.length > 0) {
   throw new Error(`Not published, so the Worker would 404 them: ${unpublished.join(", ")}`);
 }
 
-// The placeholder reaches HTML through the transform, and nothing else — a token
+// The placeholders reach HTML through the transform, and nothing else — a token
 // in any other published file would ship to production as a literal.
 const unsubstituted = published.filter((file) =>
-  readFileSync(join(distDir, file), "utf8").includes(APEX_ORIGIN_TOKEN),
+  SITE_PLACEHOLDER_TOKENS.some((token) =>
+    readFileSync(join(distDir, file), "utf8").includes(token),
+  ),
 );
 
 if (unsubstituted.length > 0) {
-  throw new Error(`Still contains ${APEX_ORIGIN_TOKEN}: ${unsubstituted.join(", ")}`);
+  throw new Error(`Still contains an unsubstituted placeholder: ${unsubstituted.join(", ")}`);
 }
 
 // ADR 0035: a static document, generated once at build time. A script tag is the
@@ -107,5 +112,5 @@ if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
 }
 
 console.log(
-  `Site HTML ok (${authoredPages.length} page + title + description + canonical apex origin + compiled classes + _headers).`,
+  `Site HTML ok (${authoredPages.length} page + title + description + canonical apex origin + app-origin calls to action + compiled classes + _headers).`,
 );

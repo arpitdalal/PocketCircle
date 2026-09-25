@@ -8,14 +8,96 @@
  * `@pocketcircle/brand/tokens.css` (#405) so this origin and the product render
  * the same brand; what is left here is the document the tokens need — a
  * background, a text colour, and the page font — because a static document has
- * no component to inherit them from.
+ * no component to inherit them from, plus the safe-area insets and the homepage's
+ * keyframes, which the product's stylesheet owns for the same reason.
  */
 @layer base {
+  :root {
+    /* Device chrome insets (0 when viewport-fit≠cover or no hardware intrusion). */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+  }
+
+  /*
+   * Prefer dvh over % / vh: mobile browser chrome makes 100vh taller than the
+   * visible area; dvh tracks the current visual viewport. min-height (not height)
+   * so long pages still grow. dvh is baseline in current Safari/Chrome/Firefox.
+   */
+  html {
+    height: 100%;
+  }
+
   body {
     min-height: 100dvh;
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
     @apply antialiased;
+  }
+}
+
+@layer components {
+  /*
+   * The sign-in call to action. The product assembles the same treatment from
+   * `buttonVariants`; a document with no runtime gets it as one class, and the
+   * `disabled:` rules stay behind because a link is never disabled.
+   */
+  .cta {
+    @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform] duration-150 bg-primary text-primary-foreground hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] motion-reduce:active:scale-100;
+  }
+}
+
+/* Global reduced-motion reset. Deliberately UNLAYERED: unlayered declarations
+   out-cascade every @layer, so this suppresses Tailwind's animation/transition
+   utilities (which live in the later `utilities` layer and would otherwise win
+   over any layered override) without resorting to !important. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}
+
+@theme inline {
+  /* Marketing homepage: rare first-visit motion only. Global prefers-reduced-motion
+     already collapses these to near-instant via the unlayered reset above. */
+  --animate-marketing-enter: marketing-enter 520ms var(--ease-out-quart) both;
+  --animate-marketing-glow: marketing-glow 8s ease-in-out infinite;
+  --animate-marketing-row-pulse: marketing-row-pulse 3.2s ease-in-out infinite;
+
+  @keyframes marketing-enter {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes marketing-glow {
+    0%,
+    100% {
+      opacity: 0.85;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.06);
+    }
+  }
+  @keyframes marketing-row-pulse {
+    0%,
+    100% {
+      background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+    }
+    50% {
+      background-color: color-mix(in oklab, var(--primary) 16%, transparent);
+    }
   }
 }
