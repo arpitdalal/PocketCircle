@@ -114,8 +114,10 @@ const OWNED_ORIGIN = new RegExp(
   "g",
 );
 
+// The lookahead only guards the port: a hardcoded local-app URL nearly always
+// carries a path, and that is exactly the drift worth catching.
 const LOCAL_APP_ORIGIN_PATTERN = new RegExp(
-  `https?://${escapeForRegExp(LOCAL_APP_ORIGIN.slice("http://".length))}(?![\\d/])`,
+  `https?://${escapeForRegExp(LOCAL_APP_ORIGIN.slice("http://".length))}(?!\\d)`,
   "g",
 );
 

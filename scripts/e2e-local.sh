@@ -43,8 +43,8 @@ fi
 # other than the one the suite is served on.
 origin_constant() {
   node -e \
-    "import('${REPO_ROOT}/packages/domain/src/origins.ts').then((m) => process.stdout.write(String(m[process.argv[1]])))" \
-    "$1"
+    "import(process.argv[2]).then((m) => process.stdout.write(String(m[process.argv[1]])))" \
+    "$1" "${REPO_ROOT}/packages/domain/src/origins.ts"
 }
 APP_ORIGIN="$(origin_constant LOCAL_APP_ORIGIN)"
 

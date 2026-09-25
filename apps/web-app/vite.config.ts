@@ -16,7 +16,7 @@ const appRelease = resolveAppRelease();
  * not files in `public/`: a checked-in copy is a second place an origin move
  * would have to be applied by hand.
  */
-function crawlAssetsPlugin(): Plugin {
+function crawlAssetsPlugin() {
   const assets = Object.entries(crawlAssets());
   return {
     name: "pocketcircle:crawl-assets",
@@ -40,7 +40,7 @@ function crawlAssetsPlugin(): Plugin {
         this.emitFile({ type: "asset", fileName, source });
       }
     },
-  };
+  } satisfies Plugin;
 }
 
 export default defineConfig({
