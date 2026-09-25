@@ -1,4 +1,5 @@
 import {
+  appBaseUrl,
   createIsolatedBrowserContext,
   establishE2ESession,
   expect,
@@ -42,7 +43,7 @@ test("Feature Announcement CTA opens My Transactions and acknowledges the campai
   browser,
   baseURL,
 }, testInfo) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const stamp = `${Date.now()}-${testInfo.project.name}`;
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
@@ -82,7 +83,7 @@ test("Feature Announcement close persists acknowledgment across reloads", async 
   browser,
   baseURL,
 }, testInfo) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const stamp = `${Date.now()}-${testInfo.project.name}-dismiss`;
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();
@@ -116,7 +117,7 @@ test("Feature Announcement overlaps above the header on a short mobile viewport"
   browser,
   baseURL,
 }, testInfo) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const stamp = `${Date.now()}-${testInfo.project.name}-overlap`;
   const context = await createIsolatedBrowserContext(browser);
   const page = await context.newPage();

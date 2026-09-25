@@ -1,3 +1,5 @@
+import { isLoopbackHostname } from "@pocketcircle/domain";
+
 /**
  * Centralized access to client environment. `MOCKS` couples MSW vendor mocking
  * and the dev auth bypass behind a single flag (ADR 0006). Reading it through
@@ -21,15 +23,6 @@ function optionalEnvString(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
-function isLocalHostname(hostname: string) {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname === "[::1]"
-  );
-}
-
 /**
  * MCP Worker origin for consent complete/deny POSTs (#318). Unset or invalid
  * origin → consent UI shows a configuration error instead of posting approval
@@ -45,7 +38,7 @@ export function mcpWorkerOrigin() {
     if (url.protocol === "https:") {
       return url.origin;
     }
-    if (url.protocol === "http:" && import.meta.env.DEV && isLocalHostname(url.hostname)) {
+    if (url.protocol === "http:" && import.meta.env.DEV && isLoopbackHostname(url.hostname)) {
       return url.origin;
     }
     return undefined;

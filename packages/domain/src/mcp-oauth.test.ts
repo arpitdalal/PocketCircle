@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   contentLengthExceeds,
   MCP_JSON_MAX_BODY_BYTES,
-  MCP_RESOURCE_URI,
   MCP_REVOCATION_TTL_MS,
   MCP_WORKER_ASSERTION_TTL_MS,
   type McpApprovalPayload,
@@ -23,6 +22,7 @@ import {
   verifyMcpRevocation,
   verifyMcpWorkerAssertion,
 } from "./mcp-oauth.js";
+import { MCP_RESOURCE_URI } from "./origins.js";
 
 const SECRET = "test-shared-secret";
 const PRIVATE_JWK_JSON =

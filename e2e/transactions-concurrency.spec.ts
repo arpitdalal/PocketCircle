@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import {
+  appBaseUrl,
   applyLedgerStatus,
   archiveWithDoubleCheck,
   clickCircleChromeTab,
@@ -59,7 +60,7 @@ test("owner archives while recorder is mid-edit — live eject, no corruption", 
   const memberContext = await createSecondaryBrowserContext(browser, testInfo);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: aEmail,
     password: E2E_PASSWORD,
     name: "Member A",
@@ -115,7 +116,7 @@ test("paid by target removed mid-edit — client blocks save", async ({
   const memberContext = await createSecondaryBrowserContext(browser, testInfo);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: aEmail,
     password: E2E_PASSWORD,
     name: "Member A",

@@ -1,17 +1,11 @@
-import { MCP_RESOURCE_URI } from "@pocketcircle/domain";
+import { isLoopbackHostname, MCP_RESOURCE_URI } from "@pocketcircle/domain";
 import type { Env } from "./env.js";
-
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-function isLoopbackHostname(hostname: string) {
-  return LOOPBACK_HOSTS.has(hostname);
-}
 
 /**
  * Public origin clients used to reach us. Prefer loopback `Host` when it
- * disagrees with `request.url` — local `wrangler` remaps URL to the
- * `custom_domain` route (`mcp.pocketcircle.app`) while Cursor still dials
- * `127.0.0.1:8787`, and OAuth PRM must match the dialed URL.
+ * disagrees with `request.url` — local `wrangler` remaps the URL to the
+ * Worker's `custom_domain` route while Cursor still dials `127.0.0.1:8787`,
+ * and OAuth PRM must match the dialed URL.
  *
  * When wrangler also rewrites `Host`, set `MCP_ISSUER` / `MCP_RESOURCE_URI`
  * in `.dev.vars` (see `.dev.vars.example`) and pass that origin into

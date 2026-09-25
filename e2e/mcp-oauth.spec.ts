@@ -1,10 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
+import { LOCAL_APP_ORIGIN } from "../packages/domain/src/origins.js";
 import { expect, localPlainDate, openPersonalCircleFromHome, test } from "./fixtures.js";
 
 const WORKER_ORIGIN = process.env.MCP_E2E_WORKER_ORIGIN;
-const APP_ORIGIN = "http://127.0.0.1:5173";
-const REDIRECT_URI = `${APP_ORIGIN}/mcp/authorize`;
+const REDIRECT_URI = `${LOCAL_APP_ORIGIN}/mcp/authorize`;
 
 function compactSha256(value: string) {
   return createHash("sha256").update(value).digest("base64url");
@@ -92,7 +92,7 @@ async function authorizeMcpClient(
 
   await page.goto(authorize.toString());
   await expect(page.getByRole("heading", { name: "Authorize access" })).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/mcp/authorize\\?handoffId=`));
+  await expect(page).toHaveURL(new RegExp(`^${LOCAL_APP_ORIGIN}/mcp/authorize\\?handoffId=`));
 
   const circleSection = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Circles", exact: true }),

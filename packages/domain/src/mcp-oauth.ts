@@ -8,12 +8,12 @@
  * - Worker assertion: the Worker signs a compact ES256 JWS with its private key
  *   for each server-to-server Convex bridge request. Convex holds only current
  *   and previous public keys, then verifies method/path/body-digest/time/nonce.
+ *
+ * The canonical issuer and resource URI live in `origins.ts` (#404).
  */
 
 import { z } from "zod";
 
-export const MCP_RESOURCE_URI = "https://mcp.pocketcircle.app/mcp";
-export const MCP_ISSUER = "https://mcp.pocketcircle.app";
 export const MCP_ACCESS_TOKEN_TTL_SECONDS = 900;
 export const MCP_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const MCP_REFRESH_DURATION_LABEL = "30 days";

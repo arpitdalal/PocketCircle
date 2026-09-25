@@ -1,5 +1,6 @@
 import type { Browser, Page, TestInfo } from "@playwright/test";
 import {
+  appBaseUrl,
   createRegularCircleAndFinishSetup,
   createSecondaryBrowserContext,
   establishE2ESession,
@@ -40,7 +41,7 @@ async function openIsolatedActivationSession(
   baseURL: string | undefined,
   email: string,
 ) {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const context = await createSecondaryBrowserContext(browser, testInfo);
   const page = await context.newPage();
   await establishE2ESession(page, { baseURL: resolvedBase, email, name: "Ada E2E" });

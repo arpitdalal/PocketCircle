@@ -3,6 +3,7 @@ import type { Circle, Member } from "../apps/web-app/app/lib/data.js";
 import { testId } from "../apps/web-app/app/test/convex/ids.js";
 import { MUTATION_ERRORS } from "../packages/domain/src/mutation-errors.js";
 import {
+  appBaseUrl,
   clickCircleChromeTab,
   createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
@@ -52,7 +53,7 @@ test("an invited user accepts and lands in the Circle member list", async ({
   browser,
   baseURL,
 }) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const circleName = `Invite Circle ${Date.now()}`;
   const inviteeEmail = `e2e+invite-${Date.now()}@example.com`;
 
@@ -95,7 +96,7 @@ test("a removed member rejoins through a fresh invitation on the same member row
   // self-hosted backend is under the full parallel suite (default 60s timed out with
   // the re-invite still pending).
   test.setTimeout(120_000);
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const circleName = `Rejoin Circle ${Date.now()}`;
   const inviteeEmail = `e2e+rejoin-${Date.now()}@example.com`;
 
@@ -162,7 +163,7 @@ test("a signed-in user with the wrong email sees invite.invalid accept copy", as
   browser,
   baseURL,
 }) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const circleName = `Wrong Email ${Date.now()}`;
   const invitedEmail = `e2e+invited-${Date.now()}@example.com`;
 

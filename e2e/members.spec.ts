@@ -1,4 +1,5 @@
 import {
+  appBaseUrl,
   clickCircleChromeTab,
   createIsolatedBrowserContext,
   createRegularCircleAndFinishSetup,
@@ -51,7 +52,7 @@ test("an owner transfers ownership and owner-only actions follow the new owner",
   const newOwnerContext = await createIsolatedBrowserContext(browser);
   const newOwnerPage = await newOwnerContext.newPage();
   await establishE2ESession(newOwnerPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: newOwnerEmail,
     password: E2E_PASSWORD,
   });
@@ -92,7 +93,7 @@ test("an owner removes a member and the row disappears from the list", async ({
   const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: memberEmail,
     password: E2E_PASSWORD,
   });
@@ -119,7 +120,7 @@ test("a non-owner member does not see remove buttons", async ({ page, browser, b
   const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: memberEmail,
     password: E2E_PASSWORD,
   });
@@ -148,7 +149,7 @@ test("removeMember as a non-owner returns the coded forbidden error", async ({
   const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: memberEmail,
     password: E2E_PASSWORD,
   });
@@ -185,7 +186,7 @@ test("a removed member's transactions still show their frozen display name", asy
   const memberContext = await createIsolatedBrowserContext(browser);
   const memberPage = await memberContext.newPage();
   await establishE2ESession(memberPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: memberEmail,
     password: E2E_PASSWORD,
   });

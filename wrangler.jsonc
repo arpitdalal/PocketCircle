@@ -6,6 +6,8 @@
   // links fall back to `/index.html` without billable Worker invocations.
   "routes": [
     {
+      // Must equal `APEX_HOSTNAME` in packages/domain/src/origins.ts — wrangler
+      // config cannot import it, so `canonical-origins.test.ts` asserts the match.
       "pattern": "pocketcircle.app",
       "custom_domain": true
     }

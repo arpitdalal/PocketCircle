@@ -7,6 +7,7 @@ MCP_WORKER_SIGNING_PRIVATE_JWK=<private-jwk-json>
 # MCP_CLIENT_PROVISIONING_TOKEN=<random-secret>
 # These override wrangler.jsonc `vars` for local wrangler only (vitest pins its own).
 # APP_ORIGIN may be localhost or 127.0.0.1 — Worker treats them as equivalent on loopback.
+# Keep in sync with LOCAL_APP_ORIGIN in packages/domain/src/origins.ts.
 APP_ORIGIN=http://127.0.0.1:5173
 # Must match VITE_CONVEX_SITE_URL from repo-root .env.local (cloud Convex site).
 CONVEX_SITE_URL=https://<your-deployment>.convex.site

@@ -1,5 +1,10 @@
 import { vOnCompleteValidator, Workpool } from "@convex-dev/workpool";
-import { feedbackEmail, invitationEmail, welcomeEmail } from "@pocketcircle/domain";
+import {
+  feedbackEmail,
+  invitationEmail,
+  LOCAL_APP_ORIGIN,
+  welcomeEmail,
+} from "@pocketcircle/domain";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api.js";
 import {
@@ -20,8 +25,8 @@ import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFa
  *
  * Optional welcome overrides (From must be on a Resend-verified domain):
  * RESEND_WELCOME_FROM_EMAIL, RESEND_WELCOME_REPLY_TO_EMAIL
- * e.g. From `Arpit Dalal <arpit.dalal@mail.pocketcircle.app>`,
- * Reply-To `arpit.dalal@pocketcircle.app` (apex CF forward — no Resend verify).
+ * e.g. a From on a Resend-verified mail subdomain with the apex mailbox as
+ * Reply-To (apex CF forward — no Resend verify).
  *
  * Feedback (FBK-1) also uses SUPPORT_EMAIL as the recipient address.
  *
@@ -29,6 +34,14 @@ import { reportTerminalFailure, type TERMINAL_FAILURE_KINDS } from "./terminalFa
  * Resend creds are configured (also logs when creds are unset). Feedback sends
  * pass `logBodyInDev: false` so free-text message bodies never hit dev logs.
  */
+
+/**
+ * Public app origin for links in outbound mail. `SITE_URL` is the deployment's
+ * own value; local dev falls back to the canonical loopback origin (#404).
+ */
+function siteUrl() {
+  return process.env.SITE_URL ?? LOCAL_APP_ORIGIN;
+}
 
 // Durable, throttled handoff to Resend — the shared seam EML-2 / FBK-1 reuse.
 // maxParallelism caps concurrent sends so a vendor outage can't stampede Resend.
@@ -158,7 +171,7 @@ export const sendWelcomeEmail = internalAction({
     }
     const { subject, html } = welcomeEmail({
       displayName: p.displayName,
-      appUrl: process.env.SITE_URL ?? "http://127.0.0.1:5173",
+      appUrl: siteUrl(),
     });
     const welcomeFrom = process.env.RESEND_WELCOME_FROM_EMAIL;
     const welcomeReplyTo = process.env.RESEND_WELCOME_REPLY_TO_EMAIL;
@@ -284,8 +297,7 @@ export const sendInvitationEmail = internalAction({
       emailLower: p.recipientEmail,
       token,
     });
-    const siteUrl = process.env.SITE_URL ?? "http://127.0.0.1:5173";
-    const inviteLink = `${siteUrl}/invite/${token}`;
+    const inviteLink = `${siteUrl()}/invite/${token}`;
     const { subject, html } = invitationEmail({
       inviteLink,
       circleName: p.circleName,
@@ -356,7 +368,7 @@ export const sendFeedbackEmail = internalAction({
       circleName: args.circleName,
       circleRef: args.circleRef,
       submittedAtIso: args.submittedAtIso,
-      appUrl: process.env.SITE_URL ?? "http://127.0.0.1:5173",
+      appUrl: siteUrl(),
     });
     await sendEmailOrReport(
       ctx,

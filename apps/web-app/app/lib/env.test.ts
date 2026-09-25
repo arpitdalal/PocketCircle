@@ -1,6 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MCP_ORIGIN, MCP_RESOURCE_URI } from "@pocketcircle/domain";
 import { build } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mcpServerUrl, mcpWorkerOrigin, posthogHost, posthogKey } from "./env.js";
@@ -27,8 +28,8 @@ function builtJs(result: Awaited<ReturnType<typeof build>>) {
 
 describe("mcpWorkerOrigin", () => {
   it("accepts HTTPS origins", () => {
-    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "https://mcp.pocketcircle.app/path");
-    expect(mcpWorkerOrigin()).toBe("https://mcp.pocketcircle.app");
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", `${MCP_ORIGIN}/path`);
+    expect(mcpWorkerOrigin()).toBe(MCP_ORIGIN);
   });
 
   it("accepts loopback HTTP only while Vite is in development", () => {
@@ -50,8 +51,8 @@ describe("mcpWorkerOrigin", () => {
   });
 
   it("builds the /mcp resource URL from the Worker origin", () => {
-    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "https://mcp.pocketcircle.app");
-    expect(mcpServerUrl()).toBe("https://mcp.pocketcircle.app/mcp");
+    vi.stubEnv("VITE_MCP_WORKER_ORIGIN", MCP_ORIGIN);
+    expect(mcpServerUrl()).toBe(MCP_RESOURCE_URI);
     vi.stubEnv("VITE_MCP_WORKER_ORIGIN", "");
     expect(mcpServerUrl()).toBeUndefined();
   });

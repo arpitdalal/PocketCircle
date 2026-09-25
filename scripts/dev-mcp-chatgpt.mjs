@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { MCP_HOSTNAME } from "../packages/domain/src/origins.ts";
 
 // Keep public OAuth discovery consistent with the tunnel while using local KV,
 // Durable Objects, and the Convex dev credentials in .dev.vars.
@@ -13,7 +14,7 @@ try {
     url.pathname !== "/" ||
     url.search ||
     url.hash ||
-    url.hostname === "mcp.pocketcircle.app" ||
+    url.hostname === MCP_HOSTNAME ||
     extraArgs.length
   ) {
     throw new Error("Expected a development tunnel HTTPS origin.");

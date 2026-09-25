@@ -1,4 +1,5 @@
 import {
+  appBaseUrl,
   applyLedgerStatus,
   archiveWithDoubleCheck,
   assertLedgerRowStaysAbsent,
@@ -37,7 +38,7 @@ test("category archived mid-creation — keep visible, block, recover", async ({
   const memberContext = await createSecondaryBrowserContext(browser, testInfo);
   const aPage = await memberContext.newPage();
   await establishE2ESession(aPage, {
-    baseURL: baseURL ?? "http://127.0.0.1:5173",
+    baseURL: appBaseUrl(baseURL),
     email: aEmail,
     password: E2E_PASSWORD,
     name: "Member A",

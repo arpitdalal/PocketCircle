@@ -1,12 +1,47 @@
+import { LOCAL_APP_HOSTNAME, LOCAL_APP_PORT } from "@pocketcircle/domain/origins";
 import { reactRouter } from "@react-router/dev/vite";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { reactCompilerPreset } from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+import { crawlAssets } from "./crawl-assets.js";
 import { resolveAppRelease, resolveAppVersion } from "./resolve-app-version.js";
 
 const appVersion = resolveAppVersion();
 const appRelease = resolveAppRelease();
+
+/**
+ * Serves `robots.txt` and `sitemap.xml` from `crawl-assets.ts` (built from the
+ * canonical apex origin, #404) in dev and in the build. They are deliberately
+ * not files in `public/`: a checked-in copy is a second place an origin move
+ * would have to be applied by hand.
+ */
+function crawlAssetsPlugin(): Plugin {
+  const assets = Object.entries(crawlAssets());
+  return {
+    name: "pocketcircle:crawl-assets",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const match = assets.find(([fileName]) => request.url === `/${fileName}`);
+        if (!match) {
+          next();
+          return;
+        }
+        const [fileName, source] = match;
+        response.setHeader(
+          "Content-Type",
+          fileName.endsWith(".xml") ? "application/xml" : "text/plain",
+        );
+        response.end(source);
+      });
+    },
+    generateBundle() {
+      for (const [fileName, source] of assets) {
+        this.emitFile({ type: "asset", fileName, source });
+      }
+    },
+  };
+}
 
 export default defineConfig({
   define: {
@@ -19,11 +54,12 @@ export default defineConfig({
   server: {
     // Bind IPv4 127.0.0.1 explicitly. Vite's default host is `localhost`, which on
     // this machine resolves to IPv6 `::1` only — so the server never listened on
-    // 127.0.0.1, and the Better Auth OAuth callback (SITE_URL=http://127.0.0.1:5173)
-    // round-tripped back to a 127.0.0.1 address nothing was listening on
-    // (ERR_CONNECTION_REFUSED). Pinning the host to 127.0.0.1 matches SITE_URL.
-    host: "127.0.0.1",
-    port: 5173,
+    // 127.0.0.1, and the Better Auth OAuth callback (SITE_URL, the canonical
+    // `LOCAL_APP_ORIGIN`) round-tripped back to a 127.0.0.1 address nothing was
+    // listening on (ERR_CONNECTION_REFUSED). Pinning the host to the canonical
+    // loopback host keeps the dev server and SITE_URL the same origin.
+    host: LOCAL_APP_HOSTNAME,
+    port: LOCAL_APP_PORT,
     // CHANGELOG.md lives at the monorepo root (same as envDir). Vite's workspace
     // root detection is not always enough for `?raw` in tests and the dev server.
     fs: {
@@ -62,6 +98,7 @@ export default defineConfig({
     // pattern first; opt-out is last resort. ESLint (lint:react-compiler) and
     // vitest.config.ts mirror this compiler pass so CI catches miscompiles.
     babel({ presets: [reactCompilerPreset()] }),
+    crawlAssetsPlugin(),
     reactRouter(),
   ],
 });

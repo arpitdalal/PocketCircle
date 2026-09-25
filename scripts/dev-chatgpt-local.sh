@@ -7,11 +7,15 @@ set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Canonical origins live in one module (#404); read the app origin from there so
+# this script cannot drift from the Vite `server` block it waits on.
+LOCAL_WEB_URL="$(node -e \
+  "import('$(pwd)/packages/domain/src/origins.ts').then((m) => process.stdout.write(m.LOCAL_APP_ORIGIN))")"
+
 TUNNEL_HOST="${POCKETCIRCLE_MCP_TUNNEL_HOST:-mcp-dev.pocketcircle.app}"
 TUNNEL_NAME="${POCKETCIRCLE_MCP_TUNNEL_NAME:-pocketcircle-dev}"
 CLOUDFLARED_DIR="${CLOUDFLARED_DIR:-${HOME}/.cloudflared}"
 TUNNEL_CONFIG="${POCKETCIRCLE_MCP_TUNNEL_CONFIG:-${CLOUDFLARED_DIR}/${TUNNEL_NAME}.yml}"
-LOCAL_WEB_URL="http://127.0.0.1:5173"
 LOCAL_MCP_URL="http://127.0.0.1:8788"
 PUBLIC_MCP_URL="https://${TUNNEL_HOST}"
 

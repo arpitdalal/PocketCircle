@@ -1,6 +1,7 @@
 import { type AuthFunctions, createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireRunMutationCtx } from "@convex-dev/better-auth/utils";
+import { isLoopbackHostname, LOCAL_APP_ORIGIN, loopbackTrustedOrigins } from "@pocketcircle/domain";
 import { betterAuth } from "better-auth";
 import { components, internal } from "./_generated/api.js";
 import type { DataModel, Doc } from "./_generated/dataModel.js";
@@ -30,30 +31,11 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  */
 const authFunctions: AuthFunctions = internal.auth;
 
-const DEFAULT_LOCAL_SITE_URL = "http://127.0.0.1:5173";
-
 export function authRuntimeConfig(siteUrlValue: string | undefined) {
-  const url = new URL(siteUrlValue ?? DEFAULT_LOCAL_SITE_URL);
+  const url = new URL(siteUrlValue ?? LOCAL_APP_ORIGIN);
   const siteUrl = url.origin;
-  const verbose = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  const verbose = isLoopbackHostname(url.hostname);
   return { siteUrl, verbose };
-}
-
-/**
- * Browsers treat `localhost` and `127.0.0.1` as different origins. Vite may open
- * either host; trust the twin so local Google sign-in CORS matches SITE_URL.
- */
-export function loopbackTwinOrigin(siteUrl: string) {
-  const url = new URL(siteUrl);
-  if (url.hostname === "127.0.0.1") {
-    url.hostname = "localhost";
-    return url.origin;
-  }
-  if (url.hostname === "localhost") {
-    url.hostname = "127.0.0.1";
-    return url.origin;
-  }
-  return undefined;
 }
 
 export function authComponentConfig(siteUrlValue: string | undefined) {
@@ -121,7 +103,9 @@ const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   const authRuntime = authRuntimeConfig(process.env.SITE_URL);
-  const loopbackTwin = loopbackTwinOrigin(authRuntime.siteUrl);
+  // Browsers treat `localhost` and `127.0.0.1` as different origins. Vite may open
+  // either host; trust the twin so local Google sign-in CORS matches SITE_URL.
+  const loopbackTwin = loopbackTrustedOrigins(authRuntime.siteUrl).at(1);
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),

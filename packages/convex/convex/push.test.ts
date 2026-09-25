@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { promises as dns } from "node:dns";
-import { buildVisiblePushPayload } from "@pocketcircle/domain";
+import { APP_ORIGIN, buildVisiblePushPayload } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -152,7 +152,7 @@ describe("isLikelyInvalidSubscriptionCryptoError", () => {
 describe("VAPID env validation", () => {
   it("accepts only parseable https/mailto subjects with a contact", () => {
     expect(isValidVapidSubject("mailto:push@pocketcircle.test")).toBe(true);
-    expect(isValidVapidSubject("https://pocketcircle.app/contact")).toBe(true);
+    expect(isValidVapidSubject(`${APP_ORIGIN}/contact`)).toBe(true);
     expect(isValidVapidSubject("https:")).toBe(false);
     expect(isValidVapidSubject("mailto:")).toBe(false);
     expect(isValidVapidSubject("not-a-contact-uri")).toBe(false);

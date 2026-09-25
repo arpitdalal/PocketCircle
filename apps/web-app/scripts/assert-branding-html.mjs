@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { APEX_ORIGIN, MCP_RESOURCE_URI } from "../../../packages/domain/src/origins.ts";
 
 /**
  * Build-time check: Google branding crawlers read static HTML (no JS). Fail the
- * build if the SPA shell or prerendered legal pages lose required copy.
+ * build if the SPA shell or prerendered legal pages lose required copy, or if
+ * the generated crawl directives (crawl-assets.ts, #404) go missing or drift
+ * onto an origin that is not the canonical apex.
  */
 const clientDir = join(dirname(fileURLToPath(import.meta.url)), "../build/client");
 
@@ -37,7 +40,11 @@ requireHtml("index.html", [
 
 requireHtml("privacy/index.html", ["Privacy Policy", "Information we collect"]);
 requireHtml("terms/index.html", ["Terms &amp; Conditions"]);
-requireHtml("support/index.html", ["Support", "mcp.pocketcircle.app/mcp"]);
+requireHtml("support/index.html", ["Support", MCP_RESOURCE_URI]);
 requireHtml("whats-new/index.html", ["What&#x27;s new"]);
 
-console.log("Branding HTML ok (index + privacy + terms + support + whats-new).");
+// Generated, not checked in: assert the plugin emitted them on the apex origin.
+requireHtml("robots.txt", [`Sitemap: ${APEX_ORIGIN}/sitemap.xml`]);
+requireHtml("sitemap.xml", [`<loc>${APEX_ORIGIN}/</loc>`]);
+
+console.log("Branding HTML ok (index + privacy + terms + support + whats-new + crawl assets).");

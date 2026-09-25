@@ -5,6 +5,9 @@ import {
   OAuthErrorCode,
 } from "@modelcontextprotocol/server";
 import {
+  APEX_HOSTNAME,
+  LOOPBACK_HOSTNAMES,
+  MCP_HOSTNAME,
   MCP_MONEY_DISPLAY_INSTRUCTIONS,
   type McpReadOperation,
   type McpWriteOperation,
@@ -972,7 +975,7 @@ function payloadTooLargeResponse(started: number) {
 }
 
 export function createMcpApiHandler(env: Env) {
-  const staticAllowedHostnames = new Set(["mcp.pocketcircle.app", "localhost", "127.0.0.1"]);
+  const staticAllowedHostnames = new Set([MCP_HOSTNAME, ...LOOPBACK_HOSTNAMES]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
   if (issuerHost) {
     staticAllowedHostnames.add(issuerHost);
@@ -994,7 +997,7 @@ export function createMcpApiHandler(env: Env) {
     }
 
     const allowedOriginHostnames = new Set(allowedHostnames);
-    allowedOriginHostnames.add("pocketcircle.app");
+    allowedOriginHostnames.add(APEX_HOSTNAME);
     if (appOriginHost) {
       allowedOriginHostnames.add(appOriginHost);
     }

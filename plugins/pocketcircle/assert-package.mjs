@@ -2,10 +2,15 @@
 /**
  * Guards #365 packaging invariants: stable id, relative paths, real connection
  * mapping, marketplace entry. No network.
+ *
+ * Origin strings come from `@pocketcircle/domain` (loaded as the import-free
+ * `origins.ts` module, which plain node can resolve) so the shipped manifests
+ * cannot drift from the canonical origins (#404).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { APEX_ORIGIN, MCP_RESOURCE_URI } from "../../packages/domain/src/origins.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const pluginRoot = join(root, "plugins/pocketcircle");
@@ -64,8 +69,8 @@ assertRelativeDotPath(manifest.interface.composerIcon, "composerIcon");
 for (const urlKey of ["websiteURL", "privacyPolicyURL", "termsOfServiceURL", "supportURL"]) {
   const url = manifest.interface[urlKey];
   assert(
-    typeof url === "string" && url.startsWith("https://pocketcircle.app"),
-    `${urlKey} must be https://pocketcircle.app…`,
+    typeof url === "string" && url.startsWith(APEX_ORIGIN),
+    `${urlKey} must be ${APEX_ORIGIN}…`,
   );
 }
 
@@ -88,7 +93,7 @@ assert(
 
 const mcp = readJson(mcpPath);
 assert(
-  mcp.mcpServers?.pocketcircle?.url === "https://mcp.pocketcircle.app/mcp",
+  mcp.mcpServers?.pocketcircle?.url === MCP_RESOURCE_URI,
   "mcp URL must be production hosted endpoint",
 );
 assert(mcp.mcpServers?.pocketcircle?.type === "http", "mcp type must be http");

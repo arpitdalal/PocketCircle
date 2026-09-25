@@ -1,4 +1,5 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { APP_ORIGIN } from "@pocketcircle/domain/origins";
 import { defineProject } from "vitest/config";
 
 export default defineProject({
@@ -9,7 +10,7 @@ export default defineProject({
         bindings: {
           // Keep consent redirects and Convex site stable even when a local
           // `.dev.vars` overrides wrangler `vars` for manual `wrangler dev`.
-          APP_ORIGIN: "https://pocketcircle.app",
+          APP_ORIGIN,
           CONVEX_SITE_URL: "https://placeholder.convex.site",
           // Secrets are not in wrangler vars; tests supply fixed signing material.
           MCP_WORKER_HMAC_SECRET: "test-mcp-worker-secret",

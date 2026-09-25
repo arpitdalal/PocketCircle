@@ -1,10 +1,11 @@
+import { LOCAL_APP_ORIGIN, loopbackTrustedOrigins } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
 import { registerEmailWorkpool } from "../test/registerEmailWorkpool.js";
 import { seedPersonalCircleOwner } from "../test/seed.js";
 import { api, internal } from "./_generated/api.js";
-import { authComponentConfig, authRuntimeConfig, createAuth, loopbackTwinOrigin } from "./auth.js";
+import { authComponentConfig, authRuntimeConfig, createAuth } from "./auth.js";
 import schema from "./schema.js";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -107,7 +108,7 @@ describe("createAuth", () => {
 describe("authRuntimeConfig", () => {
   it("enables verbose auth logs only for the configured local origin", () => {
     expect(authRuntimeConfig(undefined)).toEqual({
-      siteUrl: "http://127.0.0.1:5173",
+      siteUrl: LOCAL_APP_ORIGIN,
       verbose: true,
     });
     expect(authRuntimeConfig("http://localhost:5173/")).toEqual({
@@ -121,20 +122,12 @@ describe("authRuntimeConfig", () => {
   });
 });
 
-describe("loopbackTwinOrigin", () => {
-  it("maps 127.0.0.1 and localhost to each other and ignores non-loopback hosts", () => {
-    expect(loopbackTwinOrigin("http://127.0.0.1:5173")).toBe("http://localhost:5173");
-    expect(loopbackTwinOrigin("http://localhost:5173")).toBe("http://127.0.0.1:5173");
-    expect(loopbackTwinOrigin("https://pocketcircle.app")).toBeUndefined();
-  });
-});
-
 describe("createAuth loopback trusted origins", () => {
   it("also trusts the localhost twin when SITE_URL is 127.0.0.1", async () => {
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-test-secret-test-secret");
     vi.stubEnv("GOOGLE_CLIENT_ID", "");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "");
-    vi.stubEnv("SITE_URL", "http://127.0.0.1:5173");
+    vi.stubEnv("SITE_URL", LOCAL_APP_ORIGIN);
 
     const t = convexTest(schema, modules);
 
@@ -142,7 +135,7 @@ describe("createAuth loopback trusted origins", () => {
       const auth = createAuth(ctx);
       const context = await auth.$context;
       expect(context.options.trustedOrigins).toEqual(
-        expect.arrayContaining(["http://127.0.0.1:5173", "http://localhost:5173"]),
+        expect.arrayContaining(loopbackTrustedOrigins(LOCAL_APP_ORIGIN)),
       );
     });
   });

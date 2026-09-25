@@ -1,4 +1,5 @@
 import {
+  isLoopbackHostname,
   MCP_WORKER_ASSERTION_TTL_MS,
   type McpOperationBody,
   type McpWorkerAssertionPayload,
@@ -14,15 +15,6 @@ const MCP_WORKER_AUD = "pocketcircle:mcp-worker";
 export type BridgeResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string; retryable: boolean };
-
-function isLoopbackHostname(hostname: string) {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname === "[::1]"
-  );
-}
 
 function validateConvexSiteUrl(rawUrl: string) {
   try {

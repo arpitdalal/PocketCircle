@@ -1,4 +1,10 @@
-import { createIsolatedBrowserContext, establishE2ESession, expect, test } from "./fixtures.js";
+import {
+  appBaseUrl,
+  createIsolatedBrowserContext,
+  establishE2ESession,
+  expect,
+  test,
+} from "./fixtures.js";
 
 /**
  * TRUE-E2E (ADR 0019 / #266): a newly bootstrapped User has analytics on after
@@ -9,7 +15,7 @@ test("a new user's analytics switch is on after onboarding and can be turned off
   browser,
   baseURL,
 }) => {
-  const resolvedBase = typeof baseURL === "string" && baseURL ? baseURL : "http://127.0.0.1:5173";
+  const resolvedBase = appBaseUrl(baseURL);
   const email = `e2e+analytics-${Date.now()}@example.com`;
 
   const context = await createIsolatedBrowserContext(browser);

@@ -1,4 +1,9 @@
-import { MCP_JSON_MAX_BODY_BYTES, sha256Hex, utf8ByteLength } from "@pocketcircle/domain";
+import {
+  MCP_JSON_MAX_BODY_BYTES,
+  MCP_ORIGIN,
+  sha256Hex,
+  utf8ByteLength,
+} from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
 import { assertClonedBodyWithinLimit } from "./bounded-body.js";
 import {
@@ -48,7 +53,7 @@ describe("capacity profile", () => {
       expect(utf8ByteLength(body)).toBeLessThanOrEqual(MCP_JSON_MAX_BODY_BYTES);
       expect(utf8ByteLength(body)).toBeGreaterThan(MCP_JSON_MAX_BODY_BYTES - 64);
 
-      const request = new Request("https://mcp.pocketcircle.app/mcp", {
+      const request = new Request(`${MCP_ORIGIN}/mcp`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body,
