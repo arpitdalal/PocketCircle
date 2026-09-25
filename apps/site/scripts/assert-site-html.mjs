@@ -3,7 +3,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
 import { APEX_ORIGIN_TOKEN } from "../src/apex-origin-html.ts";
-import { globalSecurityHeadersRule } from "../src/security-headers.ts";
+import { siteSecurityHeaders } from "../src/security-headers.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
@@ -102,7 +102,7 @@ if (statSync(join(distDir, stylesheet)).size === 0) {
 const productHeaders = readFileSync(join(packageRoot, "../web-app/public/_headers"), "utf8");
 const publishedHeaders = readFileSync(join(distDir, "_headers"), "utf8");
 
-if (publishedHeaders !== globalSecurityHeadersRule(productHeaders)) {
+if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
   throw new Error("dist/_headers is not the product's global security-header rule");
 }
 

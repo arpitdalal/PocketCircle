@@ -217,6 +217,7 @@ jobs:
         run: pnpm build:site
 
       - name: Deploy marketing Site
+        id: site
         uses: cloudflare/wrangler-action@v4
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -224,6 +225,62 @@ jobs:
           packageManager: pnpm
           wranglerVersion: "4.121.0"
           workingDirectory: apps/site
+
+      # What a visitor gets on the staging hostname, asserted on the deployed
+      # origin rather than on the artifact: the canonical apex origin the build
+      # injected, the security headers derived from the product's policy, and the
+      # noindex that keeps `workers.dev` out of search results until the apex
+      # cutover removes it. Retries because the asset manifest takes a moment to
+      # propagate, the same reason the MCP discovery check below retries.
+      - name: Verify marketing Site
+        # APEX_ORIGIN must equal `APEX_ORIGIN` in packages/domain/src/origins.ts —
+        # a workflow cannot import it, so `canonical-origins.test.ts` asserts it.
+        env:
+          APEX_ORIGIN: https://pocketcircle.app
+          SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
+        run: |
+          node --input-type=module <<'EOF'
+          const origin = new URL(process.env.SITE_ORIGIN).origin;
+          const expected = {
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "strict-origin-when-cross-origin",
+            "x-robots-tag": "noindex",
+          };
+
+          async function verify() {
+            const response = await fetch(`${origin}/`);
+            if (!response.ok) {
+              throw new Error(`homepage returned ${response.status}`);
+            }
+            for (const [header, value] of Object.entries(expected)) {
+              if (response.headers.get(header) !== value) {
+                throw new Error(`${header} is ${response.headers.get(header)}, want ${value}`);
+              }
+            }
+            const html = await response.text();
+            if (!html.includes(`<link rel="canonical" href="${process.env.APEX_ORIGIN}/"`)) {
+              throw new Error("homepage does not canonicalize to the apex origin");
+            }
+            if (html.includes("%APEX_ORIGIN%")) {
+              throw new Error("homepage still contains the apex origin placeholder");
+            }
+          }
+
+          let lastError;
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              await verify();
+              console.log(`Marketing Site verified at ${origin}`);
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              console.warn(`Marketing Site attempt ${attempt}/12 failed: ${error.message}`);
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+          }
+          throw lastError;
+          EOF
 
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously

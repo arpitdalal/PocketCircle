@@ -54,7 +54,7 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker, once served from the app subdomain (ADR 0035).
   "wrangler.jsonc": [],
   "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
-  ".github/workflows/deploy.yml": [APP_ORIGIN],
+  ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
   // Shipped plugin manifests: read by ChatGPT/Codex, never executed here.
