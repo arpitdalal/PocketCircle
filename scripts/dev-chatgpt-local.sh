@@ -9,8 +9,13 @@ cd "$(dirname "$0")/.."
 
 # Canonical origins live in one module (#404); read the app origin from there so
 # this script cannot drift from the Vite `server` block it waits on.
-LOCAL_WEB_URL="$(node -e \
-  "import('$(pwd)/packages/domain/src/origins.ts').then((m) => process.stdout.write(m.LOCAL_APP_ORIGIN))")"
+origin_constant() {
+  node -e \
+    "import('$(pwd)/packages/domain/src/origins.ts').then((m) => process.stdout.write(m[process.argv[1]]))" \
+    "$1"
+}
+LOCAL_WEB_URL="$(origin_constant LOCAL_APP_ORIGIN)"
+LOCAL_WEB_PORT="$(origin_constant LOCAL_APP_PORT)"
 
 TUNNEL_HOST="${POCKETCIRCLE_MCP_TUNNEL_HOST:-mcp-dev.pocketcircle.app}"
 TUNNEL_NAME="${POCKETCIRCLE_MCP_TUNNEL_NAME:-pocketcircle-dev}"
@@ -65,7 +70,7 @@ grep -q '<random-secret>\|<private-jwk-json>\|<your-deployment>' packages/mcp-wo
   fail "packages/mcp-worker/.dev.vars still contains placeholders"
 
 if command -v lsof >/dev/null 2>&1; then
-  for port in 5173 8788; do
+  for port in "$LOCAL_WEB_PORT" 8788; do
     if lsof -nP -iTCP:"$port" -sTCP:LISTEN -t | grep -q .; then
       fail "Port $port is already in use. Stop the existing dev service, then rerun pnpm dev:chatgpt."
     fi

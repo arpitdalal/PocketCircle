@@ -103,9 +103,9 @@ const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   const authRuntime = authRuntimeConfig(process.env.SITE_URL);
-  // Browsers treat `localhost` and `127.0.0.1` as different origins. Vite may open
-  // either host; trust the twin so local Google sign-in CORS matches SITE_URL.
-  const loopbackTwin = loopbackTrustedOrigins(authRuntime.siteUrl).at(1);
+  // Browsers treat the two loopback names as different origins. Vite may open
+  // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
+  const [, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),

@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import {
   APP_ORIGIN,
   LOCAL_APP_ORIGIN,
+  LOCAL_APP_TWIN_ORIGIN,
   MCP_HOSTNAME,
   MCP_ORIGIN,
   MCP_REVOCATION_TTL_MS,
@@ -1341,19 +1342,43 @@ describe("MCP connection revocation", () => {
     const allowed = await defaultHandler.fetch(
       new Request(`${MCP_ORIGIN}/revoke`, {
         method: "OPTIONS",
-        headers: { origin: "http://localhost:5173" },
+        headers: { origin: LOCAL_APP_TWIN_ORIGIN },
       }),
       loopbackEnv,
     );
     expect(allowed.status).toBe(204);
-    expect(allowed.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(LOCAL_APP_TWIN_ORIGIN);
 
     const blocked = await defaultHandler.fetch(
       new Request(`${MCP_ORIGIN}/revoke`, {
         method: "OPTIONS",
-        headers: { origin: "http://localhost:5173" },
+        headers: { origin: LOCAL_APP_TWIN_ORIGIN },
       }),
       env,
+    );
+    expect(blocked.status).toBe(403);
+  });
+
+  it("trusts the configured app Origin, not an arbitrary one", async () => {
+    // The browser-Origin allowlist follows the app origin — the signed-in SPA —
+    // and never a marketing origin, so a deployment that moves the app (ADR
+    // 0035) only has to set APP_ORIGIN.
+    const movedAppEnv = { ...env, APP_ORIGIN: "https://app.example" };
+    const allowed = await defaultHandler.fetch(
+      new Request(`${MCP_ORIGIN}/revoke`, {
+        method: "OPTIONS",
+        headers: { origin: "https://app.example" },
+      }),
+      movedAppEnv,
+    );
+    expect(allowed.status).toBe(204);
+
+    const blocked = await defaultHandler.fetch(
+      new Request(`${MCP_ORIGIN}/revoke`, {
+        method: "OPTIONS",
+        headers: { origin: "https://marketing.example" },
+      }),
+      movedAppEnv,
     );
     expect(blocked.status).toBe(403);
   });

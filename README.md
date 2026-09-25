@@ -210,8 +210,10 @@ Production uses the default provider URLs documented in ADR 0007:
 
 The web and MCP origins are written down once, in
 [`packages/domain/src/origins.ts`](packages/domain/src/origins.ts) (#404). Read
-them from there — never spell an origin out again. `canonical-origins.test.ts`
-fails the build if any source, config, or script hardcodes one.
+them from there instead of spelling one out in code — `canonical-origins.test.ts`
+fails the build if any source, config, or script hardcodes an origin. The env
+values in this README are examples of what to set per deployment, not the
+canonical record.
 
 `.github/workflows/deploy.yml` validates and builds the app, deploys the Convex
 backend, publishes `apps/web-app/build/client` as Cloudflare Worker static

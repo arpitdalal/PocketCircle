@@ -12,7 +12,10 @@ export function browserOriginAllowed(requestOrigin: string | null, appOrigin: st
     return false;
   }
   try {
-    return loopbackTrustedOrigins(appOrigin).includes(requestOrigin);
+    // Normalize the presented origin too: a hand-written `Origin` header may
+    // carry a path or a trailing slash, and `loopbackTrustedOrigins` compares
+    // bare origins.
+    return loopbackTrustedOrigins(appOrigin).includes(new URL(requestOrigin).origin);
   } catch {
     return false;
   }

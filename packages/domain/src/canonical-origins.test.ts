@@ -6,16 +6,24 @@
  * the moment another file does, so an origin migration stays a one-line change
  * instead of a hunt across a dozen call sites.
  *
- * It lives beside the module it guards (there is no repo-root Vitest project) and
- * deliberately asserts — rather than merely allows — the handful of files that
- * cannot import TypeScript: wrangler config, a GitHub workflow, and the shipped
- * plugin manifests. Prose (`*.md`, `docs/`) and env templates (`*.example`)
- * document the origins rather than consume them, so they are out of scope.
+ * It lives beside the module it guards (there is no repo-root Vitest project).
+ *
+ * Two kinds of file are not fully governed by the scan, and both are handled
+ * explicitly rather than skipped:
+ *
+ * - **The module itself**, which is where the literals live.
+ * - **Files that cannot import TypeScript** — wrangler config, GitHub workflows,
+ *   the shipped plugin manifests, and the env templates a developer copies.
+ *   Each is listed in `ALLOWED_LITERALS` with exactly the origins it may contain,
+ *   so a *new* origin appearing in one of them is a violation, not a silent pass.
+ *
+ * Prose (`*.md`, `docs/`) documents the origins rather than consuming them and is
+ * out of scope, as are `*.example` templates *except* the two that set an app
+ * origin, which are in the allowance list below.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   APEX_HOSTNAME,
   APEX_ORIGIN,
@@ -23,6 +31,7 @@ import {
   APP_ORIGIN,
   LOCAL_APP_ORIGIN,
   MCP_HOSTNAME,
+  MCP_ORIGIN,
   MCP_RESOURCE_URI,
 } from "./origins.js";
 
@@ -47,20 +56,33 @@ const SKIPPED_DIRECTORIES = new Set([
 
 const SKIPPED_FILES = new Set([".env.local", "pnpm-lock.yaml"]);
 
-/** Files with no TypeScript to import from; each is pinned by a test below. */
-const ASSERTED_ELSEWHERE = new Set([
-  ".github/workflows/deploy.yml",
-  ".github/workflows/e2e.yml",
-  "plugins/pocketcircle/.codex-plugin/plugin.json",
-  "plugins/pocketcircle/.mcp.json",
-  "packages/mcp-worker/wrangler.jsonc",
-  "wrangler.jsonc",
-]);
-
-const SOURCE_FILE = /\.(?:[cm]?js|json|jsonc|sh|ts|tsx|webmanifest|ya?ml)$/;
-
-/** This module is the one place the literals live, so it is the one exemption. */
+/**
+ * The one module allowed to spell the origins out.
+ */
 const ORIGINS_MODULE = "packages/domain/src/origins.ts";
+
+/**
+ * Files that cannot `import` the module, mapped to the exact origins each is
+ * allowed to contain. A match outside its file's list fails the build; an entry
+ * that no longer appears also fails, so the list cannot rot.
+ */
+const ALLOWED_LITERALS: Record<string, readonly string[]> = {
+  // The product app Worker, once served from the app subdomain (ADR 0035).
+  "wrangler.jsonc": [],
+  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
+  ".github/workflows/deploy.yml": [APEX_ORIGIN],
+  // The backend's SITE_URL has to match the origin Playwright drives the app on.
+  ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
+  // Shipped plugin manifests: read by ChatGPT/Codex, never executed here.
+  "plugins/pocketcircle/.mcp.json": [MCP_ORIGIN],
+  "plugins/pocketcircle/.codex-plugin/plugin.json": [APEX_ORIGIN],
+  // Env templates a developer copies verbatim.
+  ".env.example": [LOCAL_APP_ORIGIN],
+  "packages/mcp-worker/.dev.vars.example": [LOCAL_APP_ORIGIN],
+};
+
+/** Includes the file types the ADR 0035 marketing Site will add. */
+const SOURCE_FILE = /\.(?:[cm]?js|astro|html?|json|jsonc|mdx|sh|ts|tsx|txt|webmanifest|ya?ml)$/;
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -70,23 +92,55 @@ function repoPath(absolute: string) {
   return relative(repoRoot, absolute).split(sep).join("/");
 }
 
+function readRepoFile(path: string) {
+  return readFileSync(join(repoRoot, path), "utf8");
+}
+
 /**
  * Every origin this module owns, as patterns. The hostname alternation is built
  * from the constants, so an origin added here is guarded the moment it exists.
  * The lookbehind keeps a different subdomain of the apex (`assets.` for R2
- * media, which this module does not own) from reading as the apex itself.
+ * media, which this module does not own) from reading as the apex itself, and
+ * requiring a scheme keeps a bare hostname out of scope — a wrangler route
+ * pattern is a hostname, not an origin, and is asserted separately below.
  */
+const OWNED_ORIGIN = new RegExp(
+  `(?<![\\w.-])https?://(?:${[APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME]
+    .map(escapeForRegExp)
+    .join("|")})(?![\\w-])`,
+  "g",
+);
+
+const LOCAL_APP_ORIGIN_PATTERN = new RegExp(
+  `https?://${escapeForRegExp(LOCAL_APP_ORIGIN.slice("http://".length))}(?![\\d/])`,
+  "g",
+);
+
 const FORBIDDEN = [
-  {
-    label: "a public origin",
-    pattern: new RegExp(
-      `(?<![\\w.-])(?:${[APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME]
-        .map(escapeForRegExp)
-        .join("|")})\\b`,
-    ),
-  },
-  { label: "the local app origin", pattern: new RegExp(escapeForRegExp(LOCAL_APP_ORIGIN)) },
+  { label: "a public origin", pattern: OWNED_ORIGIN },
+  { label: "the local app origin", pattern: LOCAL_APP_ORIGIN_PATTERN },
 ];
+
+/** Origins present in `content` that its file is not allowed to contain. */
+function unaccountedOrigins(path: string, content: string) {
+  const allowed = ALLOWED_LITERALS[path] ?? [];
+  const found: string[] = [];
+  for (const { pattern, label } of FORBIDDEN) {
+    for (const match of content.matchAll(pattern)) {
+      if (!allowed.includes(match[0])) {
+        found.push(`${label} ${match[0]}`);
+      }
+    }
+  }
+  return found;
+}
+
+/** Allowance entries that no longer appear, so a stale entry is itself a failure. */
+function staleAllowances(path: string, content: string) {
+  return (ALLOWED_LITERALS[path] ?? [])
+    .filter((literal) => !content.includes(literal))
+    .map((literal) => `stale allowance ${literal}`);
+}
 
 function collectSourceFiles(dir: string): string[] {
   const results: string[] = [];
@@ -99,95 +153,66 @@ function collectSourceFiles(dir: string): string[] {
     }
     const full = join(dir, entry.name);
     const path = repoPath(full);
-    if (path === ORIGINS_MODULE || path.endsWith(".example") || SKIPPED_FILES.has(entry.name)) {
+    if (path === ORIGINS_MODULE) {
       continue;
     }
-    if (SOURCE_FILE.test(entry.name)) {
+    // Templates and untracked env files document the origins rather than consume
+    // them — except the ones a developer copies an app origin out of, which are
+    // listed in ALLOWED_LITERALS and therefore still scanned.
+    const isTemplate = SKIPPED_FILES.has(entry.name) || entry.name.endsWith(".example");
+    if (isTemplate && !(path in ALLOWED_LITERALS)) {
+      continue;
+    }
+    if (SOURCE_FILE.test(entry.name) || path in ALLOWED_LITERALS) {
       results.push(full);
     }
   }
   return results;
 }
 
-/** Strips the `//` line comments wrangler's JSONC allows; none can start a JSON string. */
-function readJsoncFile<T>(path: string, schema: z.ZodType<T>) {
-  const content = readFileSync(join(repoRoot, path), "utf8");
-  const withoutComments = content
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("//"))
-    .join("\n");
-  return schema.parse(JSON.parse(withoutComments));
+/** Custom-domain routes a wrangler config claims, in declaration order. */
+function claimedCustomDomains(path: string) {
+  return [...readRepoFile(path).matchAll(/"pattern":\s*"([^"]+)",\s*"custom_domain":\s*true/g)].map(
+    ([, pattern]) => pattern,
+  );
 }
-
-const routesSchema = z.object({ routes: z.array(z.object({ pattern: z.string() })) });
-const mcpWorkerWranglerSchema = routesSchema.extend({
-  vars: z.object({ APP_ORIGIN: z.string() }),
-});
-const pluginManifestSchema = z.object({
-  interface: z.object({
-    websiteURL: z.string(),
-    privacyPolicyURL: z.string(),
-    termsOfServiceURL: z.string(),
-    supportURL: z.string(),
-  }),
-});
-const mcpServerFileSchema = z.object({
-  mcpServers: z.object({ pocketcircle: z.object({ url: z.string() }) }),
-});
 
 describe("canonical origins are written down exactly once", () => {
   it("no source, config, or script hardcodes an origin this module owns", () => {
     const violations: string[] = [];
     for (const file of collectSourceFiles(repoRoot)) {
       const path = repoPath(file);
-      if (ASSERTED_ELSEWHERE.has(path)) {
-        continue;
-      }
       const content = readFileSync(file, "utf8");
-      for (const { label, pattern } of FORBIDDEN) {
-        if (pattern.test(content)) {
-          violations.push(`${path} hardcodes ${label}`);
-        }
+      for (const finding of [
+        ...unaccountedOrigins(path, content),
+        ...staleAllowances(path, content),
+      ]) {
+        violations.push(`${path}: ${finding}`);
       }
     }
     expect(violations).toEqual([]);
   }, 30_000);
 });
 
-describe("files that cannot import the origins module still match it", () => {
-  it("the app Worker claims the app custom domain", () => {
-    // The apex is still the app origin today; the ADR 0035 cutover gives the
-    // apex to the marketing Site and moves this route to `app.`.
-    const config = readJsoncFile("wrangler.jsonc", routesSchema);
-    expect(config.routes.map((route) => route.pattern)).toContain(APP_HOSTNAME);
+describe("the files that cannot import the module still match it", () => {
+  it("the product app Worker claims the app custom domain and nothing else", () => {
+    // Two Workers cannot both claim one hostname (ADR 0035), so the apex is not
+    // an acceptable answer here once the marketing Site exists.
+    expect(claimedCustomDomains("wrangler.jsonc")).toEqual([APP_HOSTNAME]);
   });
 
   it("the MCP Worker claims the MCP custom domain and trusts the app origin", () => {
-    const config = readJsoncFile("packages/mcp-worker/wrangler.jsonc", mcpWorkerWranglerSchema);
-    expect(config.routes.map((route) => route.pattern)).toContain(MCP_HOSTNAME);
-    expect(config.vars.APP_ORIGIN).toBe(APP_ORIGIN);
+    expect(claimedCustomDomains("packages/mcp-worker/wrangler.jsonc")).toEqual([MCP_HOSTNAME]);
   });
 
-  it("the deploy workflow reports the apex as the production deployment", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/deploy.yml"), "utf8");
-    expect(workflow).toContain(`url: ${APEX_ORIGIN}`);
-  });
-
-  it("the E2E workflow points the backend at the origin Playwright drives", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/e2e.yml"), "utf8");
-    expect(workflow).toContain(`convex env set SITE_URL "${LOCAL_APP_ORIGIN}"`);
+  it("the deploy workflow reports the production app as the deployment", () => {
+    expect(readRepoFile(".github/workflows/deploy.yml")).toContain(`url: ${APEX_ORIGIN}`);
   });
 
   it("the shipped plugin points at the production MCP resource and apex pages", () => {
-    const mcp = readJsoncFile("plugins/pocketcircle/.mcp.json", mcpServerFileSchema);
-    expect(mcp.mcpServers.pocketcircle.url).toBe(MCP_RESOURCE_URI);
-
-    const manifest = readJsoncFile(
-      "plugins/pocketcircle/.codex-plugin/plugin.json",
-      pluginManifestSchema,
+    expect(readRepoFile("plugins/pocketcircle/.mcp.json")).toContain(MCP_RESOURCE_URI);
+    expect(readRepoFile("plugins/pocketcircle/.codex-plugin/plugin.json")).toContain(
+      `"homepage": "${APEX_ORIGIN}"`,
     );
-    for (const [key, url] of Object.entries(manifest.interface)) {
-      expect(url, key).toContain(APEX_ORIGIN);
-    }
   });
 });

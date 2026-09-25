@@ -5,7 +5,7 @@ import {
   OAuthErrorCode,
 } from "@modelcontextprotocol/server";
 import {
-  APEX_HOSTNAME,
+  APP_HOSTNAME,
   LOOPBACK_HOSTNAMES,
   MCP_HOSTNAME,
   MCP_MONEY_DISPLAY_INSTRUCTIONS,
@@ -975,6 +975,9 @@ function payloadTooLargeResponse(started: number) {
 }
 
 export function createMcpApiHandler(env: Env) {
+  // Local `wrangler dev` dials 127.0.0.1/localhost; the IPv6 loopback names are
+  // harmless here (no public edge routes a bracketed Host) and a Worker bound to
+  // `::1` should not be locked out of its own dev origin.
   const staticAllowedHostnames = new Set([MCP_HOSTNAME, ...LOOPBACK_HOSTNAMES]);
   const issuerHost = hostnameOf(env.MCP_ISSUER);
   if (issuerHost) {
@@ -997,7 +1000,10 @@ export function createMcpApiHandler(env: Env) {
     }
 
     const allowedOriginHostnames = new Set(allowedHostnames);
-    allowedOriginHostnames.add(APEX_HOSTNAME);
+    // A browser `Origin` on a token-bearing endpoint is always the signed-in app,
+    // never the marketing apex (ADR 0035). `env.APP_ORIGIN` is added below for
+    // deployments where the app is not the baked-in origin.
+    allowedOriginHostnames.add(APP_HOSTNAME);
     if (appOriginHost) {
       allowedOriginHostnames.add(appOriginHost);
     }

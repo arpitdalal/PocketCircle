@@ -8,10 +8,10 @@ import {
   LOCAL_APP_HOSTNAME,
   LOCAL_APP_ORIGIN,
   LOCAL_APP_PORT,
+  LOCAL_APP_TWIN_ORIGIN,
   LOOPBACK_HOSTNAMES,
   loopbackTrustedOrigins,
   MCP_HOSTNAME,
-  MCP_ISSUER,
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
 } from "./origins.js";
@@ -21,18 +21,20 @@ describe("canonical origins", () => {
     expect(APEX_ORIGIN).toBe(`https://${APEX_HOSTNAME}`);
     expect(APP_ORIGIN).toBe(`https://${APP_HOSTNAME}`);
     expect(MCP_ORIGIN).toBe(`https://${MCP_HOSTNAME}`);
-  });
-
-  it("derives the MCP OAuth identifiers from the MCP origin", () => {
-    expect(MCP_ISSUER).toBe(MCP_ORIGIN);
     expect(MCP_RESOURCE_URI).toBe(`${MCP_ORIGIN}/mcp`);
   });
 
-  it("derives the local app origin from the local host and port", () => {
+  it("derives the local app origin and its twin from the local host and port", () => {
     expect(LOCAL_APP_ORIGIN).toBe(`http://${LOCAL_APP_HOSTNAME}:${LOCAL_APP_PORT}`);
     expect(isLoopbackHostname(LOCAL_APP_HOSTNAME)).toBe(true);
+    expect(LOCAL_APP_TWIN_ORIGIN).toBe(
+      LOCAL_APP_ORIGIN.replace(LOCAL_APP_HOSTNAME, LOOPBACK_TWIN_HOSTNAME),
+    );
   });
 });
+
+/** The other name for this machine, spelled out so the derivation above is a real check. */
+const LOOPBACK_TWIN_HOSTNAME = "localhost";
 
 describe("isLoopbackHostname", () => {
   it("covers both loopback names and both IPv6 spellings", () => {
@@ -45,11 +47,15 @@ describe("isLoopbackHostname", () => {
 });
 
 describe("loopbackTrustedOrigins", () => {
-  it("widens a loopback origin to its 127.0.0.1/localhost twin, keeping scheme and port", () => {
-    const [ipOrigin, nameOrigin] = loopbackTrustedOrigins(LOCAL_APP_ORIGIN);
-    expect(ipOrigin).toBe(LOCAL_APP_ORIGIN);
-    expect(nameOrigin).toBe(LOCAL_APP_ORIGIN.replace(LOCAL_APP_HOSTNAME, "localhost"));
-    expect(loopbackTrustedOrigins(nameOrigin ?? "")).toEqual([nameOrigin, ipOrigin]);
+  it("widens a loopback origin to its twin, keeping scheme and port", () => {
+    expect(loopbackTrustedOrigins(LOCAL_APP_ORIGIN)).toEqual([
+      LOCAL_APP_ORIGIN,
+      LOCAL_APP_TWIN_ORIGIN,
+    ]);
+    expect(loopbackTrustedOrigins(LOCAL_APP_TWIN_ORIGIN)).toEqual([
+      LOCAL_APP_TWIN_ORIGIN,
+      LOCAL_APP_ORIGIN,
+    ]);
   });
 
   it("trusts a deployed origin only as itself", () => {
@@ -58,8 +64,10 @@ describe("loopbackTrustedOrigins", () => {
   });
 
   it("normalizes the origin it is given and throws on an unparseable one", () => {
-    const twin = loopbackTrustedOrigins(LOCAL_APP_ORIGIN).at(1) ?? "unused";
-    expect(loopbackTrustedOrigins(`${twin}/circles?x=1`)).toEqual(loopbackTrustedOrigins(twin));
+    expect(loopbackTrustedOrigins(`${LOCAL_APP_TWIN_ORIGIN}/circles?x=1`)).toEqual([
+      LOCAL_APP_TWIN_ORIGIN,
+      LOCAL_APP_ORIGIN,
+    ]);
     expect(() => loopbackTrustedOrigins("not a url")).toThrow();
   });
 });

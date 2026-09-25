@@ -1,4 +1,8 @@
-import { LOCAL_APP_ORIGIN, loopbackTrustedOrigins } from "@pocketcircle/domain";
+import {
+  LOCAL_APP_ORIGIN,
+  LOCAL_APP_TWIN_ORIGIN,
+  loopbackTrustedOrigins,
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
@@ -111,8 +115,8 @@ describe("authRuntimeConfig", () => {
       siteUrl: LOCAL_APP_ORIGIN,
       verbose: true,
     });
-    expect(authRuntimeConfig("http://localhost:5173/")).toEqual({
-      siteUrl: "http://localhost:5173",
+    expect(authRuntimeConfig(LOCAL_APP_TWIN_ORIGIN)).toEqual({
+      siteUrl: LOCAL_APP_TWIN_ORIGIN,
       verbose: true,
     });
     expect(authRuntimeConfig("https://app.example.com/")).toEqual({
@@ -143,7 +147,7 @@ describe("createAuth loopback trusted origins", () => {
 
 describe("authComponentConfig", () => {
   it("wires verbose component logging only for local app origins", () => {
-    expect(authComponentConfig("http://localhost:5173").verbose).toBe(true);
+    expect(authComponentConfig(LOCAL_APP_TWIN_ORIGIN).verbose).toBe(true);
     expect(authComponentConfig("https://app.example.com").verbose).toBe(false);
   });
 });
