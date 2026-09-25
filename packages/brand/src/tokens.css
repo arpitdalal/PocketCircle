@@ -1,9 +1,9 @@
 /*
- * PocketCircle brand tokens (ADR 0005, dark-first). One definition of the
- * palette, type, and shape, imported by every surface that renders the brand:
- * the product SPA (`apps/web-app/app/app.css`) and the marketing Site
- * (`apps/site/src/site.css`). `tokens.test.ts` fails the build if a consumer
- * redefines a token here, so the two surfaces cannot drift.
+ * PocketCircle brand tokens: the "iris ledger" palette, dark-first. One
+ * definition of the palette, type, and shape, imported by every surface that
+ * renders the brand: the product SPA (`apps/web-app/app/app.css`) and the
+ * marketing Site (`apps/site/src/site.css`). `tokens.test.ts` fails the build if
+ * a consumer redefines a token here, so the two surfaces cannot drift.
  *
  * Surfaces are violet-tinted ink rather than flat neutral so the product reads
  * warm and communal; one iris-purple accent carries all interactive state. The

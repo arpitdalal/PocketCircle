@@ -206,11 +206,24 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
-      # The marketing Site is static HTML built from the shared brand tokens and
-      # published to workers.dev only — no hostname, no Worker script, and
-      # nothing a user sees in production changes while it is staged there.
+      # The marketing Site (ADR 0035) goes first, and that ordering is the point:
+      # it is static HTML on workers.dev, with no hostname, no Worker script, and
+      # nothing any visitor sees. A failure here — a Cloudflare scope problem, an
+      # invalid assets config, a build that does not compile — aborts the tag
+      # before the Convex deploy, the product Worker, and the push-delivery gate
+      # have moved at all. `packageManager` is explicit because the action infers
+      # one from a lockfile in `workingDirectory`, and this repo's is at the root.
       - name: Build marketing Site
         run: pnpm build:site
+
+      - name: Deploy marketing Site
+        uses: cloudflare/wrangler-action@v4
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          packageManager: pnpm
+          wranglerVersion: "4.121.0"
+          workingDirectory: apps/site
 
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously
@@ -480,19 +493,6 @@ jobs:
           else
             pnpm --filter @pocketcircle/convex exec convex env remove SENTRY_DSN
           fi
-
-      # Third Worker, and the only one that is not part of the product rollout:
-      # the push-delivery gate above wraps the Convex deploy and the product
-      # Worker because silent Push can make Safari revoke permission. The Site
-      # serves no push code, so it deploys after that gate, and a failure here
-      # leaves the product rollout and its gate exactly as they were.
-      - name: Deploy marketing Site
-        uses: cloudflare/wrangler-action@v4
-        with:
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          wranglerVersion: "4.121.0"
-          workingDirectory: apps/site
 
   release:
     needs: deploy

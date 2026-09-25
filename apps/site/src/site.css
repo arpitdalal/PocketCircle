@@ -1,7 +1,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/bricolage-grotesque";
-@import "@pocketcircle/brand/tokens.css";
 @import "tailwindcss";
+@import "@pocketcircle/brand/tokens.css";
 
 /*
  * Marketing Site stylesheet. Every colour, font, and radius comes from

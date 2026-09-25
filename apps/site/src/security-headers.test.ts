@@ -1,50 +1,29 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { globalSecurityHeadersRule } from "./security-headers.js";
 
+/** The policy file both Workers derive their headers from. */
 const productHeaders = readFileSync(
   join(import.meta.dirname, "../../web-app/public/_headers"),
   "utf8",
 );
-const siteHeaders = readFileSync(join(import.meta.dirname, "../public/_headers"), "utf8");
 
-/**
- * `_headers` rules, keyed by path. A rule is a path line followed by indented
- * `Name: value` lines; a blank line ends it.
- */
-function rules(file: string) {
-  const parsed = new Map<string, string[]>();
-  for (const block of file.split(/\n\s*\n/)) {
-    const lines = block.split("\n").filter((line) => line.trim().length > 0);
-    const [path, ...headers] = lines;
-    if (path && headers.length > 0) {
-      parsed.set(
-        path.trim(),
-        headers.map((header) => header.trim()),
-      );
-    }
-  }
-  return parsed;
-}
-
-const product = rules(productHeaders);
-const site = rules(siteHeaders);
-
-describe("security headers", () => {
-  it("the Site serves the same global headers the product does", () => {
-    // Two Workers, one policy. The product's file is checked in and its build is
-    // out of scope here, so the copy is guarded rather than generated — if the
-    // product changes a header, this fails instead of the Site quietly keeping
-    // the older policy.
-    expect(site.get("/*")).toEqual(product.get("/*"));
+describe("the Site's security headers", () => {
+  it("are the product's global rule, header for header", () => {
+    expect(globalSecurityHeadersRule(productHeaders)).toBe(
+      productHeaders.slice(0, productHeaders.indexOf("\n\n") + 1),
+    );
   });
 
-  it("covers every path on the Site, not just the homepage", () => {
-    expect(site.has("/*")).toBe(true);
+  it("drop the product's rules for files the Site does not have", () => {
+    // `/push-sw.js` is a product asset. A rule for it would match nothing here.
+    expect(globalSecurityHeadersRule(productHeaders)).not.toContain("push-sw");
   });
 
-  it("parses both files, so an equality above cannot pass on two missing rules", () => {
-    expect(product.get("/*")).toBeDefined();
-    expect(site.get("/*")).toBeDefined();
+  it("fail loudly rather than publish a Site with no headers", () => {
+    expect(() => globalSecurityHeadersRule("/assets/*\n  Cache-Control: public\n")).toThrow(
+      "no /* rule",
+    );
   });
 });

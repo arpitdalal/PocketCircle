@@ -21,8 +21,9 @@
  * out of scope, as are `*.example` templates *except* the two that set an app
  * origin, which are in the allowance list below.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { collectRepoFiles, repoPath } from "@pocketcircle/dev-tools/repo-walk";
 import { describe, expect, it } from "vitest";
 import {
   APEX_HOSTNAME,
@@ -36,26 +37,6 @@ import {
 } from "./origins.js";
 
 const repoRoot = join(import.meta.dirname, "../../..");
-
-/** Build output, caches, and vendored trees — never source we own. */
-const SKIPPED_DIRECTORIES = new Set([
-  ".agents",
-  ".auth",
-  ".claude",
-  ".cursor",
-  ".git",
-  ".react-router",
-  ".wrangler",
-  "_generated",
-  "blob-report",
-  "build",
-  "coverage",
-  "docs",
-  "dist",
-  "node_modules",
-  "playwright-report",
-  "test-results",
-]);
 
 const SKIPPED_FILES = new Set([".env.local", "pnpm-lock.yaml"]);
 
@@ -89,10 +70,6 @@ const SOURCE_FILE = /\.(?:[cm]?js|astro|html?|json|jsonc|mdx|sh|ts|tsx|txt|webma
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function repoPath(absolute: string) {
-  return relative(repoRoot, absolute).split(sep).join("/");
 }
 
 function readRepoFile(path: string) {
@@ -149,36 +126,22 @@ function staleAllowances(path: string, content: string) {
     .map((literal) => `stale allowance ${literal}`);
 }
 
-function collectSourceFiles(dir: string): string[] {
-  const results: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name)) {
-        results.push(...collectSourceFiles(join(dir, entry.name)));
-      }
-      continue;
-    }
-    const full = join(dir, entry.name);
-    const path = repoPath(full);
-    if (path === ORIGINS_MODULE) {
-      continue;
-    }
-    // Templates and untracked env files document the origins rather than consume
-    // them — except the ones a developer copies an app origin out of, which are
-    // listed in ALLOWED_LITERALS and therefore still scanned.
-    const isTemplate = SKIPPED_FILES.has(entry.name) || entry.name.endsWith(".example");
-    if (isTemplate && !(path in ALLOWED_LITERALS)) {
-      continue;
-    }
-    if (SOURCE_FILE.test(entry.name) || path in ALLOWED_LITERALS) {
-      results.push(full);
-    }
+function isScannedSourceFile(fileName: string, path: string) {
+  if (path === ORIGINS_MODULE) {
+    return false;
   }
-  return results;
+  // Templates and untracked env files document the origins rather than consume
+  // them — except the ones a developer copies an app origin out of, which are
+  // listed in ALLOWED_LITERALS and therefore still scanned.
+  const isTemplate = SKIPPED_FILES.has(fileName) || fileName.endsWith(".example");
+  if (isTemplate && !(path in ALLOWED_LITERALS)) {
+    return false;
+  }
+  return SOURCE_FILE.test(fileName) || path in ALLOWED_LITERALS;
 }
 
 /** Every scanned file, walked once — the assertions below all read this list. */
-const scannedFiles = collectSourceFiles(repoRoot);
+const scannedFiles = collectRepoFiles(repoRoot, isScannedSourceFile);
 
 /** Hostnames a wrangler config claims as its own custom domain, repo-wide. */
 function customDomainClaims() {
@@ -186,7 +149,7 @@ function customDomainClaims() {
   for (const file of scannedFiles) {
     for (const match of readFileSync(file, "utf8").matchAll(CUSTOM_DOMAIN_ROUTE)) {
       const hostname = match[1] ?? "";
-      claims.set(hostname, [...(claims.get(hostname) ?? []), repoPath(file)]);
+      claims.set(hostname, [...(claims.get(hostname) ?? []), repoPath(repoRoot, file)]);
     }
   }
   return claims;
@@ -194,7 +157,7 @@ function customDomainClaims() {
 
 describe("canonical origins are written down exactly once", () => {
   it("reads the whole repo, so the scan cannot pass by scanning nothing", () => {
-    const scanned = scannedFiles.map(repoPath);
+    const scanned = scannedFiles.map((file) => repoPath(repoRoot, file));
     // A sentinel on both sides of the tree, plus every allowance entry, so a
     // moved repo root or a renamed file fails loudly instead of going vacuous.
     expect(scanned).toContain("apps/web-app/app/routes/support.tsx");
@@ -205,7 +168,7 @@ describe("canonical origins are written down exactly once", () => {
   it("no source, config, or script hardcodes an origin this module owns", () => {
     const violations: string[] = [];
     for (const file of scannedFiles) {
-      const path = repoPath(file);
+      const path = repoPath(repoRoot, file);
       const content = readFileSync(file, "utf8");
       for (const finding of [
         ...unaccountedOrigins(path, content),

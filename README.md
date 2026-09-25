@@ -234,9 +234,10 @@ from `pnpm --filter @pocketcircle/site build`, no Worker script, and
 production changes while the apex is still the product app's. The two surfaces
 share one palette, font, and shape from
 [`packages/brand/src/tokens.css`](packages/brand/src/tokens.css), which
-`tokens.test.ts` guards against redefinition. ADR 0035 covers the cutover that
-eventually moves the apex to this site. It needs no extra Cloudflare permission:
-no route, no binding, no secret.
+`tokens.test.ts` guards against redefinition, and the site build derives its
+`_headers` from the product's, so the two origins serve one security-header
+policy. ADR 0035 covers the cutover that eventually moves the apex to this site.
+It needs no extra Cloudflare permission: no route, no binding, no secret.
 
 Configure the GitHub `production` environment before the first deployment:
 
