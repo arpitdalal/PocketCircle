@@ -38,14 +38,16 @@ import Terms from "./terms.js";
 
 const documents: readonly {
   name: string;
+  /** The path both origins serve the document on, as the app's route names it. */
+  route: string;
   /** The Site's page for the document, at the package root. */
   file: string;
   /** The route the product renders at the same path. */
   Route: () => ReactElement;
 }[] = [
-  { name: "Privacy Policy", file: "privacy.html", Route: Privacy },
-  { name: "Terms", file: "terms.html", Route: Terms },
-  { name: "Support", file: "support.html", Route: Support },
+  { name: "Privacy Policy", route: "privacy", file: "privacy.html", Route: Privacy },
+  { name: "Terms", route: "terms", file: "terms.html", Route: Terms },
+  { name: "Support", route: "support", file: "support.html", Route: Support },
 ];
 
 /**
@@ -75,18 +77,42 @@ function sitePage(file: string) {
   return new DOMParser().parseFromString(resolveSiteHtml(authored), "text/html");
 }
 
-/** Both copies of a document, as the article each one renders it in. */
+/**
+ * Both copies of a document, as the article each one renders it in.
+ *
+ * The absence of an `<article>` throws rather than falling back to a body. A
+ * fallback here would be the test's own `document.body`, which after
+ * `renderWithRouter` holds the *product's* render — so a Site page that lost its
+ * `<article>` would compare the product against itself, and every assertion below
+ * would pass while checking nothing.
+ */
 function bothCopies({ file, Route }: (typeof documents)[number]) {
   const { container } = renderWithRouter(<Route />);
-  return {
-    product: container.querySelector("article") ?? document.body,
-    site: sitePage(file).querySelector("article") ?? document.body,
-  };
+  const product = container.querySelector("article");
+  const site = sitePage(file).querySelector("article");
+  if (product === null || site === null) {
+    throw new Error(
+      `a copy of ${file} is not in an <article>: the product's is ${product === null ? "missing" : "there"}, the Site's is ${site === null ? "missing" : "there"}`,
+    );
+  }
+  return { product, site };
 }
 
-/** A reader's text, with the runs of whitespace a line break introduces collapsed. */
+/**
+ * A reader's text, with the runs of whitespace a line break introduces collapsed.
+ *
+ * `textContent` is the concatenation of text nodes, and a `<br>` is an element, so
+ * it contributes nothing: `textContent` reads `a<br>b` as `ab`. The Site's own
+ * reader maps a `<br>` to a space for exactly this reason, and the guarantee is
+ * this test's to keep — a line break introduced into a sentence must not read as
+ * a word joined to the next one, in either direction.
+ */
 function textOf(element: Element) {
-  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const withBreaks = element.cloneNode(true) as Element;
+  for (const lineBreak of withBreaks.querySelectorAll("br")) {
+    lineBreak.replaceWith(" ");
+  }
+  return (withBreaks.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -129,23 +155,68 @@ function copyOf(article: Element) {
     }));
 }
 
+/**
+ * The product's own copies stay registered until the cutover (#411).
+ *
+ * They are the same URLs the marketing Site now serves, and the apex is still this
+ * app until the apex handover — so a refactor that dropped one of these four
+ * routes would turn a cited `/privacy` into the catch-all splat, which redirects to
+ * the root, with every other gate green: the branding assertion only looks for a
+ * link, and a link is there whether or not a route answers it. This goes with the
+ * rest of the file when the app's copies go.
+ */
+const appRouteTable = readFileSync(join(import.meta.dirname, "..", "routes.ts"), "utf8");
+
 describe.each(documents)("$name is the same document on both origins", (document_) => {
-  it("is an article with a heading and real copy on both sides, so nothing below is vacuous", () => {
+  it("is an article with one heading and real copy on both sides, so nothing below is vacuous", () => {
     // A reader that found nothing would compare two empty lists and pass, which is
     // the failure mode of every assertion built on a query.
     const { product, site } = bothCopies(document_);
 
-    expect(product.querySelectorAll("h1")).toHaveLength(1);
-    expect(textOf(product.querySelector("h1") ?? document.body)).toBe(
-      textOf(site.querySelector("h1") ?? document.body),
-    );
-    expect(copyOf(site).length).toBeGreaterThan(10);
+    for (const [surface, article] of [
+      ["the product", product],
+      ["the marketing Site", site],
+    ] as const) {
+      expect(article.querySelectorAll("h1"), surface).toHaveLength(1);
+      expect(textOf(article.querySelector("h1") ?? article), surface).not.toBe("");
+      expect(copyOf(article).length, surface).toBeGreaterThan(10);
+    }
+  });
+
+  it("parses into the page it was written as, not a repaired one", () => {
+    // The comparison above is between a React tree, which is well formed by
+    // construction, and a parsed page, which is not. An HTML parser repairs
+    // mis-nested markup without reporting it: a stray `</div>`, or a `<div>` inside
+    // a `<p>`, moves content out of the article it was written into, and the two
+    // sides then hold different documents while every assertion below passes. The
+    // skeleton is the shape a repair shows up in.
+    const { documentElement, body } = sitePage(document_.file);
+    // One page wrapper, whatever else the body holds — the keyboard-only skip link
+    // is a sibling of it, not a child, which is what makes it a fixed overlay
+    // rather than something the page's own padding moves.
+    const wrappers = [...body.children].filter((child) => child.tagName === "DIV");
+
+    expect([...documentElement.children].map((child) => child.tagName)).toEqual(["HEAD", "BODY"]);
+    expect(wrappers, "the page has no single wrapper").toHaveLength(1);
+    expect([...(wrappers[0]?.children ?? [])].map((child) => child.tagName)).toEqual([
+      "HEADER",
+      "MAIN",
+      "FOOTER",
+    ]);
+    expect(
+      wrappers[0]?.querySelector("main")?.querySelector("article"),
+      "the document is not inside the page's main",
+    ).not.toBeNull();
   });
 
   it("says the same thing, in the same order, with the same links", () => {
     const { product, site } = bothCopies(document_);
 
     expect(copyOf(site)).toEqual(copyOf(product));
+  });
+
+  it("is still served by the product, because the apex is still the app", () => {
+    expect(appRouteTable).toContain(`route("${document_.route}"`);
   });
 
   it("names every destination's owning origin, in full, on both origins", () => {

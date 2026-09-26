@@ -1,11 +1,11 @@
 // @vitest-environment node
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
 import { describe, expect, it } from "vitest";
 import viteConfig from "../vite.config.js";
-import { pageFile, pagePath, sitePageFiles } from "./pages.js";
+import { pagePath, sitePageFiles } from "./pages.js";
 
 /**
  * Which URLs the Site answers, and that they are the ones external material has
@@ -15,28 +15,60 @@ import { pageFile, pagePath, sitePageFiles } from "./pages.js";
  * marketing Site at the cutover, and after that it is a front door that 302s a
  * product path to the app subdomain. The only fixed point through all three is
  * the *path*, because `/privacy` and `/terms` are on a Google branding
- * application, in a ChatGPT plugin submission, and in a plugin manifest — none of
- * which can be edited quietly, and all of which are why the apex keeps them
- * (issue #408). So this asserts, from the submission material itself rather than
- * from a list written here, that every apex URL we have published is a path the
- * new apex still answers.
+ * application, in a ChatGPT plugin submission, and in a shipped plugin manifest —
+ * none of which can be edited quietly, and all of which are why the apex keeps
+ * them (issue #408). So this reads those materials and asserts, from them rather
+ * than from a list written here, that every apex URL we have published is a path
+ * the new apex still answers.
  */
 
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
 
-/** The submission material, which is where the published URLs are written down. */
-const SUBMISSION = join(repoRoot, "docs", "submission", "pocketcircle", "README.md");
+/**
+ * Every text file of the material an external party reads: the submission package
+ * a reviewer imports, and the plugin package hosts install. Both are published
+ * artifacts, so a URL written in either is a promise to a third party.
+ *
+ * The two directories rather than a list of files, because a file added to one of
+ * them is published without anybody editing a list here, and text files only —
+ * the packages carry artwork too, and a URL cannot be hiding in a PNG.
+ *
+ * Walked here rather than through `@pocketcircle/dev-tools/repo-walk`, whose skip
+ * list deliberately excludes `docs` and `plugins` from the repo-wide guards: those
+ * guards are about source we own, and this is about text a third party is handed.
+ */
+function publishedMaterial() {
+  return ["docs/submission", "plugins/pocketcircle"].flatMap((directory) =>
+    readdirSync(join(repoRoot, directory), { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.(?:json|md|mdx)$/.test(entry.name))
+      .map((entry) => {
+        // A recursive `readdir` reports each entry's parent as the path it walked,
+        // so the repo-relative one is derived rather than assumed.
+        const file = relative(repoRoot, join(entry.parentPath, entry.name)).split(sep).join("/");
+        return { file, source: readFileSync(join(repoRoot, file), "utf8") };
+      }),
+  );
+}
 
-/** The product's route table, which is what the apex redirects a product path to. */
-const APP_ROUTES = join(repoRoot, "apps", "web-app", "app", "routes.ts");
+const material = publishedMaterial();
 
-const submission = readFileSync(SUBMISSION, "utf8");
-
-/** Every apex path the submission material cites, deduplicated and sorted. */
+/**
+ * Every apex path the published material cites, deduplicated and sorted.
+ *
+ * The bare origin counts as the homepage, and the MCP origin is a different host
+ * so it does not match. Everything else — the manifest's four interface URLs, the
+ * submission's four, the plugin README's `/connections` — comes along, which is
+ * the point: a path cited anywhere in public material is one somebody will type.
+ */
 const citedApexPaths = [
   ...new Set(
-    [...submission.matchAll(new RegExp(`${APEX_ORIGIN}(/[^\\s)]*)?`, "g"))].map(
-      (match) => match[1] || "/",
+    material.flatMap(({ source }) =>
+      // The path is optional, because a manifest's bare `homepage` is the
+      // homepage. A closing backtick ends a URL written in Markdown code, and a
+      // quote ends one written in prose or in JSON, so both stop the path.
+      [...source.matchAll(new RegExp(`${APEX_ORIGIN}(/[^\\s)"'\`]*)?`, "g"))].map(
+        (match) => match[1] || "/",
+      ),
     ),
   ),
 ].sort();
@@ -54,14 +86,14 @@ const citedApexPaths = [
  * cited URL that needed composing would fail the assertion below and be added
  * deliberately rather than quietly accepted.
  */
-const appRoutes = readFileSync(APP_ROUTES, "utf8");
-
 const appRoutePaths = [
-  ...new Set([
-    ...[...appRoutes.matchAll(/\broute\("([^"]*)"/g)].map((match) => `/${match[1] ?? ""}`),
-    // The index route of a layout is the layout's own path, and carries no name.
-    ...[...appRoutes.matchAll(/\bindex\(\s*\)/g)].map(() => "/"),
-  ]),
+  ...new Set(
+    [
+      ...readFileSync(join(repoRoot, "apps", "web-app", "app", "routes.ts"), "utf8").matchAll(
+        /\broute\("([^"]*)"/g,
+      ),
+    ].map((match) => `/${match[1] ?? ""}`),
+  ),
 ];
 
 describe("the Site publishes the pages the apex is meant to answer", () => {
@@ -69,14 +101,16 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
     // Vite builds `index.html` and nothing else by default, so a second page in
     // this package is a file the Worker never publishes and a path that 404s —
     // visible only to whoever followed the link.
-    expect(viteConfig.build?.rollupOptions?.input).toEqual(sitePageFiles());
+    expect(viteConfig.build?.rolldownOptions?.input).toEqual(sitePageFiles());
     expect(sitePageFiles()).toContain("index.html");
   });
 
-  it("serves each page at the path its file name implies, in both directions", () => {
-    // The Worker publishes `assets.html_handling: "auto-trailing-slash"`, which
-    // is what serves `privacy.html` for `/privacy`; `wrangler.test.ts` holds that
-    // setting, and this holds the two halves of the mapping agreeing.
+  it("serves the four documents at the paths they already had", () => {
+    // The file name is the path because the Worker publishes
+    // `assets.html_handling: "auto-trailing-slash"`, which is what serves
+    // `privacy.html` for `/privacy`; `wrangler.test.ts` holds that setting. These
+    // are the URLs in external submission material, which is the whole reason the
+    // apex keeps them (ADR 0035).
     expect(sitePageFiles().map(pagePath)).toEqual([
       "/",
       "/privacy",
@@ -84,16 +118,18 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
       "/terms",
       "/whats-new",
     ]);
-    for (const file of sitePageFiles()) {
-      expect(pageFile(pagePath(file))).toBe(file);
-    }
   });
 
-  it("answers every apex URL the submission material cites", () => {
-    // The read has to be finding something, or a regex that stopped matching
+  it("answers every apex URL the published material cites", () => {
+    // Both reads have to be finding something, or a filter that stopped matching
     // would pass this by asserting nothing.
-    expect(citedApexPaths).toContain("/");
-    expect(citedApexPaths).toContain("/privacy");
+    expect(material.map((file) => file.file)).toEqual(
+      expect.arrayContaining([
+        "docs/submission/pocketcircle/README.md",
+        "plugins/pocketcircle/.codex-plugin/plugin.json",
+      ]),
+    );
+    expect(citedApexPaths).toEqual(expect.arrayContaining(["/", "/privacy", "/terms", "/support"]));
 
     const sitePaths = sitePageFiles().map(pagePath);
     expect(

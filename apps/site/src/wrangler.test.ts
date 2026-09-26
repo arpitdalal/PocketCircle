@@ -34,14 +34,16 @@ describe("the Site Worker", () => {
     expect(wranglerConfig).toMatch(/"workers_dev"\s*:\s*true/);
   });
 
-  it("serves each page at the path external material cites", () => {
+  it("serves each page itself, at the path external material cites", () => {
     // The four marketing documents are published as `privacy.html` and friends and
     // have to answer `/privacy` and friends, because those are the URLs already
-    // published in `docs/submission/pocketcircle/README.md` and the ones Google
-    // requires to share the branding homepage's domain (ADR 0035). The default
-    // `auto-trailing-slash` is what maps one to the other, so it is written out
-    // and held here: `force-trailing-slash` or `none` would 404 all four, and the
-    // build would stay green, because the files are published either way.
+    // published to third parties and the ones Google requires to share the
+    // branding homepage's domain (ADR 0035). `auto-trailing-slash` is the value
+    // that maps one to the other, and it is the default, so it is written out and
+    // held here: `force-trailing-slash` would answer `/privacy` with a redirect and
+    // `none` would 404 it, and the build would stay green either way, because the
+    // files are published either way. The redirect case is what
+    // `scripts/assert-site-html.mjs` and the deploy check cannot see and this can.
     expect(wranglerConfig).toMatch(/"html_handling"\s*:\s*"auto-trailing-slash"/);
   });
 

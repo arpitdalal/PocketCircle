@@ -15,7 +15,7 @@ export default defineConfig({
    * owns the list, and `scripts/assert-site-html.mjs` then asserts each of these
    * files is in the output.
    */
-  build: { rollupOptions: { input: sitePageFiles() } },
+  build: { rolldownOptions: { input: sitePageFiles() } },
   plugins: [
     tailwindcss(),
     siteHtmlPlugin(),

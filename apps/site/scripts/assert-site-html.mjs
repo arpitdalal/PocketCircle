@@ -34,8 +34,8 @@ import { RELEASES_TOKEN } from "../src/whats-new.ts";
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
 
-/** A published document, and the readers that answer questions about it by name. */
-function document(file) {
+/** A published page, and the readers that answer questions about it by name. */
+function publishedPage(file) {
   const html = readFileSync(join(distDir, file), "utf8");
   const tags = (name) => tagsOf(html, name);
   return {
@@ -58,7 +58,7 @@ function document(file) {
   };
 }
 
-const documents = sitePageFiles().map(document);
+const documents = sitePageFiles().map(publishedPage);
 
 const missing = documents.flatMap((page) => {
   /**

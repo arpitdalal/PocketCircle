@@ -122,7 +122,10 @@ describe("the build's transform", () => {
     );
   });
 
-  it("is the transform the build runs on a page", () => {
+  it("is the transform the build runs on every page", () => {
+    // Every entry goes through it, including the four that ask for nothing, so the
+    // wiring is asserted rather than assumed — and the same shape as
+    // `siteHtmlPlugin`, whose transform is asserted the same way.
     expect(whatsNewPlugin().transformIndexHtml).toBe(fillReleases);
   });
 

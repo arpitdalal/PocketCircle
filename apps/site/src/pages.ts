@@ -13,9 +13,9 @@ import { join, relative, sep } from "node:path";
  *
  * Why a file name is the path: the Worker publishes `assets.html_handling:
  * "auto-trailing-slash"` (`wrangler.jsonc`), which serves `privacy.html` for the
- * request `/privacy` and redirects `/privacy.html` to `/privacy`. So the two
- * directions below are one rule, written both ways, and the four documents this
- * Site publishes keep the exact URLs they already had on the app origin —
+ * request `/privacy` and redirects `/privacy.html` to `/privacy`. So the four
+ * documents this Site publishes keep the exact URLs they already had on the app
+ * origin —
  * `/privacy`, `/terms`, `/support`, `/whats-new` are cited in external
  * submission material (`docs/submission/pocketcircle/README.md`) and Google
  * requires Privacy and Terms to share the branding homepage's domain (ADR 0035).
@@ -54,10 +54,4 @@ export function sitePageFiles() {
 export function pagePath(file: string) {
   const withoutExtension = file.replace(/\.html$/, "");
   return withoutExtension === "index" ? "/" : `/${withoutExtension}`;
-}
-
-/** The published page that answers an apex path — {@link pagePath} the other way. */
-export function pageFile(path: string) {
-  const withoutExtension = path.replace(/^\/+/, "").replace(/\.html$/, "");
-  return `${withoutExtension === "" ? "index" : withoutExtension}.html`;
 }

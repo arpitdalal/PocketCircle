@@ -141,11 +141,12 @@ export function fillReleases(html: string) {
   // Exactly one, because the first occurrence is the one that gets filled: a page
   // that named the placeholder twice — a second region, or once in a comment
   // above it — would have the first replaced and the hole left in the document,
-  // and the built page would look complete. Failing here says which page and why,
-  // where the alternative is a release list printed inside an HTML comment.
+  // and the built page would look complete. There is one page that writes it at
+  // all, so the message names it rather than leaving a reader to work out which
+  // of the five documents it was.
   if (written > 1) {
     throw new Error(
-      `a page writes ${RELEASES_TOKEN} ${written} times. Only one of them is the releases region, and it is the first one that would be filled, so exactly one is written — name the placeholder in prose as "the releases placeholder" instead.`,
+      `the What's New page (apps/site/whats-new.html) writes ${RELEASES_TOKEN} ${written} times. Only one of them is the releases region, and it is the first one that would be filled, so exactly one is written — name the placeholder in prose as "the releases placeholder" instead.`,
     );
   }
   const releases = renderReleases(readFileSync(CHANGELOG, "utf8"));
@@ -158,6 +159,8 @@ export function fillReleases(html: string) {
 export function whatsNewPlugin(): Plugin {
   return {
     name: "pocketcircle:whats-new",
+    // The four documents that do not ask for a release list come through this
+    // transform too, and return unchanged.
     transformIndexHtml: fillReleases,
   };
 }
