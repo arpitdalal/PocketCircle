@@ -3,6 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 import {
   configureConvex,
   convexReactMock,
@@ -43,15 +44,13 @@ import SignIn from "./signin.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
-  // Sign-in returns to the origin the browser is on (#409), so pin it to the one
-  // the app is served from rather than jsdom's default.
-  vi.stubGlobal("location", new URL(`${APEX_ORIGIN}/signin`));
+  pinBrowserOrigin("/signin");
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmailStorage();
 });
 

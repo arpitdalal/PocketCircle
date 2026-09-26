@@ -82,6 +82,17 @@ describe("scrubUrlForSentry", () => {
     expect(scrubbed).toContain("returnTo=");
     expect(scrubbed).toContain("%2Fmcp%2Fauthorize");
   });
+
+  it("drops the cross-domain sign-in one-time token", () => {
+    // The token redeems a live session, so it is a credential for as long as it is
+    // in the URL — including the window between the OAuth redirect and the app
+    // stripping it.
+    const scrubbed = scrubUrlForSentry("/signin?ott=one-time-token-value&returnTo=%2Fcircles");
+
+    expect(scrubbed).not.toContain("ott");
+    expect(scrubbed).not.toContain("one-time-token-value");
+    expect(scrubbed).toBe("/signin?returnTo=%2Fcircles");
+  });
 });
 
 describe("scrubAppErrorExtra", () => {

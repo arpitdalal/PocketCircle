@@ -1,5 +1,6 @@
 import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -36,7 +37,7 @@ import {
 
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmail();
 });
 
@@ -45,7 +46,7 @@ describe("signInWithGoogle", () => {
   const APP_ORIGIN_UNDER_MIGRATION = "https://app.example.com";
 
   it("resolves the callback path against the origin the browser is on", async () => {
-    vi.stubGlobal("location", new URL("https://app.example.com/signin"));
+    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth");
@@ -61,7 +62,7 @@ describe("signInWithGoogle", () => {
     // callback has to follow the User's origin instead of the single configured
     // SITE_URL (#409). Only the browser knows which one it is on.
     for (const origin of [APEX_ORIGIN, APP_ORIGIN_UNDER_MIGRATION]) {
-      vi.stubGlobal("location", new URL(`${origin}/signin`));
+      pinBrowserOrigin("/signin", origin);
       auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
       await signInWithGoogle();
@@ -74,7 +75,7 @@ describe("signInWithGoogle", () => {
   });
 
   it("forwards loginHint when provided", async () => {
-    vi.stubGlobal("location", new URL("https://app.example.com/signin"));
+    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth", { loginHint: "a@b.com" });

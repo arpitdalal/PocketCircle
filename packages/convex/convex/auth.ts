@@ -39,6 +39,28 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  */
 const authFunctions: AuthFunctions = internal.auth;
 
+/**
+ * `scheme://host[:port]` and nothing else. Patterns are refused deliberately:
+ * Better Auth reads `https://*.example.com` as a wildcard that matches any
+ * subdomain — including as a `callbackURL` destination, which would hand a live
+ * one-time session token to whatever host matched — while the component's CORS
+ * router matches exact origins only, so the same string would also break sign-in
+ * from the origin it was meant to allow. A comma-separated list is refused for
+ * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
+ * commas, this value must not.
+ */
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*\s,]+)(?::\d+)?\/?$/i;
+
+/** The origin a deployment declares, or a throw naming the variable that is wrong. */
+function declaredOrigin(name: string, value: string) {
+  if (!BARE_ORIGIN.test(value)) {
+    throw new Error(
+      `${name} must be a single origin such as https://app.example.com, not a pattern or a list: ${value}`,
+    );
+  }
+  return new URL(value).origin;
+}
+
 export function authRuntimeConfig(
   siteUrlValue: string | undefined,
   migrationAppOriginValue?: string,
@@ -49,7 +71,7 @@ export function authRuntimeConfig(
   // A malformed value throws here, as it does for SITE_URL: a typo in a trust
   // decision must fail loudly at auth init, not quietly leave an origin untrusted.
   const migrationAppOrigin = migrationAppOriginValue
-    ? new URL(migrationAppOriginValue).origin
+    ? declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue)
     : null;
   return { siteUrl, verbose, migrationAppOrigin };
 }
@@ -122,10 +144,11 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
   const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
-  // crossDomain contributes SITE_URL to trustedOrigins; this is every other origin
-  // auth trusts. A declared origin equal to SITE_URL is dropped rather than listed
-  // twice, so the list stays an honest record of what is trusted.
-  const extraTrustedOrigins = [authRuntime.migrationAppOrigin, loopbackTwin].filter(
+  // crossDomain contributes SITE_URL to trustedOrigins; this list is every other
+  // origin auth trusts. Deduplicated against SITE_URL and itself, so an origin
+  // that is already trusted — the apex before the cutover, or the loopback twin
+  // locally — is not listed twice.
+  const extraTrustedOrigins = [...new Set([authRuntime.migrationAppOrigin, loopbackTwin])].filter(
     (origin): origin is string => typeof origin === "string" && origin !== siteUrl,
   );
   return betterAuth({

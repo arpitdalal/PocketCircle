@@ -128,13 +128,18 @@ describe("authRuntimeConfig", () => {
   });
 
   it("normalizes a declared migration app origin to a bare origin", () => {
-    expect(
-      authRuntimeConfig(APEX_ORIGIN, "https://app.example.com/invite/abc").migrationAppOrigin,
-    ).toBe("https://app.example.com");
+    expect(authRuntimeConfig(APEX_ORIGIN, "https://app.example.com/").migrationAppOrigin).toBe(
+      "https://app.example.com",
+    );
   });
 
-  it("rejects a migration app origin that is not an origin", () => {
-    expect(() => authRuntimeConfig(APEX_ORIGIN, "app.example.com")).toThrow();
+  it.each([
+    ["a wildcard", "https://*.example.com"],
+    ["a scheme-less value", "app.example.com"],
+    ["a comma-separated list", "https://a.example.com,https://b.example.com"],
+    ["a path", "https://app.example.com/signin"],
+  ])("rejects %s as a migration app origin", (_label, value) => {
+    expect(() => authRuntimeConfig(APEX_ORIGIN, value)).toThrow(/MIGRATION_APP_ORIGIN/);
   });
 });
 
@@ -166,20 +171,27 @@ describe("createAuth trusted origins", () => {
   /**
    * Exact match on the merged list, because membership in it *is* the accept/reject
    * decision: the component's CORS router answers `Access-Control-Allow-Origin` for
-   * a listed origin only, so sign-in from an origin absent here fails CORS. SITE_URL
-   * arrives via the crossDomain plugin, which appends after the origins declared
-   * here — hence the order.
+   * a listed origin only, and Better Auth's origin check reads the same list, so
+   * sign-in from an origin absent from it fails. SITE_URL arrives via the crossDomain
+   * plugin, which appends after the origins declared here — hence the order. The
+   * rejection direction is the next test, where the app origin is not declared.
    */
-  it("trusts SITE_URL and the declared migration app origin, and nothing else", async () => {
+  it("accepts sign-in from SITE_URL and from the declared migration app origin", async () => {
     await expectAuthContext(
       { siteUrl: APEX_ORIGIN, migrationAppOrigin: APP_ORIGIN_UNDER_MIGRATION },
       (context) => {
         expect(context.options.trustedOrigins).toEqual([APP_ORIGIN_UNDER_MIGRATION, APEX_ORIGIN]);
+        // No entry Better Auth would read as a pattern: its matcher honours
+        // wildcards and the CORS router does not, so one entry could widen a trust
+        // decision and break sign-in at the same time.
+        expect(
+          (context.options.trustedOrigins ?? []).filter((origin) => /[*?]/.test(origin)),
+        ).toEqual([]);
       },
     );
   });
 
-  it("trusts only SITE_URL when no second origin is declared", async () => {
+  it("rejects sign-in from the app origin when no second origin is declared", async () => {
     await expectAuthContext({ siteUrl: APEX_ORIGIN }, (context) => {
       expect(context.options.trustedOrigins).toEqual([APEX_ORIGIN]);
     });
@@ -198,6 +210,15 @@ describe("createAuth trusted origins", () => {
     await expectAuthContext({ siteUrl: LOCAL_APP_ORIGIN }, (context) => {
       expect(context.options.trustedOrigins).toEqual([LOCAL_APP_TWIN_ORIGIN, LOCAL_APP_ORIGIN]);
     });
+  });
+
+  it("lists the localhost twin once even when it is the declared origin", async () => {
+    await expectAuthContext(
+      { siteUrl: LOCAL_APP_ORIGIN, migrationAppOrigin: LOCAL_APP_TWIN_ORIGIN },
+      (context) => {
+        expect(context.options.trustedOrigins).toEqual([LOCAL_APP_TWIN_ORIGIN, LOCAL_APP_ORIGIN]);
+      },
+    );
   });
 });
 

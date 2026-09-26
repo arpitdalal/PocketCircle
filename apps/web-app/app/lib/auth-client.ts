@@ -26,8 +26,9 @@ export async function signInWithGoogle(callbackURL = "/", options: SignInWithGoo
     // server-side to the one configured SITE_URL, so a User who starts sign-in on
     // the other trusted origin during the ADR 0035 cutover window would be handed
     // back to SITE_URL with a one-time token only that origin's storage can redeem
-    // (#409). Better Auth checks this against the trusted origins, so the redirect
-    // can only ever land back where it started.
+    // (#409). Better Auth checks the value against the trusted origins, so the
+    // redirect can only land on one of those — the origin it started on whenever
+    // that origin is trusted, which is what the window is for.
     callbackURL: new URL(callbackURL, window.location.origin).toString(),
     ...(options.loginHint ? { loginHint: options.loginHint } : {}),
   });

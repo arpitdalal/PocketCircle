@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_INVITATION_PREVIEW } from "~/lib/fixtures.js";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 import {
   configureConvex,
   convexReactMock,
@@ -42,15 +43,13 @@ const preview = MOCK_INVITATION_PREVIEW;
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
-  // Sign-in returns to the origin the browser is on (#409), so pin it to the one
-  // the app is served from rather than jsdom's default.
-  vi.stubGlobal("location", new URL(`${APEX_ORIGIN}/invite/test-token`));
+  pinBrowserOrigin("/invite/test-token");
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmailStorage();
 });
 
