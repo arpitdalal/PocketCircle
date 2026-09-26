@@ -52,12 +52,13 @@ const authFunctions: AuthFunctions = internal.auth;
  * router matches exact origins only, so the same string would also break sign-in
  * from the origin it was meant to allow. A comma-separated list is refused for
  * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
- * commas, this value must not. `@` and `%` are refused because a host is neither
- * of them: `https://app.example.com@evil.example` and `https://ex%41mple.com` both
- * parse to a *different* origin than they read as, and a trust decision must never
- * be rewritten on its way in.
+ * commas, this value must not. `@`, `%` and `\` are refused because a host is none
+ * of them: `https://app.example.com@evil.example`, `https://ex%41mple.com` and
+ * `https://evil.example\app.example.com` each parse to a *different* origin than
+ * they read as — the last because the URL parser reads `\` as `/` — and a trust
+ * decision must never be rewritten on its way in.
  */
-const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\s,]+)(?::\d+)?\/?$/i;
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
 
 /**
  * The origin a deployment declares, or a throw naming the variable that is wrong.
@@ -71,7 +72,14 @@ function declaredOrigin(name: string, value: string) {
       `${name} must be a single origin such as https://app.example.com, not a pattern or a list: ${value}`,
     );
   }
-  return new URL(value).origin;
+  const url = new URL(value);
+  // The cross-domain flow ends in a redirect carrying a live session token, so a
+  // plaintext origin is a credential in the clear. Local dev and E2E are loopback,
+  // which is the only plaintext this trusts.
+  if (url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
+    throw new Error(`${name} must be https, or a loopback origin for local development: ${value}`);
+  }
+  return url.origin;
 }
 
 export function authRuntimeConfig(

@@ -142,6 +142,11 @@ describe("authRuntimeConfig", () => {
     // on its way in.
     ["credentials in the host", "https://app.example.com@evil.example"],
     ["a percent-encoded host", "https://ex%41mple.com"],
+    // `\` is read as `/` by the URL parser, so the value parses to a shorter origin
+    // than it reads as.
+    ["a backslash in the host", "https://evil.example\\app.example.com"],
+    // The cross-domain flow ends in a redirect carrying a live session token.
+    ["a plaintext public origin", "http://app.example.com"],
     // Set-but-empty is a mistake to report, not an absent variable to read as
     // "trust one origin" — which would fail sign-in on the app origin silently.
     ["an empty value", ""],
@@ -153,8 +158,14 @@ describe("authRuntimeConfig", () => {
     ["a wildcard", "https://*.example.com"],
     ["a comma-separated list", "https://a.example.com,https://b.example.com"],
     ["credentials in the host", "https://app.example.com@evil.example"],
+    ["a plaintext public origin", "http://app.example.com"],
   ])("rejects %s as SITE_URL, which is trusted the same way", (_label, value) => {
     expect(() => authRuntimeConfig(value)).toThrow(/SITE_URL/);
+  });
+
+  it("accepts a plaintext origin on loopback, which is what local dev and E2E use", () => {
+    expect(authRuntimeConfig(LOCAL_APP_ORIGIN).siteUrl).toBe(LOCAL_APP_ORIGIN);
+    expect(authRuntimeConfig(LOCAL_APP_TWIN_ORIGIN).siteUrl).toBe(LOCAL_APP_TWIN_ORIGIN);
   });
 });
 
