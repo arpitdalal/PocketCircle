@@ -96,10 +96,15 @@
       and nothing would say so, because the stylesheet would still contain the
       animation. `clip` contains the overflow without becoming a scroll container.
       `marketing-home.test.ts` holds this one class to that rule.
+
+      `safe-x` is here and not on each section because a cutout in landscape
+      reaches past all of them, and the wrapper is the one box they all sit
+      inside. The vertical pair is the other way round, on the header and the
+      footer, where it meets the edge.
     -->
     <div
       id="top"
-      class="relative flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground"
+      class="safe-x relative flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground"
     >
       <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
         <div class="absolute -top-32 left-1/2 -translate-x-1/2">
@@ -837,7 +842,9 @@
                 <p class="text-pretty pb-5 text-sm text-muted-foreground">
                   Only the Members in it. Circle names and email addresses are not searchable, so
                   nobody can find a Circle they are not in, and an Invitation is a seat you have to
-                  accept before you can see anything.
+                  accept before you can see anything. The one other reader is an assistant you
+                  connected yourself: it sees the Circles you picked for it, and only for as long
+                  as you leave the connection up.
                 </p>
               </details>
               <details class="faq-item">

@@ -322,11 +322,11 @@ jobs:
             // release has the same signature and the same dimensions as this one.
             // Only the bytes tell those apart.
             const built = await readFile("apps/site/dist/og.png");
-            const response = await fetch(`${origin}/og.png`);
-            if (!response.ok) {
-              throw new Error(`the share image returned ${response.status}`);
+            const cardResponse = await fetch(`${origin}/og.png`);
+            if (!cardResponse.ok) {
+              throw new Error(`the share image returned ${cardResponse.status}`);
             }
-            const served = Buffer.from(await response.arrayBuffer());
+            const served = Buffer.from(await cardResponse.arrayBuffer());
             if (served.subarray(0, 8).toString("hex") !== built.subarray(0, 8).toString("hex")) {
               throw new Error("the served share image is not a PNG");
             }

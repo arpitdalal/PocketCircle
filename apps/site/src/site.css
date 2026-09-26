@@ -33,31 +33,34 @@
 /*
  * Safe-area composition. `viewport-fit=cover` in the document unlocks
  * `env(safe-area-inset-*)`, which is 0 without it — the padding would collapse
- * silently rather than fail. These are utilities because the inset is an
- * environment value, not a spacing choice: the 12px and 48px added to it are
- * steps from the same Tailwind spacing scale as every other gap on the page, and
- * a document that inlined the `calc()` would be the only place in the repo
- * holding that arithmetic.
+ * silently rather than fail. Written as `env()` at each use rather than through
+ * custom properties, because there is no second consumer to share them with.
+ *
+ * These are utilities because the inset is an environment value, not a spacing
+ * choice: the 12px and 48px added to the vertical pair are steps from the same
+ * Tailwind spacing scale as every other gap on the page, and a document that
+ * inlined the `calc()` would be the only place in the repo holding that
+ * arithmetic.
+ *
+ * The horizontal pair goes on the page wrapper rather than on each section, which
+ * is the only way it can be done once: every section brings its own responsive
+ * `px-*`, and a cutout in landscape reaches past all of them. Applied at the
+ * wrapper, each section's own padding is then measured from inside the cutout.
  */
 @utility safe-top {
-  padding-top: calc(var(--spacing) * 3 + var(--safe-area-top));
+  padding-top: calc(var(--spacing) * 3 + env(safe-area-inset-top, 0px));
 }
 
 @utility safe-bottom {
-  padding-bottom: calc(var(--spacing) * 12 + var(--safe-area-bottom));
+  padding-bottom: calc(var(--spacing) * 12 + env(safe-area-inset-bottom, 0px));
+}
+
+@utility safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 @layer base {
-  :root {
-    /* Device chrome insets. The header and footer pad against the vertical
-       pair; the horizontal pair is declared with them because they are one
-       set. */
-    --safe-area-top: env(safe-area-inset-top, 0px);
-    --safe-area-right: env(safe-area-inset-right, 0px);
-    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
-    --safe-area-left: env(safe-area-inset-left, 0px);
-  }
-
   /* Matches the product: a definite root height for any full-height utility. */
   html {
     height: 100%;
