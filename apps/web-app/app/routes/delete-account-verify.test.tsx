@@ -1,8 +1,10 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LAST_USED_GOOGLE_EMAIL_STORAGE_KEY } from "~/lib/last-used-google-email.js";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 import {
   configureConvex,
   convexReactMock,
@@ -41,11 +43,13 @@ beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
   auth.deleteUser.mockReset();
   auth.social.mockReset();
+  pinBrowserOrigin("/signin");
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmailStorage();
 });
 
@@ -73,7 +77,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/delete-account/verify?token=return-token",
+      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
     });
     expect(auth.deleteUser).not.toHaveBeenCalled();
   });
@@ -87,7 +91,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/delete-account/verify?token=return-token",
+      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
       loginHint: "ada@gmail.com",
     });
   });

@@ -1,4 +1,6 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 
 const auth = vi.hoisted(() => ({
   social: vi.fn(),
@@ -35,29 +37,52 @@ import {
 
 afterEach(() => {
   vi.clearAllMocks();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmail();
 });
 
 describe("signInWithGoogle", () => {
-  it("starts Google sign-in with the callback URL", async () => {
+  /** The app origin the ADR 0035 cutover moves the SPA to. */
+  const APP_ORIGIN_UNDER_MIGRATION = "https://app.example.com";
+
+  it("resolves the callback path against the origin the browser is on", async () => {
+    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth");
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/after-auth",
+      callbackURL: "https://app.example.com/after-auth",
     });
   });
 
+  it("returns to whichever origin sign-in started on", async () => {
+    // Both origins serve the app through the ADR 0035 cutover window, so the
+    // callback has to follow the User's origin instead of the single configured
+    // SITE_URL (#409). Only the browser knows which one it is on.
+    for (const origin of [APEX_ORIGIN, APP_ORIGIN_UNDER_MIGRATION]) {
+      pinBrowserOrigin("/signin", origin);
+      auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
+
+      await signInWithGoogle();
+
+      expect(auth.social).toHaveBeenLastCalledWith({
+        provider: "google",
+        callbackURL: `${origin}/`,
+      });
+    }
+  });
+
   it("forwards loginHint when provided", async () => {
+    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth", { loginHint: "a@b.com" });
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/after-auth",
+      callbackURL: "https://app.example.com/after-auth",
       loginHint: "a@b.com",
     });
   });

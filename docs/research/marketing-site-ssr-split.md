@@ -181,12 +181,12 @@ CI (`.github/workflows/deploy.yml`): add `pnpm --filter @pocketcircle/site build
 
 Two Workers cannot both claim one hostname, so the apex handover is sequential. Deploy and verify everything *before* the swap so the swap is a formality.
 
-1. Add the `app.` route to the product Worker; deploy. Both apex and `app.` now serve the app. Verify deep links and assets on `app.` (auth still redirects to apex — expected, `SITE_URL` not flipped yet).
-2. Flip the product Worker config to `app.` only **and** deploy the marketing Worker claiming apex, back-to-back in one run. Sub-minute gap on the marketing homepage only; the app is unaffected.
-3. `convex env set SITE_URL https://app.pocketcircle.app` + `convex deploy -y`.
-4. Add `https://app.pocketcircle.app` to Google OAuth **Authorized JavaScript origins**. Branding homepage/privacy stay on apex, which is what Google requires; `app.` only needs to be an authorized JS origin and inside the authorized redirect domain.
-5. `APP_ORIGIN` → `https://app.pocketcircle.app` in `packages/mcp-worker/wrangler.jsonc:69`.
-6. Publish `apps/site/public/_redirects` (below) so legacy and emailed links resolve.
+1. Widen auth first, while apex is still the only public origin: `convex env set --prod MIGRATION_APP_ORIGIN https://app.pocketcircle.app` + `convex deploy --prod -y` (`--prod` on both — the CLI otherwise writes to the development deployment, where the variable does nothing), and add `https://app.pocketcircle.app` to the Google OAuth client's **Authorized JavaScript origins** in the Cloud Console. The deploy matters as much as the `env set`: the auth routes read the trusted-origin list when their module loads. `SITE_URL` still names the apex, so nothing changes for Users yet. The Google branding homepage and privacy URLs stay on apex, which is what Google requires; `app.` only needs to be an authorized JS origin and inside the authorized redirect domain. The callback URL stays on `*.convex.site` — the app origin is where the User is returned to *after* Google, never where Google redirects.
+2. Add the `app.` route to the product Worker; deploy. Both apex and `app.` now serve the app, and sign-in works on either origin. Verify deep links, assets, and a real sign-in on `app.` — on the `workers.dev` host it will not work at all, because that origin is not one auth trusts and sign-in from an untrusted origin is refused rather than redirected. MCP consent from `app.` is *not* expected to work yet — the Worker's `APP_ORIGIN` still names the apex until step 6, so its origin check rejects the app origin.
+3. Publish `apps/site/public/_redirects` (below) with the marketing Worker's first deploy, to `workers.dev` only, and verify the product paths redirect there. It has to exist *before* the Worker claims the apex: the moment it does, every legacy and already-emailed product link resolves through that file, so deploying it afterwards leaves a window where a bookmarked Circle link 404s.
+4. Flip the product Worker config to `app.` only **and** add the apex route to the marketing Worker, back-to-back in one run. A custom domain sends *every* path on its hostname to the Worker bound to it, so the gap is not only the marketing homepage: apex-hosted product links — a bookmarked Circle, an already-delivered Invitation — fail for as long as neither Worker holds the name. Sub-minute, and `_redirects` is already live from step 3 for everything after the swap.
+5. `convex env set --prod SITE_URL https://app.pocketcircle.app` + `convex env remove --prod MIGRATION_APP_ORIGIN` + `convex deploy --prod -y`. The second trusted origin has served its purpose and is dropped in the same deploy that makes it redundant. Rolling any of this back to apex-only is the same three steps in the other order: set `MIGRATION_APP_ORIGIN` to the apex *first*, so the app origin stays trusted while it is still serving traffic, then `SITE_URL` back to the apex, then remove the variable. The window is only truly closed once the follow-up ticket removes the support from the code.
+6. `APP_ORIGIN` → `https://app.pocketcircle.app` in `packages/mcp-worker/wrangler.jsonc:69`.
 7. Update `robots.txt` / `sitemap.xml` to the apex marketing surface, and `site.webmanifest` `start_url`/`scope` to the app origin.
 8. Re-check branding with a no-JS `curl https://pocketcircle.app/` for product name, purpose copy, and a Privacy link.
 
@@ -235,14 +235,15 @@ Optional, deliberately deferred: a one-time resume shim. An inline script on ape
 | Concern | Location |
 | --- | --- |
 | Worker route | `wrangler.jsonc:7-16` |
-| Convex trusted origin | `packages/convex/convex/auth.ts:33-36,106,123-126,161-164` (`SITE_URL` → `crossDomain`) |
+| Convex trusted origin | `packages/convex/convex/auth.ts` (`SITE_URL` → `crossDomain`; `MIGRATION_APP_ORIGIN` widens the list for the window, #409) |
 | Email links | `packages/convex/convex/email.ts:161,287,359`; `accountDeletion.ts:224-226` |
 | MCP consent origin | `packages/mcp-worker/wrangler.jsonc:69`; `src/mcp-api.ts:975-1000`; `src/browser-origin.ts:13-29` |
 | Brand HTML contract (delete) | `react-router.config.ts` prerender list; `app/root.tsx:49-57`; `scripts/assert-branding-html.mjs` |
 | SEO surface (move to apex) | `public/robots.txt`, `public/sitemap.xml` |
 | PWA scope | `public/site.webmanifest`; `app/components/pwa-install.tsx` |
-| Hardcoded public URLs | `routes/support.tsx:35`; `plugins/pocketcircle/README.md:83`; `plugins/pocketcircle/assert-package.mjs:67`; `docs/submission/pocketcircle/README.md:12-16,41`; `README.md:207,365`; `deploy.yml:25` |
-| Unaffected | `playwright.config.ts` and `scripts/e2e-local.sh` (`127.0.0.1:5173`), all Convex functions, all app internals |
+| Hardcoded public URLs | `routes/support.tsx:35`; `plugins/pocketcircle/README.md:83`; `plugins/pocketcircle/assert-package.mjs:67`; `docs/submission/pocketcircle/README.md:12-16,41`; `README.md:207,365` and the origin-migration section; `deploy.yml:25` |
+| Sign-in return origin | `app/lib/auth-client.ts` — the callback is resolved against the browser's own origin, so sign-in returns where it started (#409) |
+| Unaffected | `playwright.config.ts` and `scripts/e2e-local.sh` (`127.0.0.1:5173`), all Convex functions, the rest of the app internals |
 
 ### Framework for `apps/site`
 

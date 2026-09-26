@@ -17,8 +17,12 @@ const FINANCIAL_EXTRA_KEYS = new Set([
 
 const URL_DATA_KEYS = new Set(["from", "to", "url"]);
 
-/** Query params that carry user-entered or financial data — omit from telemetry. */
-const DROP_QUERY_PARAMS = new Set(["q", "min", "max", "handoff", "handoffId"]);
+/**
+ * Query params that carry user-entered or financial data — omit from telemetry.
+ * `ott` is the cross-domain sign-in one-time token: it redeems a live session, so
+ * for its few minutes of life it is a credential in the URL, not telemetry.
+ */
+const DROP_QUERY_PARAMS = new Set(["q", "min", "max", "handoff", "handoffId", "ott"]);
 
 /** Query params whose values are in-app paths/URLs and must be recursively scrubbed. */
 const URL_QUERY_PARAMS = new Set(["returnTo"]);

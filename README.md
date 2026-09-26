@@ -418,6 +418,70 @@ allow the exact callback URL:
 https://<production-deployment>.convex.site/api/auth/callback/google
 ```
 
+That callback URL is the only one: sign-in returns to whichever app origin the
+User started from, but Google always redirects to the auth deployment, so no
+per-app-origin redirect URI is needed or allowed.
+
+**Authorized JavaScript origins.** Add every origin the app is served from — today
+`https://pocketcircle.app`, and `https://app.pocketcircle.app` from the cutover
+on. This app signs in with a server-side redirect rather than the Google
+JavaScript library, so the list is not what gates sign-in (the auth deployment's
+own origin check is — see the migration note below); keep it current anyway, so
+the client stays valid if that ever changes and branding verification sees a
+consistent client.
+
+**Origin migration (temporary, [ADR 0035](docs/adr/0035-static-marketing-site-on-apex-and-product-spa-on-app-subdomain.md)).**
+While the SPA is being moved to `https://app.pocketcircle.app`, auth has to trust
+that origin alongside `SITE_URL`, so sign-in works on whichever of the two a User
+lands on and deploying the app origin is not itself the cutover. Add the app
+origin to the OAuth client's Authorized JavaScript origins **first** — a manual
+Cloud Console step, and it is not automatable — then widen the deployment:
+
+```sh
+pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://app.pocketcircle.app
+```
+
+`--prod` is not optional: without it the CLI writes to the development deployment,
+where the variable does nothing. The change reaches the auth routes on the next
+backend deploy — the tag-driven pipeline, or
+`pnpm --filter @pocketcircle/convex exec convex deploy --prod -y` when you are
+deliberately deploying — because they read the trusted-origin list when their module
+loads. A User who lands on an origin that is not in the list gets no CORS answer
+from the auth routes and sign-in fails in the browser with no detail, which also
+means a Worker `workers.dev` host and a bumped local dev port are not places sign-in
+works. Verify sign-in on a declared origin, and point `SITE_URL` at the port you are
+serving from.
+
+`MIGRATION_APP_ORIGIN` and `SITE_URL` each take one bare origin — no wildcard, no
+list, no path. Anything else is refused, loudly, the first time the auth routes
+handle a request: a bad trust decision should stop sign-in rather than quietly widen
+or narrow it. Note that the refusal takes *all* auth down on both origins until the
+value is fixed, and the deploy that carried it still succeeds. Do not widen the
+trusted origins with Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` instead: its
+origin check reads that variable but the auth routes' CORS does not, so it produces
+a request that passes the server and is then blocked in the browser.
+
+Once `SITE_URL` names the app origin, drop the variable in the same deploy that
+flips it:
+
+```sh
+pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
+```
+
+Keep this section until the follow-up ticket removes the support from the code. A
+rollback trusts both origins first and drops one second — setting both variables to
+the apex at once would leave the app origin untrusted while it is still serving
+traffic:
+
+```sh
+# 1. Trust the apex alongside the app origin, so neither loses sign-in.
+pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
+# 2. Move traffic back to the apex, then point SITE_URL at it.
+pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
+# 3. Only then drop the second origin.
+pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
+```
+
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.

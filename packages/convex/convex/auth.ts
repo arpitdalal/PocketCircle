@@ -23,6 +23,19 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  * CONVEX_SITE_URL is provided by Convex automatically and is where the auth
  * routes live.
  *
+ * MIGRATION_APP_ORIGIN widens the trusted origins for the ADR 0035 cutover
+ * window (#409): the SPA is served from the app origin while SITE_URL still
+ * names the apex, so both have to be trusted for sign-in to work on whichever
+ * one a User lands on. Unset means a single origin, which is what local, E2E,
+ * and post-migration deployments run. Deploying the app origin is then not
+ * itself the cutover — the DNS swap and the SITE_URL flip stay separate,
+ * independently verifiable steps. Remove it once SITE_URL names the app origin;
+ * that is the `migrationAppOrigin` value, the read in {@link createAuth}, the
+ * second entry in the trusted-origins list there, the `declaredOrigin` call and
+ * its parameter below, and the README section. `declaredOrigin` and
+ * `BARE_ORIGIN` are not migration-specific — SITE_URL is checked with the same
+ * helper — so they stay.
+ *
  * E2E-only: when `E2E_TEST_AUTH=1` (set ONLY on ephemeral CI/self-hosted
  * deployments, NEVER in production — ADR 0019), email+password sign-in is also
  * enabled so Playwright can mint a real, backend-trusted session without driving
@@ -31,11 +44,61 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  */
 const authFunctions: AuthFunctions = internal.auth;
 
-export function authRuntimeConfig(siteUrlValue: string | undefined) {
-  const url = new URL(siteUrlValue ?? LOCAL_APP_ORIGIN);
-  const siteUrl = url.origin;
-  const verbose = isLoopbackHostname(url.hostname);
-  return { siteUrl, verbose };
+/**
+ * `scheme://host[:port]` and nothing else. Patterns are refused deliberately:
+ * Better Auth reads `https://*.example.com` as a wildcard that matches any
+ * subdomain — including as a `callbackURL` destination, which would hand a live
+ * one-time session token to whatever host matched — while the component's CORS
+ * router matches exact origins only, so the same string would also break sign-in
+ * from the origin it was meant to allow. A comma-separated list is refused for
+ * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
+ * commas, this value must not. `@`, `%` and `\` are refused because a host is none
+ * of them: `https://app.example.com@evil.example`, `https://ex%41mple.com` and
+ * `https://evil.example\app.example.com` each parse to a *different* origin than
+ * they read as — the last because the URL parser reads `\` as `/` — and a trust
+ * decision must never be rewritten on its way in.
+ */
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
+
+/**
+ * The origin a deployment declares, or a throw naming the variable that is wrong.
+ * This runs when the auth routes initialise, per request, not at deploy — so a
+ * malformed value surfaces as every auth call failing, loudly, rather than quietly
+ * leaving an origin untrusted.
+ */
+function declaredOrigin(name: string, value: string) {
+  if (!BARE_ORIGIN.test(value)) {
+    throw new Error(
+      `${name} must be a single origin such as https://app.example.com, not a pattern or a list: ${value}`,
+    );
+  }
+  const url = new URL(value);
+  // The cross-domain flow ends in a redirect carrying a live session token, so a
+  // plaintext origin is a credential in the clear. Local dev and E2E are loopback,
+  // which is the only plaintext this trusts.
+  if (url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
+    throw new Error(`${name} must be https, or a loopback origin for local development: ${value}`);
+  }
+  return url.origin;
+}
+
+export function authRuntimeConfig(
+  siteUrlValue: string | undefined,
+  migrationAppOriginValue?: string,
+) {
+  // SITE_URL goes through the same check as the origin declared beside it. It is the
+  // origin better-auth trusts and the base a relative sign-in callback resolves
+  // against, so a pattern there is the hazard above rather than a shorthand.
+  const siteUrl = declaredOrigin("SITE_URL", siteUrlValue ?? LOCAL_APP_ORIGIN);
+  const verbose = isLoopbackHostname(new URL(siteUrl).hostname);
+  // Unset is the single-origin setup. Anything supplied is validated, an empty value
+  // included: `convex env set MIGRATION_APP_ORIGIN ""` is a mistake to be told about,
+  // not an absent variable to be read as "trust one origin".
+  const migrationAppOrigin =
+    migrationAppOriginValue === undefined
+      ? null
+      : declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue);
+  return { siteUrl, verbose, migrationAppOrigin };
 }
 
 export function authComponentConfig(siteUrlValue: string | undefined) {
@@ -102,10 +165,17 @@ export const { getAuthUser } = authComponent.clientApi();
 const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const authRuntime = authRuntimeConfig(process.env.SITE_URL);
+  const authRuntime = authRuntimeConfig(process.env.SITE_URL, process.env.MIGRATION_APP_ORIGIN);
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
   const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
+  // crossDomain contributes SITE_URL to trustedOrigins; this list is every other
+  // origin auth trusts. Deduplicated against SITE_URL and itself, so an origin
+  // that is already trusted — the apex before the cutover, or the loopback twin
+  // locally — is not listed twice.
+  const extraTrustedOrigins = [...new Set([authRuntime.migrationAppOrigin, loopbackTwin])].filter(
+    (origin): origin is string => typeof origin === "string" && origin !== siteUrl,
+  );
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -142,9 +212,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    // crossDomain adds siteUrl to trustedOrigins. Add only the loopback twin here
-    // so localhost and 127.0.0.1 both work in local dev without duplicating siteUrl.
-    ...(loopbackTwin ? { trustedOrigins: [loopbackTwin] } : {}),
+    ...(extraTrustedOrigins.length > 0 ? { trustedOrigins: extraTrustedOrigins } : {}),
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };

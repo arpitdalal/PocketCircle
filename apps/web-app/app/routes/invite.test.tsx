@@ -1,10 +1,11 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { APEX_ORIGIN, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_INVITATION_PREVIEW } from "~/lib/fixtures.js";
+import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 import {
   configureConvex,
   convexReactMock,
@@ -42,11 +43,13 @@ const preview = MOCK_INVITATION_PREVIEW;
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  pinBrowserOrigin("/invite/test-token");
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  restoreBrowserOrigin();
   clearLastUsedGoogleEmailStorage();
 });
 
@@ -163,7 +166,7 @@ describe("Invite landing", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/invite/test-token",
+      callbackURL: `${APEX_ORIGIN}/invite/test-token`,
       loginHint: preview.invitedEmail,
     });
   });
