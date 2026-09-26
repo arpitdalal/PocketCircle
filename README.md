@@ -468,9 +468,19 @@ flips it:
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
-Keep this section until the follow-up ticket removes the support from the code —
-a rollback to apex-only needs both `SITE_URL` back on the apex **and**
-`MIGRATION_APP_ORIGIN` set to the apex again.
+Keep this section until the follow-up ticket removes the support from the code. A
+rollback trusts both origins first and drops one second — setting both variables to
+the apex at once would leave the app origin untrusted while it is still serving
+traffic:
+
+```sh
+# 1. Trust the apex alongside the app origin, so neither loses sign-in.
+pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
+# 2. Move traffic back to the apex, then point SITE_URL at it.
+pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
+# 3. Only then drop the second origin.
+pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
+```
 
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
