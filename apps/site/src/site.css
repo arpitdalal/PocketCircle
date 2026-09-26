@@ -4,28 +4,92 @@
 @import "@pocketcircle/brand/tokens.css";
 
 /*
- * Marketing Site stylesheet. Every colour, font, and radius comes from
+ * Marketing Site stylesheet. Every colour, font, radius, and easing comes from
  * `@pocketcircle/brand/tokens.css` (#405) so this origin and the product render
  * the same brand; what is left here is the document the tokens need — a
- * background, a text colour, and the page font — because a static document has
- * no component to inherit them from, plus the safe-area insets and the homepage's
- * keyframes, which the product's stylesheet owns for the same reason.
+ * background, a text colour, the page font, and the handful of compositions a
+ * static document needs that a component would otherwise assemble at runtime.
+ *
+ * The visual system is the brand's, not a second one. The homepage was designed
+ * against a `landing-page-design` skill, and where that skill's rules and the
+ * brand disagreed, the brand won — the whole point of #407 was that the site and
+ * the app read as one product, so a second typeface, a second radius scale, or a
+ * second easing curve would have spent the issue to contradict it. Concretely:
+ *
+ *   - Type is Inter for prose and Bricolage Grotesque for display, the two the
+ *     product ships. Sizes are Tailwind's scale steps, never arbitrary values, so
+ *     a step that changes changes for both surfaces.
+ *   - Colour is `--background` for the page and `--card` for every raised plane.
+ *     There is no second palette, and no gradient behind any plane: the only
+ *     gradient on the page is the hero heading's own text, because a heading
+ *     that fades across its width is the one place a gradient is the point.
+ *   - Motion uses the brand's `--ease-out-quart` and nothing else, so a press
+ *     here decelerates exactly as a press in the product does.
+ *
+ * `public/og.svg` is the one place a token is written as an sRGB hex, because an
+ * SVG rasteriser has no cascade to resolve it against; it is not styling.
+ */
+
+/*
+ * The device's safe-area insets, declared once.
+ *
+ * `viewport-fit=cover` in the document unlocks `env(safe-area-inset-*)`, which is
+ * 0 without it — the compensation would collapse silently rather than fail.
+ *
+ * They are read through custom properties rather than inline at each use because
+ * `env()` written directly inside a nested block of an `@utility` does not
+ * survive the build: the `+ env(safe-area-inset-top, 0px)` clause was dropped from
+ * the emitted rule and the offset silently became a flat `16px`. Every consumer
+ * here goes through these four, so there is one declaration and no shape of usage
+ * that can quietly lose the inset.
  */
 @layer base {
   :root {
-    /* Device chrome insets (0 when viewport-fit≠cover or no hardware intrusion).
-       The header and footer pad against the vertical pair; the horizontal pair is
-       declared with them because they are one set, and this document's side
-       padding is the ported treatment rather than a new one. */
     --safe-area-top: env(safe-area-inset-top, 0px);
     --safe-area-right: env(safe-area-inset-right, 0px);
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --safe-area-left: env(safe-area-inset-left, 0px);
   }
+}
 
+/*
+ * Safe-area composition. These are utilities because the inset is an environment
+ * value, not a spacing choice: the 12px and 48px added to the vertical pair are
+ * steps from the same Tailwind spacing scale as every other gap on the page, and
+ * a document that inlined the `calc()` would be the only place in the repo
+ * holding that arithmetic.
+ *
+ * The horizontal pair goes on the page wrapper rather than on each section, which
+ * is the only way it can be done once: every section brings its own responsive
+ * `px-*`, and a cutout in landscape reaches past all of them. Applied at the
+ * wrapper, each section's own padding is then measured from inside the cutout.
+ * The one element that is not inside the wrapper in that sense is the fixed skip
+ * link, which carries the same insets itself.
+ */
+@utility safe-top {
+  padding-top: calc(var(--spacing) * 3 + var(--safe-area-top));
+}
+
+@utility safe-bottom {
+  padding-bottom: calc(var(--spacing) * 12 + var(--safe-area-bottom));
+}
+
+@utility safe-x {
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
+}
+
+@layer base {
   /* Matches the product: a definite root height for any full-height utility. */
   html {
     height: 100%;
+    /*
+     * The page paints its own background over the whole scroll height, and
+     * overscroll bounce on a dark document otherwise flashes the browser's
+     * default white behind it. `color-scheme: dark` comes from the tokens, so
+     * form controls and scrollbars already agree with it.
+     */
+    background-color: var(--background);
   }
 
   /*
@@ -40,20 +104,240 @@
     font-family: var(--font-sans);
     @apply antialiased;
   }
+
+  /*
+   * One focus treatment for the whole document. Every interactive element on the
+   * page is a link, the primary call to action, or a FAQ disclosure, and all
+   * three are reachable by keyboard, so the indicator is written once here
+   * rather than per element — a link that forgot it would be invisible to
+   * exactly the visitor least able to skip it. `:focus-visible` so a pointer
+   * click does not draw an indicator nobody asked for, and the offset is the
+   * page background so it reads against both a plane and the page itself.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 /*
- * The sign-in call to action. The product assembles the same treatment from
- * `buttonVariants`; a document with no runtime gets it as one class, and the
+ * The hero heading's fade. A gradient on the heading is the one place a gradient
+ * is the point rather than decoration: the type fades across its own width,
+ * which is what makes the eye land on the first words. Named for the treatment
+ * rather than for the element, so a second `h1` somewhere on the page does not
+ * have to be a faded one.
+ *
+ * `background-clip: text` needs the paired `-webkit-text-fill-color`, and the
+ * paint order matters: the clip is the gradient, the fill is what actually
+ * shows through the clipped letters. Unlayered, so it out-cascades Tailwind's
+ * text-colour utilities rather than losing to them.
+ *
+ * The fade stops at 62% foreground, which measures 5.84:1 against the page
+ * against 16.39:1 at the near end — above the 4.5:1 floor for body text, let
+ * alone for a heading this size. Going further would trade legibility for an
+ * effect, which is the wrong way round.
+ *
+ * The forced-colors fallback is not optional. That mode replaces author colours
+ * with system ones and suppresses background images, but it does not undo
+ * `-webkit-text-fill-color: transparent` — so without this the page's only `h1`
+ * would be an invisible heading on a small but real number of Windows machines.
+ */
+@utility headline-fade {
+  background-image: linear-gradient(
+    to right,
+    var(--foreground),
+    color-mix(in oklab, var(--foreground) 62%, var(--background))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (forced-colors: active) {
+  .headline-fade {
+    background-image: none;
+    -webkit-text-fill-color: currentcolor;
+    color: CanvasText;
+  }
+}
+
+/*
+ * The sign-in call to action, and the only one on the page.
+ *
+ * The label is `--background` on `--primary` rather than the product's
+ * `--primary-foreground` on `--primary`. That is not a preference: those two
+ * tokens measure 3.63:1 against each other, which is AA for large text and a
+ * failure for a 14px label, and #407 asked for a contrast pass. Ink on iris
+ * measures 5.16:1, uses the same accent, and needs no new token — the two
+ * surfaces read as one brand because the accent is identical, not because the
+ * button renders byte-identically. The product's own default button is still on
+ * `--primary-foreground`; that is a product change and belongs to the product.
+ * The focus indicator is not written here: `site.css` gives every focusable
+ * element on the page the same outline, and two rings at once is not an
+ * indicator, it is noise.
+ *
+ * The rest mirrors `buttonVariants` in the product, including `scale` in the
+ * transition list because Tailwind v4's `scale-*` sets the `scale` property
+ * rather than `transform`, so a press without it snaps instead of easing. The
  * `disabled:` rules stay behind because a link is never disabled.
+ *
+ * The hover state *lifts* the accent toward the foreground rather than fading it
+ * toward the page. Fading is what the product's button does, and it is wrong here:
+ * the label is ink, so fading the surface toward ink is fading it toward its own
+ * text, and it drops the pair from 5.16:1 to 4.01:1 — a silent AA failure, and
+ * one `src/contrast.test.ts` now fails on if it comes back. Lifting away from
+ * the ink does the opposite, 6.06:1, and reads as raised on a dark page, which
+ * is what a hover is trying to say anyway.
  *
  * `@utility`, not `@layer components`: Tailwind v4 uses native cascade layers, so
  * a class written in a layer is unconditionally outranked by every utility and
- * cannot take a variant. `scale` is in the transition list because v4's `scale-*`
- * sets the `scale` property, not `transform` — without it the press would snap.
+ * cannot take a variant.
  */
 @utility cta {
-  @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform,scale] duration-150 bg-primary text-primary-foreground hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.97] motion-reduce:active:scale-100;
+  --cta-surface: var(--primary);
+  --cta-surface-hover: color-mix(in oklab, var(--primary) 88%, var(--foreground));
+
+  @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform,scale] duration-150 ease-out-quart active:scale-[0.97] motion-reduce:active:scale-100;
+  background-color: var(--cta-surface);
+  color: var(--background);
+
+  &:hover {
+    background-color: var(--cta-surface-hover);
+  }
+}
+
+/*
+ * The keyboard-only way past the header. Visually hidden until focused, then
+ * pinned to the top left of the viewport — not to the top of the document, so it
+ * is on screen wherever in the page the focus happens to be. The document is one
+ * column of long sections, so reaching `main` by keyboard is otherwise a run of
+ * tab stops through the header and the skip link.
+ *
+ * Its offsets carry the safe-area insets themselves, which is the one place the
+ * `safe-*` utilities are not enough. `position: fixed` resolves against the
+ * viewport, so this link escapes the `safe-x` padding on the page wrapper
+ * entirely — a notched phone in portrait would put it under the status bar, and
+ * in landscape under the side cutout, hiding the one control a keyboard-only
+ * visitor has for getting past the header. Written out rather than applied,
+ * because `top-4` and `left-4` cannot carry an `env()`.
+ */
+@utility skip-link {
+  @apply sr-only;
+
+  &:focus-visible {
+    @apply not-sr-only fixed z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background;
+    top: calc(var(--spacing) * 4 + var(--safe-area-top));
+    left: calc(var(--spacing) * 4 + var(--safe-area-left));
+  }
+}
+
+/*
+ * Prose links in the footer, the section index, and the consent sentence under
+ * each call to action.
+ *
+ * The underline is permanent, not a hover reward. A link inside a sentence has to
+ * be identifiable as a link without the pointer being on it, and "only different
+ * by colour, and only on hover" fails that for everyone on a touch screen and
+ * anyone using a style sheet that drops the hover. It thins on hover rather than
+ * appearing, which keeps the affordance without the jump.
+ */
+@utility prose-link {
+  @apply rounded-xs text-muted-foreground underline underline-offset-4 transition-[color,text-decoration-color] duration-150 ease-out-quart hover:text-foreground hover:decoration-foreground;
+}
+
+/*
+ * The header's sign-in link: the same colour and easing as a prose link, without
+ * the underline. A standalone control beside a wordmark is not a link in a block
+ * of text, so nothing about it needs to read as one.
+ */
+@utility quiet-link {
+  @apply rounded-xs text-sm font-medium text-muted-foreground transition-colors duration-150 ease-out-quart hover:text-foreground;
+}
+
+/*
+ * The tagline reveal.
+ *
+ * A static document cannot run `IntersectionObserver`, and this one must not: a
+ * `<script>` is the first step back to a client runtime, which ADR 0035 rules out
+ * because it would cost a Worker invocation per request. So the reveal is
+ * scroll-driven CSS, which needs no script, and it is behind `@supports` so a
+ * browser without scroll-driven animations shows the finished statement rather
+ * than the muted one — the animation only ever *removes* the dimming, so the
+ * un-animated state is the one with no `animation` at all.
+ *
+ * It stays a step below the hero heading at every width rather than only on
+ * desktop: a tagline set at the same size as the `h1` is not a second moment, it
+ * is a second headline.
+ *
+ * The dimmed start state measures 3.36:1 against the page, comfortably over the
+ * 3:1 floor for large text and over the 4.5:1 body floor would be even better but
+ * costs the effect: the point of the dim is that the eye lands on the words that
+ * have already lit up, and a fade that is already fully legible fades nothing.
+ * At 24px and up the statement is large text by WCAG's own definition, so this is
+ * the floor that applies to it, not the 4.5:1 one.
+ *
+ * `--i` is the word's index in the statement and is written inline, which is the
+ * only way CSS can know it. The range slides forward one word at a time so the
+ * words light up in reading order as the line crosses the viewport, using the
+ * brand easing rather than a linear one so each word settles instead of
+ * snapping. The step is 5% of the entry range per word, which is short enough
+ * that the last word of the statement still finishes revealing before the block
+ * is fully on screen.
+ *
+ * `animation-duration: 1ms` looks like a lie and is not one. With a scroll-driven
+ * timeline the duration is not a duration — the timeline supplies the progress
+ * and the duration only has to be non-zero for the animation to be applied at
+ * all. `auto` is the tidier spelling, but Firefox does not accept it for this
+ * purpose and now passes the `@supports` gate below, so the two would disagree
+ * about where in the timeline the words light up. 1ms is what the platform
+ * documentation recommends for exactly that.
+ */
+@utility tagline {
+  @apply font-display max-w-4xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl lg:text-4xl;
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .tagline-word {
+      animation-name: tagline-reveal;
+      animation-duration: 1ms;
+      animation-timing-function: var(--ease-out-quart);
+      animation-fill-mode: both;
+      animation-timeline: view();
+      animation-range: entry calc(6% + var(--i, 0) * 5%) entry calc(28% + var(--i, 0) * 5%);
+    }
+  }
+}
+
+/*
+ * The FAQ. A static document has no disclosure widget to borrow, so it uses the
+ * platform's own: `<details>`, which opens, closes, and is announced correctly
+ * with no script, and which a browser without support renders as all-open text
+ * rather than hiding the answers.
+ *
+ * The native disclosure triangle is suppressed explicitly. It happens to be
+ * suppressed already, because `display: flex` on the `<summary>` leaves nowhere
+ * for a `list-item` marker to be drawn — but that is a side effect of a layout
+ * utility, so a change to the summary's layout would put the platform's marker
+ * next to the chevron below. Suppressing it where the intent is stated is one
+ * line and does not depend on anything else staying as it is.
+ *
+ * The chevron's rotation is a transform on the open state, so the disclosure
+ * animates without a layout pass and `prefers-reduced-motion` collapses it.
+ */
+summary::marker {
+  content: "";
+}
+
+@utility faq-item {
+  @apply border-b border-border/60;
+  &[open] .faq-marker {
+    transform: rotate(90deg);
+  }
+}
+
+@utility faq-marker {
+  @apply mt-1 size-4 shrink-0 text-faint transition-transform duration-150 ease-out-quart;
 }
 
 /* Global reduced-motion reset. Deliberately UNLAYERED: unlayered declarations
@@ -71,11 +355,24 @@
 }
 
 @theme inline {
-  /* Marketing homepage: rare first-visit motion only. Global prefers-reduced-motion
-     already collapses these to near-instant via the unlayered reset above. */
+  /*
+   * Two animations, both first-visit and rare.
+   *
+   * `marketing-enter` is the page arriving: a short rise as the document paints,
+   * staggered by the hero's two columns. It is `both` so the pre-animation state
+   * does not flash before the first frame.
+   *
+   * `marketing-glow` is the atmosphere behind the hero. It animates `opacity`
+   * only, never `transform`: the blob is a 40rem circle behind a `blur-3xl`, and
+   * scaling one re-rasterises a blurred surface on every frame for a decoration
+   * nobody is looking at directly. Opacity composites instead, which is why it
+   * can run at all on a phone.
+   *
+   * The global prefers-reduced-motion reset above collapses all of these to
+   * near-instant.
+   */
   --animate-marketing-enter: marketing-enter 520ms var(--ease-out-quart) both;
-  --animate-marketing-glow: marketing-glow 8s ease-in-out infinite;
-  --animate-marketing-row-pulse: marketing-row-pulse 3.2s ease-in-out infinite;
+  --animate-marketing-glow: marketing-glow 9s ease-in-out infinite;
 
   @keyframes marketing-enter {
     from {
@@ -91,20 +388,32 @@
     0%,
     100% {
       opacity: 0.85;
-      transform: scale(1);
     }
     50% {
       opacity: 1;
-      transform: scale(1.06);
     }
   }
-  @keyframes marketing-row-pulse {
-    0%,
-    100% {
-      background-color: color-mix(in oklab, var(--primary) 8%, transparent);
-    }
-    50% {
-      background-color: color-mix(in oklab, var(--primary) 16%, transparent);
-    }
+}
+
+/*
+ * The tagline's own keyframes, deliberately *not* in `@theme` above.
+ *
+ * `@theme` holds theme *values*, and Tailwind drops the ones nothing references
+ * — unreferenced `--color-*` tokens go the same way as unreferenced keyframes. A
+ * `@keyframes` in `@theme` therefore survives only if a `--animate-*` variable
+ * names it, and this animation is never written as an `animate-…` class on an
+ * element: it is driven by a scroll timeline, so nothing names it and the block
+ * was dropped from the built stylesheet. The reveal silently did nothing, and
+ * every assertion in the build still passed, because asserting that CSS is
+ * *present in the artifact* is a different and much weaker claim than asserting
+ * that the animation runs. `marketing-home.test.ts` now asserts the part that
+ * actually decides it.
+ */
+@keyframes tagline-reveal {
+  from {
+    color: color-mix(in oklab, var(--foreground) 40%, transparent);
+  }
+  to {
+    color: var(--foreground);
   }
 }

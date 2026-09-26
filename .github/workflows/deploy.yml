@@ -245,6 +245,7 @@ jobs:
           SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
         run: |
           node --input-type=module <<'EOF'
+          import { readFile } from "node:fs/promises";
           const origin = new URL(process.env.SITE_ORIGIN).origin;
           const expected = {
             "x-frame-options": "DENY",
@@ -264,6 +265,31 @@ jobs:
               }
             }
             const html = await response.text();
+            // What the origin serves has to be the document this job built, byte
+            // for byte, and that is what lets this step not read the metadata at
+            // all.
+            //
+            // The `og:image` and `twitter:card` contract is asserted once, by
+            // `apps/site/scripts/assert-site-html.mjs`, on these same bytes, through
+            // the `metaContentOf` helper that does not care about attribute order or
+            // quote style. A workflow cannot import that helper, so any check
+            // written here would be a second and weaker parser of the same document
+            // — and a legal, formatting-only edit to a `<meta>` tag in the source
+            // would then fail all twelve retries *after* the site was already
+            // uploaded, which is the worst possible time to learn about a
+            // reformatting. Comparing bytes carries every assertion the build made
+            // to the served origin instead, and is strictly more sensitive than the
+            // two attributes that were being re-parsed here: it catches any document
+            // that is not the asserted one.
+            const builtDocument = await readFile("apps/site/dist/index.html");
+            if (html !== builtDocument.toString("utf8")) {
+              throw new Error(
+                `the served homepage is ${html.length} characters and differs from the ${builtDocument.length} byte artifact this job built`,
+              );
+            }
+            // Substring assertions, kept because they are cheap and order- and
+            // quote-independent, and because a deploy that fails should say what is
+            // wrong rather than only that two files differ.
             if (!html.includes(`<link rel="canonical" href="${process.env.APEX_ORIGIN}/"`)) {
               throw new Error("homepage does not canonicalize to the apex origin");
             }
@@ -294,6 +320,39 @@ jobs:
             const { byteLength } = await css.arrayBuffer();
             if (byteLength === 0) {
               throw new Error("homepage stylesheet is empty — the brand tokens did not compile");
+            }
+            // The card a link to the apex renders as. It is the one asset a
+            // crawler fetches from outside the page, so nothing above would
+            // notice it 404ing, and the share would silently be a blank
+            // rectangle.
+            //
+            // Fetched from *this* origin, not from the URL the tag names, and
+            // that is deliberate: the tag has to name the apex for the cutover
+            // to leave the site indexable at all, and until the cutover the apex
+            // is still the product app, which answers an unmatched path with the
+            // app's own index.html and a 200. Comparing the bytes the two halves
+            // against the artifact this job built is what can be verified now, and
+            // the cutover has to move the card onto the apex Worker and drop
+            // `X-Robots-Tag` in the same change.
+            //
+            // The bytes, not the header: Cloudflare caches each asset
+            // independently, so a propagated document can be served next to a card
+            // that has not propagated, and a card from the *previous* release has
+            // the same signature and the same dimensions as this one. Only the
+            // bytes tell those apart. A served card that is not a PNG at all is
+            // therefore already covered — it cannot equal the built artifact, and
+            // `assert-site-html.mjs` is what asserts the built artifact really is a
+            // 1200x630 PNG.
+            const builtCard = await readFile("apps/site/dist/og.png");
+            const cardResponse = await fetch(`${origin}/og.png`);
+            if (!cardResponse.ok) {
+              throw new Error(`the share image returned ${cardResponse.status}`);
+            }
+            const servedCard = Buffer.from(await cardResponse.arrayBuffer());
+            if (!servedCard.equals(builtCard)) {
+              throw new Error(
+                `the served share image is ${servedCard.length} bytes and differs from the ${builtCard.length} byte artifact this job built`,
+              );
             }
           }
 

@@ -1,0 +1,13 @@
+<!--
+  The Marketing Site's favicon (#407): the brand glyph from
+  `apps/web-app/app/components/brand-mark.tsx`, drawn as paths instead of
+  elements so the file is the mark and nothing else. The app ships a PNG
+  favicon because the product has to support every browser; a static marketing
+  document only has to render one tab, and every current browser reads SVG.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="PocketCircle">
+  <title>PocketCircle</title>
+  <rect width="32" height="32" rx="7" fill="#0d0b13" />
+  <circle cx="16" cy="16" r="9.25" fill="none" stroke="#9568f3" stroke-opacity="0.35" stroke-width="2" />
+  <circle cx="16" cy="16" r="4" fill="#9568f3" />
+</svg>

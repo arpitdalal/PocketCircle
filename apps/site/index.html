@@ -4,64 +4,124 @@
     <meta charset="utf-8" />
     <!--
       viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
-      footer padding below are written against — without it those insets are 0
-      and the padding silently collapses. Same call the product makes.
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
     -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>PocketCircle</title>
+    <title>PocketCircle — track the money you share, together</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
     <meta
       name="description"
-      content="PocketCircle helps you track spending together in shared Circles."
+      content="PocketCircle is a shared ledger for a home, a trip, or a family. Everyone records what they paid for, and everyone sees the same totals. Free to use."
     />
     <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
     <link rel="canonical" href="%APEX_ORIGIN%/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="PocketCircle" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="PocketCircle — track the money you share, together" />
     <meta
       property="og:description"
-      content="PocketCircle helps you track spending together in shared Circles."
+      content="PocketCircle is a shared ledger for a home, a trip, or a family. Everyone records what they paid for, and everyone sees the same totals. Free to use."
     />
     <meta property="og:url" content="%APEX_ORIGIN%/" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PocketCircle — track the money you share, together" />
+    <meta
+      name="twitter:description"
+      content="PocketCircle is a shared ledger for a home, a trip, or a family. Everyone records what they paid for, and everyone sees the same totals. Free to use."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
     <link rel="stylesheet" href="/src/site.css" />
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <!--
-      The marketing homepage (#406), ported from the product SPA's React
-      `MarketingHome` with the same copy, section order, and classes. It is
-      checked in as the document it is: no runtime, no hydration, nothing to
-      replace it. The React page stays in the app until #412 retires the interim
-      shell, and #407 replaces both with the real design, so this is a port, not
-      a fork to keep in step.
+      The marketing homepage (#407). The real designed page, not a port: the copy
+      below is written for a visitor who has never heard of PocketCircle, in the
+      order that earns the click — what it is, who it is for, what a Circle is,
+      what sharing and assistants add, then one action.
 
-      Every link is absolute, and which origin it names is a decision, not a
-      default (ADR 0035): the apex keeps canonical ownership of the marketing
-      surfaces — legal, support, What's New, sitemap — so those stay on it, and
-      only sign-in crosses to the app origin, which is where the session lives.
+      It is checked in as the document it is: no runtime, no hydration, nothing
+      to replace it. Two consequences shape everything in it. Every link is
+      absolute, because which origin it names is a decision and not a default
+      (ADR 0035) — the apex keeps canonical ownership of the marketing surfaces,
+      legal, support, What's New, and the sitemap, so those stay on it, and only
+      sign-in crosses to the app origin, which is where the session lives. And
+      there is no script, so every behaviour on the page is a platform one:
+      `<details>` for the FAQ, scroll-driven CSS for the tagline, `:target` and
+      `:focus-visible` for the rest.
+
+      One primary action. Every link to the app origin is the same sign-in link,
+      and the only visually dominant control is that one call to action, repeated
+      once at the end. There is no second route in — no newsletter, no demo
+      request, no "learn more" — because a page that asks for two different things
+      gets neither, and the one thing being asked for is an account.
+
+      The two are deliberately *not* kept in step. The product SPA still renders
+      its own marketing page for signed-out visitors
+      (`apps/web-app/app/components/marketing-home.tsx`, and as the root
+      `HydrateFallback`) carrying the old copy, and the correction this page works
+      hardest on — that Settlement, Budgets, and bank import are not built — is
+      only on the apex. #412 retires that React page, which is the right way to
+      end the drift; until then a second homepage with the previous copy is
+      reachable at the app origin, and nothing in the build compares the two.
     -->
-    <div class="relative flex min-h-dvh flex-col overflow-x-hidden bg-background text-foreground">
+    <!--
+      `overflow-x-clip`, not `overflow-x-hidden`. Both stop the hero's blurred
+      glow from opening a horizontal scrollbar, but `hidden` makes this element a
+      scroll container, and a scroll container with no scrollable overflow makes
+      the tagline's `view()` timeline *inactive* — the reveal would then never run
+      and nothing would say so, because the stylesheet would still contain the
+      animation. `clip` contains the overflow without becoming a scroll container.
+      `marketing-home.test.ts` holds this one class to that rule.
+
+      `safe-x` is here and not on each section because a cutout in landscape
+      reaches past all of them, and the wrapper is the one box they all sit
+      inside. The vertical pair is the other way round, on the header and the
+      footer, where it meets the edge.
+    -->
+    <div
+      id="top"
+      class="safe-x relative flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground"
+    >
       <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
         <div class="absolute -top-32 left-1/2 -translate-x-1/2">
           <div
-            class="size-[42rem] rounded-full bg-primary/20 blur-3xl animate-marketing-glow"
+            class="size-[40rem] rounded-full bg-primary/20 blur-3xl animate-marketing-glow"
           ></div>
         </div>
-        <div
-          class="absolute top-[28rem] -right-40 size-[28rem] rounded-full bg-primary/10 blur-3xl"
-        ></div>
-        <div
-          class="absolute top-[70rem] -left-32 size-[22rem] rounded-full bg-positive/8 blur-3xl"
-        ></div>
+        <div class="absolute top-[28rem] -right-40 size-[28rem] rounded-full bg-primary/10 blur-3xl"></div>
+        <div class="absolute top-[70rem] -left-32 size-[22rem] rounded-full bg-positive/8 blur-3xl"></div>
       </div>
 
       <header
-        class="relative z-10 flex items-center px-4 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 sm:px-6 lg:px-10"
+        class="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
       >
         <a
           href="#top"
-          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
         >
           <span
             aria-hidden="true"
@@ -71,195 +131,212 @@
           </span>
           PocketCircle
         </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
       </header>
 
-      <main id="top" class="relative z-10 flex flex-1 flex-col">
-        <section
-          class="mx-auto grid w-full max-w-6xl gap-12 px-4 pt-10 pb-20 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center lg:gap-16 lg:px-10 lg:pt-16 lg:pb-28"
-        >
-          <div class="animate-marketing-enter space-y-8 text-left">
-            <div class="space-y-5">
+      <main id="main" class="relative z-10 flex flex-1 flex-col">
+        <section class="px-4 pt-12 pb-16 sm:px-6 lg:px-10 lg:pt-16">
+          <div
+            class="mx-auto grid w-full max-w-6xl gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-center lg:gap-16"
+          >
+            <div class="animate-marketing-enter max-w-2xl space-y-8">
+              <!--
+                The break is written rather than left to the wrapper, because a
+                headline that happens to break three words in is a different
+                sentence from the one that was written. It is held from the
+                smallest screens, where the column is already narrow enough to break
+                it well on its own.
+              -->
               <h1
-                class="font-display max-w-xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]"
+                class="headline-fade font-display text-4xl font-semibold tracking-tight text-balance sm:text-5xl xl:text-6xl"
               >
-                PocketCircle
+                Track the money<br class="hidden lg:block" /> you share, together
               </h1>
-              <p
-                class="max-w-xl font-display text-xl font-medium tracking-tight text-foreground/90 text-balance sm:text-2xl"
-              >
-                One place for the money you share
+              <p class="max-w-xl text-pretty text-lg text-muted-foreground sm:text-xl">
+                PocketCircle is a shared ledger for a home, a trip, a family, or anything else you
+                split money on. Everyone records what they paid for, and everyone sees the same
+                totals.
               </p>
-              <p
-                class="max-w-md text-base text-muted-foreground text-pretty sm:text-lg"
-              >
-                PocketCircle helps you track spending together in shared Circles. Record expenses
-                and income, organize Categories, and review totals with others.
-              </p>
-            </div>
 
-            <div id="get-started" class="max-w-sm scroll-mt-24 space-y-3">
-              <div class="space-y-3">
+              <div id="get-started" class="max-w-sm scroll-mt-24 space-y-3">
                 <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
-                <p class="text-xs text-muted-foreground">
-                  By continuing you agree to our
-                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APEX_ORIGIN%/terms">Terms</a>
-                  and
-                  <a
-                    class="underline underline-offset-2 transition-colors hover:text-foreground"
-                    href="%APEX_ORIGIN%/privacy"
-                    >Privacy Policy</a
-                  >.
+                <p class="text-pretty text-xs text-muted-foreground">
+                  Free to use, with no paid plan and no trial to expire. Signing in creates your
+                  Personal Circle, a ledger of your own that cannot invite anyone into. By continuing
+                  you agree to our <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a> and
+                  <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>.
                 </p>
               </div>
             </div>
-          </div>
 
-          <div class="animate-marketing-enter relative min-w-0 [animation-delay:120ms]">
-            <div
-              aria-hidden="true"
-              class="absolute inset-x-8 -top-6 -bottom-6 rounded-[2rem] bg-gradient-to-b from-primary/15 via-transparent to-transparent blur-2xl"
-            ></div>
-            <div
-              class="relative overflow-hidden rounded-[1.75rem] border border-border/80 bg-card/70 shadow-[0_24px_80px_-32px_oklch(0.4_0.12_295/0.55)] backdrop-blur-sm"
-            >
-              <div class="flex items-center gap-3 border-b border-border/60 px-5 py-4">
-                <span
-                  aria-hidden="true"
-                  style="background-color: #14b8a626; color: #14b8a6"
-                  class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                  >AH</span
-                >
-                <div class="min-w-0 flex-1">
-                  <p
-                    class="truncate font-display text-sm font-semibold tracking-tight"
-                  >
-                    Apartment Home
-                  </p>
-                  <p class="text-xs text-muted-foreground">3 Members · Teal</p>
-                </div>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.75"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="size-4 text-faint"
-                  aria-hidden="true"
-                >
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                  <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
-                  <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                  <circle cx="9" cy="7" r="4"></circle>
-                </svg>
-              </div>
-
-              <div class="space-y-1 px-3 py-3">
-                <div
-                  class="flex items-center gap-3 rounded-xl px-2.5 py-2.5 bg-primary-soft/60 animate-marketing-row-pulse"
-                >
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #22c55e26; color: #22c55e"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold"
-                    >G</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Groceries — Costco</p>
-                    <p class="truncate text-xs text-muted-foreground">Groceries · Maya</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$186.42
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-xl px-2.5 py-2.5">
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #3b82f626; color: #3b82f6"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold"
-                    >R</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">March rent</p>
-                    <p class="truncate text-xs text-muted-foreground">Rent · Jordan</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$2,100.00
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-xl px-2.5 py-2.5">
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #f59e0b26; color: #f59e0b"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold"
-                    >U</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Utilities split</p>
-                    <p class="truncate text-xs text-muted-foreground">Utilities · Alex</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$94.18
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-xl px-2.5 py-2.5">
+            <div class="animate-marketing-enter relative min-w-0 [animation-delay:120ms]">
+              <div
+                aria-hidden="true"
+                class="absolute inset-x-8 -top-6 -bottom-6 rounded-3xl bg-primary/10 blur-2xl"
+              ></div>
+              <div
+                class="relative overflow-hidden rounded-3xl border border-border bg-card p-2"
+              >
+                <div class="flex items-center gap-3 rounded-2xl px-4 py-3">
                   <span
                     aria-hidden="true"
                     style="background-color: #14b8a626; color: #14b8a6"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold"
-                    >I</span
+                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                    >AH</span
                   >
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Payback from Sam</p>
-                    <p class="truncate text-xs text-muted-foreground">Income · Sam</p>
+                    <p class="truncate font-display text-sm font-semibold tracking-tight">
+                      Apartment Home
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">4 Members · Teal</p>
                   </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-positive tabular-nums"
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="size-4 text-faint"
+                    aria-hidden="true"
                   >
-                    +$62.00
-                  </p>
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                    <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                  </svg>
+                </div>
+
+                <div class="space-y-1">
+                  <div class="flex items-center gap-3 rounded-2xl bg-primary-soft px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #22c55e26; color: #22c55e"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >G</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Groceries — Costco</p>
+                      <p class="truncate text-xs text-muted-foreground">Groceries · Maya</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$186.42
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #3b82f626; color: #3b82f6"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >R</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">March rent</p>
+                      <p class="truncate text-xs text-muted-foreground">Rent · Jordan</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$2,100.00
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #f59e0b26; color: #f59e0b"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >U</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Utilities split</p>
+                      <p class="truncate text-xs text-muted-foreground">Utilities · Alex</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$94.18
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #14b8a626; color: #14b8a6"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >I</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Payback from Sam</p>
+                      <p class="truncate text-xs text-muted-foreground">Income · Maya</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-positive tabular-nums"
+                    >
+                      +$62.00
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex items-center justify-between rounded-2xl px-4 py-3 text-xs text-muted-foreground"
+                >
+                  <span>Net this month</span>
+                  <span
+                    class="font-display text-sm font-semibold text-foreground tabular-nums"
+                  >
+                    −$2,318.60
+                  </span>
                 </div>
               </div>
-
-              <div
-                class="flex items-center justify-between border-t border-border/60 px-5 py-3.5 text-xs text-muted-foreground"
-              >
-                <span>This month</span>
-                <span
-                  class="font-display text-sm font-semibold text-foreground tabular-nums"
-                >
-                  −$2,318.60
-                </span>
               </div>
             </div>
+          </section>
+
+        <!--
+          The tagline, as its own moment rather than another heading under the
+          hero. It is a paragraph, not a heading: it states the benefit, and the
+          sections below it are the argument for it. Each word carries its index
+          so the CSS reveal can light it up in reading order.
+        -->
+        <section class="border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10">
+          <div class="mx-auto max-w-6xl">
+            <p class="tagline">
+            <span class="tagline-word" style="--i: 0">Most</span>
+            <span class="tagline-word" style="--i: 1">money</span>
+            <span class="tagline-word" style="--i: 2">fights</span>
+            <span class="tagline-word" style="--i: 3">are</span>
+            <span class="tagline-word" style="--i: 4">bookkeeping</span>
+            <span class="tagline-word" style="--i: 5">fights.</span>
+            <span class="tagline-word" style="--i: 6"><br class="hidden sm:block" />One</span>
+            <span class="tagline-word" style="--i: 7">shared</span>
+            <span class="tagline-word" style="--i: 8">ledger</span>
+            <span class="tagline-word" style="--i: 9">makes</span>
+            <span class="tagline-word" style="--i: 10">them</span>
+            <span class="tagline-word" style="--i: 11">shorter.</span>
+            </p>
           </div>
         </section>
 
         <section
           id="circles"
-          class="scroll-mt-24 border-t border-border/50 px-4 py-20 sm:px-6 lg:px-10"
+          class="scroll-mt-24 border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10"
         >
-          <div
-            class="mx-auto grid max-w-5xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:items-end"
-          >
-            <div class="space-y-4">
+          <div class="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end lg:gap-16">
+            <div class="max-w-xl space-y-4">
               <h2
                 class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
               >
-                Circles for every shared life
+                What a Circle is
               </h2>
-              <p class="max-w-md text-muted-foreground text-pretty">
-                Your Personal Circle stays yours. Create a shared Circle for home, a trip,
-                roommates, or family — invite Members when you are ready.
+              <p class="text-pretty text-muted-foreground">
+                A Circle is a shared financial space with one or more Members. It can be a
+                residence, a trip, a family, or any budget you split. Your Personal Circle is
+                created when you sign in and stays yours alone. You make a second Circle when you
+                want someone else in the numbers.
               </p>
             </div>
 
@@ -268,48 +345,48 @@
                 <span
                   aria-hidden="true"
                   style="background-color: #9470f526; color: #9470f5"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
                   >PC</span
                 >
                 <div class="min-w-0 pt-0.5">
                   <p class="font-medium">Personal Circle</p>
-                  <p class="text-sm text-muted-foreground">Always yours, always solo</p>
+                  <p class="text-sm text-muted-foreground">Iris · solo, and always yours</p>
                 </div>
               </li>
               <li class="flex items-start gap-3">
                 <span
                   aria-hidden="true"
                   style="background-color: #14b8a626; color: #14b8a6"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
                   >AH</span
                 >
                 <div class="min-w-0 pt-0.5">
                   <p class="font-medium">Apartment Home</p>
-                  <p class="text-sm text-muted-foreground">Rent, groceries, utilities</p>
+                  <p class="text-sm text-muted-foreground">Teal · rent, groceries, utilities</p>
                 </div>
               </li>
               <li class="flex items-start gap-3">
                 <span
                   aria-hidden="true"
                   style="background-color: #f59e0b26; color: #f59e0b"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
                   >JT</span
                 >
                 <div class="min-w-0 pt-0.5">
                   <p class="font-medium">Japan Trip</p>
-                  <p class="text-sm text-muted-foreground">Flights, food, shared days</p>
+                  <p class="text-sm text-muted-foreground">Amber · flights, food, shared days</p>
                 </div>
               </li>
               <li class="flex items-start gap-3">
                 <span
                   aria-hidden="true"
                   style="background-color: #f43f5e26; color: #f43f5e"
-                  class="flex size-10 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
                   >FC</span
                 >
                 <div class="min-w-0 pt-0.5">
                   <p class="font-medium">Family Care</p>
-                  <p class="text-sm text-muted-foreground">Shared costs, clear history</p>
+                  <p class="text-sm text-muted-foreground">Rose · shared costs, clear history</p>
                 </div>
               </li>
             </ul>
@@ -318,23 +395,22 @@
 
         <section
           id="features"
-          class="scroll-mt-24 border-t border-border/50 px-4 py-20 sm:px-6 lg:px-10"
+          class="scroll-mt-24 border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10"
         >
-          <div class="mx-auto max-w-5xl space-y-12">
-            <div class="max-w-xl space-y-3">
+          <div class="mx-auto max-w-6xl space-y-12">
+            <div class="max-w-2xl space-y-3">
               <h2
                 class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
               >
-                Stay aligned without the spreadsheet
+                One ledger instead of the group chat
               </h2>
-              <p class="text-muted-foreground text-pretty">
-                Everyone in a Circle sees the same Transactions, Categories, and totals — so
-                money talk stays calm.
+              <p class="text-pretty text-muted-foreground">
+                Four things that make a shared money conversation short.
               </p>
             </div>
 
-            <ul class="grid gap-10 sm:grid-cols-3">
-              <li class="space-y-3">
+            <ul class="grid gap-10 sm:grid-cols-2">
+              <li class="max-w-md space-y-3">
                 <span
                   class="flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"
                 >
@@ -352,54 +428,21 @@
                     aria-hidden="true"
                   >
                     <path
-                      d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"
+                      d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a2 2 0 0 0 1-1v-2a2 2 0 0 0-1-1"
                     ></path>
-                    <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"></path>
+                    <path d="M3 5v14a2 2 0 0 0 2 2h15a2 2 0 0 0 1-1v-4"></path>
                   </svg>
                 </span>
                 <h3 class="font-display text-lg font-semibold tracking-tight">
-                  Record expenses and income
+                  Everyone writes to the same list
                 </h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Log Transactions with a title, amount, date, and Categories — visible to every
-                  Member in the Circle.
+                <p class="text-pretty text-sm text-muted-foreground">
+                  Every expense and every payment lands in one place with a title, an amount, a
+                  date, and Categories. Nobody has to scroll back through a chat to find out what
+                  the electric bill came to.
                 </p>
               </li>
-              <li class="space-y-3">
-                <span
-                  class="flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.75"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="size-5"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a1 1 0 0 1 1-1z"
-                    ></path>
-                    <path
-                      d="M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193"
-                    ></path>
-                    <circle cx="10.5" cy="6.5" r=".5" fill="currentColor"></circle>
-                  </svg>
-                </span>
-                <h3 class="font-display text-lg font-semibold tracking-tight">
-                  Organize with Categories
-                </h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Keep spending readable. Filter and review totals by Category instead of
-                  scrolling a messy chat history.
-                </p>
-              </li>
-              <li class="space-y-3">
+              <li class="max-w-md space-y-3">
                 <span
                   class="flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"
                 >
@@ -422,11 +465,79 @@
                   </svg>
                 </span>
                 <h3 class="font-display text-lg font-semibold tracking-tight">
-                  See who did what
+                  Totals that answer the question
                 </h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Member List and Circle History keep ownership and changes clear when money
-                  decisions involve more than one person.
+                <p class="text-pretty text-sm text-muted-foreground">
+                  Every Circle has a Dashboard for any month: income, expenses, net, a breakdown
+                  by Category, and how this month compares with the ones before it.
+                </p>
+              </li>
+              <li class="max-w-md space-y-3">
+                <span
+                  class="flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="size-5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a2 2 0 0 1 1-1z"
+                    ></path>
+                    <path
+                      d="M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193"
+                    ></path>
+                    <circle cx="10.5" cy="6.5" r=".5" fill="currentColor"></circle>
+                  </svg>
+                </span>
+                <h3 class="font-display text-lg font-semibold tracking-tight">
+                  Attribution on every row
+                </h3>
+                <p class="text-pretty text-sm text-muted-foreground">
+                  Each Transaction remembers who recorded it and whose money it was. Who paid for
+                  the internet has an answer that does not depend on anyone's memory.
+                </p>
+              </li>
+              <li class="max-w-md space-y-3">
+                <span
+                  class="flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="size-5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+                    ></path>
+                    <path d="M20 2v4"></path>
+                    <path d="M22 4h-4"></path>
+                    <circle cx="4" cy="20" r="2"></circle>
+                  </svg>
+                </span>
+                <h3 class="font-display text-lg font-semibold tracking-tight">
+                  A record of every change
+                </h3>
+                <p class="text-pretty text-sm text-muted-foreground">
+                  Circle History, Transaction History, and Category History each keep who changed
+                  what and when. When a shared cost is questioned months later, the Circle explains
+                  itself.
                 </p>
               </li>
             </ul>
@@ -435,46 +546,118 @@
 
         <section
           id="ai"
-          class="scroll-mt-24 border-t border-border/50 px-4 py-20 sm:px-6 lg:px-10"
+          class="scroll-mt-24 border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10"
         >
           <div
-            class="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start lg:gap-12"
+            class="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-center lg:gap-16"
           >
-            <span
-              class="flex size-12 items-center justify-center rounded-full bg-primary-soft text-primary"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.75"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="size-6"
-                aria-hidden="true"
-              >
-                <path
-                  d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
-                ></path>
-                <path d="M20 2v4"></path>
-                <path d="M22 4h-4"></path>
-                <circle cx="4" cy="20" r="2"></circle>
-              </svg>
-            </span>
-            <div class="space-y-4">
+            <div class="max-w-2xl space-y-4">
               <h2
                 class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
               >
-                AI-native, with you in control
+                Let an assistant read the ledger
               </h2>
-              <p class="max-w-2xl text-muted-foreground text-pretty">
-                Connect AI assistants over MCP — ChatGPT, Claude, Codex, Cursor, and other MCP
-                clients. You approve Circles and permissions in the browser; they can review
-                spending and record Transactions in those Circles. Manage access anytime in
-                Connections.
+              <p class="text-pretty text-muted-foreground">
+                PocketCircle speaks MCP, the protocol ChatGPT, Claude, Codex, and Cursor already
+                use. Connect an assistant, pick the Circles you want it to have in the browser, and
+                it can read those Circles' Transactions — and, if you give it permission to write,
+                record new ones. You can leave it read-only, which is often what you want. It cannot
+                see a Circle you did not pick, and it does learn who you are — your Display Name
+                and profile picture, which is how it tells your own Transactions from everyone
+                else's. It never sees your Google account, and you can revoke any connection from
+                Connections at any time.
+              </p>
+            </div>
+
+            <!--
+              A Connections panel as the app builds one: a row is an MCP client,
+              not a Circle, with the Circles it was granted listed inside it. The
+              panel is the one piece of the page that shows a grant rather than
+              describing it, so it has to be the real shape — two rows titled
+              "Apartment Home" and "Japan Trip" would say grants are per Circle,
+              which is the opposite of what the prose next to it says.
+            -->
+            <div class="rounded-3xl border border-border bg-card p-2">
+              <p class="px-4 py-3 font-display text-sm font-semibold tracking-tight">Connections</p>
+              <div class="space-y-1">
+                <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                  <span
+                    aria-hidden="true"
+                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+                      ></path>
+                      <path d="M20 2v4"></path>
+                      <path d="M22 4h-4"></path>
+                      <circle cx="4" cy="20" r="2"></circle>
+                    </svg>
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium">Claude</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      Apartment Home, Japan Trip
+                    </p>
+                  </div>
+                  <span
+                    class="shrink-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-foreground"
+                    >Connected</span
+                  >
+                </div>
+                <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                  <span
+                    aria-hidden="true"
+                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+                      ></path>
+                      <path d="M20 2v4"></path>
+                      <path d="M22 4h-4"></path>
+                      <circle cx="4" cy="20" r="2"></circle>
+                    </svg>
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium">Cursor</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      Finish connecting in Cursor
+                    </p>
+                  </div>
+                  <span
+                    class="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
+                    >Pending</span
+                  >
+                </div>
+              </div>
+              <p class="px-4 py-3 text-pretty text-xs text-muted-foreground">
+                One connection, the two Circles you picked. Revoke it and it stops asking; what it
+                has already read is its own now.
               </p>
             </div>
           </div>
@@ -482,95 +665,359 @@
 
         <section
           id="how-it-works"
-          class="scroll-mt-24 border-t border-border/50 px-4 py-20 sm:px-6 lg:px-10"
+          class="scroll-mt-24 border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10"
         >
-          <div class="mx-auto max-w-5xl space-y-10">
+          <div class="mx-auto max-w-6xl space-y-10">
             <h2
-              class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
+              class="font-display max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
             >
               Up and running in minutes
             </h2>
             <ol class="grid gap-8 sm:grid-cols-3">
-              <li class="space-y-3">
+              <li class="max-w-md space-y-3">
                 <p
                   class="font-display text-sm font-medium tracking-[0.14em] text-primary uppercase"
                 >
                   Step 1
                 </p>
                 <h3 class="font-display text-xl font-semibold tracking-tight">
-                  Continue with Google
+                  Sign in with Google
                 </h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Create your account in one click. No separate password to manage. We only use
-                  your Google profile information (name, email) to authenticate your account.
+                <p class="text-pretty text-sm text-muted-foreground">
+                  One click, and there is no password to remember. We take Google's account
+                  identifier, your email address, your name, and your profile picture. Our
+                  <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a> lists
+                  exactly what that is. You confirm your name once to get started.
                 </p>
               </li>
-              <li class="space-y-3">
+              <li class="max-w-md space-y-3">
                 <p
                   class="font-display text-sm font-medium tracking-[0.14em] text-primary uppercase"
                 >
                   Step 2
                 </p>
                 <h3 class="font-display text-xl font-semibold tracking-tight">Open a Circle</h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Start in your Personal Circle, or create a shared Circle for the people you
-                  spend with.
+                <p class="text-pretty text-sm text-muted-foreground">
+                  Your Personal Circle is there from the start, solo and private. When you want
+                  someone else in the numbers, create a shared Circle: name it, give it a colour and
+                  a currency, and answer the setup questions, which seed the Categories it starts
+                  with.
                 </p>
               </li>
-              <li class="space-y-3">
+              <li class="max-w-md space-y-3">
                 <p
                   class="font-display text-sm font-medium tracking-[0.14em] text-primary uppercase"
                 >
                   Step 3
                 </p>
                 <h3 class="font-display text-xl font-semibold tracking-tight">
-                  Invite and record
+                  Invite, then record
                 </h3>
-                <p class="text-sm text-muted-foreground text-pretty">
-                  Add Members by email, then record the first expense or income together.
+                <p class="text-pretty text-sm text-muted-foreground">
+                  From a shared Circle, add Members by email. An Invitation has one link live at a
+                  time, good for seven days; if the Owner resends it, a new link replaces the old
+                  one and only the newest works. Once it is accepted the list is shared.
                 </p>
               </li>
             </ol>
           </div>
         </section>
 
-        <section class="border-t border-border/50 px-4 py-20 sm:px-6 lg:px-10">
+        <!--
+          The objections, answered on the page rather than in a footnote. Half of
+          these are "no", and saying so plainly is the point: a visitor who
+          discovers after signing up that PocketCircle does not settle debts is a
+          visitor who tells everyone it is not what they wanted. `<details>` is a
+          platform disclosure, so this costs no script, and a browser without
+          support shows the answers open.
+        -->
+        <section
+          id="faq"
+          class="scroll-mt-24 border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10"
+        >
+          <div class="mx-auto max-w-6xl gap-10 lg:grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+            <div class="max-w-xl space-y-3">
+              <h2
+                class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
+              >
+                Straight answers
+              </h2>
+              <p class="text-pretty text-muted-foreground">
+                What PocketCircle does, and what it does not do yet.
+              </p>
+            </div>
+
+            <div class="mt-10 lg:mt-0">
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Does PocketCircle work out who owes whom?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  No. Settlement is not built. PocketCircle records what happened and reports the
+                  totals, which is the part that is hard to keep straight by hand. Working out the
+                  split is a conversation you have with the ledger in front of you.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Is there a free plan, or a trial that expires?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  There is no paid plan to upgrade to and no trial to lose, so there is nothing to
+                  decide and nothing that lapses. Sign in and the app is yours to use.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Can I use it on my own?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  Yes. Your Personal Circle is created when you sign in and stays solo. It cannot
+                  invite Members, be archived, or be deleted outside Account Deletion, so it is
+                  there whenever you want to write something down without asking anyone. It starts
+                  with no Categories, and a Transaction needs at least one, so your first entry
+                  begins by making one.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Who can see a Circle I am in?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  Only the Members in it. Circle names and email addresses are not searchable, so
+                  nobody can find a Circle they are not in. Three things worth knowing beyond that.
+                  Holding an Invitation Link shows you the Circle's name, the Owner's name and
+                  picture, and the email it was sent to — that is how you know whether to accept it,
+                  and you see it whether or not you do. Circle History is the Circle's own record,
+                  so if you own it, the addresses invitations went to are in there, and an
+                  assistant reading it can read them too. And an assistant you connected yourself
+                  reads the Circles you picked for it; revoking stops it asking again, but anything
+                  it has already read is in its hands, not ours.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">What happens when someone leaves a Circle?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  In a shared Circle, everyone but the Owner can leave whenever they like, and the
+                  Owner can remove anyone. An Owner has to hand the Circle over first — that is the
+                  one thing they cannot do alone. Either way, once someone is out their
+                  Transactions stay in the Circle, still attributed to them, and Circle History keeps
+                  the record of how it happened. If the same person is invited back later, their
+                  old rows resolve to their current name and picture again.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Can it import transactions from my bank?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  Not yet. Transactions are entered by hand, and an assistant you have connected
+                  over MCP with write access can add them for you from a message you send it. You
+                  can export a Circle's Transactions as a CSV whenever you want one.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Can I set a budget or a spending limit?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  No. PocketCircle records what actually happened, not what you meant to spend, and
+                  it does not tell you whether you are over. The Dashboard's month over month
+                  comparison is the closest thing to a warning it has.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Does it work on a phone?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  Yes. PocketCircle installs to your home screen and works on any device you sign
+                  in from, and it can send push notifications for Invitations and the other events
+                  in your Notification Center.
+                </p>
+              </details>
+              <details class="faq-item">
+                <summary class="flex cursor-pointer items-start justify-between gap-4 py-5">
+                  <h3 class="font-display font-semibold tracking-tight">Can I delete my account?</h3>
+                  <svg
+                    class="faq-marker"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6"></path>
+                  </svg>
+                </summary>
+                <p class="text-pretty pb-5 text-sm text-muted-foreground">
+                  Yes, from Settings, and it is permanent. Before it will go, PocketCircle asks you
+                  to put the Circles you are holding in order: hand over any Circle that has other
+                  Members in it, and archive any Circle you are alone in that has already been set
+                  up. One you are alone in and never finished setting up is not a blocker, and goes
+                  with you. Your login, your profile, and your notifications then go. Transactions
+                  you recorded stay in the Circles that remain, with your name still on them,
+                  because deleting your account should not quietly delete someone else's rent
+                  history.
+                </p>
+              </details>
+            </div>
+          </div>
+        </section>
+
+        <section class="border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10">
           <div
-            class="mx-auto flex max-w-5xl flex-col gap-8 lg:flex-row lg:items-end lg:justify-between"
+            class="mx-auto flex max-w-6xl flex-col gap-8 lg:flex-row lg:items-end lg:justify-between"
           >
-            <div class="max-w-lg space-y-3">
+            <div class="max-w-xl space-y-3">
               <h2
                 class="font-display text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
               >
                 Start your first Circle
               </h2>
-              <p class="text-muted-foreground text-pretty">
-                Sign in with Google. Your Personal Circle is ready the moment you arrive.
+              <p class="text-pretty text-muted-foreground">
+                One click, and your Personal Circle is there waiting for the first thing you paid
+                for.
               </p>
             </div>
-            <div id="get-started-again" class="w-full max-w-sm">
-              <div class="space-y-3">
-                <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
-                <p class="text-xs text-muted-foreground">
-                  By continuing you agree to our
-                  <a class="underline underline-offset-2 transition-colors hover:text-foreground" href="%APEX_ORIGIN%/terms">Terms</a>
-                  and
-                  <a
-                    class="underline underline-offset-2 transition-colors hover:text-foreground"
-                    href="%APEX_ORIGIN%/privacy"
-                    >Privacy Policy</a
-                  >.
-                </p>
-              </div>
+            <div id="get-started-again" class="w-full max-w-sm scroll-mt-24">
+              <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
             </div>
           </div>
         </section>
       </main>
 
       <footer
-        class="relative z-10 border-t border-border/60 px-4 py-12 pb-[calc(3rem+var(--safe-area-bottom))] sm:px-6 lg:px-10"
+        class="relative z-10 border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
       >
-        <div class="mx-auto grid max-w-5xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="mx-auto grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div class="space-y-3 sm:col-span-2 lg:col-span-1">
             <p class="flex items-center gap-2 font-display text-sm font-semibold tracking-tight">
               <span
@@ -581,106 +1028,73 @@
               </span>
               PocketCircle
             </p>
-            <p class="max-w-xs text-sm text-muted-foreground text-pretty">
-              Shared Circles for home, trips, and family — with AI assistants when you want help.
+            <p class="max-w-xs text-pretty text-sm text-muted-foreground">
+              A shared ledger for the money you split with other people, with AI assistants when
+              you want help reading it.
             </p>
           </div>
 
-          <nav aria-label="Product" class="space-y-3">
-            <p class="font-display text-xs font-medium tracking-[0.14em] text-faint uppercase">
-              Product
+          <nav aria-label="On this page" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              On this page
             </p>
-            <ul class="space-y-2 text-sm text-muted-foreground">
+            <ul class="space-y-2 text-sm">
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="#circles"
-                  >Circles</a
-                >
+                <a class="prose-link" href="#circles">Circles</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="#features"
-                  >Features</a
-                >
+                <a class="prose-link" href="#features">What you get</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="#ai"
-                  >AI &amp; MCP</a
-                >
+                <a class="prose-link" href="#ai">AI assistants</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="#how-it-works"
-                  >How it works</a
-                >
+                <a class="prose-link" href="#how-it-works">How it works</a>
+              </li>
+              <li>
+                <a class="prose-link" href="#faq">Questions</a>
               </li>
             </ul>
           </nav>
 
-          <nav aria-label="Account" class="space-y-3">
-            <p class="font-display text-xs font-medium tracking-[0.14em] text-faint uppercase">
-              Account
+          <nav aria-label="PocketCircle" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              PocketCircle
             </p>
-            <ul class="space-y-2 text-sm text-muted-foreground">
+            <ul class="space-y-2 text-sm">
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APP_ORIGIN%/signin"
-                  >Sign in</a
-                >
+                <a class="prose-link" href="%APEX_ORIGIN%/whats-new">What's new</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APEX_ORIGIN%/whats-new"
-                  >What's new</a
-                >
-              </li>
-              <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APEX_ORIGIN%/support"
-                  >Support</a
-                >
+                <a class="prose-link" href="%APEX_ORIGIN%/support">Support</a>
               </li>
             </ul>
           </nav>
 
           <nav aria-label="Legal" class="space-y-3">
-            <p class="font-display text-xs font-medium tracking-[0.14em] text-faint uppercase">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
               Legal
             </p>
-            <ul class="space-y-2 text-sm text-muted-foreground">
+            <ul class="space-y-2 text-sm">
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APEX_ORIGIN%/privacy"
-                  >Privacy Policy</a
-                >
+                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APEX_ORIGIN%/terms"
-                  >Terms</a
-                >
+                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
               </li>
               <li>
-                <a
-                  class="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                  href="%APEX_ORIGIN%/sitemap.xml"
-                  >Sitemap</a
-                >
+                <a class="prose-link" href="%APEX_ORIGIN%/sitemap.xml">Sitemap</a>
               </li>
             </ul>
           </nav>
         </div>
-        <p class="mx-auto mt-10 max-w-5xl text-xs text-faint">
+        <p class="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
           © %YEAR% PocketCircle. All rights reserved.
         </p>
       </footer>
