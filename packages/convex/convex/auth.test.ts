@@ -141,6 +141,13 @@ describe("authRuntimeConfig", () => {
   ])("rejects %s as a migration app origin", (_label, value) => {
     expect(() => authRuntimeConfig(APEX_ORIGIN, value)).toThrow(/MIGRATION_APP_ORIGIN/);
   });
+
+  it.each([
+    ["a wildcard", "https://*.example.com"],
+    ["a comma-separated list", "https://a.example.com,https://b.example.com"],
+  ])("rejects %s as SITE_URL, which is trusted the same way", (_label, value) => {
+    expect(() => authRuntimeConfig(value)).toThrow(/SITE_URL/);
+  });
 });
 
 describe("createAuth trusted origins", () => {

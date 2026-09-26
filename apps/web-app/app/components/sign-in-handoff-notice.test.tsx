@@ -10,6 +10,7 @@ vi.mock("convex/react", async () => (await import("~/test/convex-react.js")).con
 import { SignInHandoffNotice } from "./sign-in-handoff-notice.js";
 
 const HANDOFF_SETTLE_MS = 10_000;
+const REPORTED = "Couldn't finish signing in. Try again.";
 
 function landOnHandoffUrl() {
   window.history.replaceState({}, "", "/signin?ott=one-time-token-value");
@@ -21,6 +22,13 @@ function renderNotice() {
       <SignInHandoffNotice />
     </AppTestProviders>,
   );
+}
+
+/** Exactly the moment the report is due: the snackbar is on screen for 4s after it. */
+function settleHandoffWindow() {
+  act(() => {
+    vi.advanceTimersByTime(HANDOFF_SETTLE_MS);
+  });
 }
 
 beforeEach(() => {
@@ -38,11 +46,9 @@ describe("SignInHandoffNotice", () => {
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
     renderNotice();
 
-    act(() => {
-      vi.advanceTimersByTime(HANDOFF_SETTLE_MS * 2);
-    });
+    settleHandoffWindow();
 
-    expect(screen.queryByText(/finish signing in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
   });
 
   it("reports a handoff that never produced a session", () => {
@@ -50,25 +56,21 @@ describe("SignInHandoffNotice", () => {
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
     renderNotice();
 
-    act(() => {
-      vi.advanceTimersByTime(HANDOFF_SETTLE_MS);
-    });
+    settleHandoffWindow();
 
-    expect(screen.getByText("Couldn't finish signing in. Try again.")).toBeInTheDocument();
+    expect(screen.getByText(REPORTED)).toBeInTheDocument();
   });
 
   it("says nothing while the session is still resolving", () => {
     landOnHandoffUrl();
-    // A slow redemption is not a failed one, so the report waits for the session to
-    // settle rather than racing it.
+    // A slow session is not a failed sign-in, so the report waits for it to settle
+    // rather than racing it.
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
     renderNotice();
 
-    act(() => {
-      vi.advanceTimersByTime(HANDOFF_SETTLE_MS * 2);
-    });
+    settleHandoffWindow();
 
-    expect(screen.queryByText(/finish signing in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
   });
 
   it("stays quiet when the handoff lands a session", () => {
@@ -76,11 +78,9 @@ describe("SignInHandoffNotice", () => {
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
     renderNotice();
 
-    act(() => {
-      vi.advanceTimersByTime(HANDOFF_SETTLE_MS * 2);
-    });
+    settleHandoffWindow();
 
-    expect(screen.queryByText(/finish signing in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
   });
 
   it("stays quiet once a User who hit a failed handoff signs in again", () => {
@@ -99,10 +99,63 @@ describe("SignInHandoffNotice", () => {
         <SignInHandoffNotice />
       </AppTestProviders>,
     );
-    act(() => {
-      vi.advanceTimersByTime(HANDOFF_SETTLE_MS);
-    });
+    settleHandoffWindow();
 
-    expect(screen.queryByText(/finish signing in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
+  });
+
+  it("reports on one deadline however often the session state changes", () => {
+    landOnHandoffUrl();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    const { rerender } = renderNotice();
+    const rerenderNotice = () =>
+      rerender(
+        <AppTestProviders>
+          <SignInHandoffNotice />
+        </AppTestProviders>,
+      );
+
+    // A session that refetches more often than the timeout must not push the
+    // deadline out for as long as it keeps doing that.
+    for (let elapsed = 0; elapsed < HANDOFF_SETTLE_MS; elapsed += 1_000) {
+      convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+      rerenderNotice();
+      convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+      rerenderNotice();
+    }
+
+    expect(screen.getByText(REPORTED)).toBeInTheDocument();
+  });
+
+  it("says nothing when the URL carries the param with no token", () => {
+    // The provider redeems on the param's *value*, so an empty one starts no handoff
+    // and there is nothing to report. The two predicates have to agree.
+    window.history.replaceState({}, "", "/signin?ott=");
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    renderNotice();
+
+    settleHandoffWindow();
+
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
+  });
+
+  it("cancels the pending report when it goes away", () => {
+    landOnHandoffUrl();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    const { rerender } = renderNotice();
+
+    // Unmount the notice but leave the snackbar it reports through standing, so a
+    // timer that outlived it would still be visible.
+    rerender(
+      <AppTestProviders>
+        <div />
+      </AppTestProviders>,
+    );
+    settleHandoffWindow();
+
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
   });
 });

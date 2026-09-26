@@ -29,7 +29,12 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  * one a User lands on. Unset means a single origin, which is what local, E2E,
  * and post-migration deployments run. Deploying the app origin is then not
  * itself the cutover — the DNS swap and the SITE_URL flip stay separate,
- * independently verifiable steps. Remove it once SITE_URL names the app origin.
+ * independently verifiable steps. Remove it once SITE_URL names the app origin;
+ * that is the `migrationAppOrigin` value, the read in {@link createAuth}, the
+ * second entry in the trusted-origins list there, the `declaredOrigin` call and
+ * its parameter below, and the README section. `declaredOrigin` and
+ * `BARE_ORIGIN` are not migration-specific — SITE_URL is checked with the same
+ * helper — so they stay.
  *
  * E2E-only: when `E2E_TEST_AUTH=1` (set ONLY on ephemeral CI/self-hosted
  * deployments, NEVER in production — ADR 0019), email+password sign-in is also
@@ -51,7 +56,12 @@ const authFunctions: AuthFunctions = internal.auth;
  */
 const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*\s,]+)(?::\d+)?\/?$/i;
 
-/** The origin a deployment declares, or a throw naming the variable that is wrong. */
+/**
+ * The origin a deployment declares, or a throw naming the variable that is wrong.
+ * This runs when the auth routes initialise, per request, not at deploy — so a
+ * malformed value surfaces as every auth call failing, loudly, rather than quietly
+ * leaving an origin untrusted.
+ */
 function declaredOrigin(name: string, value: string) {
   if (!BARE_ORIGIN.test(value)) {
     throw new Error(
@@ -65,11 +75,11 @@ export function authRuntimeConfig(
   siteUrlValue: string | undefined,
   migrationAppOriginValue?: string,
 ) {
-  const url = new URL(siteUrlValue ?? LOCAL_APP_ORIGIN);
-  const siteUrl = url.origin;
-  const verbose = isLoopbackHostname(url.hostname);
-  // A malformed value throws here, as it does for SITE_URL: a typo in a trust
-  // decision must fail loudly at auth init, not quietly leave an origin untrusted.
+  // SITE_URL goes through the same check as the origin declared beside it. It is the
+  // origin better-auth trusts and the base a relative sign-in callback resolves
+  // against, so a pattern there is the hazard above rather than a shorthand.
+  const siteUrl = declaredOrigin("SITE_URL", siteUrlValue ?? LOCAL_APP_ORIGIN);
+  const verbose = isLoopbackHostname(new URL(siteUrl).hostname);
   const migrationAppOrigin = migrationAppOriginValue
     ? declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue)
     : null;

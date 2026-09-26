@@ -433,25 +433,31 @@ consistent client.
 **Origin migration (temporary, [ADR 0035](docs/adr/0035-static-marketing-site-on-apex-and-product-spa-on-app-subdomain.md)).**
 While the SPA is being moved to `https://app.pocketcircle.app`, auth has to trust
 that origin alongside `SITE_URL`, so sign-in works on whichever of the two a User
-lands on and deploying the app origin is not itself the cutover. Widen the
-deployment first, then add the app origin to the OAuth client's Authorized
-JavaScript origins:
+lands on and deploying the app origin is not itself the cutover. Add the app
+origin to the OAuth client's Authorized JavaScript origins **first** — a manual
+Cloud Console step, and it is not automatable — then widen the deployment:
 
 ```sh
 pnpm --filter @pocketcircle/convex exec convex env set MIGRATION_APP_ORIGIN https://app.pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex deploy -y
 ```
 
-The deploy is part of the change: the auth routes read this list when the module
-loads, so `env set` on its own leaves the new origin untrusted until the next
-deploy. A User who lands on an origin that is not in it gets no CORS answer from
-the auth routes and sign-in fails silently in the browser.
+The deploy is part of the change: the auth routes read the trusted-origin list when
+their module loads, so `env set` on its own leaves the new origin untrusted until
+the next deploy. A User who lands on an origin that is not in the list gets no CORS
+answer from the auth routes and sign-in fails in the browser with no detail — which
+also means a Worker `workers.dev` host and a bumped local dev port are not places
+sign-in works. Verify sign-in on a declared origin, and point `SITE_URL` at the port
+you are serving from.
 
-`MIGRATION_APP_ORIGIN` takes one bare origin — no wildcard, no list, no path — and
-a value that is not one is rejected at startup. Do not widen the trusted origins
-with Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` instead: its origin check
-reads that variable but the auth routes' CORS does not, so it produces a request
-that passes the server and is then blocked in the browser.
+`MIGRATION_APP_ORIGIN` and `SITE_URL` each take one bare origin — no wildcard, no
+list, no path. Anything else is refused, loudly, the first time the auth routes
+handle a request: a bad trust decision should stop sign-in rather than quietly widen
+or narrow it. Note that the refusal takes *all* auth down on both origins until the
+value is fixed, and the deploy that carried it still succeeds. Do not widen the
+trusted origins with Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` instead: its
+origin check reads that variable but the auth routes' CORS does not, so it produces
+a request that passes the server and is then blocked in the browser.
 
 Once `SITE_URL` names the app origin, drop the variable in the same deploy that
 flips it:
