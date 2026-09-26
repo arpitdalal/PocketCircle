@@ -166,9 +166,9 @@
  * toward the page. Fading is what the product's button does, and it is wrong here:
  * the label is ink, so fading the surface toward ink is fading it toward its own
  * text, and it drops the pair from 5.16:1 to 4.01:1 — a silent AA failure, and
- * one this stylesheet's own contrast test now fails on if it comes back. Lifting
- * away from the ink does the opposite, 5.97:1, and reads as raised on a dark page,
- * which is what a hover is trying to say anyway.
+ * one `src/contrast.test.ts` now fails on if it comes back. Lifting away from
+ * the ink does the opposite, 6.06:1, and reads as raised on a dark page, which
+ * is what a hover is trying to say anyway.
  *
  * `@utility`, not `@layer components`: Tailwind v4 uses native cascade layers, so
  * a class written in a layer is unconditionally outranked by every utility and

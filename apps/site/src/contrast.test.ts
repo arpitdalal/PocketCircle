@@ -305,7 +305,7 @@ const PAIRS: readonly Pair[] = [
     mixes: ["primary,foreground"],
     colours: ["primary", "foreground", "background"],
     foreground: page,
-    background: paint(mix(0.88, "primary", "foreground"), "background"),
+    background: paint(composed("primary", "foreground"), "background"),
     minimum: BODY,
   },
   {
