@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Terms &amp; Conditions — PocketCircle</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
+    <meta
+      name="description"
+      content="The terms that govern your use of the PocketCircle beta, and what PocketCircle is not."
+    />
+    <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
+    <link rel="canonical" href="%APEX_ORIGIN%/terms" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Terms &amp; Conditions — PocketCircle" />
+    <meta
+      property="og:description"
+      content="The terms that govern your use of the PocketCircle beta, and what PocketCircle is not."
+    />
+    <meta property="og:url" content="%APEX_ORIGIN%/terms" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Terms &amp; Conditions — PocketCircle" />
+    <meta
+      name="twitter:description"
+      content="The terms that govern your use of the PocketCircle beta, and what PocketCircle is not."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <!--
+      The Terms &amp; Conditions (#408), as a page of the marketing Site. It is checked in as the
+      document it is: no runtime, nothing to replace it, and the same stylesheet the
+      homepage uses.
+
+      It carries the same copy the product renders at this path today
+      (`apps/web-app/app/routes/terms.tsx`) and keeps the same URL, which is the
+      reason the two exist at once: this document is cited in external submission
+      material, and Google requires the Privacy and Terms pages to share the branding
+      homepage's domain, so the apex owns them (ADR 0035). Until the cutover the apex
+      is still the app, which is why the app keeps rendering its own copy and why
+      every link here is absolute — which origin a link names is a decision on this
+      origin, not a default, and a relative href would resolve against whichever
+      origin served the page.
+
+      The copy is a transcription and is meant to stay that way: edits to policy text
+      are their own change, made in one place and asserted on both sides by
+      `apps/web-app/app/routes/legal-documents.test.tsx`, which fails the build when
+      these two documents say different things.
+
+      Every link is absolute. Sign-in leaves for the app origin, because that is where
+      the session lives; the document links stay on the apex, so reading one never
+      costs a signed-out visitor a cross-origin hop to a page that could not know they
+      were signed out.
+    -->
+    <div
+      class="safe-x relative flex min-h-dvh flex-col bg-background text-foreground"
+    >
+      <header
+        class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
+      >
+        <a
+          href="%APEX_ORIGIN%/"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
+        >
+          <span
+            aria-hidden="true"
+            class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+          >
+            <span class="size-2.5 rounded-full bg-primary"></span>
+          </span>
+          PocketCircle
+        </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
+      </header>
+
+      <main id="main" class="flex flex-1 flex-col">
+        <article class="mx-auto w-full max-w-3xl px-4 pt-12 pb-16 sm:px-6 lg:pt-16">
+          <header class="space-y-3 border-b border-border/60 pb-8">
+            <p class="font-display text-xs font-medium tracking-[0.16em] text-primary uppercase">
+              Effective September 7, 2026
+            </p>
+            <h1 class="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Terms &amp; Conditions
+            </h1>
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              These Terms govern your use of the PocketCircle beta. By continuing with Google or
+              otherwise using PocketCircle, you agree to them.
+            </p>
+          </header>
+
+          <div class="space-y-10 pt-8">
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                1. The service
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle is a collaborative record-keeping tool for tracking Expenses and
+                Income in personal and shared Circles. It is not a bank, payment processor,
+                accounting service, investment adviser, or financial adviser. PocketCircle does not
+                move money, settle debts, verify that a Transaction occurred, or determine what
+                anyone owes.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                You remain responsible for your financial decisions, records, taxes, reporting
+                duties, and agreements with other Circle Members.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle is operated and published by Arpit Dalal as an individual maintainer.
+                The PocketCircle name identifies the product, not a separate bank, company, or
+                financial institution.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                2. Eligibility and your account
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>You must be legally able to agree to these Terms.</li>
+                <li>
+                  If you are under the age of majority where you live, use PocketCircle only with a
+                  parent or legal guardian's permission.
+                </li>
+                <li>
+                  You sign in through Google and must provide accurate account information. You are
+                  responsible for protecting access to your Google Account and devices.
+                </li>
+                <li>
+                  You may not impersonate another person, share access unlawfully, or create an
+                  account for someone without permission.
+                </li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                3. Shared Circles and your content
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Content you add to a shared Circle—including Transaction details, Categories, and
+                Circle activity—can be viewed by current Members according to their permissions.
+                Other Members may add records that identify you as the person who paid or recorded
+                a Transaction.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                You keep any rights you have in content you submit. You give PocketCircle a limited
+                permission to host, process, copy, and display that content only as needed to
+                operate, secure, support, and improve the service. Only submit information you are
+                authorized to share, and avoid unnecessary sensitive information in free-text
+                fields.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle preserves audit history so Members can understand changes. Editing,
+                archiving, leaving a Circle, or deleting your account may not remove records or
+                frozen attribution that form part of another Member's shared Circle history.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                4. Acceptable use
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">You must not:</p>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>use PocketCircle for unlawful, fraudulent, abusive, or deceptive activity;</li>
+                <li>
+                  probe, bypass, or interfere with authentication, permissions, rate limits, or
+                  security;
+                </li>
+                <li>upload malicious code or disrupt the service or its providers;</li>
+                <li>
+                  scrape, reverse engineer, or automate access except where applicable law permits
+                  it;
+                </li>
+                <li>
+                  violate another person's privacy, intellectual-property rights, or other rights;
+                  or
+                </li>
+                <li>use the service in a way that creates unreasonable operational risk.</li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                5. Beta service and availability
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle is an early beta. Features may be incomplete, change, break, or be
+                removed. Service limits may change as usage grows. We may pause or restrict access
+                to maintain the service, address security or legal issues, prevent abuse, or
+                protect users and data.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Keep independent copies of records you cannot afford to lose. Circle CSV Export is
+                available for portability, but it is not a substitute for your own accounting
+                records or backups.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                6. Account Deletion
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                You can request Account Deletion from Settings. Deletion requires email
+                verification and may require you to archive or transfer eligible Circles first.
+                Deletion removes your login and profile and starts cleanup of data you exclusively
+                control.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Shared records may retain a frozen Display Name and activity attribution so
+                remaining Members do not lose the meaning of their Transaction and Circle
+                histories. The Privacy Policy explains this in more detail.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                7. Third-party services
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle relies on third-party services for authentication, hosting, database,
+                email, operational monitoring, optional product analytics, and AI-assistant
+                connections. When you connect an assistant, it can request only the Circles and
+                scopes you approve, subject to PocketCircle authorization and the assistant
+                provider's own terms and policies. See the Privacy Policy for the providers
+                currently used and the information processed by them.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                8. Email communications
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle may send emails needed to operate, secure, and support your account.
+                These may include Welcome, Invitation, Account Deletion, security, support, and
+                material legal notices. Some of these emails are necessary to provide the service
+                and do not contain promotional content.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle may also send occasional emails about Product updates, Feature
+                Announcements, and other news about the service. These emails are enabled by
+                default for active accounts. You can change this preference in Settings → Privacy.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                9. Disclaimers
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                To the maximum extent permitted by law, PocketCircle is provided “as is” and “as
+                available,” without warranties of uninterrupted operation, accuracy, fitness for
+                a particular purpose, merchantability, or non-infringement. We do not guarantee
+                that user content is correct, complete, recoverable, or suitable for legal, tax,
+                or accounting use.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Nothing in these Terms excludes warranties or rights that cannot legally be
+                excluded.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                10. Limitation of liability
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                To the maximum extent permitted by law, PocketCircle and its operator will not be
+                liable for indirect, incidental, special, consequential, exemplary, or punitive
+                damages, or for lost profits, revenues, data, goodwill, or opportunities arising
+                from use of the service. Where liability cannot be excluded, it will be limited to
+                the minimum amount permitted by applicable law.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                11. Changes and termination
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                We may update these Terms as PocketCircle changes. Material changes will be
+                presented in a reasonably prominent way before they apply when required. Continued
+                use after an update takes effect means you accept the revised Terms.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                You may stop using PocketCircle at any time. We may suspend or terminate access
+                when reasonably necessary for security, abuse prevention, legal compliance, or a
+                serious breach of these Terms.
+              </p>
+            </section>
+          </div>
+
+          <footer class="mt-12 space-y-3 border-t border-border/60 pt-8">
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              Questions? Email
+              <a
+                href="mailto:legal@%APEX_HOSTNAME%"
+                class="font-medium text-primary underline underline-offset-4"
+                >legal@%APEX_HOSTNAME%</a>.
+            </p>
+            <a
+              href="%APP_ORIGIN%/signin"
+              class="inline-block text-base font-medium text-primary underline underline-offset-4"
+              >Back to sign in</a
+            >
+          </footer>
+        </article>
+      </main>
+
+      <footer
+        class="border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
+      >
+        <div class="mx-auto grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="space-y-3 sm:col-span-2 lg:col-span-1">
+            <p class="flex items-center gap-2 font-display text-sm font-semibold tracking-tight">
+              <span
+                aria-hidden="true"
+                class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+              >
+                <span class="size-2.5 rounded-full bg-primary"></span>
+              </span>
+              PocketCircle
+            </p>
+            <p class="max-w-xs text-pretty text-sm text-muted-foreground">
+              A shared ledger for the money you split with other people, with AI assistants when
+              you want help reading it.
+            </p>
+          </div>
+
+          <nav aria-label="PocketCircle" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              PocketCircle
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/">Home</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/whats-new">What's new</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/support">Support</a>
+              </li>
+            </ul>
+          </nav>
+
+          <nav aria-label="Legal" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              Legal
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <p class="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
+          © %YEAR% PocketCircle. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

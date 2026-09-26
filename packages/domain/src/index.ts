@@ -1,3 +1,4 @@
+export * from "./changelog.js";
 export * from "./circle-capacity.js";
 export * from "./color.js";
 export * from "./currency.js";

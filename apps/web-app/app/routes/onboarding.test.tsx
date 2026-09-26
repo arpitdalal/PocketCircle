@@ -1,3 +1,4 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
@@ -68,7 +69,7 @@ describe("Onboarding profile form", () => {
     expect(screen.getByText(/opt out anytime in Settings → Privacy/i)).toBeVisible();
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
       "href",
-      "/privacy",
+      `${APEX_ORIGIN}/privacy`,
     );
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });

@@ -1,6 +1,6 @@
 import { LoaderCircle } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { Link } from "react-router";
+import { LegalConsent } from "~/components/legal-consent.js";
 import { Button } from "~/components/ui/button.js";
 import { type SignInWithGoogleOptions, signInWithGoogle } from "~/lib/auth-client.js";
 import {
@@ -90,23 +90,7 @@ export function GoogleSignInPanel({
         </p>
       ) : null}
 
-      <p className="text-xs text-muted-foreground">
-        By continuing you agree to our{" "}
-        <Link
-          to="/terms"
-          className="underline underline-offset-2 transition-colors hover:text-foreground"
-        >
-          Terms
-        </Link>{" "}
-        and{" "}
-        <Link
-          to="/privacy"
-          className="underline underline-offset-2 transition-colors hover:text-foreground"
-        >
-          Privacy Policy
-        </Link>
-        .
-      </p>
+      <LegalConsent />
     </div>
   );
 }

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Support — PocketCircle</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
+    <meta
+      name="description"
+      content="How to reach the PocketCircle maintainer, connect an AI assistant, and get unstuck."
+    />
+    <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
+    <link rel="canonical" href="%APEX_ORIGIN%/support" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Support — PocketCircle" />
+    <meta
+      property="og:description"
+      content="How to reach the PocketCircle maintainer, connect an AI assistant, and get unstuck."
+    />
+    <meta property="og:url" content="%APEX_ORIGIN%/support" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Support — PocketCircle" />
+    <meta
+      name="twitter:description"
+      content="How to reach the PocketCircle maintainer, connect an AI assistant, and get unstuck."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <!--
+      The Support page (#408), as a page of the marketing Site. It is checked in as
+      the document it is: no runtime, nothing to replace it, and the same stylesheet the
+      homepage uses.
+
+      It carries the same copy the product renders at this path today
+      (`apps/web-app/app/routes/support.tsx`) and keeps the same URL, which is the reason
+      the two exist at once: the address is published in external submission material
+      and is the only way into the maintainer, and the apex owns Support (ADR 0035).
+      Until the cutover the apex is still the app, which is why the app keeps rendering
+      its own copy and why every link here is absolute — which origin a link names is a
+      decision on this origin, not a default, and a relative href would resolve against
+      whichever origin served the page.
+
+      The copy is a transcription and is meant to stay that way: edits are their own
+      change, made in one place and asserted on both sides by
+      `apps/web-app/app/routes/legal-documents.test.tsx`, which fails the build when
+      these two documents say different things.
+
+      This is the one page that names three URLs a reader has to type or paste rather
+      than click — where to sign in, the MCP server URL, and the mailbox — so each is
+      a build-time placeholder rather than a hostname written into the document. The
+      sign-in hostname is the app's, which is the value that changes at the cutover;
+      the mailbox is derived from the apex host, which does not.
+    -->
+    <div
+      class="safe-x relative flex min-h-dvh flex-col bg-background text-foreground"
+    >
+      <header
+        class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
+      >
+        <a
+          href="%APEX_ORIGIN%/"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
+        >
+          <span
+            aria-hidden="true"
+            class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+          >
+            <span class="size-2.5 rounded-full bg-primary"></span>
+          </span>
+          PocketCircle
+        </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
+      </header>
+
+      <main id="main" class="flex flex-1 flex-col">
+        <article class="mx-auto w-full max-w-3xl px-4 pt-12 pb-16 sm:px-6 lg:pt-16">
+          <header class="space-y-3 border-b border-border/60 pb-8">
+            <p class="font-display text-xs font-medium tracking-[0.16em] text-primary uppercase">
+              Updated September 7, 2026
+            </p>
+            <h1 class="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Support
+            </h1>
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              Help connecting PocketCircle, fixing AI assistant access, and reaching the maintainer.
+              Do not email passwords, auth codes, tokens, or personal financial exports.
+            </p>
+          </header>
+
+          <div class="space-y-10 pt-8">
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                Contact
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Email
+                <a
+                  href="mailto:support@%APEX_HOSTNAME%"
+                  class="font-medium text-primary underline underline-offset-4"
+                  >support@%APEX_HOSTNAME%</a>. This is the public support address for
+                PocketCircle, including ChatGPT and Codex plugin questions.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                Connect an AI assistant
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>
+                  Sign in at
+                  <a
+                    href="%APP_ORIGIN%/signin"
+                    class="font-medium text-primary underline underline-offset-4"
+                    >%APP_HOSTNAME%/signin</a
+                  >
+                  with Google.
+                </li>
+                <li>
+                  Open <strong class="text-foreground">Connections</strong> from the account menu.
+                  Copy the MCP server URL (<code class="font-mono text-foreground"
+                    >%MCP_RESOURCE_URI%</code
+                  >).
+                </li>
+                <li>
+                  In your assistant (ChatGPT, Codex, Claude, Cursor, or another MCP client), add a
+                  remote MCP server and paste that URL. Leave Client ID and secrets empty if the
+                  client asks.
+                </li>
+                <li>
+                  When PocketCircle opens, finish Google sign-in if needed, choose Circles and
+                  permissions, then Allow. The connection appears under Connections — revoke
+                  anytime.
+                </li>
+              </ul>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Directory listing availability depends on the host's review and publication
+                process. You can still connect directly from an assistant with the MCP URL above
+                before a public directory listing is live. Installing the package from a local
+                marketplace is for local testing and does not publish PocketCircle or prove ChatGPT
+                web availability.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                Troubleshooting
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>
+                  <strong class="text-foreground">Sign-in or consent failed:</strong> Use the same
+                  Google account for PocketCircle. Retry from the assistant so a fresh approval
+                  window opens. If Google shows an extra verification step, complete it in the
+                  browser, then try again.
+                </li>
+                <li>
+                  <strong class="text-foreground">Assistant can't see Circles:</strong> Reconnect
+                  and select those Circles on the consent screen. Revoked or never-approved
+                  Circles stay inaccessible.
+                </li>
+                <li>
+                  <strong class="text-foreground">Access denied or tools stop working:</strong>
+                  Check Connections. Revoke the old client if needed, then connect again and
+                  re-approve Circles.
+                </li>
+                <li>
+                  <strong class="text-foreground">Cleanup pending after revoke:</strong> Access is
+                  already blocked. Use Retry on the connection card if PocketCircle still shows
+                  cleanup pending, or wait briefly and refresh Connections.
+                </li>
+                <li>
+                  <strong class="text-foreground">Expired or broken link:</strong> Start the
+                  connection again from the assistant or from Connections — don't reuse an old
+                  browser tab.
+                </li>
+                <li>
+                  <strong class="text-foreground">Old tools or package behavior:</strong> Refresh
+                  the connection or reinstall/update the PocketCircle package, then start a new
+                  assistant chat so the host reloads current MCP metadata and skills.
+                </li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                Limits
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>
+                  PocketCircle does not convert or sum different Currencies. Reporting stays per
+                  Currency.
+                </li>
+                <li>
+                  Assistants only use Circles and permissions you approve for that connection — not
+                  your whole account by default.
+                </li>
+                <li>
+                  PocketCircle does not add a country or region block beyond what the host's plugin
+                  directory allows.
+                </li>
+                <li>
+                  PocketCircle does not support Settlement, money transfers, or Currency
+                  conversion.
+                </li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                Policies
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                See the
+                <a
+                  href="%APEX_ORIGIN%/privacy"
+                  class="font-medium text-primary underline underline-offset-4"
+                  >Privacy Policy</a
+                >
+                and
+                <a
+                  href="%APEX_ORIGIN%/terms"
+                  class="font-medium text-primary underline underline-offset-4"
+                  >Terms</a
+                >.
+              </p>
+            </section>
+          </div>
+
+          <footer class="mt-12 space-y-3 border-t border-border/60 pt-8">
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              Questions? Email
+              <a
+                href="mailto:legal@%APEX_HOSTNAME%"
+                class="font-medium text-primary underline underline-offset-4"
+                >legal@%APEX_HOSTNAME%</a>.
+            </p>
+            <a
+              href="%APP_ORIGIN%/signin"
+              class="inline-block text-base font-medium text-primary underline underline-offset-4"
+              >Back to sign in</a
+            >
+          </footer>
+        </article>
+      </main>
+
+      <footer
+        class="border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
+      >
+        <div class="mx-auto grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="space-y-3 sm:col-span-2 lg:col-span-1">
+            <p class="flex items-center gap-2 font-display text-sm font-semibold tracking-tight">
+              <span
+                aria-hidden="true"
+                class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+              >
+                <span class="size-2.5 rounded-full bg-primary"></span>
+              </span>
+              PocketCircle
+            </p>
+            <p class="max-w-xs text-pretty text-sm text-muted-foreground">
+              A shared ledger for the money you split with other people, with AI assistants when
+              you want help reading it.
+            </p>
+          </div>
+
+          <nav aria-label="PocketCircle" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              PocketCircle
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/">Home</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/whats-new">What's new</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/support">Support</a>
+              </li>
+            </ul>
+          </nav>
+
+          <nav aria-label="Legal" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              Legal
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <p class="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
+          © %YEAR% PocketCircle. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

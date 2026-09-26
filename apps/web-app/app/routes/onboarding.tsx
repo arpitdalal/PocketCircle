@@ -1,6 +1,6 @@
-import { LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
+import { APEX_ORIGIN, LIMITS, parseProfileUpdate } from "@pocketcircle/domain";
 import { type FormEvent, useState } from "react";
-import { href, Link, Navigate } from "react-router";
+import { Navigate } from "react-router";
 import { Splash } from "~/components/splash.js";
 import { Button } from "~/components/ui/button.js";
 import { Field, FieldError, FieldLabel } from "~/components/ui/field.js";
@@ -96,12 +96,12 @@ function OnboardingForm({ user }: { user: { email: string; displayName: string }
           PocketCircle collects limited feature-usage analytics to improve the product. Transaction
           amounts, titles, notes, names, and other free text are never included. You can opt out
           anytime in Settings → Privacy.{" "}
-          <Link
-            to={href("/privacy")}
+          <a
+            href={`${APEX_ORIGIN}/privacy`}
             className="underline underline-offset-2 transition-colors hover:text-foreground"
           >
             Privacy Policy
-          </Link>
+          </a>
         </p>
 
         <Button type="submit" className="w-full" disabled={submitting}>

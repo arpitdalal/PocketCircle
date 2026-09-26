@@ -1,3 +1,4 @@
+import { parseChangelog } from "@pocketcircle/domain";
 import { useEffect } from "react";
 import {
   Accordion,
@@ -6,7 +7,7 @@ import {
   AccordionTrigger,
 } from "~/components/ui/accordion.js";
 import { track } from "~/lib/analytics.js";
-import { changelogSource, parseChangelog } from "~/lib/changelog.js";
+import { changelogSource } from "~/lib/changelog.js";
 import { markChangelogVersionSeen } from "~/lib/changelog-seen.js";
 import { useAppSession } from "~/lib/session.js";
 

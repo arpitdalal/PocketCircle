@@ -12,6 +12,23 @@
   // no-`main` shape is also what lets a future edge behaviour be added later
   // without moving the site off Workers (ADR 0035).
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    // Every document here is served at a path that is not its file name: the
+    // marketing surfaces the apex owns are `/privacy`, `/terms`, `/support`, and
+    // `/whats-new`, which are the URLs already published in external submission
+    // material and the ones Google requires to share the branding homepage's
+    // domain (ADR 0035). `auto-trailing-slash` is what serves `privacy.html` for
+    // the request `/privacy` and 307s `/privacy.html` and `/privacy/` to `/privacy`
+    // (https://developers.cloudflare.com/workers/static-assets/routing/advanced/html-handling/),
+    // so those four paths are the published files' names and nothing rewrites them.
+    //
+    // It is also the default, and it is written out because the two values either
+    // side of it fail in ways the build cannot see. `force-trailing-slash` answers
+    // `/privacy` with a 307 to `/privacy/`, putting a redirect hop on a URL that is
+    // on a Google branding application and in a shipped plugin manifest.
+    // `none` serves only `/privacy.html`, so all four cited paths 404. Neither
+    // changes what the build publishes, and `src/wrangler.test.ts` is what holds
+    // this line.
+    "html_handling": "auto-trailing-slash"
   }
 }

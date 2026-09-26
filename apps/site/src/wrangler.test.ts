@@ -34,6 +34,19 @@ describe("the Site Worker", () => {
     expect(wranglerConfig).toMatch(/"workers_dev"\s*:\s*true/);
   });
 
+  it("serves each page itself, at the path external material cites", () => {
+    // The four marketing documents are published as `privacy.html` and friends and
+    // have to answer `/privacy` and friends, because those are the URLs already
+    // published to third parties and the ones Google requires to share the
+    // branding homepage's domain (ADR 0035). `auto-trailing-slash` is the value
+    // that maps one to the other, and it is the default, so it is written out and
+    // held here: `force-trailing-slash` would answer `/privacy` with a redirect and
+    // `none` would 404 it, and the build would stay green either way, because the
+    // files are published either way. The redirect case is what
+    // `scripts/assert-site-html.mjs` and the deploy check cannot see and this can.
+    expect(wranglerConfig).toMatch(/"html_handling"\s*:\s*"auto-trailing-slash"/);
+  });
+
   it("publishes the directory the build writes", () => {
     // A stale or misspelled assets directory deploys the previous build (or
     // nothing) without erroring, so the two are compared, not trusted.

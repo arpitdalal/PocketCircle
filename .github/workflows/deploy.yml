@@ -230,11 +230,12 @@ jobs:
       # origin rather than on the artifact: the canonical apex origin the build
       # injected, the security headers derived from the product's policy, the
       # noindex that keeps `workers.dev` out of search results until the apex
-      # cutover removes it, the sign-in link that leaves for the app origin, and
-      # the stylesheet the page is nothing but. The document is fetched, never
-      # executed, so what is asserted here is what a browser without JavaScript
-      # would be given. Retries because the asset manifest takes a moment to
-      # propagate, the same reason the MCP discovery check below retries.
+      # cutover removes it, the sign-in link that leaves for the app origin, the
+      # stylesheet the page is nothing but, and every published document answering
+      # at the path it is cited at. The document is fetched, never executed, so what
+      # is asserted here is what a browser without JavaScript would be given.
+      # Retries because the asset manifest takes a moment to propagate, the same
+      # reason the MCP discovery check below retries.
       - name: Verify marketing Site
         # APEX_ORIGIN and APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
@@ -245,7 +246,8 @@ jobs:
           SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
         run: |
           node --input-type=module <<'EOF'
-          import { readFile } from "node:fs/promises";
+          import { statSync } from "node:fs";
+          import { readdir, readFile } from "node:fs/promises";
           const origin = new URL(process.env.SITE_ORIGIN).origin;
           const expected = {
             "x-frame-options": "DENY",
@@ -253,6 +255,22 @@ jobs:
             "referrer-policy": "strict-origin-when-cross-origin",
             "x-robots-tag": "noindex",
           };
+
+          // Read once, before any retry: which documents this build published is a
+          // property of the artifact, and waiting cannot change it, so a failure
+          // here is a build problem and should not be retried twelve times as if it
+          // were a propagation problem.
+          const pages = (await readdir("apps/site/dist", { recursive: true }))
+            .filter(
+              (file) =>
+                file.endsWith(".html") &&
+                file !== "index.html" &&
+                statSync(`apps/site/dist/${file}`).isFile(),
+            )
+            .sort();
+          if (pages.length === 0) {
+            throw new Error("the build published no page other than the homepage");
+          }
 
           async function verify() {
             const response = await fetch(`${origin}/`);
@@ -353,6 +371,58 @@ jobs:
               throw new Error(
                 `the served share image is ${servedCard.length} bytes and differs from the ${builtCard.length} byte artifact this job built`,
               );
+            }
+            // Every other page this build published, fetched at the path it is
+            // cited at rather than at its file name. That mapping is the Worker's
+            // `assets.html_handling`, so a document that is published but
+            // unreachable is a 404 for exactly the links that must not break:
+            // `/privacy` and `/terms` are on a Google branding application and in a
+            // shipped plugin manifest (ADR 0035).
+            //
+            // Redirects are not followed, which is the whole point of the loop. A
+            // plain fetch follows a 307 and reports 200 with the right bytes, so
+            // `html_handling: "force-trailing-slash"` — which answers `/privacy`
+            // with a hop to `/privacy/` — would pass every other assertion in this
+            // step. The canonical path has to be served, not reached.
+            //
+            // The `.html` form is checked in the other direction, because a Worker
+            // that served it as a second 200 would be duplicate content on the URLs
+            // that must not move, and `auto-trailing-slash` is what 307s it to the
+            // canonical one.
+            //
+            // Bytes, for the reason the homepage above is compared by bytes: a
+            // Worker serving something else at that path — a stale document, or an
+            // asset-not-found page — would pass a looser check. The homepage is
+            // skipped because the assertions above already fetched it. Which pages
+            // *should* exist is asserted on the source side, by
+            // `apps/site/src/pages.test.ts` and by `assert-site-html.mjs` above;
+            // what this adds is the one thing neither can see, which is the origin's
+            // answer.
+            for (const file of pages) {
+              const path = `/${file.replace(/\.html$/, "")}`;
+              const served = await fetch(`${origin}${path}`, { redirect: "manual" });
+              if (served.status !== 200) {
+                throw new Error(
+                  `${path} answered ${served.status}, want the document itself`,
+                );
+              }
+              const text = await served.text();
+              const document = await readFile(`apps/site/dist/${file}`, "utf8");
+              if (text !== document) {
+                throw new Error(
+                  `${path} is ${text.length} characters and is not the document this job built`,
+                );
+              }
+
+              const alias = await fetch(`${origin}${path}.html`, { redirect: "manual" });
+              if (alias.status === 200) {
+                throw new Error(
+                  `${path}.html is served as a second document instead of redirecting to ${path}`,
+                );
+              }
+              if (alias.status < 300 || alias.status > 399) {
+                throw new Error(`${path}.html answered ${alias.status}, want a redirect`);
+              }
             }
           }
 

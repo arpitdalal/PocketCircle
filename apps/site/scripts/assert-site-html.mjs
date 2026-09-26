@@ -4,124 +4,178 @@ import { fileURLToPath } from "node:url";
 import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import sharp from "sharp";
 import { attributeOf, headingsOf, metaContentOf, tagsOf } from "../src/document.ts";
+import { pagePath, sitePageFiles } from "../src/pages.ts";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
 import { SHARE_IMAGE } from "../src/share-image.ts";
 import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
+import { RELEASES_TOKEN } from "../src/whats-new.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
- * so the built document *is* the product: a section the build dropped, a
- * canonical origin left as a placeholder, a Tailwind class that never compiled,
- * a share image that came out empty, or a `_headers` rule Workers cannot parse
- * are all invisible once the artifact is uploaded — the Worker serves whatever it
- * was given.
+ * so the built document *is* the product: a section the build dropped, a canonical
+ * origin left as a placeholder, a Tailwind class that never compiled, a share
+ * image that came out empty, or a `_headers` rule Workers cannot parse are all
+ * invisible once the artifact is uploaded — the Worker serves whatever it was
+ * given.
  *
  * Every check below reads attributes by name, not by position, and reads text
  * through `src/document.ts`, the same helper the unit tests use. A gate that
  * demands `<link rel="canonical" href="…">` in that exact order, or that reports a
  * line break as part of a heading's copy, fails a document that means the same
  * thing.
+ *
+ * It runs over *every* page, not the homepage. #408 gave the Site four more
+ * documents, and they are the same kind of thing: a page of this origin that a
+ * crawler reads and a visitor is sent to. A check written for one page and left
+ * there is a check the other four do not have — and these four are the ones with
+ * policy text in them, where a build that dropped a section would ship a document
+ * that reads as complete.
  */
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
-const html = readFileSync(join(distDir, "index.html"), "utf8");
 
-/** Every tag named `name` in the built document, as the raw text written. */
-const openingTags = (name) => tagsOf(html, name);
+/** A published page, and the readers that answer questions about it by name. */
+function publishedPage(file) {
+  const html = readFileSync(join(distDir, file), "utf8");
+  const tags = (name) => tagsOf(html, name);
+  return {
+    file,
+    path: pagePath(file),
+    html,
+    tags,
+    /** Whether any tag named `name` carries every one of `attributes`. */
+    hasTag: (name, attributes) =>
+      tags(name).some((tag) =>
+        attributes.every(([attribute, value]) => attributeOf(tag, attribute) === value),
+      ),
+    /** The `content` of the first `meta` tag carrying `name` (or `property`) `key`. */
+    meta: (key) => metaContentOf(html, key),
+    /** The stylesheet this page's styling depends on, relative to `dist/`. */
+    stylesheet: tags("link")
+      .filter((tag) => attributeOf(tag, "rel") === "stylesheet")
+      .map((tag) => attributeOf(tag, "href"))
+      .find((href) => href !== undefined),
+  };
+}
 
-/** Whether any tag named `name` carries every one of `attributes`. */
-function hasTag(name, attributes) {
-  return openingTags(name).some((tag) =>
-    attributes.every(([attributeName, value]) => attributeOf(tag, attributeName) === value),
+const documents = sitePageFiles().map(publishedPage);
+
+const missing = documents.flatMap((page) => {
+  /**
+   * The description is written once, in the `description` tag, and both card
+   * formats have to repeat it. Comparing the three against each other rather than
+   * against a constant here is the point: a second copy of the string in this
+   * script would be a third place to update and would not catch either of the two
+   * drifting from the document.
+   */
+  const description = page.meta("description");
+  const canonical = `${APEX_ORIGIN}${page.path}`;
+
+  const absent = [
+    ["a title", /<title>[^<]+<\/title>/.test(page.html)],
+    ["a description", (description ?? "").length > 0 && (description?.length ?? 0) <= 160],
+    [
+      "an og:description that repeats it",
+      page.meta("og:description") === description && description !== undefined,
+    ],
+    [
+      "a twitter:description that repeats it",
+      page.meta("twitter:description") === description && description !== undefined,
+    ],
+    ["an og:title", (page.meta("og:title") ?? "").length > 0],
+    ["a twitter:title", (page.meta("twitter:title") ?? "").length > 0],
+    [
+      "a card large enough to be worth rendering",
+      page.meta("twitter:card") === "summary_large_image",
+    ],
+    [
+      "a canonical link to its own path on the apex",
+      page.hasTag("link", [
+        ["rel", "canonical"],
+        ["href", canonical],
+      ]),
+    ],
+    [
+      "an og:url",
+      page.hasTag("meta", [
+        ["property", "og:url"],
+        ["content", canonical],
+      ]),
+    ],
+    [
+      "an absolute share image on the apex",
+      page.meta("og:image") === `${APEX_ORIGIN}/${SHARE_IMAGE.published}` &&
+        page.meta("twitter:image") === page.meta("og:image") &&
+        page.meta("og:image:type") === "image/png" &&
+        page.meta("og:image:width") === String(SHARE_IMAGE.width) &&
+        page.meta("og:image:height") === String(SHARE_IMAGE.height) &&
+        (page.meta("og:image:alt") ?? "").length > 0,
+    ],
+    [
+      "a branded favicon",
+      page.hasTag("link", [
+        ["rel", "icon"],
+        ["href", "/favicon.svg"],
+      ]),
+    ],
+    ["a stylesheet", page.stylesheet !== undefined],
+    [
+      "exactly one first-level heading",
+      headingsOf(page.html).filter(([level]) => level === 1).length === 1,
+    ],
+    // ADR 0035: a static document, generated once at build time. A script tag is
+    // the first step back to a client runtime, and it would cost Worker
+    // invocations on every request.
+    ["no script", !/<script/i.test(page.html)],
+    // Which origin owns a destination — ADR 0035 puts the marketing surfaces on
+    // the apex and sign-in on the app — is asserted in `src/documents.test.ts`,
+    // because the two are one string until the cutover gives the app its
+    // subdomain. What is asserted here is that each destination is still written
+    // down at all, and absolutely rather than relative to the staging host.
+    ["a sign-in link to the app origin", page.hasTag("a", [["href", `${APP_ORIGIN}/signin`]])],
+  ]
+    .filter(([, present]) => !present)
+    .map(([what]) => `dist/${page.file} is missing ${what}`);
+
+  // The branding homepage is the one page Google reads for the application, and
+  // it has to name the policies on the same verified domain, so its links to them
+  // are the requirement rather than a nicety of the footer.
+  if (page.file === "index.html") {
+    for (const [what, surface] of [
+      ["a Terms link on the apex", "/terms"],
+      ["a Privacy link on the apex", "/privacy"],
+    ]) {
+      if (!page.hasTag("a", [["href", `${APEX_ORIGIN}${surface}`]])) {
+        absent.push(`dist/${page.file} is missing ${what}`);
+      }
+    }
+  }
+
+  return absent;
+});
+
+if (missing.length > 0) {
+  throw new Error(missing.join("\n"));
+}
+
+// One stylesheet for the whole Site, so the compiled-class check below is
+// measuring every page against the CSS that page actually loads. A second page
+// linking a stylesheet of its own would otherwise be checked against the
+// homepage's, and would pass while shipping unstyled.
+const stylesheets = new Set(documents.map((page) => page.stylesheet));
+
+if (stylesheets.size !== 1) {
+  throw new Error(
+    `the pages do not share one stylesheet, so the compiled-class check cannot cover them all: ${[...stylesheets].join(", ")}`,
   );
 }
 
-/** The `content` of the first `meta` tag carrying `name` (or `property`) `key`. */
-const meta = (key) => metaContentOf(html, key);
-
-/**
- * The description is written once, in the `description` tag, and both card
- * formats have to repeat it. Comparing the three against each other rather than
- * against a constant here is the point: a second copy of the string in this
- * script would be a third place to update and would not catch either of the two
- * drifting from the document.
- */
-const description = meta("description");
-
-const missing = [
-  ["a title", /<title>[^<]+<\/title>/.test(html)],
-  ["a description", (description ?? "").length > 0 && (description?.length ?? 0) <= 160],
-  [
-    "an og:description that repeats it",
-    meta("og:description") === description && description !== undefined,
-  ],
-  [
-    "a twitter:description that repeats it",
-    meta("twitter:description") === description && description !== undefined,
-  ],
-  ["an og:title", (meta("og:title") ?? "").length > 0],
-  ["a twitter:title", (meta("twitter:title") ?? "").length > 0],
-  ["a card large enough to be worth rendering", meta("twitter:card") === "summary_large_image"],
-  [
-    "a canonical link",
-    hasTag("link", [
-      ["rel", "canonical"],
-      ["href", `${APEX_ORIGIN}/`],
-    ]),
-  ],
-  [
-    "an og:url",
-    hasTag("meta", [
-      ["property", "og:url"],
-      ["content", `${APEX_ORIGIN}/`],
-    ]),
-  ],
-  [
-    "an absolute share image on the apex",
-    meta("og:image") === `${APEX_ORIGIN}/${SHARE_IMAGE.published}` &&
-      meta("twitter:image") === meta("og:image") &&
-      meta("og:image:type") === "image/png" &&
-      meta("og:image:width") === String(SHARE_IMAGE.width) &&
-      meta("og:image:height") === String(SHARE_IMAGE.height) &&
-      (meta("og:image:alt") ?? "").length > 0,
-  ],
-  [
-    "a branded favicon",
-    hasTag("link", [
-      ["rel", "icon"],
-      ["href", "/favicon.svg"],
-    ]),
-  ],
-  // Which origin owns a destination — ADR 0035 puts the marketing surfaces on
-  // the apex and sign-in on the app — is asserted in `src/marketing-home.test.ts`,
-  // because the two are one string until the cutover gives the app its
-  // subdomain. What is asserted here is that each destination is still written
-  // down at all, and absolutely rather than relative to the staging host.
-  ["a sign-in link to the app origin", hasTag("a", [["href", `${APP_ORIGIN}/signin`]])],
-  ["a Terms link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/terms`]])],
-  ["a Privacy link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/privacy`]])],
-]
-  .filter(([, present]) => !present)
-  .map(([what]) => what);
-
-if (missing.length > 0) {
-  throw new Error(`dist/index.html is missing ${missing.join(", ")}`);
-}
-
-/** The stylesheet the page's styling depends on, as a path relative to `dist/`. */
-const stylesheet = openingTags("link")
-  .filter((tag) => attributeOf(tag, "rel") === "stylesheet")
-  .map((tag) => attributeOf(tag, "href"))
-  .find((href) => href !== undefined);
-
-if (stylesheet === undefined) {
-  throw new Error("dist/index.html links no stylesheet");
-}
+const stylesheet = documents[0]?.stylesheet ?? "";
 
 /**
  * The share image is the one asset a crawler fetches from outside the page, so
  * nothing else in the build would notice it missing, truncated, or the wrong
- * size: the document above would be perfect and the card would still be a blank
+ * size: the documents above would be perfect and the card would still be a blank
  * rectangle in a timeline. It is read from `dist/`, which is what the Worker
  * uploads, not from the source it was rendered from.
  *
@@ -148,11 +202,15 @@ await sharp(publishedCard).raw().toBuffer();
 
 /**
  * The homepage's headings, in order, as `[level, text]` — the one place the copy
- * order is written down. It lives here rather than beside the source because
- * this is the artifact a visitor is served: an assertion about the checked-in
- * file would only ever prove the build did what it did last time.
+ * order is written down. It lives here rather than beside the source because this
+ * is the artifact a visitor is served: an assertion about the checked-in file
+ * would only ever prove the build did what it did last time. The documents' own
+ * outlines are checked page by page above and by `src/documents.test.ts`; the
+ * policy sections are long and their copy is asserted against the product's, so
+ * restating them here would be a fourth copy of the same text.
  */
-const sections = headingsOf(html);
+const homepage = documents.find((page) => page.file === "index.html");
+const sections = headingsOf(homepage?.html ?? "");
 
 const expectedSections = [
   [1, "Track the money you share, together"],
@@ -191,12 +249,18 @@ if (JSON.stringify(sections) !== JSON.stringify(expectedSections)) {
 const css = readFileSync(join(distDir, stylesheet), "utf8").replaceAll("\\", "");
 
 // A class Tailwind never recognised is emitted as nothing, so the page ships
-// unstyled with a green build. Every class the document uses must be in the CSS.
-const uncompiled = [
-  ...new Set(
-    [...html.matchAll(/class="([^"]*)"/g)].flatMap((match) => (match[1] ?? "").split(/\s+/)),
-  ),
-].filter((className) => className.length > 0 && !css.includes(className));
+// unstyled with a green build. Every class every document uses must be in the CSS —
+// including the release list, which is generated rather than authored and so
+// cannot be read in a diff.
+const uncompiled = documents.flatMap((page) =>
+  [
+    ...new Set(
+      [...page.html.matchAll(/class="([^"]*)"/g)].flatMap((match) => (match[1] ?? "").split(/\s+/)),
+    ),
+  ]
+    .filter((className) => className.length > 0 && !css.includes(className))
+    .map((className) => `${page.file}: ${className}`),
+);
 
 if (uncompiled.length > 0) {
   throw new Error(`Tailwind emitted no rule for ${uncompiled.join(", ")}`);
@@ -208,8 +272,8 @@ if (uncompiled.length > 0) {
  *
  * `env(safe-area-inset-*)` written directly inside a nested block of an
  * `@utility` is dropped by the build: the `+ env(...)` clause disappears from the
- * emitted rule and the offset silently becomes a flat `16px`, which is correct
- * on every device without a cutout and wrong on exactly the devices the code was
+ * emitted rule and the offset silently becomes a flat `16px`, which is correct on
+ * every device without a cutout and wrong on exactly the devices the code was
  * written for. Nothing else in the build can see that, and the page still looks
  * right in a browser with no insets — so the artifact is what gets asserted, the
  * way the rest of this script does.
@@ -256,35 +320,36 @@ function publishedFiles(directory) {
     .filter((file) => statSync(join(directory, file)).isFile());
 }
 
-// A second page is not a build input unless it is wired as one, and a dropped
-// page is a 404 nobody notices — so every authored page must be published.
-const authoredPages = readdirSync(packageRoot, { recursive: true })
-  .filter((file) => file.endsWith(".html") && !file.split(sep).includes("dist"))
-  .map((file) => relative(packageRoot, join(packageRoot, file)).split(sep).join("/"));
-
 const published = publishedFiles(distDir);
-const unpublished = authoredPages.filter((page) => !published.includes(page));
+
+// A page is not a build output unless it was a build input, and a page that is
+// not published is a path that 404s for whoever followed the link. The list is
+// read from the package rather than from `dist/`, so a document that was authored
+// and dropped is the failure rather than its absence.
+const unpublished = sitePageFiles().filter((page) => !published.includes(page));
 
 if (unpublished.length > 0) {
   throw new Error(`Not published, so the Worker would 404 them: ${unpublished.join(", ")}`);
 }
 
-// The placeholders reach HTML through the transform, and nothing else — a token
-// in any other published file would ship to production as a literal.
-const unsubstituted = published.filter((file) =>
-  Object.keys(SITE_PLACEHOLDERS).some((token) =>
-    readFileSync(join(distDir, file), "utf8").includes(token),
-  ),
+// The placeholders reach HTML through the transforms, and nothing else — a token
+// in any other published file would ship to production as a literal, and a
+// generated region left unfilled would be an empty hole in a page.
+//
+// Read as bytes rather than decoded text, because the sweep covers everything the
+// Worker uploads and one of those is a 1.2 MB PNG. Decoding it as UTF-8 to look for
+// a sixteen-character token is a lossy read whose answer nobody wants, and a raster
+// is exactly the kind of file whose bytes could contain one by accident.
+const tokens = [...Object.keys(SITE_PLACEHOLDERS), RELEASES_TOKEN].map((token) =>
+  Buffer.from(token, "utf8"),
 );
+const unsubstituted = published.filter((file) => {
+  const bytes = readFileSync(join(distDir, file));
+  return tokens.some((token) => bytes.includes(token));
+});
 
 if (unsubstituted.length > 0) {
   throw new Error(`Still contains an unsubstituted placeholder: ${unsubstituted.join(", ")}`);
-}
-
-// ADR 0035: a static document, generated once at build time. A script tag is the
-// first step back to a client runtime, and it would cost Worker invocations.
-if (/<script/i.test(html)) {
-  throw new Error("dist/index.html loads a script. The Site must stay a static document");
 }
 
 if (statSync(join(distDir, stylesheet)).size === 0) {
@@ -299,5 +364,5 @@ if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
 }
 
 console.log(
-  `Site HTML ok (${authoredPages.length} page + ${expectedSections.length} headings in order + title + description repeated into both cards + ${SHARE_IMAGE.published} at ${SHARE_IMAGE.width}x${SHARE_IMAGE.height} + canonical apex origin + split-origin links + compiled classes + _headers).`,
+  `Site HTML ok (${documents.length} pages, each with a title + description repeated into both cards + canonical apex path + a share image + one first-level heading + a sign-in link to the app + compiled classes + ${expectedSections.length} homepage headings in order + ${SHARE_IMAGE.published} at ${SHARE_IMAGE.width}x${SHARE_IMAGE.height} + _headers).`,
 );

@@ -16,8 +16,75 @@
  */
 
 /**
- * The text of a fragment of markup, with every tag removed and every run of
- * whitespace collapsed to one space.
+ * The named entities a checked-in document can use, decoded to the character a
+ * visitor reads.
+ *
+ * The set is small and closed on purpose. An unknown name is left exactly as
+ * written rather than resolved to something plausible, so a check can never
+ * compare two *different* strings and call them the same copy — which is the one
+ * failure mode that would make the legal-document parity test meaningless.
+ */
+const ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  hellip: "…",
+  ldquo: "“",
+  lsquo: "‘",
+  lt: "<",
+  mdash: "—",
+  // U+00A0, not a space, because the point of decoding is the character a visitor
+  // reads — and `\s` matches it, so the whitespace collapse below treats it as the
+  // whitespace it is. Decoded to U+0020 instead it would arrive *after* the
+  // collapse and put back the runs the collapse exists to remove.
+  nbsp: "\u00a0",
+  ndash: "–",
+  quot: '"',
+  rarr: "→",
+  rdquo: "”",
+  rsquo: "’",
+};
+
+/**
+ * Decodes the entities and numeric references a document may carry.
+ *
+ * A document that says `Terms &amp; Conditions` is read by a visitor as `Terms &
+ * Conditions`, and a text reader that reported the entity would be reporting the
+ * source rather than the copy — so this runs first, before the whitespace is
+ * collapsed, on the same side of that collapse as every other character.
+ */
+function decodeEntities(text: string) {
+  return text.replace(/&(#\d+|#x[\da-f]+|[a-z][\da-z]*);/gi, (entity, reference: string) => {
+    const named = ENTITIES[reference.toLowerCase()];
+    if (named !== undefined) {
+      return named;
+    }
+    const numeric =
+      reference.startsWith("#x") || reference.startsWith("#X")
+        ? Number.parseInt(reference.slice(2), 16)
+        : reference.startsWith("#")
+          ? Number.parseInt(reference.slice(1), 10)
+          : Number.NaN;
+    // A reference that is not a code point a browser would render is left exactly
+    // as written, for the same reason an unknown name is: a reader that guesses
+    // would report copy the document does not carry. The HTML parsing spec
+    // (13.2.2) resolves a surrogate or a NUL reference to U+FFFD and a
+    // noncharacter to the character itself, and `String.fromCodePoint` builds the
+    // first two happily — a lone surrogate no font has a glyph for, and a NUL
+    // that is not a character at all. Both are outside the range a document here
+    // would carry, so both are left for a human to see in the source.
+    const renderable =
+      Number.isInteger(numeric) &&
+      numeric > 0 &&
+      numeric <= 0x10ffff &&
+      !(numeric >= 0xd800 && numeric <= 0xdfff);
+    return renderable ? String.fromCodePoint(numeric) : entity;
+  });
+}
+
+/**
+ * The text of a fragment of markup, with every tag removed, every entity decoded,
+ * and every run of whitespace collapsed to one space.
  *
  * A `<br>` becomes a space rather than nothing, which is what makes an assertion
  * about a heading's copy survive a line break being introduced into it — the copy
@@ -25,8 +92,7 @@
  * author wrote the break.
  */
 export function textOf(markup: string) {
-  return markup
-    .replace(/<[^>]*>/g, " ")
+  return decodeEntities(markup.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }

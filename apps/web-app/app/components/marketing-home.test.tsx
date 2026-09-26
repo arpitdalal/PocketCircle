@@ -1,3 +1,4 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import { Route } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,9 +48,21 @@ describe("MarketingHome", () => {
     expect(screen.getByRole("link", { name: "Circles" })).toHaveAttribute("href", "#circles");
     expect(screen.getByRole("link", { name: "AI & MCP" })).toHaveAttribute("href", "#ai");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
-    expect(screen.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "/whats-new");
-    expect(screen.getByRole("link", { name: "Support" })).toHaveAttribute("href", "/support");
-    expect(screen.getByRole("link", { name: "Sitemap" })).toHaveAttribute("href", "/sitemap.xml");
+    // The marketing surfaces are named in full and the app's own sign-in route is
+    // not: which origin owns which destination is the decision ADR 0035 makes, and
+    // a relative href here would stop being one the moment the app moves.
+    expect(screen.getByRole("link", { name: "What's new" })).toHaveAttribute(
+      "href",
+      `${APEX_ORIGIN}/whats-new`,
+    );
+    expect(screen.getByRole("link", { name: "Support" })).toHaveAttribute(
+      "href",
+      `${APEX_ORIGIN}/support`,
+    );
+    expect(screen.getByRole("link", { name: "Sitemap" })).toHaveAttribute(
+      "href",
+      `${APEX_ORIGIN}/sitemap.xml`,
+    );
     expect(
       screen.getByText(`© ${new Date().getFullYear()} PocketCircle. All rights reserved.`),
     ).toBeInTheDocument();
@@ -58,12 +71,12 @@ describe("MarketingHome", () => {
     const privacyLinks = screen.getAllByRole("link", { name: "Privacy Policy" });
     expect(privacyLinks.length).toBeGreaterThanOrEqual(1);
     for (const link of privacyLinks) {
-      expect(link).toHaveAttribute("href", "/privacy");
+      expect(link).toHaveAttribute("href", `${APEX_ORIGIN}/privacy`);
     }
     const termsLinks = screen.getAllByRole("link", { name: "Terms" });
     expect(termsLinks.length).toBeGreaterThanOrEqual(1);
     for (const link of termsLinks) {
-      expect(link).toHaveAttribute("href", "/terms");
+      expect(link).toHaveAttribute("href", `${APEX_ORIGIN}/terms`);
     }
   });
 });

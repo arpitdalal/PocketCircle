@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Privacy Policy — PocketCircle</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
+    <meta
+      name="description"
+      content="What PocketCircle collects, why it is used, when it is shared, and the choices available to you."
+    />
+    <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
+    <link rel="canonical" href="%APEX_ORIGIN%/privacy" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Privacy Policy — PocketCircle" />
+    <meta
+      property="og:description"
+      content="What PocketCircle collects, why it is used, when it is shared, and the choices available to you."
+    />
+    <meta property="og:url" content="%APEX_ORIGIN%/privacy" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Privacy Policy — PocketCircle" />
+    <meta
+      name="twitter:description"
+      content="What PocketCircle collects, why it is used, when it is shared, and the choices available to you."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <!--
+      The Privacy Policy (#408), as a page of the marketing Site. It is checked
+      in as the document it is: no runtime, nothing to replace it, and the same
+      stylesheet the homepage uses.
+
+      It carries the same copy the product renders at this path today
+      (`apps/web-app/app/routes/privacy.tsx`) and keeps the same URL, which is
+      the reason the two exist at once: this document is cited in external
+      submission material, and Google requires the Privacy and Terms pages to
+      share the branding homepage's domain, so the apex owns them (ADR 0035).
+      Until the cutover the apex is still the app, which is why the app keeps
+      rendering its own copy and links here are absolute rather than relative —
+      which origin a link names is a decision here, not a default.
+
+      The copy is a transcription and is meant to stay that way: edits to policy
+      text are a separate change, made in one place and asserted on both sides by
+      `apps/web-app/app/routes/legal-documents.test.tsx`, which fails the build
+      when these two documents say different things.
+
+      Every link is absolute. Sign-in leaves for the app origin, because that is
+      where the session lives; the document links stay on the apex, so reading
+      this never costs a signed-out visitor a cross-origin hop to a page that
+      could not know they were signed out.
+    -->
+    <div
+      class="safe-x relative flex min-h-dvh flex-col bg-background text-foreground"
+    >
+      <header
+        class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
+      >
+        <a
+          href="%APEX_ORIGIN%/"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
+        >
+          <span
+            aria-hidden="true"
+            class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+          >
+            <span class="size-2.5 rounded-full bg-primary"></span>
+          </span>
+          PocketCircle
+        </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
+      </header>
+
+      <main id="main" class="flex flex-1 flex-col">
+        <article
+          class="mx-auto w-full max-w-3xl px-4 pt-12 pb-16 sm:px-6 lg:pt-16"
+        >
+          <header class="space-y-3 border-b border-border/60 pb-8">
+            <p
+              class="font-display text-xs font-medium tracking-[0.16em] text-primary uppercase"
+            >
+              Effective September 7, 2026
+            </p>
+            <h1
+              class="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
+            >
+              Privacy Policy
+            </h1>
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              This Policy explains what PocketCircle collects, why it is used, when it is shared,
+              and the choices available to you.
+            </p>
+          </header>
+
+          <div class="space-y-10 pt-8">
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                1. Information we collect
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>
+                  <strong class="text-foreground">Google Account information:</strong> Google's
+                  stable account identifier, email address, Display Name, and Profile Picture used
+                  to create and secure your PocketCircle account.
+                </li>
+                <li>
+                  <strong class="text-foreground">Profile and settings:</strong> Display Name,
+                  default Currency, onboarding state, legal-document acceptance, analytics
+                  preference, and Account Deletion state.
+                </li>
+                <li>
+                  <strong class="text-foreground">Circle content:</strong> Circle names, colors,
+                  membership, Invitations, Categories, Transactions, dates, exact amounts, titles,
+                  optional notes, who recorded or paid, archives, and audit History.
+                </li>
+                <li>
+                  <strong class="text-foreground">Communications:</strong> feedback you submit
+                  and operational and Product updates email-delivery records, including your
+                  Product updates email preference. Feedback message text is sent by email and is
+                  not stored in the PocketCircle database.
+                </li>
+                <li>
+                  <strong class="text-foreground">Technical information:</strong> session data,
+                  timestamps, browser and device details, network information, error diagnostics,
+                  and coarse feature-usage events when product analytics are enabled.
+                </li>
+                <li>
+                  <strong class="text-foreground">MCP connection information:</strong> when you
+                  connect an AI assistant, PocketCircle processes the client's display metadata,
+                  the OAuth connection, approved scopes, selected Circle identifiers, connection
+                  status, and connection timestamps. OAuth access and refresh tokens authenticate
+                  requests; they are not shown in Connections or support materials. Assistant
+                  requests can return authorized Circle data needed for the selected tool.
+                </li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                2. How we use information
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>authenticate you and maintain your session;</li>
+                <li>create your Personal Circle and provide collaborative Circle features;</li>
+                <li>
+                  enforce permissions, preserve audit History, prevent abuse, and protect the
+                  service;
+                </li>
+                <li>send Welcome, Invitation, Account Deletion, security, support, and legal emails;</li>
+                <li>send occasional Product updates, Feature Announcements, and service news;</li>
+                <li>diagnose errors, maintain reliability, and respond to feedback; and</li>
+                <li>understand feature usage through privacy-limited analytics when enabled.</li>
+              </ul>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle does not sell personal information, use it for targeted advertising, or
+                use Transaction titles, notes, exact amounts, or feedback text for product
+                analytics.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                3. Shared Circles
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Current Members can see Circle content according to their permissions. Owners can
+                manage membership and may see pending Invitation details. Audit History identifies
+                who performed relevant actions so shared records remain understandable and
+                accountable.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Other Members may create records that identify you as Recorded By or Paid By.
+                Leaving a Circle or deleting your account does not erase shared records from that
+                Circle. After Account Deletion, a frozen Display Name may remain with historical
+                activity while your Profile Picture and live account connection are removed.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                4. Service providers
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle currently uses:
+              </p>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>
+                  <strong class="text-foreground">Google</strong> for sign-in and account identity;
+                </li>
+                <li>
+                  <strong class="text-foreground">Convex</strong> for the application database,
+                  backend functions, authentication component, and realtime updates;
+                </li>
+                <li>
+                  <strong class="text-foreground">Cloudflare</strong> to host and deliver the web
+                  application and MCP service;
+                </li>
+                <li>
+                  <strong class="text-foreground">Resend</strong> to deliver service, support, and
+                  Product updates email;
+                </li>
+                <li>
+                  <strong class="text-foreground">Sentry</strong> for operational error monitoring
+                  and masked, error-triggered Session Replay; and
+                </li>
+                <li>
+                  <strong class="text-foreground">PostHog</strong> for limited product analytics
+                  after onboarding, unless you turn it off in Settings → Privacy.
+                </li>
+              </ul>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                When you connect an AI assistant, PocketCircle discloses authorized Circle data to
+                that assistant only within the scopes and Circles you approve. The assistant
+                provider's own terms and privacy policy govern its handling of data it receives.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                These providers process information on PocketCircle's behalf under their own
+                privacy terms. Information may be processed outside your province, state, or
+                country and may be subject to the laws of those locations.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                5. Analytics and operational monitoring
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Product analytics default on for Users created after this Policy's effective date.
+                Existing stored analytics preferences are not changed by this update. Collection
+                starts only after the onboarding notice. PostHog receives allowlisted, coarse
+                feature-usage events such as feature names and workflow outcomes—not financial
+                content, free text, application identifiers, page URLs, or an identified person
+                profile. PocketCircle does not call PostHog identify or attach user or profile
+                properties. Automatic page URLs, paths, referrers, and document titles are
+                stripped before events leave the browser.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Browser analytics state is memory-only and is not written to cookies or local
+                storage. Turning product analytics off in Settings → Privacy stops capture
+                immediately and clears in-memory PostHog state. You can turn it on again later.
+                PostHog Session Replay, autocapture, automatic pageviews, and page-leave capture
+                are disabled. PostHog's servers may still receive standard technical request
+                metadata such as IP address and user agent as part of delivering those events.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Sentry operational monitoring remains enabled regardless of that preference.
+                Normal sessions are not sampled for replay. A replay may be captured when an error
+                occurs, with on-screen text masked and media blocked. Error reports can include
+                technical context needed to diagnose the failure, but PocketCircle does not
+                intentionally attach financial content to them.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                6. Email communications
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle uses your Google Account Email for messages needed to operate, secure,
+                and support your account. These may include Welcome, Invitation, Account Deletion,
+                security, support, and material legal notices.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle also uses your Google Account Email for occasional Product updates,
+                Feature Announcements, and other news about the service. These emails are enabled
+                by default for active accounts. You can change this preference in Settings →
+                Privacy. Changing it does not affect emails needed to operate, secure, or support
+                your account.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                7. Cookies and local storage
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle and its authentication provider use cookies or equivalent browser
+                storage to keep you signed in and protect account access. Product analytics do not
+                use cookies or local storage; PostHog state is held in memory only while the page
+                is open. Browser storage is also used for limited user interface state. Blocking
+                required storage may prevent the service from working.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                8. When information may be disclosed
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Information may be disclosed:
+              </p>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>to other Circle Members as described above;</li>
+                <li>to service providers that operate PocketCircle;</li>
+                <li>when you direct or consent to the disclosure;</li>
+                <li>to investigate abuse, protect users, or secure the service; or</li>
+                <li>when reasonably required by law, legal process, or a valid government request.</li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                9. Retention and Account Deletion
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle keeps information while your account is active and as needed to
+                provide and secure the service. Operational records may be kept for a limited
+                period for reliability, abuse prevention, dispute handling, or legal obligations.
+                Retention periods may differ across service providers.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                Product updates preference and delivery records may be kept as needed to respect
+                your choice and document email operations.
+              </p>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                You can request Account Deletion in Settings. After email verification, PocketCircle
+                removes your login and profile, deletes eligible Circles you solely control,
+                revokes relevant pending Invitations, and removes user-scoped operational records
+                through a bounded cleanup process. Shared-Circle Transaction and audit records
+                remain for other Members with frozen Display Name attribution and without your
+                Profile Picture.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                10. Your choices and requests
+              </h2>
+              <ul class="list-disc space-y-2 pl-5 marker:text-muted-foreground">
+                <li>Update your Display Name and analytics preference in Settings.</li>
+                <li>Export Circle Transactions to CSV where Export is available.</li>
+                <li>Leave eligible shared Circles or ask an Owner to correct shared records.</li>
+                <li>Request Account Deletion in Settings.</li>
+                <li>Change your Product updates email preference in Settings → Privacy.</li>
+                <li>
+                  Contact us to ask about access, correction, deletion, turning analytics off, or a
+                  privacy concern. Some requests may be limited by shared-record integrity or legal
+                  obligations.
+                </li>
+              </ul>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                11. Security
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle uses access controls, server-side authorization, encrypted network
+                connections, scoped provider credentials, and data-minimization measures
+                appropriate to an early-stage service. No system is perfectly secure, so you
+                should use a protected Google Account and avoid entering unnecessary sensitive
+                information.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                12. Children
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                PocketCircle is not directed to children under 13. If you believe a child provided
+                personal information without appropriate consent, contact us so the situation can
+                be reviewed.
+              </p>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="font-display text-xl font-semibold tracking-tight text-foreground">
+                13. Changes to this Policy
+              </h2>
+              <p class="text-pretty text-base leading-7 text-muted-foreground">
+                This Policy may change as PocketCircle and its providers change. Material changes
+                will be presented in a reasonably prominent way and renewed consent will be
+                requested when required. The effective date at the top identifies the current
+                version.
+              </p>
+            </section>
+          </div>
+
+          <footer class="mt-12 space-y-3 border-t border-border/60 pt-8">
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              Questions? Email
+              <a
+                href="mailto:legal@%APEX_HOSTNAME%"
+                class="font-medium text-primary underline underline-offset-4"
+                >legal@%APEX_HOSTNAME%</a>.
+            </p>
+            <a
+              href="%APP_ORIGIN%/signin"
+              class="inline-block text-base font-medium text-primary underline underline-offset-4"
+              >Back to sign in</a
+            >
+          </footer>
+        </article>
+      </main>
+
+      <footer
+        class="border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
+      >
+        <div class="mx-auto grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="space-y-3 sm:col-span-2 lg:col-span-1">
+            <p class="flex items-center gap-2 font-display text-sm font-semibold tracking-tight">
+              <span
+                aria-hidden="true"
+                class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+              >
+                <span class="size-2.5 rounded-full bg-primary"></span>
+              </span>
+              PocketCircle
+            </p>
+            <p class="max-w-xs text-pretty text-sm text-muted-foreground">
+              A shared ledger for the money you split with other people, with AI assistants when
+              you want help reading it.
+            </p>
+          </div>
+
+          <nav aria-label="PocketCircle" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              PocketCircle
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/">Home</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/whats-new">What's new</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/support">Support</a>
+              </li>
+            </ul>
+          </nav>
+
+          <nav aria-label="Legal" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              Legal
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <p class="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
+          © %YEAR% PocketCircle. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

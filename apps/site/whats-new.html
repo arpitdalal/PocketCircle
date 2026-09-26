@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>What's new — PocketCircle</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
+    <meta
+      name="description"
+      content="Every released version of PocketCircle: what changed in it, and when it shipped."
+    />
+    <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
+    <link rel="canonical" href="%APEX_ORIGIN%/whats-new" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="What's new — PocketCircle" />
+    <meta
+      property="og:description"
+      content="Every released version of PocketCircle: what changed in it, and when it shipped."
+    />
+    <meta property="og:url" content="%APEX_ORIGIN%/whats-new" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="What's new — PocketCircle" />
+    <meta
+      name="twitter:description"
+      content="Every released version of PocketCircle: what changed in it, and when it shipped."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <!--
+      What's New (#408), as a page of the marketing Site. It is checked in as the
+      document it is — no runtime, nothing to replace it — and it is the one page here
+      with a hole in it: the releases are rendered from the repository's `CHANGELOG.md`
+      at build time into the releases placeholder below (see `src/whats-new.ts`).
+      Authoring them as markup instead would be a second copy of the release history
+      that is wrong the moment someone cuts a release, and unlike the marketing copy
+      this one changes every release.
+
+      The app keeps its own What's New (`apps/web-app/app/routes/whats-new.tsx`), which
+      is not duplication to be removed: it is inside the product, it opens the latest
+      release, and it records that the User has read it, which is what clears the
+      sidebar's unread marker. What the two share is the source they are both parsed
+      from, so they are the same history rather than two catalogs that happen to agree.
+    -->
+    <div
+      class="safe-x relative flex min-h-dvh flex-col bg-background text-foreground"
+    >
+      <header
+        class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
+      >
+        <a
+          href="%APEX_ORIGIN%/"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
+        >
+          <span
+            aria-hidden="true"
+            class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+          >
+            <span class="size-2.5 rounded-full bg-primary"></span>
+          </span>
+          PocketCircle
+        </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
+      </header>
+
+      <main id="main" class="flex flex-1 flex-col">
+        <article class="mx-auto w-full max-w-3xl px-4 pt-12 pb-16 sm:px-6 lg:pt-16">
+          <header class="space-y-3 border-b border-border/60 pb-8">
+            <h1 class="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              What's new
+            </h1>
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              Every released version of PocketCircle, newest first: what changed in it, and when it
+              shipped.
+            </p>
+          </header>
+
+          <div class="pt-4">%RELEASES%</div>
+        </article>
+      </main>
+
+      <footer
+        class="border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
+      >
+        <div class="mx-auto grid max-w-6xl gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="space-y-3 sm:col-span-2 lg:col-span-1">
+            <p class="flex items-center gap-2 font-display text-sm font-semibold tracking-tight">
+              <span
+                aria-hidden="true"
+                class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+              >
+                <span class="size-2.5 rounded-full bg-primary"></span>
+              </span>
+              PocketCircle
+            </p>
+            <p class="max-w-xs text-pretty text-sm text-muted-foreground">
+              A shared ledger for the money you split with other people, with AI assistants when
+              you want help reading it.
+            </p>
+          </div>
+
+          <nav aria-label="PocketCircle" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              PocketCircle
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/">Home</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/whats-new">What's new</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/support">Support</a>
+              </li>
+            </ul>
+          </nav>
+
+          <nav aria-label="Legal" class="space-y-3">
+            <p
+              class="font-display text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              Legal
+            </p>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>
+              </li>
+              <li>
+                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <p class="mx-auto mt-10 max-w-6xl text-xs text-muted-foreground">
+          © %YEAR% PocketCircle. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
