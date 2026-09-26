@@ -42,7 +42,13 @@ const tokensCss = readFileSync(
 
 /** The stylesheet, with its comments out — prose about a colour is not a colour. */
 const siteCss = readFileSync(join(import.meta.dirname, "site.css"), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
+  /\*[\s\S]*?\*\//g,
+  " ",
+);
+
+/** The document, with its comments out, for the same reason. */
+const pageCss = readFileSync(join(import.meta.dirname, "../index.html"), "utf8").replace(
+  /<!--[\s\S]*?-->/g,
   " ",
 );
 
@@ -106,8 +112,8 @@ const TOKENS = new Map(
       /--([\w-]+):\s*oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+)%)?\s*\)/g,
     ),
   ].map((match) => {
-    const hue = ((Number(match[4]) * Math.PI) / 180) as number;
-    const chroma = Number(match[3]) as number;
+    const hue = (Number(match[4]) * Math.PI) / 180;
+    const chroma = Number(match[3]);
     return [
       match[1] ?? "",
       {
@@ -124,7 +130,7 @@ const TOKENS = new Map(
 type Colour = string | Oklch;
 
 /** The OKLCh a token names. Throws on a typo, rather than measuring black. */
-function token(name: string): Oklch {
+function token(name: string) {
   const found = TOKENS.get(name);
   if (found === undefined) {
     throw new Error(`tokens.css defines no --${name}, so nothing can be measured against it`);
@@ -358,30 +364,44 @@ describe("every colour pairing the page renders meets its contrast floor", () =>
 });
 
 describe("the pairing table is not quietly out of date", () => {
-  it("measures every brand colour the stylesheet puts in front of a reader", () => {
-    // The failure this guards is the one that already happened: a colour reaches
-    // a surface, no row names it, and the table still passes because it is only
-    // ever asked about pairs it already knows.
+  it("measures every brand colour the page puts in front of a reader", () => {
+    // The failure this guards is the one that already happened, twice: a colour
+    // reaches a surface, no row names it, and the table still passes because it
+    // is only ever asked about pairs it already knows.
+    //
+    // Both places a colour can be named, not just the stylesheet. Most of this
+    // page's text colours are Tailwind utilities written straight into the
+    // document — `text-positive` on an amount, `text-primary` on a step label —
+    // so reading the stylesheet alone would have missed most of the page.
     //
     // Matched against the token names rather than a list of colour-ish words, so
     // `text-balance` and `text-pretty` are not mistaken for colours, and a token
-    // the brand adds tomorrow is caught the moment this stylesheet uses it. CSS
-    // comments come out first, because prose about colours would otherwise supply
-    // plenty of false positives.
+    // the brand adds tomorrow is caught the moment something uses it. Comments
+    // come out first, because prose about colours would supply false positives.
     const used = new Set(
-      [...siteCss.matchAll(/\b(?:text|bg)-([a-z][\w-]*)/g)].map((match) => (match[1] ?? "").trim()),
+      [...`${siteCss} ${pageCss}`.matchAll(/\b(?:text|bg)-([a-z][\w-]*)/g)].map((match) =>
+        (match[1] ?? "").trim(),
+      ),
     );
-    // `--muted-foreground` and `--faint-foreground` are the tokens behind the
-    // `text-muted-foreground` and `text-faint` aliases, so an alias is covered
-    // when its token is.
+    // `text-faint` is the alias for `--faint-foreground`; every other utility
+    // carries its token name unchanged.
     const aliases: Readonly<Record<string, string>> = { faint: "faint-foreground" };
     const brandColours = [...used]
       .map((name) => aliases[name] ?? name)
-      .filter((name) => TOKENS.has(`--${name}`))
+      .filter((name) => TOKENS.has(name))
       .sort();
+
+    // The set has to be non-empty for the check below it to mean anything. An
+    // empty one is what a key mismatch looks like, and an empty set made every
+    // comparison below trivially true — this assertion is here because that is
+    // exactly how the check was broken the first time.
+    expect(
+      brandColours.length,
+      "no brand colour was recognised, so nothing is being checked",
+    ).toBeGreaterThan(0);
     expect(
       brandColours.filter((name) => !MEASURED.has(name)),
-      "a brand colour is used in the stylesheet but measured by no row above",
+      "a brand colour reaches a reader but is measured by no row above",
     ).toEqual([]);
   });
 });
