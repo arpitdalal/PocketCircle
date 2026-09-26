@@ -226,17 +226,26 @@ if (lostInsets.length > 0) {
 
 // Every consumer has to read those four rather than re-derive them, because
 // re-deriving is the shape that gets dropped.
-for (const [what, pattern] of [
-  ["the page wrapper's horizontal padding", /\.safe-x\{[^}]*padding-left:var\(--safe-area-left\)/],
-  ["the header's top padding", /\.safe-top\{[^}]*var\(--safe-area-top\)/],
-  ["the footer's bottom padding", /\.safe-bottom\{[^}]*var\(--safe-area-bottom\)/],
-  [
-    "the focused skip link's offsets",
-    /\.skip-link:focus-visible\{[^}]*top:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-top\)\)[^}]*left:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-left\)\)/,
-  ],
-]) {
-  if (!pattern.test(css)) {
-    throw new Error(`the built stylesheet lost the device inset for ${what}`);
+//
+// The horizontal pair is looped, not written out twice: a rule that names one
+// side of a symmetric thing is a rule that will be satisfied by a stylesheet
+// missing the other side, which is exactly the device this was written for.
+for (const side of ["left", "right"]) {
+  for (const [what, pattern] of [
+    [
+      `the page wrapper's ${side} padding`,
+      new RegExp(`\\.safe-x\\{[^}]*padding-${side}:var\\(--safe-area-${side}\\)`),
+    ],
+    ["the header's top padding", /\.safe-top\{[^}]*var\(--safe-area-top\)/],
+    ["the footer's bottom padding", /\.safe-bottom\{[^}]*var\(--safe-area-bottom\)/],
+    [
+      "the focused skip link's offsets",
+      /\.skip-link:focus-visible\{[^}]*top:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-top\)\)[^}]*left:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-left\)\)/,
+    ],
+  ]) {
+    if (!pattern.test(css)) {
+      throw new Error(`the built stylesheet lost the device inset for ${what}`);
+    }
   }
 }
 
