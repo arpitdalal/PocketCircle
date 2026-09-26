@@ -1,48 +1,126 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
-import { APEX_ORIGIN_TOKEN } from "../src/apex-origin-html.ts";
+import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
+import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
- * so the built document *is* the product: a canonical origin left as a
- * placeholder, a page the build dropped, a Tailwind class that never compiled,
+ * so the built document *is* the product: a section the build dropped, a
+ * canonical origin left as a placeholder, a Tailwind class that never compiled,
  * or a `_headers` rule Workers cannot parse are all invisible once the artifact
  * is uploaded — the Worker serves whatever it was given.
+ *
+ * Every check below reads attributes by name, not by position. A gate that
+ * demands `<link rel="canonical" href="…">` in that exact order fails a document
+ * that means the same thing, and nothing else in this repo is allowed to depend
+ * on the order a serializer happened to emit.
  */
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
 const html = readFileSync(join(distDir, "index.html"), "utf8");
 
-const checks = [
-  ["a title", /<title>[^<]+<\/title>/],
-  ["a description", /<meta\s+name="description"\s+content="[^"]+"/],
-  ["the product description", /PocketCircle helps you track spending together in shared Circles/],
-];
+/** Every opening tag named `name` in the document, as the raw text written. */
+function openingTags(name) {
+  return [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, "g"))].map(([tag]) => tag);
+}
 
-const missing = checks.filter(([, pattern]) => !pattern.test(html)).map(([what]) => what);
+/** An attribute's value on a raw tag, in whatever order and quote style was used. */
+function attribute(tag, name) {
+  return new RegExp(`\\s${name}=["']([^"']*)["']`).exec(tag)?.[1];
+}
+
+/** Whether any tag named `name` carries every one of `attributes`. */
+function hasTag(name, attributes) {
+  return openingTags(name).some((tag) =>
+    attributes.every(([attributeName, value]) => attribute(tag, attributeName) === value),
+  );
+}
+
+const DESCRIPTION = "PocketCircle helps you track spending together in shared Circles.";
+
+const missing = [
+  ["a title", /<title>[^<]+<\/title>/.test(html)],
+  [
+    "a description",
+    openingTags("meta").some(
+      (tag) =>
+        attribute(tag, "name") === "description" && (attribute(tag, "content") ?? "").length > 0,
+    ),
+  ],
+  ["the product description", html.includes(DESCRIPTION)],
+  [
+    "a canonical link",
+    hasTag("link", [
+      ["rel", "canonical"],
+      ["href", `${APEX_ORIGIN}/`],
+    ]),
+  ],
+  [
+    "an og:url",
+    hasTag("meta", [
+      ["property", "og:url"],
+      ["content", `${APEX_ORIGIN}/`],
+    ]),
+  ],
+  // Which origin owns a destination — ADR 0035 puts the marketing surfaces on
+  // the apex and sign-in on the app — is asserted in `src/marketing-home.test.ts`,
+  // because the two are one string until the cutover gives the app its
+  // subdomain. What is asserted here is that each destination is still written
+  // down at all, and absolutely rather than relative to the staging host.
+  ["a sign-in link to the app origin", hasTag("a", [["href", `${APP_ORIGIN}/signin`]])],
+  ["a Terms link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/terms`]])],
+  ["a Privacy link on the apex", hasTag("a", [["href", `${APEX_ORIGIN}/privacy`]])],
+]
+  .filter(([, present]) => !present)
+  .map(([what]) => what);
 
 if (missing.length > 0) {
   throw new Error(`dist/index.html is missing ${missing.join(", ")}`);
 }
 
-// Substring checks, not patterns: the origin is data, and a regex built from it
-// would treat its dots as wildcards.
-for (const [what, tag] of [
-  ["a canonical link", `<link rel="canonical" href="${APEX_ORIGIN}/"`],
-  ["an og:url", `<meta property="og:url" content="${APEX_ORIGIN}/"`],
-]) {
-  if (!html.includes(tag)) {
-    throw new Error(`dist/index.html is missing ${what} on the canonical apex origin`);
-  }
-}
+/** The stylesheet the page's styling depends on, as a path relative to `dist/`. */
+const stylesheet = openingTags("link")
+  .filter((tag) => attribute(tag, "rel") === "stylesheet")
+  .map((tag) => attribute(tag, "href"))
+  .find((href) => href !== undefined);
 
-const stylesheet = /<link rel="stylesheet"[^>]*href="([^"]+)"/.exec(html)?.[1];
 if (stylesheet === undefined) {
   throw new Error("dist/index.html links no stylesheet");
 }
+/**
+ * The homepage's sections, in order, as `[level, text]` — the one place the copy
+ * order is written down. It lives here rather than beside the source because
+ * this is the artifact a visitor is served: an assertion about the checked-in
+ * file would only ever prove the build did what it did last time.
+ */
+const sections = [...html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map((match) => [
+  Number(match[1]),
+  (match[2] ?? "").replace(/\s+/g, " ").trim(),
+]);
+
+const expectedSections = [
+  [1, "PocketCircle"],
+  [2, "Circles for every shared life"],
+  [2, "Stay aligned without the spreadsheet"],
+  [3, "Record expenses and income"],
+  [3, "Organize with Categories"],
+  [3, "See who did what"],
+  [2, "AI-native, with you in control"],
+  [2, "Up and running in minutes"],
+  [3, "Continue with Google"],
+  [3, "Open a Circle"],
+  [3, "Invite and record"],
+  [2, "Start your first Circle"],
+];
+
+if (JSON.stringify(sections) !== JSON.stringify(expectedSections)) {
+  throw new Error(
+    `dist/index.html does not carry the homepage's sections in order.\n  found:    ${JSON.stringify(sections)}\n  expected: ${JSON.stringify(expectedSections)}`,
+  );
+}
+
 // Tailwind escapes a variant in the selector it generates (`.sm\:text-5xl`), so
 // the backslashes come out before a class name is looked for in it.
 const css = readFileSync(join(distDir, stylesheet), "utf8").replaceAll("\\", "");
@@ -79,14 +157,16 @@ if (unpublished.length > 0) {
   throw new Error(`Not published, so the Worker would 404 them: ${unpublished.join(", ")}`);
 }
 
-// The placeholder reaches HTML through the transform, and nothing else — a token
+// The placeholders reach HTML through the transform, and nothing else — a token
 // in any other published file would ship to production as a literal.
 const unsubstituted = published.filter((file) =>
-  readFileSync(join(distDir, file), "utf8").includes(APEX_ORIGIN_TOKEN),
+  Object.keys(SITE_PLACEHOLDERS).some((token) =>
+    readFileSync(join(distDir, file), "utf8").includes(token),
+  ),
 );
 
 if (unsubstituted.length > 0) {
-  throw new Error(`Still contains ${APEX_ORIGIN_TOKEN}: ${unsubstituted.join(", ")}`);
+  throw new Error(`Still contains an unsubstituted placeholder: ${unsubstituted.join(", ")}`);
 }
 
 // ADR 0035: a static document, generated once at build time. A script tag is the
@@ -107,5 +187,5 @@ if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
 }
 
 console.log(
-  `Site HTML ok (${authoredPages.length} page + title + description + canonical apex origin + compiled classes + _headers).`,
+  `Site HTML ok (${authoredPages.length} page + ${expectedSections.length} sections in order + title + description + canonical apex origin + split-origin links + compiled classes + _headers).`,
 );

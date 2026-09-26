@@ -231,8 +231,14 @@ marketing site. Cloudflare's `single-page-application` fallback in
 The marketing site is its own Worker (`apps/site/wrangler.jsonc`): static HTML
 from `pnpm --filter @pocketcircle/site build`, no Worker script, and
 `workers.dev` only — it claims no custom domain, so nothing a visitor sees in
-production changes while the apex is still the product app's. The two surfaces
-share one palette, font, and shape from
+production changes while the apex is still the product app's. The homepage is
+`apps/site/index.html`, a checked-in document rather than a template: it ships no
+JavaScript, and the build substitutes the values it writes as placeholders —
+`%APEX_ORIGIN%` for the canonical link and for the marketing surfaces the apex
+keeps (legal, support, What's New, sitemap), `%APP_ORIGIN%` for sign-in, which is
+the only destination on the app origin, and `%YEAR%` for the copyright. The two
+surfaces share one
+palette, font, and shape from
 [`packages/brand/src/tokens.css`](packages/brand/src/tokens.css), which
 `tokens.test.ts` guards against redefinition, and the site build derives its
 `_headers` from the product's, so the two origins serve one security-header
