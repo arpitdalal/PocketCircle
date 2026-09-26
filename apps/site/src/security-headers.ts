@@ -30,6 +30,13 @@ const GLOBAL_RULE = "/*";
  * beats relying on the canonical link alone, which other crawlers treat as a
  * hint. The apex must not inherit it, so it is added here rather than to the
  * shared policy, and the cutover deletes it with the staging hostname.
+ *
+ * Deleting it is one half of a pairing, and the other half is not optional: the
+ * same cutover is what puts `/og.png` on the Worker that serves the apex, and the
+ * document's `og:image` already names that origin. A cutover that dropped the
+ * header without moving the card would launch the site indexed, with every share
+ * of it rendering a 404, and the deploy check would not catch it because it only
+ * ever runs against the staging origin. `deploy.yml` says so at the check.
  */
 const STAGING_HEADERS = ["X-Robots-Tag: noindex"];
 

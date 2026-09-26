@@ -299,9 +299,16 @@ jobs:
             // The card a link to the apex renders as. It is the one asset a
             // crawler fetches from outside the page, so nothing above would
             // notice it 404ing, and the share would silently be a blank
-            // rectangle. Checked against the artifact this job built rather than
-            // a size written here, so the workflow cannot disagree with the
-            // build about what the card is.
+            // rectangle.
+            //
+            // Fetched from *this* origin, not from the URL the tag names, and
+            // that is deliberate: the tag has to name the apex for the cutover
+            // to leave the site indexable at all, and until the cutover the apex
+            // is still the product app, which answers an unmatched path with the
+            // app's own index.html and a 200. Comparing the bytes the two halves
+            // against the artifact this job built is what can be verified now, and
+            // the cutover has to move the card onto the apex Worker and drop
+            // `X-Robots-Tag` in the same change.
             const shareImage = /<meta property="og:image" content="([^"]+)"/.exec(html)?.[1];
             if (shareImage !== `${process.env.APEX_ORIGIN}/og.png`) {
               throw new Error(`og:image is ${shareImage}, want ${process.env.APEX_ORIGIN}/og.png`);
@@ -309,15 +316,23 @@ jobs:
             if (!html.includes('<meta name="twitter:card" content="summary_large_image"')) {
               throw new Error("homepage does not ask Twitter for a large card");
             }
-            const sizeOf = (png) => `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
+            // The whole file, not just its header: Cloudflare caches each asset
+            // independently, so a propagated document can be served next to a
+            // card that has not propagated, and a card from the *previous*
+            // release has the same signature and the same dimensions as this one.
+            // Only the bytes tell those apart.
             const built = await readFile("apps/site/dist/og.png");
-            const served = Buffer.from(await (await fetch(`${origin}/og.png`)).arrayBuffer());
+            const response = await fetch(`${origin}/og.png`);
+            if (!response.ok) {
+              throw new Error(`the share image returned ${response.status}`);
+            }
+            const served = Buffer.from(await response.arrayBuffer());
             if (served.subarray(0, 8).toString("hex") !== built.subarray(0, 8).toString("hex")) {
               throw new Error("the served share image is not a PNG");
             }
-            if (sizeOf(served) !== sizeOf(built)) {
+            if (!served.equals(built)) {
               throw new Error(
-                `the served share image is ${sizeOf(served)}, want ${sizeOf(built)}`,
+                `the served share image is ${served.length} bytes and differs from the ${built.length} byte artifact this job built`,
               );
             }
           }

@@ -34,9 +34,10 @@
  * Safe-area composition. `viewport-fit=cover` in the document unlocks
  * `env(safe-area-inset-*)`, which is 0 without it — the padding would collapse
  * silently rather than fail. These are utilities because the inset is an
- * environment value, not a spacing choice: the 12px and 48px added to it are the
- * brand's own `Spacing-100` and `Spacing-600`, and a document that inlined the
- * `calc()` would be the only place in the repo holding that arithmetic.
+ * environment value, not a spacing choice: the 12px and 48px added to it are
+ * steps from the same Tailwind spacing scale as every other gap on the page, and
+ * a document that inlined the `calc()` would be the only place in the repo
+ * holding that arithmetic.
  */
 @utility safe-top {
   padding-top: calc(var(--spacing) * 3 + var(--safe-area-top));
@@ -98,10 +99,11 @@
 }
 
 /*
- * The hero heading's gradient. The heading is the only element on the page that
- * gets one, and it is the one place a gradient is the point rather than
- * decoration: the type fades across its own width, which is what makes the eye
- * land on the first words.
+ * The hero heading's fade. A gradient on the heading is the one place a gradient
+ * is the point rather than decoration: the type fades across its own width,
+ * which is what makes the eye land on the first words. Named for the treatment
+ * rather than for the element, so a second `h1` somewhere on the page does not
+ * have to be a faded one.
  *
  * `background-clip: text` needs the paired `-webkit-text-fill-color`, and the
  * paint order matters: the clip is the gradient, the fill is what actually
@@ -109,11 +111,11 @@
  * text-colour utilities rather than losing to them.
  *
  * The fade stops at 62% foreground, which measures 5.84:1 against the page
- * against 16.39:1 at the near end — still above the 4.5:1 floor for body text,
- * let alone for a heading this size. Going further would trade legibility for
- * an effect, which is the wrong way round.
+ * against 16.39:1 at the near end — above the 4.5:1 floor for body text, let
+ * alone for a heading this size. Going further would trade legibility for an
+ * effect, which is the wrong way round.
  */
-@utility headline {
+@utility headline-fade {
   background-image: linear-gradient(
     to right,
     var(--foreground),
@@ -191,11 +193,12 @@
  * desktop: a tagline set at the same size as the `h1` is not a second moment, it
  * is a second headline.
  *
- * The dimmed start state measures 2.09:1 against the page, which is below the
- * contrast floor and is meant to be: it is the state a word is in for the moment
- * before it is read, it resolves to the full 16.39:1, and a visitor who asked
- * for reduced motion never sees it at all because the animation is behind that
- * media query.
+ * The dimmed start state measures 3.36:1 against the page, comfortably over the
+ * 3:1 floor for large text and over the 4.5:1 body floor would be even better but
+ * costs the effect: the point of the dim is that the eye lands on the words that
+ * have already lit up, and a fade that is already fully legible fades nothing.
+ * At 24px and up the statement is large text by WCAG's own definition, so this is
+ * the floor that applies to it, not the 4.5:1 one.
  *
  * `--i` is the word's index in the statement and is written inline, which is the
  * only way CSS can know it. The range slides forward one word at a time so the
@@ -204,16 +207,24 @@
  * snapping. The step is 5% of the entry range per word, which is short enough
  * that the last word of the statement still finishes revealing before the block
  * is fully on screen.
+ *
+ * `animation-duration: 1ms` looks like a lie and is not one. With a scroll-driven
+ * timeline the duration is not a duration — the timeline supplies the progress
+ * and the duration only has to be non-zero for the animation to be applied at
+ * all. `auto` is the tidier spelling, but Firefox does not accept it for this
+ * purpose and now passes the `@supports` gate below, so the two would disagree
+ * about where in the timeline the words light up. 1ms is what the platform
+ * documentation recommends for exactly that.
  */
 @utility tagline {
-  @apply font-display max-w-3xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl lg:text-4xl xl:text-5xl;
+  @apply font-display max-w-4xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl lg:text-4xl;
 }
 
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
     .tagline-word {
       animation-name: tagline-reveal;
-      animation-duration: auto;
+      animation-duration: 1ms;
       animation-timing-function: var(--ease-out-quart);
       animation-fill-mode: both;
       animation-timeline: view();
@@ -226,10 +237,22 @@
  * The FAQ. A static document has no disclosure widget to borrow, so it uses the
  * platform's own: `<details>`, which opens, closes, and is announced correctly
  * with no script, and which a browser without support renders as all-open text
- * rather than hiding the answers. The marker is restyled rather than removed so
- * the disclosure is still visible, and its rotation is a transform on the open
- * state so the disclosure animates without a layout pass.
+ * rather than hiding the answers.
+ *
+ * The native disclosure triangle is suppressed explicitly. It happens to be
+ * suppressed already, because `display: flex` on the `<summary>` leaves nowhere
+ * for a `list-item` marker to be drawn — but that is a side effect of a layout
+ * utility, so a change to the summary's layout would put the platform's marker
+ * next to the chevron below. Suppressing it where the intent is stated is one
+ * line and does not depend on anything else staying as it is.
+ *
+ * The chevron's rotation is a transform on the open state, so the disclosure
+ * animates without a layout pass and `prefers-reduced-motion` collapses it.
  */
+summary::marker {
+  content: "";
+}
+
 @utility faq-item {
   @apply border-b border-border/60;
   &[open] .faq-marker {
@@ -299,17 +322,20 @@
 /*
  * The tagline's own keyframes, deliberately *not* in `@theme` above.
  *
- * Tailwind v4 tree-shakes a `@keyframes` block declared inside `@theme` down to
- * the ones a `--animate-*` variable names, which is right for a utility someone
- * asked for by class and wrong here: this animation is driven by a scroll
- * timeline, so it is never written as `animate-…` on an element. Declared in
- * `@theme` it would be dropped from the built stylesheet, the reveal would
- * silently do nothing, and the page would still pass every assertion in the
- * build — the animation simply would not be in the artifact.
+ * `@theme` holds theme *values*, and Tailwind drops the ones nothing references
+ * — unreferenced `--color-*` tokens go the same way as unreferenced keyframes. A
+ * `@keyframes` in `@theme` therefore survives only if a `--animate-*` variable
+ * names it, and this animation is never written as an `animate-…` class on an
+ * element: it is driven by a scroll timeline, so nothing names it and the block
+ * was dropped from the built stylesheet. The reveal silently did nothing, and
+ * every assertion in the build still passed, because asserting that CSS is
+ * *present in the artifact* is a different and much weaker claim than asserting
+ * that the animation runs. `marketing-home.test.ts` now asserts the part that
+ * actually decides it.
  */
 @keyframes tagline-reveal {
   from {
-    color: color-mix(in oklab, var(--foreground) 30%, transparent);
+    color: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
   to {
     color: var(--foreground);

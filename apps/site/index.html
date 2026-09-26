@@ -78,10 +78,28 @@
       once at the end. There is no second route in — no newsletter, no demo
       request, no "learn more" — because a page that asks for two different things
       gets neither, and the one thing being asked for is an account.
+
+      The two are deliberately *not* kept in step. The product SPA still renders
+      its own marketing page for signed-out visitors
+      (`apps/web-app/app/components/marketing-home.tsx`, and as the root
+      `HydrateFallback`) carrying the old copy, and the correction this page works
+      hardest on — that Settlement, Budgets, and bank import are not built — is
+      only on the apex. #412 retires that React page, which is the right way to
+      end the drift; until then a second homepage with the previous copy is
+      reachable at the app origin, and nothing in the build compares the two.
+    -->
+    <!--
+      `overflow-x-clip`, not `overflow-x-hidden`. Both stop the hero's blurred
+      glow from opening a horizontal scrollbar, but `hidden` makes this element a
+      scroll container, and a scroll container with no scrollable overflow makes
+      the tagline's `view()` timeline *inactive* — the reveal would then never run
+      and nothing would say so, because the stylesheet would still contain the
+      animation. `clip` contains the overflow without becoming a scroll container.
+      `marketing-home.test.ts` holds this one class to that rule.
     -->
     <div
       id="top"
-      class="relative flex min-h-dvh flex-col overflow-x-hidden bg-background text-foreground"
+      class="relative flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground"
     >
       <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
         <div class="absolute -top-32 left-1/2 -translate-x-1/2">
@@ -112,165 +130,166 @@
       </header>
 
       <main id="main" class="relative z-10 flex flex-1 flex-col">
-        <section
-          class="mx-auto grid w-full max-w-6xl gap-12 px-4 pt-12 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-center lg:gap-16 lg:px-10 lg:pt-16"
-        >
-          <div class="animate-marketing-enter max-w-2xl space-y-8">
-            <!--
-              The break is written rather than left to the wrapper, because a
-              headline that happens to break three words in is a different
-              sentence from the one that was written. It is held from the
-              smallest screens, where the column is already narrow enough to break
-              it well on its own.
-            -->
-            <h1
-              class="headline font-display text-4xl font-semibold tracking-tight text-balance sm:text-5xl xl:text-6xl"
-            >
-              Track the money<br class="hidden lg:block" /> you share, together
-            </h1>
-            <p class="max-w-xl text-pretty text-lg text-muted-foreground sm:text-xl">
-              PocketCircle is a shared ledger for a home, a trip, a family, or anything else you
-              split money on. Everyone records what they paid for, and everyone sees the same
-              totals.
-            </p>
-
-            <div id="get-started" class="max-w-sm scroll-mt-24 space-y-3">
-              <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
-              <p class="text-pretty text-xs text-muted-foreground">
-                Free to use, with no paid plan and no trial to expire. Your Personal Circle is ready
-                the moment you arrive. By continuing you agree to our
-                <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a>
-                and
-                <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>.
+        <section class="px-4 pt-12 pb-16 sm:px-6 lg:px-10 lg:pt-16">
+          <div
+            class="mx-auto grid w-full max-w-6xl gap-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-center lg:gap-16"
+          >
+            <div class="animate-marketing-enter max-w-2xl space-y-8">
+              <!--
+                The break is written rather than left to the wrapper, because a
+                headline that happens to break three words in is a different
+                sentence from the one that was written. It is held from the
+                smallest screens, where the column is already narrow enough to break
+                it well on its own.
+              -->
+              <h1
+                class="headline-fade font-display text-4xl font-semibold tracking-tight text-balance sm:text-5xl xl:text-6xl"
+              >
+                Track the money<br class="hidden lg:block" /> you share, together
+              </h1>
+              <p class="max-w-xl text-pretty text-lg text-muted-foreground sm:text-xl">
+                PocketCircle is a shared ledger for a home, a trip, a family, or anything else you
+                split money on. Everyone records what they paid for, and everyone sees the same
+                totals.
               </p>
-            </div>
-          </div>
 
-          <div class="animate-marketing-enter relative min-w-0 [animation-delay:120ms]">
-            <div
-              aria-hidden="true"
-              class="absolute inset-x-8 -top-6 -bottom-6 rounded-3xl bg-primary/10 blur-2xl"
-            ></div>
-            <div
-              class="relative overflow-hidden rounded-3xl border border-border bg-card p-2"
-            >
-              <div class="flex items-center gap-3 rounded-2xl px-4 py-3">
-                <span
-                  aria-hidden="true"
-                  style="background-color: #14b8a626; color: #14b8a6"
-                  class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                  >AH</span
-                >
-                <div class="min-w-0 flex-1">
-                  <p class="truncate font-display text-sm font-semibold tracking-tight">
-                    Apartment Home
-                  </p>
-                  <p class="truncate text-xs text-muted-foreground">4 Members · Teal</p>
-                </div>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.75"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="size-4 text-faint"
-                  aria-hidden="true"
-                >
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                  <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
-                  <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                  <circle cx="9" cy="7" r="4"></circle>
-                </svg>
+              <div id="get-started" class="max-w-sm scroll-mt-24 space-y-3">
+                <a class="cta" href="%APP_ORIGIN%/signin">Continue with Google</a>
+                <p class="text-pretty text-xs text-muted-foreground">
+                  Free to use, with no paid plan and no trial to expire. Signing in creates your
+                  Personal Circle, a ledger of your own that cannot invite anyone into. By continuing
+                  you agree to our <a class="prose-link" href="%APEX_ORIGIN%/terms">Terms</a> and
+                  <a class="prose-link" href="%APEX_ORIGIN%/privacy">Privacy Policy</a>.
+                </p>
               </div>
+            </div>
 
-              <div class="space-y-1">
-                <div class="flex items-center gap-3 rounded-2xl bg-primary-soft px-3 py-3">
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #22c55e26; color: #22c55e"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                    >G</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Groceries — Costco</p>
-                    <p class="truncate text-xs text-muted-foreground">Groceries · Maya</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$186.42
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #3b82f626; color: #3b82f6"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                    >R</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">March rent</p>
-                    <p class="truncate text-xs text-muted-foreground">Rent · Jordan</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$2,100.00
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
-                  <span
-                    aria-hidden="true"
-                    style="background-color: #f59e0b26; color: #f59e0b"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                    >U</span
-                  >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Utilities split</p>
-                    <p class="truncate text-xs text-muted-foreground">Utilities · Alex</p>
-                  </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
-                  >
-                    −$94.18
-                  </p>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+            <div class="animate-marketing-enter relative min-w-0 [animation-delay:120ms]">
+              <div
+                aria-hidden="true"
+                class="absolute inset-x-8 -top-6 -bottom-6 rounded-3xl bg-primary/10 blur-2xl"
+              ></div>
+              <div
+                class="relative overflow-hidden rounded-3xl border border-border bg-card p-2"
+              >
+                <div class="flex items-center gap-3 rounded-2xl px-4 py-3">
                   <span
                     aria-hidden="true"
                     style="background-color: #14b8a626; color: #14b8a6"
                     class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-                    >I</span
+                    >AH</span
                   >
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Payback from Sam</p>
-                    <p class="truncate text-xs text-muted-foreground">Income · Maya</p>
+                    <p class="truncate font-display text-sm font-semibold tracking-tight">
+                      Apartment Home
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">4 Members · Teal</p>
                   </div>
-                  <p
-                    class="shrink-0 font-display text-sm font-semibold text-positive tabular-nums"
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="size-4 text-faint"
+                    aria-hidden="true"
                   >
-                    +$62.00
-                  </p>
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                    <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                  </svg>
+                </div>
+
+                <div class="space-y-1">
+                  <div class="flex items-center gap-3 rounded-2xl bg-primary-soft px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #22c55e26; color: #22c55e"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >G</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Groceries — Costco</p>
+                      <p class="truncate text-xs text-muted-foreground">Groceries · Maya</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$186.42
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #3b82f626; color: #3b82f6"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >R</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">March rent</p>
+                      <p class="truncate text-xs text-muted-foreground">Rent · Jordan</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$2,100.00
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #f59e0b26; color: #f59e0b"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >U</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Utilities split</p>
+                      <p class="truncate text-xs text-muted-foreground">Utilities · Alex</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-foreground tabular-nums"
+                    >
+                      −$94.18
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
+                    <span
+                      aria-hidden="true"
+                      style="background-color: #14b8a626; color: #14b8a6"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                      >I</span
+                    >
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">Payback from Sam</p>
+                      <p class="truncate text-xs text-muted-foreground">Income · Maya</p>
+                    </div>
+                    <p
+                      class="shrink-0 font-display text-sm font-semibold text-positive tabular-nums"
+                    >
+                      +$62.00
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex items-center justify-between rounded-2xl px-4 py-3 text-xs text-muted-foreground"
+                >
+                  <span>Net this month</span>
+                  <span
+                    class="font-display text-sm font-semibold text-foreground tabular-nums"
+                  >
+                    −$2,318.60
+                  </span>
                 </div>
               </div>
-
-              <div
-                class="flex items-center justify-between rounded-2xl px-4 py-3 text-xs text-muted-foreground"
-              >
-                <span>Net this month</span>
-                <span
-                  class="font-display text-sm font-semibold text-foreground tabular-nums"
-                >
-                  −$2,318.60
-                </span>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
         <!--
           The tagline, as its own moment rather than another heading under the
@@ -279,20 +298,22 @@
           so the CSS reveal can light it up in reading order.
         -->
         <section class="border-t border-border/50 px-4 py-24 sm:px-6 lg:px-10">
-          <p class="tagline mx-auto max-w-6xl">
+          <div class="mx-auto max-w-6xl">
+            <p class="tagline">
             <span class="tagline-word" style="--i: 0">Most</span>
             <span class="tagline-word" style="--i: 1">money</span>
             <span class="tagline-word" style="--i: 2">fights</span>
             <span class="tagline-word" style="--i: 3">are</span>
             <span class="tagline-word" style="--i: 4">bookkeeping</span>
             <span class="tagline-word" style="--i: 5">fights.</span>
-            <span class="tagline-word" style="--i: 6">One</span>
+            <span class="tagline-word" style="--i: 6"><br class="hidden sm:block" />One</span>
             <span class="tagline-word" style="--i: 7">shared</span>
             <span class="tagline-word" style="--i: 8">ledger</span>
             <span class="tagline-word" style="--i: 9">makes</span>
             <span class="tagline-word" style="--i: 10">them</span>
             <span class="tagline-word" style="--i: 11">shorter.</span>
-          </p>
+            </p>
+          </div>
         </section>
 
         <section
@@ -308,9 +329,10 @@
               </h2>
               <p class="text-pretty text-muted-foreground">
                 A Circle is a shared financial space with one or more Members. It can be a
-                residence, a trip, a family, a group of friends, or any budget you split. Your
-                Personal Circle is created with your account and stays yours alone; you make a
-                second Circle when you want someone else in the numbers.
+                residence, a trip, a family, or any budget you split. Your Personal Circle is
+                created when you sign in and stays yours alone — it can never invite Members, be
+                archived, or be deleted. You make a second Circle when you want someone else in the
+                numbers.
               </p>
             </div>
 
@@ -540,18 +562,48 @@
               </p>
             </div>
 
+            <!--
+              A Connections panel as the app builds one: a row is an MCP client,
+              not a Circle, with the Circles it was granted listed inside it. The
+              panel is the one piece of the page that shows a grant rather than
+              describing it, so it has to be the real shape — two rows titled
+              "Apartment Home" and "Japan Trip" would say grants are per Circle,
+              which is the opposite of what the prose next to it says.
+            -->
             <div class="rounded-3xl border border-border bg-card p-2">
               <p class="px-4 py-3 font-display text-sm font-semibold tracking-tight">Connections</p>
               <div class="space-y-1">
                 <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
                   <span
                     aria-hidden="true"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-xs font-semibold text-primary"
-                    >AI</span
+                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
                   >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+                      ></path>
+                      <path d="M20 2v4"></path>
+                      <path d="M22 4h-4"></path>
+                      <circle cx="4" cy="20" r="2"></circle>
+                    </svg>
+                  </span>
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Apartment Home</p>
-                    <p class="truncate text-xs text-muted-foreground">Read and record · 2 Circles</p>
+                    <p class="truncate text-sm font-medium">Claude</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      Apartment Home, Japan Trip
+                    </p>
                   </div>
                   <span
                     class="shrink-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-foreground"
@@ -561,12 +613,34 @@
                 <div class="flex items-center gap-3 rounded-2xl px-3 py-3">
                   <span
                     aria-hidden="true"
-                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground"
-                    >JT</span
+                    class="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
                   >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+                      ></path>
+                      <path d="M20 2v4"></path>
+                      <path d="M22 4h-4"></path>
+                      <circle cx="4" cy="20" r="2"></circle>
+                    </svg>
+                  </span>
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">Japan Trip</p>
-                    <p class="truncate text-xs text-muted-foreground">Waiting for your approval</p>
+                    <p class="truncate text-sm font-medium">Cursor</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      Finish connecting in Cursor
+                    </p>
                   </div>
                   <span
                     class="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
@@ -575,7 +649,7 @@
                 </div>
               </div>
               <p class="px-4 py-3 text-pretty text-xs text-muted-foreground">
-                Every grant is per Circle. Nothing is shared account wide.
+                Every grant is per Circle. Nothing outside the two above is shared.
               </p>
             </div>
           </div>
@@ -602,8 +676,9 @@
                   Sign in with Google
                 </h3>
                 <p class="text-pretty text-sm text-muted-foreground">
-                  One click. We use your Google name and email to create your account and nothing
-                  else, so there is no password to remember and no separate profile to fill in.
+                  One click, and there is no password to remember. We take your Google name, email,
+                  and profile picture to sign you in, and nothing else. You confirm the name once,
+                  and after that the app asks nothing.
                 </p>
               </li>
               <li class="max-w-md space-y-3">
@@ -614,9 +689,10 @@
                 </p>
                 <h3 class="font-display text-xl font-semibold tracking-tight">Open a Circle</h3>
                 <p class="text-pretty text-sm text-muted-foreground">
-                  You land in a Personal Circle, ready to use. Answer the setup questions and it
-                  seeds the Categories that fit, or make a Circle for the people you actually
-                  split money with.
+                  Your Personal Circle is there from the start, solo and private. When you want
+                  someone else in the numbers, create a shared Circle: name it, give it a colour and
+                  a currency, and answer the setup questions, which seed the Categories it starts
+                  with.
                 </p>
               </li>
               <li class="max-w-md space-y-3">
@@ -629,8 +705,8 @@
                   Invite, then record
                 </h3>
                 <p class="text-pretty text-sm text-muted-foreground">
-                  Add Members by email. They accept in one click, and from then on the list is
-                  shared.
+                  From a shared Circle, add Members by email. Each Invitation is one link that
+                  expires in seven days, and once it is accepted the list is shared.
                 </p>
               </li>
             </ol>
@@ -731,9 +807,11 @@
                   </svg>
                 </summary>
                 <p class="text-pretty pb-5 text-sm text-muted-foreground">
-                  Yes. Your Personal Circle is created with your account and stays solo. It cannot
+                  Yes. Your Personal Circle is created when you sign in and stays solo. It cannot
                   invite Members, be archived, or be deleted outside Account Deletion, so it is
-                  always there to record into without asking anyone.
+                  there whenever you want to write something down without asking anyone. It starts
+                  with no Categories, and a Transaction needs at least one, so your first entry
+                  begins by making one.
                 </p>
               </details>
               <details class="faq-item">
@@ -781,10 +859,10 @@
                   </svg>
                 </summary>
                 <p class="text-pretty pb-5 text-sm text-muted-foreground">
-                  The Owner can remove a Member, and their Transactions stay in the Circle still
-                  attributed to them. Circle History keeps the record of the change, and if the
-                  same person is invited back later, their old rows resolve to their current name
-                  and picture again.
+                  A Member can leave a Circle themselves, and the Owner can remove one. Either way
+                  their Transactions stay in the Circle, still attributed to them, and Circle
+                  History keeps the record of the change. If the same person is invited back later,
+                  their old rows resolve to their current name and picture again.
                 </p>
               </details>
               <details class="faq-item">
@@ -882,10 +960,12 @@
                   </svg>
                 </summary>
                 <p class="text-pretty pb-5 text-sm text-muted-foreground">
-                  Yes, from Settings, and it is permanent. Your login, your profile, and your
-                  notifications go. Transactions you recorded stay in the Circles that remain, with
-                  your name still on them, because deleting your account should not quietly delete
-                  someone else's rent history.
+                  Yes, from Settings, and it is permanent. Before it will go, PocketCircle asks you
+                  to put the Circles you are holding in order: archive a Circle you own and are
+                  the only Member of, or hand over any Circle that has other Members in it. Your
+                  login, your profile, and your notifications then go. Transactions you recorded
+                  stay in the Circles that remain, with your name still on them, because deleting
+                  your account should not quietly delete someone else's rent history.
                 </p>
               </details>
             </div>

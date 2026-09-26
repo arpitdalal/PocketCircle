@@ -3,7 +3,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import sharp from "sharp";
-import { headingsOf, metaContentOf } from "../src/document.ts";
+import { attributeOf, headingsOf, metaContentOf, tagsOf } from "../src/document.ts";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
 import { SHARE_IMAGE } from "../src/share-image.ts";
 import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
@@ -26,20 +26,13 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
 const html = readFileSync(join(distDir, "index.html"), "utf8");
 
-/** Every opening tag named `name` in the document, as the raw text written. */
-function openingTags(name) {
-  return [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, "g"))].map(([tag]) => tag);
-}
-
-/** An attribute's value on a raw tag, in whatever order and quote style was used. */
-function attribute(tag, name) {
-  return new RegExp(`\\s${name}=["']([^"']*)["']`).exec(tag)?.[1];
-}
+/** Every tag named `name` in the built document, as the raw text written. */
+const openingTags = (name) => tagsOf(html, name);
 
 /** Whether any tag named `name` carries every one of `attributes`. */
 function hasTag(name, attributes) {
   return openingTags(name).some((tag) =>
-    attributes.every(([attributeName, value]) => attribute(tag, attributeName) === value),
+    attributes.every(([attributeName, value]) => attributeOf(tag, attributeName) === value),
   );
 }
 
@@ -117,8 +110,8 @@ if (missing.length > 0) {
 
 /** The stylesheet the page's styling depends on, as a path relative to `dist/`. */
 const stylesheet = openingTags("link")
-  .filter((tag) => attribute(tag, "rel") === "stylesheet")
-  .map((tag) => attribute(tag, "href"))
+  .filter((tag) => attributeOf(tag, "rel") === "stylesheet")
+  .map((tag) => attributeOf(tag, "href"))
   .find((href) => href !== undefined);
 
 if (stylesheet === undefined) {
@@ -131,8 +124,13 @@ if (stylesheet === undefined) {
  * size: the document above would be perfect and the card would still be a blank
  * rectangle in a timeline. It is read from `dist/`, which is what the Worker
  * uploads, not from the source it was rendered from.
+ *
+ * `metadata()` only reads the header, so it is followed by a real decode: a PNG
+ * that was cut short part way through its image data still has a perfectly valid
+ * IHDR and would sail through the header checks on its own.
  */
-const shareImage = await sharp(join(distDir, SHARE_IMAGE.published)).metadata();
+const publishedCard = join(distDir, SHARE_IMAGE.published);
+const shareImage = await sharp(publishedCard).metadata();
 
 if (
   shareImage.format !== "png" ||
@@ -143,6 +141,10 @@ if (
     `dist/${SHARE_IMAGE.published} is ${shareImage.format} at ${shareImage.width}x${shareImage.height}, want a ${SHARE_IMAGE.width}x${SHARE_IMAGE.height} png`,
   );
 }
+
+// Throws on a truncated or otherwise undecodable raster, which is the failure the
+// header check above cannot see.
+await sharp(publishedCard).raw().toBuffer();
 
 /**
  * The homepage's headings, in order, as `[level, text]` — the one place the copy

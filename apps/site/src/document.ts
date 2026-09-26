@@ -34,11 +34,33 @@ export interface DocumentAnchor {
  * of "Track the money you share, together" is the same copy whether or not the
  * author wrote the break.
  */
-export function textOf(markup: string): string {
+export function textOf(markup: string) {
   return markup
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Every opening tag in a document, whatever it is called, as the raw text written. */
+export function elementsOf(html: string) {
+  return [...html.matchAll(/<[a-z][^>]*>/g)].map(([tag]) => tag);
+}
+
+/** Every opening tag named `name` in a document, as the raw text written. */
+export function tagsOf(html: string, name: string) {
+  return elementsOf(html).filter((tag) => new RegExp(`^<${name}\\b`).test(tag));
+}
+
+/**
+ * An attribute's value on a raw tag, in whatever order and quote style it was
+ * written in.
+ *
+ * By name, never by position: a check that demanded `rel` before `href` would
+ * fail a document that means the same thing, and nothing else in this repo is
+ * allowed to depend on the order a serializer happened to emit.
+ */
+export function attributeOf(tag: string, name: string) {
+  return new RegExp(`\\s${name}=["']([^"']*)["']`).exec(tag)?.[1];
 }
 
 /**
@@ -49,8 +71,8 @@ export function textOf(markup: string): string {
  */
 export function anchorsOf(html: string): DocumentAnchor[] {
   return [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/g)].map((match) => ({
-    href: /\shref=["']([^"']*)["']/.exec(match[1] ?? "")?.[1] ?? "",
-    className: /\sclass=["']([^"']*)["']/.exec(match[1] ?? "")?.[1] ?? "",
+    href: attributeOf(match[1] ?? "", "href") ?? "",
+    className: attributeOf(match[1] ?? "", "class") ?? "",
     text: textOf(match[2] ?? ""),
   }));
 }
@@ -66,15 +88,11 @@ export function headingsOf(html: string): [number, string][] {
 /**
  * The `content` of the first `meta` tag carrying `name` (or `property`) `key`, or
  * `undefined` when the document does not carry it at all.
- *
- * The `meta` tag's own attributes are read by name rather than by position: a gate
- * that demanded `property` before `content` would fail a document that means the
- * same thing, and nothing else in this repo is allowed to depend on the order a
- * serializer happened to emit.
  */
-export function metaContentOf(html: string, key: string): string | undefined {
-  const tag = [...html.matchAll(/<meta\b[^>]*>/g)]
-    .map(([tag]) => tag)
-    .find((tag) => new RegExp(`\\s(?:name|property)=["']${key}["']`).test(tag));
-  return /\scontent=["']([^"']*)["']/.exec(tag ?? "")?.[1];
+export function metaContentOf(html: string, key: string) {
+  const tag = tagsOf(html, "meta").find(
+    (candidate) =>
+      attributeOf(candidate, "name") === key || attributeOf(candidate, "property") === key,
+  );
+  return attributeOf(tag ?? "", "content");
 }

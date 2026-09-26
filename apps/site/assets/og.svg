@@ -11,11 +11,16 @@
   declares in `oklch`, because an SVG renderer has no cascade to resolve a brand
   token against. The same substitution is why the type below is a system sans
   rather than Bricolage Grotesque: the brand ships its fonts as woff2, and a
-  rasteriser cannot read a web font from a data URI. The card is composed so that
-  its identity comes from the mark, the palette, and the layout rather than from
-  the typeface — which is also why the ledger panel is laid out in explicit
-  coordinates with no text measurement: a renderer that fell back to a wider face
-  would not reflow anything.
+  rasteriser cannot read a web font from a data URI, and the repo ships no TTF to
+  embed instead. So the face is whatever the build machine's fontconfig resolves,
+  which is not a property of this repository — see the long note in
+  `src/share-image.ts`.
+
+  The layout is therefore composed to survive that, not to be tuned to one face:
+  every line here is a hard-coded length chosen to leave room for a much wider
+  fallback than the one this machine picks, and no text shares a line with
+  anything it could collide with. Rendering the file with a deliberately wide
+  face substituted is how that was checked.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="PocketCircle">
   <title>PocketCircle: a shared ledger for a home, a trip, or a family</title>
@@ -40,7 +45,7 @@
 
     <!-- Headline. Reads at thumbnail size, so it is the largest thing here and
          breaks where the thought breaks rather than where the line runs out. -->
-    <text fill="#ebeaf2" font-size="72" font-weight="600" letter-spacing="-2.2">
+    <text fill="#ebeaf2" font-size="60" font-weight="600" letter-spacing="-1.8">
       <tspan x="88" y="296">Track the money you</tspan>
       <tspan x="88" y="376">share, together</tspan>
     </text>

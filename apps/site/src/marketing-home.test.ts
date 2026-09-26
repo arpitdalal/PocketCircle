@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { COLOR_PALETTE, PERSONAL_CIRCLE_COLOR_HEX } from "@pocketcircle/domain";
 import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
 import { describe, expect, it } from "vitest";
-import { anchorsOf, headingsOf, metaContentOf } from "./document.js";
+import { anchorsOf, attributeOf, elementsOf, headingsOf, metaContentOf } from "./document.js";
 import { APEX_ORIGIN_TOKEN, APP_ORIGIN_TOKEN, resolveSiteHtml } from "./site-html.js";
 
 /**
@@ -75,12 +75,52 @@ describe("the marketing homepage is a complete static document", () => {
     expect(page).not.toMatch(/<script/i);
   });
 
-  it("loads no image, so there is nothing to arrive late and shift the page", () => {
+  it("loads nothing that can arrive late and shift the page", () => {
     // The page is CSS and text. A first-party image would need intrinsic
     // dimensions to avoid a layout shift and a fallback to stay useful with
     // images blocked, and there is nothing here that needs one: the product is
-    // drawn, not photographed.
-    expect(page).not.toMatch(/<img\b/i);
+    // drawn, not photographed. This is also the whole of the "useful with images
+    // and scripts blocked" criterion, because blocking either of those changes
+    // nothing here.
+    expect(page).not.toMatch(/<(img|iframe|object|embed|video|audio|source|track|picture)\b/i);
+  });
+
+  it("leaves the tagline's nearest scroll container as the page itself", () => {
+    // A scroll-driven `view()` timeline is *inactive* when the animated element's
+    // nearest ancestor scroll container has no scrollable overflow, per the
+    // scroll-animations spec. `overflow-x-hidden` computes `overflow-y` to
+    // `auto`, so putting it on the wrapper around the page would make that
+    // wrapper the tagline's nearest scroll container, that wrapper would have no
+    // scrollable overflow of its own, and the reveal would silently never run —
+    // while every other assertion here still passed, because the animation would
+    // still be present in the stylesheet. `overflow-x-clip` contains the overflow
+    // without ever becoming a scroll container.
+    //
+    // Only the elements between the statement and `<body>` matter, because they
+    // are the ones a scroll container could be hiding in. A card clipping its own
+    // rows to a rounded corner is a different thing and is left alone.
+    const formsAScrollContainer =
+      /^overflow-(hidden|auto|scroll|x-(hidden|auto|scroll)|y-(hidden|auto|scroll))$/;
+    const overflowOf = (tag: string) =>
+      (attributeOf(tag, "class") ?? "")
+        .split(/\s+/)
+        .filter((className) => formsAScrollContainer.test(className));
+
+    const statement = page.indexOf('<p class="tagline');
+    expect(statement).toBeGreaterThan(0);
+    const before = page.slice(0, statement);
+    for (const ancestor of [
+      before.slice(before.lastIndexOf("<section")),
+      before.slice(before.lastIndexOf("<main")),
+      elementsOf(page).find((tag) => attributeOf(tag, "id") === "top") ?? "",
+    ]) {
+      expect(overflowOf(ancestor), ancestor.slice(0, 60)).toEqual([]);
+    }
+  });
+
+  it("clips the hero glow on the page wrapper with the one value that is safe", () => {
+    const pageWrapper = elementsOf(page).find((tag) => attributeOf(tag, "id") === "top") ?? "";
+    expect((attributeOf(pageWrapper, "class") ?? "").split(/\s+/)).toContain("overflow-x-clip");
   });
 
   it("paints its Circle marks in the app's Circle colours, over the same tint", () => {
@@ -92,9 +132,8 @@ describe("the marketing homepage is a complete static document", () => {
   });
 
   it("puts a way past the header first, for a keyboard visitor", () => {
-    const first = /<a\b([^>]*)>([\s\S]*?)<\/a\s*>/.exec(page);
-    expect(first?.[1] ?? "").toMatch(/\shref="#main"/);
-    expect(first?.[2] ?? "").toContain("Skip to content");
+    expect(links[0]?.href).toBe("#main");
+    expect(links[0]?.text).toBe("Skip to content");
     expect(ids).toContain("main");
   });
 });
