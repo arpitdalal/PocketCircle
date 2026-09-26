@@ -2,20 +2,25 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_ORIGIN, APP_ORIGIN } from "@pocketcircle/domain/origins";
+import sharp from "sharp";
+import { headingsOf, metaContentOf } from "../src/document.ts";
 import { siteSecurityHeaders } from "../src/security-headers.ts";
+import { SHARE_IMAGE } from "../src/share-image.ts";
 import { SITE_PLACEHOLDERS } from "../src/site-html.ts";
 
 /**
  * Build-time check on the published artifact. The Site ships no client runtime,
  * so the built document *is* the product: a section the build dropped, a
  * canonical origin left as a placeholder, a Tailwind class that never compiled,
- * or a `_headers` rule Workers cannot parse are all invisible once the artifact
- * is uploaded — the Worker serves whatever it was given.
+ * a share image that came out empty, or a `_headers` rule Workers cannot parse
+ * are all invisible once the artifact is uploaded — the Worker serves whatever it
+ * was given.
  *
- * Every check below reads attributes by name, not by position. A gate that
- * demands `<link rel="canonical" href="…">` in that exact order fails a document
- * that means the same thing, and nothing else in this repo is allowed to depend
- * on the order a serializer happened to emit.
+ * Every check below reads attributes by name, not by position, and reads text
+ * through `src/document.ts`, the same helper the unit tests use. A gate that
+ * demands `<link rel="canonical" href="…">` in that exact order, or that reports a
+ * line break as part of a heading's copy, fails a document that means the same
+ * thing.
  */
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(packageRoot, "dist");
@@ -38,18 +43,32 @@ function hasTag(name, attributes) {
   );
 }
 
-const DESCRIPTION = "PocketCircle helps you track spending together in shared Circles.";
+/** The `content` of the first `meta` tag carrying `name` (or `property`) `key`. */
+const meta = (key) => metaContentOf(html, key);
+
+/**
+ * The description is written once, in the `description` tag, and both card
+ * formats have to repeat it. Comparing the three against each other rather than
+ * against a constant here is the point: a second copy of the string in this
+ * script would be a third place to update and would not catch either of the two
+ * drifting from the document.
+ */
+const description = meta("description");
 
 const missing = [
   ["a title", /<title>[^<]+<\/title>/.test(html)],
+  ["a description", (description ?? "").length > 0 && (description?.length ?? 0) <= 160],
   [
-    "a description",
-    openingTags("meta").some(
-      (tag) =>
-        attribute(tag, "name") === "description" && (attribute(tag, "content") ?? "").length > 0,
-    ),
+    "an og:description that repeats it",
+    meta("og:description") === description && description !== undefined,
   ],
-  ["the product description", html.includes(DESCRIPTION)],
+  [
+    "a twitter:description that repeats it",
+    meta("twitter:description") === description && description !== undefined,
+  ],
+  ["an og:title", (meta("og:title") ?? "").length > 0],
+  ["a twitter:title", (meta("twitter:title") ?? "").length > 0],
+  ["a card large enough to be worth rendering", meta("twitter:card") === "summary_large_image"],
   [
     "a canonical link",
     hasTag("link", [
@@ -62,6 +81,22 @@ const missing = [
     hasTag("meta", [
       ["property", "og:url"],
       ["content", `${APEX_ORIGIN}/`],
+    ]),
+  ],
+  [
+    "an absolute share image on the apex",
+    meta("og:image") === `${APEX_ORIGIN}/${SHARE_IMAGE.published}` &&
+      meta("twitter:image") === meta("og:image") &&
+      meta("og:image:type") === "image/png" &&
+      meta("og:image:width") === String(SHARE_IMAGE.width) &&
+      meta("og:image:height") === String(SHARE_IMAGE.height) &&
+      (meta("og:image:alt") ?? "").length > 0,
+  ],
+  [
+    "a branded favicon",
+    hasTag("link", [
+      ["rel", "icon"],
+      ["href", "/favicon.svg"],
     ]),
   ],
   // Which origin owns a destination — ADR 0035 puts the marketing surfaces on
@@ -89,29 +124,57 @@ const stylesheet = openingTags("link")
 if (stylesheet === undefined) {
   throw new Error("dist/index.html links no stylesheet");
 }
+
 /**
- * The homepage's sections, in order, as `[level, text]` — the one place the copy
+ * The share image is the one asset a crawler fetches from outside the page, so
+ * nothing else in the build would notice it missing, truncated, or the wrong
+ * size: the document above would be perfect and the card would still be a blank
+ * rectangle in a timeline. It is read from `dist/`, which is what the Worker
+ * uploads, not from the source it was rendered from.
+ */
+const shareImage = await sharp(join(distDir, SHARE_IMAGE.published)).metadata();
+
+if (
+  shareImage.format !== "png" ||
+  shareImage.width !== SHARE_IMAGE.width ||
+  shareImage.height !== SHARE_IMAGE.height
+) {
+  throw new Error(
+    `dist/${SHARE_IMAGE.published} is ${shareImage.format} at ${shareImage.width}x${shareImage.height}, want a ${SHARE_IMAGE.width}x${SHARE_IMAGE.height} png`,
+  );
+}
+
+/**
+ * The homepage's headings, in order, as `[level, text]` — the one place the copy
  * order is written down. It lives here rather than beside the source because
  * this is the artifact a visitor is served: an assertion about the checked-in
  * file would only ever prove the build did what it did last time.
  */
-const sections = [...html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map((match) => [
-  Number(match[1]),
-  (match[2] ?? "").replace(/\s+/g, " ").trim(),
-]);
+const sections = headingsOf(html);
 
 const expectedSections = [
-  [1, "PocketCircle"],
-  [2, "Circles for every shared life"],
-  [2, "Stay aligned without the spreadsheet"],
-  [3, "Record expenses and income"],
-  [3, "Organize with Categories"],
-  [3, "See who did what"],
-  [2, "AI-native, with you in control"],
+  [1, "Track the money you share, together"],
+  [2, "What a Circle is"],
+  [2, "One ledger instead of the group chat"],
+  [3, "Everyone writes to the same list"],
+  [3, "Totals that answer the question"],
+  [3, "Attribution on every row"],
+  [3, "A record of every change"],
+  [2, "Let an assistant read the ledger"],
   [2, "Up and running in minutes"],
-  [3, "Continue with Google"],
+  [3, "Sign in with Google"],
   [3, "Open a Circle"],
-  [3, "Invite and record"],
+  [3, "Invite, then record"],
+  [2, "Straight answers"],
+  [3, "Does PocketCircle work out who owes whom?"],
+  [3, "Is there a free plan, or a trial that expires?"],
+  [3, "Can I use it on my own?"],
+  [3, "Who can see a Circle I am in?"],
+  [3, "What happens when someone leaves a Circle?"],
+  [3, "Can it import transactions from my bank?"],
+  [3, "Can I set a budget or a spending limit?"],
+  [3, "Does it work on a phone?"],
+  [3, "Can I delete my account?"],
   [2, "Start your first Circle"],
 ];
 
@@ -187,5 +250,5 @@ if (publishedHeaders !== siteSecurityHeaders(productHeaders)) {
 }
 
 console.log(
-  `Site HTML ok (${authoredPages.length} page + ${expectedSections.length} sections in order + title + description + canonical apex origin + split-origin links + compiled classes + _headers).`,
+  `Site HTML ok (${authoredPages.length} page + ${expectedSections.length} headings in order + title + description repeated into both cards + ${SHARE_IMAGE.published} at ${SHARE_IMAGE.width}x${SHARE_IMAGE.height} + canonical apex origin + split-origin links + compiled classes + _headers).`,
 );
