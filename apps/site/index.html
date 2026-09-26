@@ -126,7 +126,7 @@
           </span>
           PocketCircle
         </a>
-        <a class="prose-link text-sm font-medium" href="%APP_ORIGIN%/signin">Sign in</a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
       </header>
 
       <main id="main" class="relative z-10 flex flex-1 flex-col">
@@ -554,11 +554,12 @@
               </h2>
               <p class="text-pretty text-muted-foreground">
                 PocketCircle speaks MCP, the protocol ChatGPT, Claude, Codex, and Cursor already
-                use. Connect an assistant, approve the Circles and the permissions you want it to
-                have in the browser, and it can read a Circle's Transactions and record new ones.
-                It cannot see a Circle you have not approved, you can revoke any connection from
-                Connections at any time, and PocketCircle never hands an assistant your Google
-                account.
+                use. Connect an assistant, pick the Circles you want it to have in the browser, and
+                it can read those Circles' Transactions and record new ones. It cannot see a Circle
+                you did not pick, and it never sees another Member's email address. It does learn
+                who you are — your Display Name and profile picture, which is how it tells your own
+                Transactions from everyone else's. It never sees your Google account, and you can
+                revoke any connection from Connections at any time.
               </p>
             </div>
 
@@ -649,7 +650,7 @@
                 </div>
               </div>
               <p class="px-4 py-3 text-pretty text-xs text-muted-foreground">
-                Every grant is per Circle. Nothing outside the two above is shared.
+                One connection, the two Circles you picked. Revoke it and it sees nothing at all.
               </p>
             </div>
           </div>

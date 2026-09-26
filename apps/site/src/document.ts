@@ -15,16 +15,6 @@
  * recognise, which is the moment a real parser would start being worth its cost.
  */
 
-/** An anchor in a document, with the two things an assertion about it needs. */
-export interface DocumentAnchor {
-  /** The `href` exactly as written, placeholders and all. */
-  readonly href: string;
-  /** The `class` exactly as written, or `""`. */
-  readonly className: string;
-  /** Everything a visitor would read inside it, tags removed, whitespace collapsed. */
-  readonly text: string;
-}
-
 /**
  * The text of a fragment of markup, with every tag removed and every run of
  * whitespace collapsed to one space.
@@ -64,12 +54,13 @@ export function attributeOf(tag: string, name: string) {
 }
 
 /**
- * Every anchor in a document, in document order.
+ * Every anchor in a document, in document order, as its `href`, its `class`, and
+ * the text a visitor would read inside it.
  *
  * Both quote styles are accepted: an `href` written with single quotes is still
  * an `href`, and a check that cannot see it would pass by not looking.
  */
-export function anchorsOf(html: string): DocumentAnchor[] {
+export function anchorsOf(html: string) {
   return [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/g)].map((match) => ({
     href: attributeOf(match[1] ?? "", "href") ?? "",
     className: attributeOf(match[1] ?? "", "class") ?? "",
@@ -77,12 +68,17 @@ export function anchorsOf(html: string): DocumentAnchor[] {
   }));
 }
 
-/** Every heading in a document, in document order, as `[level, text]`. */
-export function headingsOf(html: string): [number, string][] {
-  return [...html.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map((match) => [
-    Number(match[1]),
-    textOf(match[2] ?? ""),
-  ]);
+/**
+ * Every heading in a document, in document order, as `[level, text]`.
+ *
+ * `as const` on the pair because `map` would otherwise infer `Array<string |
+ * number>` and every caller would have to narrow before it could do arithmetic
+ * on the level.
+ */
+export function headingsOf(html: string) {
+  return [...html.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map(
+    (match) => [Number(match[1]), textOf(match[2] ?? "")] as const,
+  );
 }
 
 /**

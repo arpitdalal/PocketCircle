@@ -174,13 +174,24 @@ describe("the page asks for one thing", () => {
     expect(page).not.toMatch(/<(form|button|input|select|textarea)\b/i);
   });
 
-  it("sends every link that leaves for the app to the same sign-in", () => {
-    const offPage = authoredLinks.filter((link) => !link.href.startsWith("#"));
-    const toApp = offPage.filter((link) => link.href.includes(APP_ORIGIN_TOKEN));
-    expect(toApp.length).toBeGreaterThan(0);
-    for (const link of toApp) {
-      expect(link.href).toBe(SIGN_IN);
-    }
+  it("sends every link that leaves the page to one of a fixed set of destinations", () => {
+    // The two origins are one string until the ADR 0035 cutover gives the app its
+    // subdomain, so which destination belongs to which is only visible here, with
+    // the placeholders unresolved — matching on the resolved origin instead would
+    // classify the apex's own links as app links.
+    //
+    // Enumerating the set rather than filtering for the one allowed app path is
+    // what makes this a rule: a link to any other destination on either origin,
+    // however it is written, has to be added here deliberately.
+    const destinations = new Set(
+      authoredLinks.filter((link) => !link.href.startsWith("#")).map((link) => link.href),
+    );
+    expect([...destinations].sort()).toEqual(
+      [
+        SIGN_IN,
+        ...Object.values(APEX_SURFACES).map((path) => `${APEX_ORIGIN_TOKEN}${path}`),
+      ].sort(),
+    );
   });
 
   it("makes one call to action the dominant one, and repeats it rather than adding to it", () => {

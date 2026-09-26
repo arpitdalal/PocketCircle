@@ -114,6 +114,11 @@
  * against 16.39:1 at the near end — above the 4.5:1 floor for body text, let
  * alone for a heading this size. Going further would trade legibility for an
  * effect, which is the wrong way round.
+ *
+ * The forced-colors fallback is not optional. That mode replaces author colours
+ * with system ones and suppresses background images, but it does not undo
+ * `-webkit-text-fill-color: transparent` — so without this the page's only `h1`
+ * would be an invisible heading on a small but real number of Windows machines.
  */
 @utility headline-fade {
   background-image: linear-gradient(
@@ -124,6 +129,14 @@
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+@media (forced-colors: active) {
+  .headline-fade {
+    background-image: none;
+    -webkit-text-fill-color: currentcolor;
+    color: CanvasText;
+  }
 }
 
 /*
@@ -169,13 +182,26 @@
 }
 
 /*
- * Prose links in the footer, the legal line under each call to action, and the
- * section index. Muted to full foreground on hover with an underline that grows
- * from the text rather than from the edge of the box, which is what
- * `underline-offset` is for.
+ * Prose links in the footer, the section index, and the consent sentence under
+ * each call to action.
+ *
+ * The underline is permanent, not a hover reward. A link inside a sentence has to
+ * be identifiable as a link without the pointer being on it, and "only different
+ * by colour, and only on hover" fails that for everyone on a touch screen and
+ * anyone using a style sheet that drops the hover. It thins on hover rather than
+ * appearing, which keeps the affordance without the jump.
  */
 @utility prose-link {
-  @apply rounded-xs text-muted-foreground underline-offset-4 transition-colors duration-150 ease-out-quart hover:text-foreground hover:underline;
+  @apply rounded-xs text-muted-foreground underline underline-offset-4 transition-[color,text-decoration-color] duration-150 ease-out-quart hover:text-foreground hover:decoration-foreground;
+}
+
+/*
+ * The header's sign-in link: the same colour and easing as a prose link, without
+ * the underline. A standalone control beside a wordmark is not a link in a block
+ * of text, so nothing about it needs to read as one.
+ */
+@utility quiet-link {
+  @apply rounded-xs text-sm font-medium text-muted-foreground transition-colors duration-150 ease-out-quart hover:text-foreground;
 }
 
 /*
