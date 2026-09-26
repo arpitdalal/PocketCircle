@@ -37,13 +37,15 @@ function handoffInFlight() {
  */
 export function SignInHandoffNotice() {
   const { show } = useSnackbar();
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
   // Read during the first render on purpose: the provider removes the param in an
   // effect, so anything read later would see a URL with no sign-in in it.
   const [started] = useState(handoffInFlight);
 
   useEffect(() => {
-    if (!started || isAuthenticated) {
+    // Nothing to report while the session is still resolving: the redemption is in
+    // flight, and a slow one is not a failed one.
+    if (!started || isLoading || isAuthenticated) {
       return;
     }
     const timeoutId = window.setTimeout(() => {
@@ -52,7 +54,7 @@ export function SignInHandoffNotice() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isAuthenticated, show, started]);
+  }, [isAuthenticated, isLoading, show, started]);
 
   return null;
 }

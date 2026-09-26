@@ -57,6 +57,20 @@ describe("SignInHandoffNotice", () => {
     expect(screen.getByText("Couldn't finish signing in. Try again.")).toBeInTheDocument();
   });
 
+  it("says nothing while the session is still resolving", () => {
+    landOnHandoffUrl();
+    // A slow redemption is not a failed one, so the report waits for the session to
+    // settle rather than racing it.
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
+    renderNotice();
+
+    act(() => {
+      vi.advanceTimersByTime(HANDOFF_SETTLE_MS * 2);
+    });
+
+    expect(screen.queryByText(/finish signing in/)).not.toBeInTheDocument();
+  });
+
   it("stays quiet when the handoff lands a session", () => {
     landOnHandoffUrl();
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
