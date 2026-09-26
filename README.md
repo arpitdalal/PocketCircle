@@ -438,17 +438,19 @@ origin to the OAuth client's Authorized JavaScript origins **first** — a manua
 Cloud Console step, and it is not automatable — then widen the deployment:
 
 ```sh
-pnpm --filter @pocketcircle/convex exec convex env set MIGRATION_APP_ORIGIN https://app.pocketcircle.app
-pnpm --filter @pocketcircle/convex exec convex deploy -y
+pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://app.pocketcircle.app
 ```
 
-The deploy is part of the change: the auth routes read the trusted-origin list when
-their module loads, so `env set` on its own leaves the new origin untrusted until
-the next deploy. A User who lands on an origin that is not in the list gets no CORS
-answer from the auth routes and sign-in fails in the browser with no detail — which
-also means a Worker `workers.dev` host and a bumped local dev port are not places
-sign-in works. Verify sign-in on a declared origin, and point `SITE_URL` at the port
-you are serving from.
+`--prod` is not optional: without it the CLI writes to the development deployment,
+where the variable does nothing. The change reaches the auth routes on the next
+backend deploy — the tag-driven pipeline, or
+`pnpm --filter @pocketcircle/convex exec convex deploy --prod -y` when you are
+deliberately deploying — because they read the trusted-origin list when their module
+loads. A User who lands on an origin that is not in the list gets no CORS answer
+from the auth routes and sign-in fails in the browser with no detail, which also
+means a Worker `workers.dev` host and a bumped local dev port are not places sign-in
+works. Verify sign-in on a declared origin, and point `SITE_URL` at the port you are
+serving from.
 
 `MIGRATION_APP_ORIGIN` and `SITE_URL` each take one bare origin — no wildcard, no
 list, no path. Anything else is refused, loudly, the first time the auth routes
@@ -463,7 +465,7 @@ Once `SITE_URL` names the app origin, drop the variable in the same deploy that
 flips it:
 
 ```sh
-pnpm --filter @pocketcircle/convex exec convex env remove MIGRATION_APP_ORIGIN
+pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
 Keep this section until the follow-up ticket removes the support from the code —

@@ -83,9 +83,13 @@ export function authRuntimeConfig(
   // against, so a pattern there is the hazard above rather than a shorthand.
   const siteUrl = declaredOrigin("SITE_URL", siteUrlValue ?? LOCAL_APP_ORIGIN);
   const verbose = isLoopbackHostname(new URL(siteUrl).hostname);
-  const migrationAppOrigin = migrationAppOriginValue
-    ? declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue)
-    : null;
+  // Unset is the single-origin setup. Anything supplied is validated, an empty value
+  // included: `convex env set MIGRATION_APP_ORIGIN ""` is a mistake to be told about,
+  // not an absent variable to be read as "trust one origin".
+  const migrationAppOrigin =
+    migrationAppOriginValue === undefined
+      ? null
+      : declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue);
   return { siteUrl, verbose, migrationAppOrigin };
 }
 

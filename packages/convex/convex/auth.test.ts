@@ -142,6 +142,9 @@ describe("authRuntimeConfig", () => {
     // on its way in.
     ["credentials in the host", "https://app.example.com@evil.example"],
     ["a percent-encoded host", "https://ex%41mple.com"],
+    // Set-but-empty is a mistake to report, not an absent variable to read as
+    // "trust one origin" — which would fail sign-in on the app origin silently.
+    ["an empty value", ""],
   ])("rejects %s as a migration app origin", (_label, value) => {
     expect(() => authRuntimeConfig(APEX_ORIGIN, value)).toThrow(/MIGRATION_APP_ORIGIN/);
   });
