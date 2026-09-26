@@ -161,11 +161,15 @@ export function fillReleases(html: string, context: { filename: string }) {
   return html.replace(RELEASES_TOKEN, () => releases);
 }
 
-export function whatsNewPlugin(): Plugin {
+export function whatsNewPlugin() {
   return {
     name: "pocketcircle:whats-new",
     // The four documents that do not ask for a release list come through this
     // transform too, and return unchanged.
     transformIndexHtml: fillReleases,
-  };
+    // Checked against Vite's type rather than declared as the return type, which
+    // is the difference between "this is a plugin" and "this is what a plugin
+    // happens to be" — the object keeps its own type, and the shape is still the
+    // one the build expects.
+  } satisfies Plugin;
 }

@@ -108,11 +108,16 @@ function bothCopies({ file, Route }: (typeof documents)[number]) {
  * a word joined to the next one, in either direction.
  */
 function textOf(element: Element) {
-  const withBreaks = element.cloneNode(true) as Element;
-  for (const lineBreak of withBreaks.querySelectorAll("br")) {
+  // A copy rather than the element itself, because a `<br>` is an element and
+  // `textContent` is the concatenation of text nodes. Built with `append` so the
+  // clone is adopted by a real element and the type is inferred from that, not
+  // asserted.
+  const copy = element.ownerDocument.createElement("div");
+  copy.append(element.cloneNode(true));
+  for (const lineBreak of copy.querySelectorAll("br")) {
     lineBreak.replaceWith(" ");
   }
-  return (withBreaks.textContent ?? "").replace(/\s+/g, " ").trim();
+  return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 /**
