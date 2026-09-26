@@ -202,6 +202,44 @@ if (uncompiled.length > 0) {
   throw new Error(`Tailwind emitted no rule for ${uncompiled.join(", ")}`);
 }
 
+/**
+ * The safe-area compensation has to survive the build, which is checked here
+ * rather than in the source because the source is not what ships.
+ *
+ * `env(safe-area-inset-*)` written directly inside a nested block of an
+ * `@utility` is dropped by the build: the `+ env(...)` clause disappears from the
+ * emitted rule and the offset silently becomes a flat `16px`, which is correct
+ * on every device without a cutout and wrong on exactly the devices the code was
+ * written for. Nothing else in the build can see that, and the page still looks
+ * right in a browser with no insets — so the artifact is what gets asserted, the
+ * way the rest of this script does.
+ */
+const INSETS = ["top", "right", "bottom", "left"];
+const lostInsets = INSETS.filter(
+  (side) => !css.includes(`--safe-area-${side}:env(safe-area-inset-${side},0px)`),
+);
+if (lostInsets.length > 0) {
+  throw new Error(
+    `the built stylesheet does not declare ${lostInsets.map((side) => `--safe-area-${side}`).join(", ")} from the device insets, so the page is not padded for a cutout`,
+  );
+}
+
+// Every consumer has to read those four rather than re-derive them, because
+// re-deriving is the shape that gets dropped.
+for (const [what, pattern] of [
+  ["the page wrapper's horizontal padding", /\.safe-x\{[^}]*padding-left:var\(--safe-area-left\)/],
+  ["the header's top padding", /\.safe-top\{[^}]*var\(--safe-area-top\)/],
+  ["the footer's bottom padding", /\.safe-bottom\{[^}]*var\(--safe-area-bottom\)/],
+  [
+    "the focused skip link's offsets",
+    /\.skip-link:focus-visible\{[^}]*top:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-top\)\)[^}]*left:calc\(var\(--spacing\) \* 4 \+ var\(--safe-area-left\)\)/,
+  ],
+]) {
+  if (!pattern.test(css)) {
+    throw new Error(`the built stylesheet lost the device inset for ${what}`);
+  }
+}
+
 /** Every file the build published, as a path relative to `dist/`. */
 function publishedFiles(directory) {
   return readdirSync(directory, { recursive: true })

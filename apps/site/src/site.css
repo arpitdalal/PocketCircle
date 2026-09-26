@@ -31,33 +31,52 @@
  */
 
 /*
- * Safe-area composition. `viewport-fit=cover` in the document unlocks
- * `env(safe-area-inset-*)`, which is 0 without it — the padding would collapse
- * silently rather than fail. Written as `env()` at each use rather than through
- * custom properties, because there is no second consumer to share them with.
+ * The device's safe-area insets, declared once.
  *
- * These are utilities because the inset is an environment value, not a spacing
- * choice: the 12px and 48px added to the vertical pair are steps from the same
- * Tailwind spacing scale as every other gap on the page, and a document that
- * inlined the `calc()` would be the only place in the repo holding that
- * arithmetic.
+ * `viewport-fit=cover` in the document unlocks `env(safe-area-inset-*)`, which is
+ * 0 without it — the compensation would collapse silently rather than fail.
+ *
+ * They are read through custom properties rather than inline at each use because
+ * `env()` written directly inside a nested block of an `@utility` does not
+ * survive the build: the `+ env(safe-area-inset-top, 0px)` clause was dropped from
+ * the emitted rule and the offset silently became a flat `16px`. Every consumer
+ * here goes through these four, so there is one declaration and no shape of usage
+ * that can quietly lose the inset.
+ */
+@layer base {
+  :root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+  }
+}
+
+/*
+ * Safe-area composition. These are utilities because the inset is an environment
+ * value, not a spacing choice: the 12px and 48px added to the vertical pair are
+ * steps from the same Tailwind spacing scale as every other gap on the page, and
+ * a document that inlined the `calc()` would be the only place in the repo
+ * holding that arithmetic.
  *
  * The horizontal pair goes on the page wrapper rather than on each section, which
  * is the only way it can be done once: every section brings its own responsive
  * `px-*`, and a cutout in landscape reaches past all of them. Applied at the
  * wrapper, each section's own padding is then measured from inside the cutout.
+ * The one element that is not inside the wrapper in that sense is the fixed skip
+ * link, which carries the same insets itself.
  */
 @utility safe-top {
-  padding-top: calc(var(--spacing) * 3 + env(safe-area-inset-top, 0px));
+  padding-top: calc(var(--spacing) * 3 + var(--safe-area-top));
 }
 
 @utility safe-bottom {
-  padding-bottom: calc(var(--spacing) * 12 + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--spacing) * 12 + var(--safe-area-bottom));
 }
 
 @utility safe-x {
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
 }
 
 @layer base {
@@ -193,11 +212,22 @@
  * is on screen wherever in the page the focus happens to be. The document is one
  * column of long sections, so reaching `main` by keyboard is otherwise a run of
  * tab stops through the header and the skip link.
+ *
+ * Its offsets carry the safe-area insets themselves, which is the one place the
+ * `safe-*` utilities are not enough. `position: fixed` resolves against the
+ * viewport, so this link escapes the `safe-x` padding on the page wrapper
+ * entirely — a notched phone in portrait would put it under the status bar, and
+ * in landscape under the side cutout, hiding the one control a keyboard-only
+ * visitor has for getting past the header. Written out rather than applied,
+ * because `top-4` and `left-4` cannot carry an `env()`.
  */
 @utility skip-link {
   @apply sr-only;
+
   &:focus-visible {
-    @apply not-sr-only fixed top-4 left-4 z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background;
+    @apply not-sr-only fixed z-50 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background;
+    top: calc(var(--spacing) * 4 + var(--safe-area-top));
+    left: calc(var(--spacing) * 4 + var(--safe-area-left));
   }
 }
 
