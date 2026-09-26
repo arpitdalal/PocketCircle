@@ -418,6 +418,22 @@ allow the exact callback URL:
 https://<production-deployment>.convex.site/api/auth/callback/google
 ```
 
+**Origin migration (temporary, [ADR 0035](docs/adr/0035-static-marketing-site-on-apex-and-product-spa-on-app-subdomain.md)).**
+While the SPA is being moved to `https://app.pocketcircle.app`, auth has to trust
+that origin alongside `SITE_URL`, so sign-in works on whichever of the two a User
+lands on and deploying the app origin is not itself the cutover. Set it on the
+Convex deployment, and add **both** origins to the Google OAuth client's
+**Authorized JavaScript origins** in the Cloud Console before that deploy, or
+sign-in from the app origin fails CORS:
+
+```sh
+pnpm --filter @pocketcircle/convex exec convex env set MIGRATION_APP_ORIGIN https://app.pocketcircle.app
+```
+
+Auth then trusts exactly the origins it is given: nothing else is added
+implicitly. Once `SITE_URL` names the app origin, unset `MIGRATION_APP_ORIGIN` and
+delete this section.
+
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.

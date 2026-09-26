@@ -1,4 +1,4 @@
-import { MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { APEX_ORIGIN, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
@@ -42,11 +42,15 @@ const preview = MOCK_INVITATION_PREVIEW;
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  // Sign-in returns to the origin the browser is on (#409), so pin it to the one
+  // the app is served from rather than jsdom's default.
+  vi.stubGlobal("location", new URL(`${APEX_ORIGIN}/invite/test-token`));
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   clearLastUsedGoogleEmailStorage();
 });
 
@@ -163,7 +167,7 @@ describe("Invite landing", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/invite/test-token",
+      callbackURL: `${APEX_ORIGIN}/invite/test-token`,
       loginHint: preview.invitedEmail,
     });
   });

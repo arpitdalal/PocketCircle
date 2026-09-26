@@ -181,10 +181,10 @@ CI (`.github/workflows/deploy.yml`): add `pnpm --filter @pocketcircle/site build
 
 Two Workers cannot both claim one hostname, so the apex handover is sequential. Deploy and verify everything *before* the swap so the swap is a formality.
 
-1. Add the `app.` route to the product Worker; deploy. Both apex and `app.` now serve the app. Verify deep links and assets on `app.` (auth still redirects to apex — expected, `SITE_URL` not flipped yet).
-2. Flip the product Worker config to `app.` only **and** deploy the marketing Worker claiming apex, back-to-back in one run. Sub-minute gap on the marketing homepage only; the app is unaffected.
-3. `convex env set SITE_URL https://app.pocketcircle.app` + `convex deploy -y`.
-4. Add `https://app.pocketcircle.app` to Google OAuth **Authorized JavaScript origins**. Branding homepage/privacy stay on apex, which is what Google requires; `app.` only needs to be an authorized JS origin and inside the authorized redirect domain.
+1. Widen auth first, while apex is still the only public origin: `convex env set MIGRATION_APP_ORIGIN https://app.pocketcircle.app` + `convex deploy -y`, and add `https://app.pocketcircle.app` to the Google OAuth client's **Authorized JavaScript origins** in the Cloud Console. `SITE_URL` still names the apex, so nothing changes for Users yet. The Google branding homepage and privacy URLs stay on apex, which is what Google requires; `app.` only needs to be an authorized JS origin and inside the authorized redirect domain.
+2. Add the `app.` route to the product Worker; deploy. Both apex and `app.` now serve the app, and sign-in works on either origin. Verify deep links, assets, and a real sign-in on `app.`.
+3. Flip the product Worker config to `app.` only **and** deploy the marketing Worker claiming apex, back-to-back in one run. Sub-minute gap on the marketing homepage only; the app is unaffected.
+4. `convex env set SITE_URL https://app.pocketcircle.app` + `convex env remove MIGRATION_APP_ORIGIN` + `convex deploy -y`. The second trusted origin has served its purpose and is dropped in the same deploy that makes it redundant.
 5. `APP_ORIGIN` → `https://app.pocketcircle.app` in `packages/mcp-worker/wrangler.jsonc:69`.
 6. Publish `apps/site/public/_redirects` (below) so legacy and emailed links resolve.
 7. Update `robots.txt` / `sitemap.xml` to the apex marketing surface, and `site.webmanifest` `start_url`/`scope` to the app origin.
@@ -235,7 +235,7 @@ Optional, deliberately deferred: a one-time resume shim. An inline script on ape
 | Concern | Location |
 | --- | --- |
 | Worker route | `wrangler.jsonc:7-16` |
-| Convex trusted origin | `packages/convex/convex/auth.ts:33-36,106,123-126,161-164` (`SITE_URL` → `crossDomain`) |
+| Convex trusted origin | `packages/convex/convex/auth.ts` (`SITE_URL` → `crossDomain`; `MIGRATION_APP_ORIGIN` widens the list for the window, #409) |
 | Email links | `packages/convex/convex/email.ts:161,287,359`; `accountDeletion.ts:224-226` |
 | MCP consent origin | `packages/mcp-worker/wrangler.jsonc:69`; `src/mcp-api.ts:975-1000`; `src/browser-origin.ts:13-29` |
 | Brand HTML contract (delete) | `react-router.config.ts` prerender list; `app/root.tsx:49-57`; `scripts/assert-branding-html.mjs` |

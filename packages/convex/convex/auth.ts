@@ -23,6 +23,14 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  * CONVEX_SITE_URL is provided by Convex automatically and is where the auth
  * routes live.
  *
+ * MIGRATION_APP_ORIGIN widens the trusted origins for the ADR 0035 cutover
+ * window (#409): the SPA is served from the app origin while SITE_URL still
+ * names the apex, so both have to be trusted for sign-in to work on whichever
+ * one a User lands on. Unset means a single origin, which is what local, E2E,
+ * and post-migration deployments run. Deploying the app origin is then not
+ * itself the cutover — the DNS swap and the SITE_URL flip stay separate,
+ * independently verifiable steps. Remove it once SITE_URL names the app origin.
+ *
  * E2E-only: when `E2E_TEST_AUTH=1` (set ONLY on ephemeral CI/self-hosted
  * deployments, NEVER in production — ADR 0019), email+password sign-in is also
  * enabled so Playwright can mint a real, backend-trusted session without driving
@@ -31,11 +39,19 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  */
 const authFunctions: AuthFunctions = internal.auth;
 
-export function authRuntimeConfig(siteUrlValue: string | undefined) {
+export function authRuntimeConfig(
+  siteUrlValue: string | undefined,
+  migrationAppOriginValue?: string,
+) {
   const url = new URL(siteUrlValue ?? LOCAL_APP_ORIGIN);
   const siteUrl = url.origin;
   const verbose = isLoopbackHostname(url.hostname);
-  return { siteUrl, verbose };
+  // A malformed value throws here, as it does for SITE_URL: a typo in a trust
+  // decision must fail loudly at auth init, not quietly leave an origin untrusted.
+  const migrationAppOrigin = migrationAppOriginValue
+    ? new URL(migrationAppOriginValue).origin
+    : null;
+  return { siteUrl, verbose, migrationAppOrigin };
 }
 
 export function authComponentConfig(siteUrlValue: string | undefined) {
@@ -102,10 +118,16 @@ export const { getAuthUser } = authComponent.clientApi();
 const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const authRuntime = authRuntimeConfig(process.env.SITE_URL);
+  const authRuntime = authRuntimeConfig(process.env.SITE_URL, process.env.MIGRATION_APP_ORIGIN);
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
   const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
+  // crossDomain contributes SITE_URL to trustedOrigins; this is every other origin
+  // auth trusts. A declared origin equal to SITE_URL is dropped rather than listed
+  // twice, so the list stays an honest record of what is trusted.
+  const extraTrustedOrigins = [authRuntime.migrationAppOrigin, loopbackTwin].filter(
+    (origin): origin is string => typeof origin === "string" && origin !== siteUrl,
+  );
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -142,9 +164,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    // crossDomain adds siteUrl to trustedOrigins. Add only the loopback twin here
-    // so localhost and 127.0.0.1 both work in local dev without duplicating siteUrl.
-    ...(loopbackTwin ? { trustedOrigins: [loopbackTwin] } : {}),
+    ...(extraTrustedOrigins.length > 0 ? { trustedOrigins: extraTrustedOrigins } : {}),
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };

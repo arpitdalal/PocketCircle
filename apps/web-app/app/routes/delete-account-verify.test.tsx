@@ -1,3 +1,4 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -41,11 +42,15 @@ beforeEach(() => {
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
   auth.deleteUser.mockReset();
   auth.social.mockReset();
+  // Sign-in returns to the origin the browser is on (#409), so pin it to the one
+  // the app is served from rather than jsdom's default.
+  vi.stubGlobal("location", new URL(`${APEX_ORIGIN}/signin`));
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   clearLastUsedGoogleEmailStorage();
 });
 
@@ -73,7 +78,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/delete-account/verify?token=return-token",
+      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
     });
     expect(auth.deleteUser).not.toHaveBeenCalled();
   });
@@ -87,7 +92,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/delete-account/verify?token=return-token",
+      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
       loginHint: "ada@gmail.com",
     });
   });

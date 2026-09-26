@@ -1,3 +1,4 @@
+import { APEX_ORIGIN } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -42,11 +43,15 @@ import SignIn from "./signin.js";
 beforeEach(() => {
   configureConvex();
   convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+  // Sign-in returns to the origin the browser is on (#409), so pin it to the one
+  // the app is served from rather than jsdom's default.
+  vi.stubGlobal("location", new URL(`${APEX_ORIGIN}/signin`));
   clearLastUsedGoogleEmailStorage();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   clearLastUsedGoogleEmailStorage();
 });
 
@@ -67,7 +72,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/",
+      callbackURL: `${APEX_ORIGIN}/`,
     });
     expect(screen.getByRole("button", { name: "Signing in..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Signing in..." })).toHaveAttribute(
@@ -161,7 +166,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/mcp/authorize?handoffId=test-id",
+      callbackURL: `${APEX_ORIGIN}/mcp/authorize?handoffId=test-id`,
     });
   });
 
@@ -203,7 +208,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/",
+      callbackURL: `${APEX_ORIGIN}/`,
       loginHint: "alice@gmail.com",
     });
   });
@@ -218,7 +223,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: "/",
+      callbackURL: `${APEX_ORIGIN}/`,
     });
   });
 
