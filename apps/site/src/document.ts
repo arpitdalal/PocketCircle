@@ -16,8 +16,63 @@
  */
 
 /**
- * The text of a fragment of markup, with every tag removed and every run of
- * whitespace collapsed to one space.
+ * The named entities a checked-in document can use, decoded to the character a
+ * visitor reads.
+ *
+ * The set is small and closed on purpose. An unknown name is left exactly as
+ * written rather than resolved to something plausible, so a check can never
+ * compare two *different* strings and call them the same copy — which is the one
+ * failure mode that would make the legal-document parity test meaningless.
+ */
+const ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  hellip: "…",
+  ldquo: "“",
+  lsquo: "‘",
+  lt: "<",
+  mdash: "—",
+  nbsp: " ",
+  ndash: "–",
+  quot: '"',
+  rarr: "→",
+  rdquo: "”",
+  rsquo: "’",
+};
+
+/**
+ * Decodes the entities and numeric references a document may carry.
+ *
+ * A document that says `Terms &amp; Conditions` is read by a visitor as `Terms &
+ * Conditions`, and a text reader that reported the entity would be reporting the
+ * source rather than the copy — so this runs before anything compares two
+ * documents' text, which is the only place the difference is visible.
+ */
+function decodeEntities(text: string) {
+  return text.replace(/&(#\d+|#x[\da-f]+|[a-z][\da-z]*);/gi, (entity, reference: string) => {
+    const named = ENTITIES[reference.toLowerCase()];
+    if (named !== undefined) {
+      return named;
+    }
+    const numeric =
+      reference.startsWith("#x") || reference.startsWith("#X")
+        ? Number.parseInt(reference.slice(2), 16)
+        : reference.startsWith("#")
+          ? Number.parseInt(reference.slice(1), 10)
+          : Number.NaN;
+    // A reference that is not a code point is left as written, for the same
+    // reason an unknown name is: a reader that guesses would report copy the
+    // document does not carry.
+    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 0x10ffff
+      ? String.fromCodePoint(numeric)
+      : entity;
+  });
+}
+
+/**
+ * The text of a fragment of markup, with every tag removed, every entity decoded,
+ * and every run of whitespace collapsed to one space.
  *
  * A `<br>` becomes a space rather than nothing, which is what makes an assertion
  * about a heading's copy survive a line break being introduced into it — the copy
@@ -25,10 +80,12 @@
  * author wrote the break.
  */
 export function textOf(markup: string) {
-  return markup
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return decodeEntities(
+    markup
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 /**

@@ -1,4 +1,5 @@
 import {
+  APEX_ORIGIN,
   LEGAL_DOCUMENTS,
   MCP_RESOURCE_URI,
   POCKETCIRCLE_LEGAL_EMAIL,
@@ -103,9 +104,12 @@ describe("legal pages", () => {
     }
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
       "href",
-      "/privacy",
+      `${APEX_ORIGIN}/privacy`,
     );
-    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute(
+      "href",
+      `${APEX_ORIGIN}/terms`,
+    );
   });
 
   it("discloses MCP data handling and individual publisher identity", () => {

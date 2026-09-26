@@ -8,6 +8,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./changelog": {
+      "types": "./src/changelog.ts",
+      "default": "./src/changelog.ts"
+    },
     "./origins": {
       "types": "./src/origins.ts",
       "default": "./src/origins.ts"

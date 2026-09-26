@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COLOR_PALETTE, PERSONAL_CIRCLE_COLOR_HEX } from "@pocketcircle/domain";
 import { describe, expect, it } from "vitest";
+import { packageRoot, sitePageFiles } from "./pages.js";
 
 /**
  * Every colour pairing the marketing page puts text on, measured against the
@@ -47,11 +48,19 @@ const siteCss = readFileSync(join(import.meta.dirname, "site.css"), "utf8").repl
   " ",
 );
 
-/** The document, with its comments out, for the same reason. */
-const pageCss = readFileSync(join(import.meta.dirname, "../index.html"), "utf8").replace(
-  /<!--[\s\S]*?-->/g,
-  " ",
-);
+/**
+ * Every authored page, with its comments out, for the same reason.
+ *
+ * All of them rather than the homepage alone, because a colour reaches a reader
+ * through whichever page puts it in front of one, and the four documents added in
+ * #408 are pages like any other. A gate that read one file would measure that
+ * page's colours and let a brand token used only on `/privacy` through
+ * unmeasured.
+ */
+const pageCss = sitePageFiles()
+  .map((file) => readFileSync(join(packageRoot, file), "utf8"))
+  .join("\n")
+  .replace(/<!--[\s\S]*?-->/g, " ");
 
 /**
  * The share card's source artwork, which is rasterised to `og.png` and shipped to

@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import { Link } from "react-router";
+import { LegalConsent } from "~/components/legal-consent.js";
 import { SkeletonRegion } from "~/components/skeleton.js";
 import { Avatar } from "~/components/ui/avatar.js";
 import { Button } from "~/components/ui/button.js";
@@ -84,23 +84,7 @@ export function InviteAcceptPanel({
               {signInError}
             </p>
           ) : null}
-          <p className="text-xs text-muted-foreground">
-            By continuing you agree to our{" "}
-            <Link
-              to="/terms"
-              className="underline underline-offset-2 transition-colors hover:text-foreground"
-            >
-              Terms
-            </Link>{" "}
-            and{" "}
-            <Link
-              to="/privacy"
-              className="underline underline-offset-2 transition-colors hover:text-foreground"
-            >
-              Privacy Policy
-            </Link>
-            .
-          </p>
+          <LegalConsent />
         </>
       )}
     </div>

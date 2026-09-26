@@ -1,8 +1,9 @@
+import { parseChangelog } from "@pocketcircle/domain";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { changelogSource, parseChangelog } from "~/lib/changelog.js";
+import { changelogSource } from "~/lib/changelog.js";
 import { markChangelogVersionSeen, readChangelogSeenVersion } from "~/lib/changelog-seen.js";
 import { renderSidebarRow } from "~/test/activation-hosts.js";
 import { configureConvex } from "~/test/convex-react.js";

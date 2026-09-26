@@ -1,5 +1,10 @@
-import { APP_HOSTNAME, MCP_RESOURCE_URI, POCKETCIRCLE_SUPPORT_EMAIL } from "@pocketcircle/domain";
-import { href, Link } from "react-router";
+import {
+  APEX_ORIGIN,
+  APP_HOSTNAME,
+  APP_ORIGIN,
+  MCP_RESOURCE_URI,
+  POCKETCIRCLE_SUPPORT_EMAIL,
+} from "@pocketcircle/domain";
 import { LegalDocument, LegalList, LegalSection } from "~/components/legal-document.js";
 
 export default function Support() {
@@ -28,12 +33,12 @@ export default function Support() {
         <LegalList>
           <li>
             Sign in at{" "}
-            <Link
-              to={href("/signin")}
+            <a
+              href={`${APP_ORIGIN}/signin`}
               className="font-medium text-primary underline underline-offset-4"
             >
               {APP_HOSTNAME}/signin
-            </Link>{" "}
+            </a>{" "}
             with Google.
           </li>
           <li>
@@ -115,19 +120,19 @@ export default function Support() {
       <LegalSection title="Policies">
         <p>
           See the{" "}
-          <Link
-            to={href("/privacy")}
+          <a
+            href={`${APEX_ORIGIN}/privacy`}
             className="font-medium text-primary underline underline-offset-4"
           >
             Privacy Policy
-          </Link>{" "}
+          </a>{" "}
           and{" "}
-          <Link
-            to={href("/terms")}
+          <a
+            href={`${APEX_ORIGIN}/terms`}
             className="font-medium text-primary underline underline-offset-4"
           >
             Terms
-          </Link>
+          </a>
           .
         </p>
       </LegalSection>

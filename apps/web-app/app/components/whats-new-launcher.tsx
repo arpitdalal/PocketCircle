@@ -1,3 +1,4 @@
+import { parseChangelog } from "@pocketcircle/domain";
 import { Sparkles } from "lucide-react";
 import { useId, useState } from "react";
 import { href, Link } from "react-router";
@@ -8,7 +9,7 @@ import { PopoverDescription, PopoverTitle, PopoverTrigger } from "~/components/u
 import { SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from "~/components/ui/sidebar.js";
 import { track } from "~/lib/analytics.js";
 import { useCloseWhenChromeHidden } from "~/lib/app-chrome.js";
-import { changelogSource, parseChangelog } from "~/lib/changelog.js";
+import { changelogSource } from "~/lib/changelog.js";
 import { markChangelogVersionSeen, useChangelogUnread } from "~/lib/changelog-seen.js";
 
 const TITLE = "What's new";

@@ -1,4 +1,4 @@
-import { colorHex } from "@pocketcircle/domain";
+import { APEX_ORIGIN, colorHex } from "@pocketcircle/domain";
 import { History, Sparkles, Tags, Users, Wallet } from "lucide-react";
 import { Link } from "react-router";
 import { BrandMark } from "~/components/brand-mark.js";
@@ -56,20 +56,24 @@ export function MarketingHome() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 {section.links.map((link) => (
                   <li key={link.label}>
-                    {link.to.startsWith("#") || link.to.endsWith(".xml") ? (
-                      <a
-                        href={link.to}
-                        className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                      >
-                        {link.label}
-                      </a>
-                    ) : (
+                    {link.to.startsWith("/") ? (
                       <Link
                         to={link.to}
                         className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
                       >
                         {link.label}
                       </Link>
+                    ) : (
+                      // An in-page jump, or a destination on another origin — a
+                      // fragment and a cross-origin URL are both a plain anchor,
+                      // and a router link would be a client-side navigation to a
+                      // page this app does not serve.
+                      <a
+                        href={link.to}
+                        className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                      >
+                        {link.label}
+                      </a>
                     )}
                   </li>
                 ))}
@@ -334,19 +338,23 @@ const FOOTER_SECTIONS = [
     ],
   },
   {
+    // Sign-in is the app's own route; the other three are the apex's marketing
+    // surfaces and are named in full, because a relative one would resolve against
+    // the app origin, where the cutover serves a redirect rather than the document
+    // (ADR 0035).
     title: "Account",
     links: [
       { label: "Sign in", to: "/signin" },
-      { label: "What's new", to: "/whats-new" },
-      { label: "Support", to: "/support" },
+      { label: "What's new", to: `${APEX_ORIGIN}/whats-new` },
+      { label: "Support", to: `${APEX_ORIGIN}/support` },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Privacy Policy", to: "/privacy" },
-      { label: "Terms", to: "/terms" },
-      { label: "Sitemap", to: "/sitemap.xml" },
+      { label: "Privacy Policy", to: `${APEX_ORIGIN}/privacy` },
+      { label: "Terms", to: `${APEX_ORIGIN}/terms` },
+      { label: "Sitemap", to: `${APEX_ORIGIN}/sitemap.xml` },
     ],
   },
 ] as const;

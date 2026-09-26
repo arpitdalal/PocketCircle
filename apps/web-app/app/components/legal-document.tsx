@@ -1,7 +1,24 @@
-import { POCKETCIRCLE_LEGAL_EMAIL } from "@pocketcircle/domain";
+import { APP_ORIGIN, POCKETCIRCLE_LEGAL_EMAIL } from "@pocketcircle/domain";
 import type { ReactNode } from "react";
-import { href, Link } from "react-router";
 
+/**
+ * The chrome around a long-form public document: the effective date, the summary,
+ * and the way back into the product.
+ *
+ * Both destinations are named in full rather than resolved against the origin
+ * this component happens to be served from. The legal mailbox is derived from the
+ * apex host and sign-in belongs to the app origin, and ADR 0035 moves the app to
+ * its own subdomain — at which point a relative `/signin` here would resolve
+ * against the app and be right by accident, while a relative one on the apex's own
+ * copy of this document would not. Writing the origin is the decision; this is
+ * where it is made once, for every document the product still renders.
+ *
+ * These components stay because the apex is still the app until the cutover
+ * (#410, #411), and a cited `/privacy` has to keep resolving throughout. The
+ * marketing Site publishes its own copy of the same documents at the same paths
+ * (`apps/site/*.html`), and `routes/legal-documents.test.tsx` is what holds the two
+ * to the same copy.
+ */
 export function LegalDocument({
   title,
   summary,
@@ -42,12 +59,12 @@ export function LegalDocument({
           </a>
           .
         </p>
-        <Link
-          to={href("/signin")}
+        <a
+          href={`${APP_ORIGIN}/signin`}
           className="inline-block font-medium text-primary underline underline-offset-4"
         >
           Back to sign in
-        </Link>
+        </a>
       </footer>
     </article>
   );

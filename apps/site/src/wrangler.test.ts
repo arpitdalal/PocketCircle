@@ -34,6 +34,17 @@ describe("the Site Worker", () => {
     expect(wranglerConfig).toMatch(/"workers_dev"\s*:\s*true/);
   });
 
+  it("serves each page at the path external material cites", () => {
+    // The four marketing documents are published as `privacy.html` and friends and
+    // have to answer `/privacy` and friends, because those are the URLs already
+    // published in `docs/submission/pocketcircle/README.md` and the ones Google
+    // requires to share the branding homepage's domain (ADR 0035). The default
+    // `auto-trailing-slash` is what maps one to the other, so it is written out
+    // and held here: `force-trailing-slash` or `none` would 404 all four, and the
+    // build would stay green, because the files are published either way.
+    expect(wranglerConfig).toMatch(/"html_handling"\s*:\s*"auto-trailing-slash"/);
+  });
+
   it("publishes the directory the build writes", () => {
     // A stale or misspelled assets directory deploys the previous build (or
     // nothing) without erroring, so the two are compared, not trusted.

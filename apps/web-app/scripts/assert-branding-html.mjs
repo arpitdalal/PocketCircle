@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MCP_RESOURCE_URI } from "@pocketcircle/domain/origins";
+import { APEX_ORIGIN, MCP_RESOURCE_URI } from "@pocketcircle/domain/origins";
 import { crawlAssets } from "../crawl-assets.ts";
 
 /**
@@ -34,7 +34,10 @@ requireHtml("index.html", [
   "PocketCircle",
   "PocketCircle helps you track spending together in shared Circles",
   "Privacy Policy",
-  'href="/privacy"',
+  // The apex in full, not a relative path: the policies are the marketing Site's
+  // documents and ADR 0035 moves this app to its own subdomain, where a relative
+  // `/privacy` would be a redirect rather than the policy Google reads.
+  `href="${APEX_ORIGIN}/privacy"`,
   "Continue with Google",
 ]);
 

@@ -230,11 +230,12 @@ jobs:
       # origin rather than on the artifact: the canonical apex origin the build
       # injected, the security headers derived from the product's policy, the
       # noindex that keeps `workers.dev` out of search results until the apex
-      # cutover removes it, the sign-in link that leaves for the app origin, and
-      # the stylesheet the page is nothing but. The document is fetched, never
-      # executed, so what is asserted here is what a browser without JavaScript
-      # would be given. Retries because the asset manifest takes a moment to
-      # propagate, the same reason the MCP discovery check below retries.
+      # cutover removes it, the sign-in link that leaves for the app origin, the
+      # stylesheet the page is nothing but, and every published document answering
+      # at the path it is cited at. The document is fetched, never executed, so what
+      # is asserted here is what a browser without JavaScript would be given.
+      # Retries because the asset manifest takes a moment to propagate, the same
+      # reason the MCP discovery check below retries.
       - name: Verify marketing Site
         # APEX_ORIGIN and APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
@@ -245,7 +246,7 @@ jobs:
           SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
         run: |
           node --input-type=module <<'EOF'
-          import { readFile } from "node:fs/promises";
+          import { readdir, readFile } from "node:fs/promises";
           const origin = new URL(process.env.SITE_ORIGIN).origin;
           const expected = {
             "x-frame-options": "DENY",
@@ -353,6 +354,38 @@ jobs:
               throw new Error(
                 `the served share image is ${servedCard.length} bytes and differs from the ${builtCard.length} byte artifact this job built`,
               );
+            }
+            // Every other page this build published, fetched at the path it is
+            // cited at rather than at its file name. That mapping is the Worker's
+            // `assets.html_handling`, so a document that is published but
+            // unreachable is a 404 for exactly the links that must not break:
+            // `/privacy` and `/terms` are on a Google branding application and in
+            // the ChatGPT plugin submission (ADR 0035), and the build only asserts
+            // that the file is in the output, not that the origin answers for it.
+            //
+            // Bytes, for the reason the homepage above is compared by bytes: a
+            // Worker serving something else at that path — a stale document, or an
+            // asset-not-found page — would pass a looser check. The homepage is
+            // skipped because the assertions above already fetched it.
+            const built = (await readdir("apps/site/dist", { recursive: true }))
+              .filter((file) => file.endsWith(".html") && file !== "index.html")
+              .sort();
+            for (const file of built) {
+              const path = `/${file.replace(/\.html$/, "")}`;
+              const response = await fetch(`${origin}${path}`);
+              if (!response.ok) {
+                throw new Error(`${path} returned ${response.status}`);
+              }
+              const served = await response.text();
+              const expected = await readFile(`apps/site/dist/${file}`, "utf8");
+              if (served !== expected) {
+                throw new Error(
+                  `${path} is ${served.length} characters and is not the document this job built`,
+                );
+              }
+            }
+            if (built.length === 0) {
+              throw new Error("no page other than the homepage was published");
             }
           }
 
