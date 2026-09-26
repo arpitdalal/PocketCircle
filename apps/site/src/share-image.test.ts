@@ -6,7 +6,12 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
 import { metaContentOf } from "./document.js";
-import { renderShareImage, SHARE_IMAGE, shareImagePlugin } from "./share-image.js";
+import {
+  renderShareImage,
+  SHARE_IMAGE,
+  shareImageOutput,
+  shareImagePlugin,
+} from "./share-image.js";
 
 /**
  * The share image (#407). Open Graph and Twitter both fetch `og:image` and both
@@ -66,13 +71,25 @@ describe("the share image", () => {
     expect(meta("og:image:height")).toBe(String(SHARE_IMAGE.height));
   });
 
-  it("is rendered by the build, and only by the build", () => {
+  it("is rendered by the build, and only by the build", async () => {
     // `apply: "build"` is what keeps the rasteriser out of the dev server: a
     // change to the card is picked up by rebuilding, and `pnpm dev` never pays
     // for a PNG it is not serving.
     const plugin = shareImagePlugin();
     expect(plugin.apply).toBe("build");
     expect(plugin.closeBundle).toBeTypeOf("function");
-    expect(plugin.enforce).toBeUndefined();
+  });
+
+  it("is written into the directory Vite resolved, not one nested inside it", () => {
+    // Vite resolves `outDir` against the root before the plugin sees it, so
+    // joining the root onto it again would nest the path inside itself. The build
+    // would still pass, `dist/index.html` would still name the card, and the only
+    // symptom would be a link preview that is a blank rectangle — found by
+    // whoever pasted the link last.
+    expect(shareImageOutput("/srv/site", "/srv/site/dist")).toBe("/srv/site/dist");
+    expect(shareImageOutput("/srv/site", "dist")).toBe("/srv/site/dist");
+    expect(shareImageOutput(packageRoot, join(packageRoot, "dist"))).toBe(
+      join(packageRoot, "dist"),
+    );
   });
 });

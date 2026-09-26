@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import sharp from "sharp";
-import type { Plugin } from "vite";
+import type { ResolvedConfig } from "vite";
 
 /**
  * The share image the Site publishes for Open Graph and Twitter (#407).
@@ -74,21 +74,32 @@ export async function renderShareImage(sourceDir: string, outDir: string) {
   return written;
 }
 
-export function shareImagePlugin(): Plugin {
+/**
+ * Where the card is written, from the two paths Vite hands the plugin.
+ *
+ * Exists as its own function because this is the one line in the plugin that can
+ * silently put the card somewhere nothing serves from: Vite resolves `outDir`
+ * against the root *before* handing it over, so joining the root onto it again
+ * would nest the path inside itself (`/srv/site` + `/srv/site/dist`), the build
+ * would still report success, and the only symptom would be a link preview that
+ * is a blank rectangle.
+ */
+export function shareImageOutput(root: string, outDir: string) {
+  return resolve(root, outDir);
+}
+
+export function shareImagePlugin() {
   let siteRoot = "";
   let outDir = "";
   return {
     name: "pocketcircle:share-image",
-    apply: "build",
-    configResolved(config) {
+    apply: "build" as const,
+    configResolved(config: ResolvedConfig) {
       siteRoot = config.root;
       outDir = config.build.outDir;
     },
     async closeBundle() {
-      // `resolve`, not `join`: Vite hands back `outDir` already resolved against
-      // the root, and joining a package root onto an absolute path would put the
-      // card somewhere no one serves from.
-      await renderShareImage(resolve(siteRoot, "assets"), resolve(siteRoot, outDir));
+      await renderShareImage(resolve(siteRoot, "assets"), shareImageOutput(siteRoot, outDir));
     },
   };
 }
