@@ -291,8 +291,8 @@ jobs:
             if (!css.ok) {
               throw new Error(`homepage stylesheet returned ${css.status}`);
             }
-            const { length } = (await css.arrayBuffer()).byteLength;
-            if (length === 0) {
+            const { byteLength } = await css.arrayBuffer();
+            if (byteLength === 0) {
               throw new Error("homepage stylesheet is empty — the brand tokens did not compile");
             }
           }
