@@ -138,6 +138,10 @@ describe("authRuntimeConfig", () => {
     ["a scheme-less value", "app.example.com"],
     ["a comma-separated list", "https://a.example.com,https://b.example.com"],
     ["a path", "https://app.example.com/signin"],
+    // Reads as one host, parses as another — a trust decision must not be rewritten
+    // on its way in.
+    ["credentials in the host", "https://app.example.com@evil.example"],
+    ["a percent-encoded host", "https://ex%41mple.com"],
   ])("rejects %s as a migration app origin", (_label, value) => {
     expect(() => authRuntimeConfig(APEX_ORIGIN, value)).toThrow(/MIGRATION_APP_ORIGIN/);
   });
@@ -145,6 +149,7 @@ describe("authRuntimeConfig", () => {
   it.each([
     ["a wildcard", "https://*.example.com"],
     ["a comma-separated list", "https://a.example.com,https://b.example.com"],
+    ["credentials in the host", "https://app.example.com@evil.example"],
   ])("rejects %s as SITE_URL, which is trusted the same way", (_label, value) => {
     expect(() => authRuntimeConfig(value)).toThrow(/SITE_URL/);
   });

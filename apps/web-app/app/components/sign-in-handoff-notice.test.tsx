@@ -150,6 +150,28 @@ describe("SignInHandoffNotice", () => {
     expect(screen.getByText(REPORTED)).toBeInTheDocument();
   });
 
+  it("stays quiet after a landed handoff, even once the User signs out again", () => {
+    landOnHandoffUrl();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+    const { rerender } = renderNotice();
+    const rerenderNotice = () =>
+      rerender(
+        <AppTestProviders>
+          <SignInHandoffNotice />
+        </AppTestProviders>,
+      );
+
+    // The notice is mounted app-wide, so a sign-out or an expired session later in
+    // the visit is not a handoff that failed. The deadline has already passed, so
+    // this is the moment a report would appear — do not advance the clock past it,
+    // or the snackbar's own lifetime would hide one.
+    settleHandoffWindow();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    rerenderNotice();
+
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
+  });
+
   it("says nothing when the URL carries the param with no token", () => {
     // The provider redeems on the param's *value*, so an empty one starts no handoff
     // and there is nothing to report. The two predicates have to agree.

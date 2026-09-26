@@ -52,9 +52,12 @@ const authFunctions: AuthFunctions = internal.auth;
  * router matches exact origins only, so the same string would also break sign-in
  * from the origin it was meant to allow. A comma-separated list is refused for
  * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
- * commas, this value must not.
+ * commas, this value must not. `@` and `%` are refused because a host is neither
+ * of them: `https://app.example.com@evil.example` and `https://ex%41mple.com` both
+ * parse to a *different* origin than they read as, and a trust decision must never
+ * be rewritten on its way in.
  */
-const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*\s,]+)(?::\d+)?\/?$/i;
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\s,]+)(?::\d+)?\/?$/i;
 
 /**
  * The origin a deployment declares, or a throw naming the variable that is wrong.

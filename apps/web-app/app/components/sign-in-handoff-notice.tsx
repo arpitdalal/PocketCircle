@@ -49,7 +49,11 @@ export function SignInHandoffNotice() {
   // effect, so anything read later would see a URL with no sign-in in it.
   const [started] = useState(handoffInFlight);
   const [deadlineReached, setDeadlineReached] = useState(false);
-  const reportedRef = useRef(false);
+  // The handoff's outcome is decided once: a session that lands ends the question,
+  // and a User signing out later is not a handoff that failed. This notice is
+  // mounted app-wide, so without that it would report the first sign-out of the
+  // session, whenever it happened to fall after the deadline.
+  const outcomeRef = useRef<"pending" | "landed" | "reported">("pending");
 
   useEffect(() => {
     if (!started) {
@@ -62,16 +66,22 @@ export function SignInHandoffNotice() {
   }, [started]);
 
   useEffect(() => {
+    if (isAuthenticated) {
+      outcomeRef.current = "landed";
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     // One deadline, not a sliding window: a session that refetches more often than
     // the timeout must not postpone the report for as long as it keeps doing that.
     // A session still resolving at the deadline defers it — a slow session is not a
     // failed sign-in — and the report follows as soon as it settles signed out.
-    if (!started || !deadlineReached || reportedRef.current || isLoading || isAuthenticated) {
+    if (outcomeRef.current !== "pending" || !deadlineReached || isLoading || isAuthenticated) {
       return;
     }
-    reportedRef.current = true;
+    outcomeRef.current = "reported";
     show("Couldn't finish signing in. Try again.");
-  }, [deadlineReached, isAuthenticated, isLoading, show, started]);
+  }, [deadlineReached, isAuthenticated, isLoading, show]);
 
   return null;
 }
