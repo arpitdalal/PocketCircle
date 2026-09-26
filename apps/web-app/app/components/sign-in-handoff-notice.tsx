@@ -48,30 +48,30 @@ export function SignInHandoffNotice() {
   // Read during the first render on purpose: the provider removes the param in an
   // effect, so anything read later would see a URL with no sign-in in it.
   const [started] = useState(handoffInFlight);
-  // The deadline is one moment, not a sliding window: a session that refetches more
-  // often than the timeout must not postpone the report for as long as it keeps
-  // doing that, so the state that decides is read when the timer fires.
-  const settledRef = useRef({ isAuthenticated, isLoading });
-
-  useEffect(() => {
-    settledRef.current = { isAuthenticated, isLoading };
-  }, [isAuthenticated, isLoading]);
+  const [deadlineReached, setDeadlineReached] = useState(false);
+  const reportedRef = useRef(false);
 
   useEffect(() => {
     if (!started) {
       return;
     }
-    const timeoutId = window.setTimeout(() => {
-      const { isAuthenticated: authenticated, isLoading: loading } = settledRef.current;
-      // A slow session is not a failed sign-in, so stay quiet while one is resolving.
-      if (!loading && !authenticated) {
-        show("Couldn't finish signing in. Try again.");
-      }
-    }, HANDOFF_SETTLE_MS);
+    const timeoutId = window.setTimeout(() => setDeadlineReached(true), HANDOFF_SETTLE_MS);
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [show, started]);
+  }, [started]);
+
+  useEffect(() => {
+    // One deadline, not a sliding window: a session that refetches more often than
+    // the timeout must not postpone the report for as long as it keeps doing that.
+    // A session still resolving at the deadline defers it — a slow session is not a
+    // failed sign-in — and the report follows as soon as it settles signed out.
+    if (!started || !deadlineReached || reportedRef.current || isLoading || isAuthenticated) {
+      return;
+    }
+    reportedRef.current = true;
+    show("Couldn't finish signing in. Try again.");
+  }, [deadlineReached, isAuthenticated, isLoading, show, started]);
 
   return null;
 }

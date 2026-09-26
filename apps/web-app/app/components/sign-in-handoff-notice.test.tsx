@@ -130,6 +130,26 @@ describe("SignInHandoffNotice", () => {
     expect(screen.getByText(REPORTED)).toBeInTheDocument();
   });
 
+  it("defers the report when the session is still resolving at the deadline", () => {
+    landOnHandoffUrl();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: true });
+    const { rerender } = renderNotice();
+
+    settleHandoffWindow();
+    expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
+
+    // A slow session is not a failed sign-in; the report follows the moment it
+    // settles signed out, rather than never arriving.
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    rerender(
+      <AppTestProviders>
+        <SignInHandoffNotice />
+      </AppTestProviders>,
+    );
+
+    expect(screen.getByText(REPORTED)).toBeInTheDocument();
+  });
+
   it("says nothing when the URL carries the param with no token", () => {
     // The provider redeems on the param's *value*, so an empty one starts no handoff
     // and there is nothing to report. The two predicates have to agree.
@@ -145,6 +165,7 @@ describe("SignInHandoffNotice", () => {
   it("cancels the pending report when it goes away", () => {
     landOnHandoffUrl();
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
     const { rerender } = renderNotice();
 
     // Unmount the notice but leave the snackbar it reports through standing, so a
@@ -156,6 +177,36 @@ describe("SignInHandoffNotice", () => {
     );
     settleHandoffWindow();
 
+    expect(clearTimeoutSpy).toHaveBeenCalled();
     expect(screen.queryByText(REPORTED)).not.toBeInTheDocument();
+  });
+
+  it("reports a failed handoff once, not on every later session change", () => {
+    landOnHandoffUrl();
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    const { rerender } = renderNotice();
+
+    settleHandoffWindow();
+    const reported = screen.getByText(REPORTED);
+
+    // A session cycle after the report must not re-announce it: the snackbar
+    // remounts its live region per message, so a second call is a different node.
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    rerender(
+      <AppTestProviders>
+        <SignInHandoffNotice />
+      </AppTestProviders>,
+    );
+    convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    rerender(
+      <AppTestProviders>
+        <SignInHandoffNotice />
+      </AppTestProviders>,
+    );
+
+    expect(screen.getByText(REPORTED)).toBe(reported);
   });
 });
