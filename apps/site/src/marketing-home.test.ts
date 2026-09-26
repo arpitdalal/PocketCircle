@@ -289,6 +289,16 @@ const PROMISES_THE_PRODUCT_DOES_NOT_KEEP: readonly {
     because:
       "a connection is one grant holding several Circles, and get_current_user returns account-level identity",
   },
+  {
+    phrase: "never sees another Member's email address",
+    because:
+      "listCircleHistoryForUser is shared by web and MCP and redacts invitation emails only for non-Owners, so an Owner-granted assistant reads them",
+  },
+  {
+    phrase: "are the only Member of, or hand over",
+    because:
+      "accountDeletionBlockerFields does not block an active solo Circle whose setup is incomplete, so archiving is not a prerequisite for every solo Circle",
+  },
 ];
 
 describe("the page makes no promise the product does not keep", () => {

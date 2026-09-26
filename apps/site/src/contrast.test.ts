@@ -53,22 +53,29 @@ const pageCss = readFileSync(join(import.meta.dirname, "../index.html"), "utf8")
 );
 
 /**
- * Every `color-mix(in oklab, var(--a) w%, var(--b))` the stylesheet composes.
+ * Every `color-mix(in oklab, A w%, B)` the stylesheet composes — where `B` is a
+ * token or `transparent`.
  *
  * The mixes have to come from here rather than from a number written next to a
  * table row, because a restated number is a second source of truth: the row can
  * pass while the stylesheet it claims to describe says something else. That is
  * not hypothetical — the first version of this test had the call to action's
  * hover weight written down twice and did not notice when the two disagreed.
+ *
+ * `transparent` counts because the tagline's reveal mixes a token with it, and
+ * that mix is the only place on the page where a colour exists solely inside a
+ * `@keyframes` block. Reading only token-to-token mixes would miss it, and a
+ * colour that appears only at runtime is exactly the kind nothing else measures.
  */
 const COMPOSED_MIXES = [
-  ...siteCss.matchAll(/color-mix\(in oklab,\s*var\(--([\w-]+)\)\s+(\d+)%,\s*var\(--([\w-]+)\)\)/g),
+  ...siteCss.matchAll(
+    /color-mix\(in oklab,\s*var\(--([\w-]+)\)\s+(\d+)%,\s*(?:var\(--([\w-]+)\)|transparent)\)/g,
+  ),
 ].map((match) => ({
   a: match[1] ?? "",
   weight: Number(match[2]),
-  b: match[3] ?? "",
-  /** The expression as written, for the error message when it is missing. */
-  as: `color-mix(in oklab, var(--${match[1]}) ${match[2]}%, var(--${match[3]}))`,
+  /** `null` for `transparent`, which is how a mix becomes an alpha. */
+  b: match[3] === undefined ? null : match[3],
 }));
 
 /** An OKLCh colour, in the three axes the maths below actually needs. */
@@ -139,12 +146,18 @@ function token(name: string) {
 }
 
 /**
- * `color-mix(in oklab, A w%, B)` — the shape both the hero heading's fade and the
- * call to action's hover are written in CSS, so it has to be the shape measured.
+ * `color-mix(in oklab, A w%, B)` — the shape the hero heading's fade, the call to
+ * action's hover, and the tagline's reveal are all written in, so it has to be the
+ * shape measured. Mixing with `transparent` keeps A's hue and gives A's weight as
+ * alpha, which is then composited by `paint` the way a browser would.
  */
-function mix(weightOfA: number, a: Colour, b: Colour): Oklch {
+function mix(weightOfA: number, a: Colour, b: Colour | null) {
   const from = (colour: Colour) => (typeof colour === "string" ? token(colour) : colour);
-  const [first, second] = [from(a), from(b)];
+  const first = from(a);
+  if (b === null) {
+    return { ...first, alpha: first.alpha * weightOfA };
+  }
+  const second = from(b);
   return {
     l: first.l * weightOfA + second.l * (1 - weightOfA),
     a: first.a * weightOfA + second.a * (1 - weightOfA),
@@ -154,7 +167,7 @@ function mix(weightOfA: number, a: Colour, b: Colour): Oklch {
 }
 
 /** sRGB in 0..1, from OKLab. */
-function toSrgb({ l, a, b }: Oklch): readonly [number, number, number] {
+function toSrgb({ l, a, b }: Oklch) {
   const cube = (x: number) => x ** 3;
   const [lr, lg, lb] = [
     cube(l + 0.3963377774 * a + 0.2158037573 * b),
@@ -165,11 +178,13 @@ function toSrgb({ l, a, b }: Oklch): readonly [number, number, number] {
     const encoded = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.max(x, 0) ** (1 / 2.4) - 0.055;
     return Math.min(1, Math.max(0, encoded));
   };
+  // `as const` rather than an explicit return type: inference gives a tuple here
+  // and `number[]` without it, and the tuple is what every caller destructures.
   return [
     channel(4.0767416621 * lr - 3.3077115913 * lg + 0.2309699292 * lb),
     channel(-1.2684380046 * lr + 2.6097574011 * lg - 0.3413193965 * lb),
     channel(-0.0041960863 * lr - 0.7034186147 * lg + 1.707614701 * lb),
-  ];
+  ] as const;
 }
 
 /**
@@ -177,20 +192,21 @@ function toSrgb({ l, a, b }: Oklch): readonly [number, number, number] {
  *
  * Called as `composed("primary", "foreground")` — the weight comes from the
  * stylesheet, so a pair in the table below can never quietly measure a different
- * blend from the one the page paints.
+ * blend from the one the page paints. A `null` second colour is `transparent`,
+ * which is how the tagline's reveal is written.
  */
-function composed(a: string, b: string) {
+function composed(a: string, b: string | null) {
   const found = COMPOSED_MIXES.find((mix) => mix.a === a && mix.b === b);
   if (found === undefined) {
     throw new Error(
-      `site.css composes no color-mix of --${a} over --${b}, so no pair can measure it`,
+      `site.css composes no color-mix of --${a} over ${b === null ? "transparent" : `--${b}`}, so no pair can measure it`,
     );
   }
   return mix(found.weight / 100, a, b);
 }
 
 /** A colour's sRGB, with its alpha composited over `over` the way a browser would. */
-function paint(colour: Colour, over: Colour): readonly [number, number, number] {
+function paint(colour: Colour, over: Colour) {
   const [r, g, b] = toSrgb(typeof colour === "string" ? token(colour) : colour);
   const behind = toSrgb(typeof over === "string" ? token(over) : over);
   const alpha = typeof colour === "string" ? (token(colour).alpha ?? 1) : colour.alpha;
@@ -198,7 +214,7 @@ function paint(colour: Colour, over: Colour): readonly [number, number, number] 
     r * alpha + behind[0] * (1 - alpha),
     g * alpha + behind[1] * (1 - alpha),
     b * alpha + behind[2] * (1 - alpha),
-  ];
+  ] as const;
 }
 
 /** The WCAG 2.x contrast ratio between two painted colours. */
@@ -329,7 +345,20 @@ const PAIRS: readonly Pair[] = [
     minimum: BODY,
   },
   {
-    what: "the tagline, set at 24px and up, which is large text by WCAG's own definition",
+    // The dimmest state the tagline is ever in, which is a colour that exists
+    // only inside a `@keyframes` block: a token mixed with `transparent`, read
+    // out of the stylesheet like any other mix. Measuring the finished colour
+    // instead would pass no matter how far the reveal was dimmed, and a
+    // visitor who stops scrolling mid-reveal is looking at *this*.
+    what: "the tagline while its reveal is still dimmed, set at 24px and up",
+    mixes: ["foreground,transparent"],
+    colours: ["foreground", "background"],
+    foreground: paint(composed("foreground", null), "background"),
+    background: page,
+    minimum: LARGE,
+  },
+  {
+    what: "the tagline once its reveal has finished, at the same size",
     colours: ["foreground", "background"],
     foreground: paint("foreground", "background"),
     background: page,
@@ -412,12 +441,10 @@ describe("no composed colour escapes the pairing table", () => {
     // other. Without this a new one could be added, used on text, and never be
     // measured — which is the same gap the token coverage test closes for the
     // tokens themselves.
-    const measured = new Set(
-      PAIRS.map((pair) => `${(pair.mixes ?? []).join(",")}`).filter((entry) => entry.length > 0),
-    );
-    const unmeasured = COMPOSED_MIXES.map((declared) => `${declared.a},${declared.b}`).filter(
-      (entry) => !measured.has(entry),
-    );
+    const measured = new Set(PAIRS.flatMap((pair) => pair.mixes ?? []));
+    const unmeasured = COMPOSED_MIXES.map(
+      (declared) => `${declared.a},${declared.b ?? "transparent"}`,
+    ).filter((entry) => !measured.has(entry));
     expect(unmeasured).toEqual([]);
   });
 });
