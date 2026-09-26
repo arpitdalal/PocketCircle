@@ -132,8 +132,15 @@ export function renderReleases(markdown: string) {
     .join("\n            ");
 }
 
-/** Puts {@link renderReleases} where the authored page leaves room for it. */
-export function fillReleases(html: string) {
+/**
+ * Puts {@link renderReleases} where the authored page leaves room for it.
+ *
+ * The second parameter is the transform's context, taken whole rather than as its
+ * `filename` so the signature is the hook's own: that is what lets this function be
+ * registered directly, and what lets the refusal below name the file a human has to
+ * open — the build runs this over all five pages, four of which ask for nothing.
+ */
+export function fillReleases(html: string, context: { filename: string }) {
   const written = html.split(RELEASES_TOKEN).length - 1;
   if (written === 0) {
     return html;
@@ -141,12 +148,10 @@ export function fillReleases(html: string) {
   // Exactly one, because the first occurrence is the one that gets filled: a page
   // that named the placeholder twice — a second region, or once in a comment
   // above it — would have the first replaced and the hole left in the document,
-  // and the built page would look complete. There is one page that writes it at
-  // all, so the message names it rather than leaving a reader to work out which
-  // of the five documents it was.
+  // and the built page would look complete.
   if (written > 1) {
     throw new Error(
-      `the What's New page (apps/site/whats-new.html) writes ${RELEASES_TOKEN} ${written} times. Only one of them is the releases region, and it is the first one that would be filled, so exactly one is written — name the placeholder in prose as "the releases placeholder" instead.`,
+      `${context.filename} writes ${RELEASES_TOKEN} ${written} times. Only one of them is the releases region, and it is the first one that would be filled, so exactly one is written — name the placeholder in prose as "the releases placeholder" instead.`,
     );
   }
   const releases = renderReleases(readFileSync(CHANGELOG, "utf8"));

@@ -25,12 +25,17 @@ import { join, relative, sep } from "node:path";
 export const packageRoot = join(import.meta.dirname, "..");
 
 /**
- * Directories that hold no authored page: the build's own output, the installed
- * dependencies, and a coverage report — which is HTML too, and is written into
- * this package by `vitest --coverage`. Excluded by name rather than by depth, so a
- * page nested in a subdirectory is still found.
+ * Directories that hold no authored page, excluded by name rather than by depth so
+ * a page nested in a subdirectory is still found:
+ *
+ * - `dist` and `node_modules`: the build's own output and the installed packages.
+ * - `coverage`: a coverage report is HTML too, and `vitest --coverage` writes one
+ *   into this package.
+ * - `public`: copied verbatim into the output, so an HTML file in it is a served
+ *   asset rather than a page of the Site — and the cutover adds a `404.html` there
+ *   (#411), which is not a document this Site answers at `/404`.
  */
-const NOT_SOURCES = new Set(["coverage", "dist", "node_modules"]);
+const NOT_SOURCES = new Set(["coverage", "dist", "node_modules", "public"]);
 
 /** Every authored page, as a path relative to the package root, sorted. */
 export function sitePageFiles() {

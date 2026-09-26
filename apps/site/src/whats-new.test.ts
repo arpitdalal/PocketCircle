@@ -23,6 +23,9 @@ const changelog = readFileSync(join(packageRoot, "..", "..", "CHANGELOG.md"), "u
 
 const transform = fillReleases;
 
+/** The page these fixtures are the markup of. */
+const PAGE = { filename: "whats-new.html" };
+
 function render(markdown: string) {
   const html = renderReleases(markdown);
   return { html, page: `<div>${html}</div>` };
@@ -111,7 +114,9 @@ describe("the build's transform", () => {
     const newest = parseChangelog(changelog)[0];
     expect(newest).toBeDefined();
 
-    const filled = transform(`<h1>What's new</h1><div>${RELEASES_TOKEN}</div>`);
+    const filled = transform(`<h1>What's new</h1><div>${RELEASES_TOKEN}</div>`, {
+      filename: "whats-new.html",
+    });
 
     expect(filled).not.toContain(RELEASES_TOKEN);
     expect(filled).toContain(newest?.version ?? "");
@@ -122,18 +127,25 @@ describe("the build's transform", () => {
     );
   });
 
-  it("is the transform the build runs on every page", () => {
-    // Every entry goes through it, including the four that ask for nothing, so the
-    // wiring is asserted rather than assumed — and the same shape as
-    // `siteHtmlPlugin`, whose transform is asserted the same way.
+  it("is the transform the build runs on every page, and names the page it refused", () => {
+    // The hook is `fillReleases` itself, so the wiring is asserted rather than
+    // assumed — the same shape as `siteHtmlPlugin`, whose transform is asserted the
+    // same way. Every entry goes through it, including the four that ask for
+    // nothing, and the one that asks twice is told which file to open.
     expect(whatsNewPlugin().transformIndexHtml).toBe(fillReleases);
+    expect(transform("<p>no placeholder here</p>", { filename: "privacy.html" })).toBe(
+      "<p>no placeholder here</p>",
+    );
+    expect(() =>
+      transform(`${RELEASES_TOKEN}${RELEASES_TOKEN}`, { filename: "whats-new.html" }),
+    ).toThrow(/^whats-new\.html writes %RELEASES% 2 times/);
   });
 
   it("leaves a page with no placeholder exactly as it found it", () => {
     // Every other page goes through the same transform, and a page that does not
     // ask for the release list must come out byte-identical.
     const page = '<a href="%APEX_ORIGIN%/privacy">Privacy Policy</a>';
-    expect(transform(page)).toBe(page);
+    expect(transform(page, { filename: "privacy.html" })).toBe(page);
   });
 
   it("refuses a page that writes the placeholder twice", () => {
@@ -141,7 +153,7 @@ describe("the build's transform", () => {
     // second region, or the placeholder named in a comment above the real one —
     // would have that comment filled and leave the hole in the document, which
     // builds green and ships a page with no releases on it.
-    expect(() => transform(`${RELEASES_TOKEN}<p>and again</p>${RELEASES_TOKEN}`)).toThrow(
+    expect(() => transform(`${RELEASES_TOKEN}<p>and again</p>${RELEASES_TOKEN}`, PAGE)).toThrow(
       /writes %RELEASES% 2 times/,
     );
   });

@@ -101,7 +101,7 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
     // Vite builds `index.html` and nothing else by default, so a second page in
     // this package is a file the Worker never publishes and a path that 404s —
     // visible only to whoever followed the link.
-    expect(viteConfig.build?.rolldownOptions?.input).toEqual(sitePageFiles());
+    expect(viteConfig.input).toEqual(sitePageFiles());
     expect(sitePageFiles()).toContain("index.html");
   });
 

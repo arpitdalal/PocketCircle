@@ -256,6 +256,22 @@ jobs:
             "x-robots-tag": "noindex",
           };
 
+          // Read once, before any retry: which documents this build published is a
+          // property of the artifact, and waiting cannot change it, so a failure
+          // here is a build problem and should not be retried twelve times as if it
+          // were a propagation problem.
+          const pages = (await readdir("apps/site/dist", { recursive: true }))
+            .filter(
+              (file) =>
+                file.endsWith(".html") &&
+                file !== "index.html" &&
+                statSync(`apps/site/dist/${file}`).isFile(),
+            )
+            .sort();
+          if (pages.length === 0) {
+            throw new Error("the build published no page other than the homepage");
+          }
+
           async function verify() {
             const response = await fetch(`${origin}/`);
             if (!response.ok) {
@@ -382,28 +398,19 @@ jobs:
             // `apps/site/src/pages.test.ts` and by `assert-site-html.mjs` above;
             // what this adds is the one thing neither can see, which is the origin's
             // answer.
-            const built = (await readdir("apps/site/dist", { recursive: true }))
-              .filter(
-                (file) =>
-                  file.endsWith(".html") &&
-                  file !== "index.html" &&
-                  statSync(`apps/site/dist/${file}`).isFile(),
-              )
-              .sort();
-            if (built.length === 0) {
-              throw new Error("no page other than the homepage was published");
-            }
-            for (const file of built) {
+            for (const file of pages) {
               const path = `/${file.replace(/\.html$/, "")}`;
-              const response = await fetch(`${origin}${path}`, { redirect: "manual" });
-              if (response.status !== 200) {
-                throw new Error(`${path} answered ${response.status}, want the document itself`);
-              }
-              const served = await response.text();
-              const document = await readFile(`apps/site/dist/${file}`, "utf8");
-              if (served !== document) {
+              const served = await fetch(`${origin}${path}`, { redirect: "manual" });
+              if (served.status !== 200) {
                 throw new Error(
-                  `${path} is ${served.length} characters and is not the document this job built`,
+                  `${path} answered ${served.status}, want the document itself`,
+                );
+              }
+              const text = await served.text();
+              const document = await readFile(`apps/site/dist/${file}`, "utf8");
+              if (text !== document) {
+                throw new Error(
+                  `${path} is ${text.length} characters and is not the document this job built`,
                 );
               }
 

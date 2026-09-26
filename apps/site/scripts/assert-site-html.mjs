@@ -335,10 +335,18 @@ if (unpublished.length > 0) {
 // The placeholders reach HTML through the transforms, and nothing else — a token
 // in any other published file would ship to production as a literal, and a
 // generated region left unfilled would be an empty hole in a page.
-const tokens = [...Object.keys(SITE_PLACEHOLDERS), RELEASES_TOKEN];
-const unsubstituted = published.filter((file) =>
-  tokens.some((token) => readFileSync(join(distDir, file), "utf8").includes(token)),
+//
+// Read as bytes rather than decoded text, because the sweep covers everything the
+// Worker uploads and one of those is a 1.2 MB PNG. Decoding it as UTF-8 to look for
+// a sixteen-character token is a lossy read whose answer nobody wants, and a raster
+// is exactly the kind of file whose bytes could contain one by accident.
+const tokens = [...Object.keys(SITE_PLACEHOLDERS), RELEASES_TOKEN].map((token) =>
+  Buffer.from(token, "utf8"),
 );
+const unsubstituted = published.filter((file) => {
+  const bytes = readFileSync(join(distDir, file));
+  return tokens.some((token) => bytes.includes(token));
+});
 
 if (unsubstituted.length > 0) {
   throw new Error(`Still contains an unsubstituted placeholder: ${unsubstituted.join(", ")}`);
