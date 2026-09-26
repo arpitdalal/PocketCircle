@@ -25,21 +25,27 @@ import { join, relative, sep } from "node:path";
 export const packageRoot = join(import.meta.dirname, "..");
 
 /**
- * Directories that hold no authored page: the build's own output, and the
- * installed dependencies. Both are excluded by name rather than by depth, so a
+ * Directories that hold no authored page: the build's own output, the installed
+ * dependencies, and a coverage report — which is HTML too, and is written into
+ * this package by `vitest --coverage`. Excluded by name rather than by depth, so a
  * page nested in a subdirectory is still found.
  */
-const NOT_SOURCES = new Set(["dist", "node_modules"]);
+const NOT_SOURCES = new Set(["coverage", "dist", "node_modules"]);
 
 /** Every authored page, as a path relative to the package root, sorted. */
 export function sitePageFiles() {
   return readdirSync(packageRoot, { recursive: true, withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.endsWith(".html") &&
-        !entry.parentPath.split(sep).some((directory) => NOT_SOURCES.has(directory)),
-    )
+    .filter((entry) => {
+      if (!entry.isFile() || !entry.name.endsWith(".html")) {
+        return false;
+      }
+      // A dotfile directory is the toolchain's or the editor's rather than a
+      // source of pages — `.git`, `.vite`, `.wrangler` — and nothing authored is
+      // hidden in one.
+      return !entry.parentPath
+        .split(sep)
+        .some((directory) => NOT_SOURCES.has(directory) || directory.startsWith("."));
+    })
     .map((entry) => relative(packageRoot, join(entry.parentPath, entry.name)).split(sep).join("/"))
     .sort();
 }
