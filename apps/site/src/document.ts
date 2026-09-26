@@ -31,9 +31,25 @@ export function textOf(markup: string) {
     .trim();
 }
 
-/** Every opening tag in a document, whatever it is called, as the raw text written. */
+/**
+ * The document with every `<!-- … -->` comment removed, so that a commented-out
+ * tag is not a tag.
+ *
+ * Every reader in this file goes through it. They all share the failure mode, and
+ * one place to fix it is worth more than four careful regexes: the homepage is a
+ * checked-in document with a comment above almost every interesting line, so a
+ * commented-out `<meta name="description">` is exactly the shape that would let a
+ * check report a value the page does not publish.
+ */
+function withoutComments(html: string) {
+  return html.replace(/<!--[\s\S]*?-->/g, " ");
+}
+
+/**
+ * Every opening tag in a document, whatever it is called, as the raw text written.
+ */
 export function elementsOf(html: string) {
-  return [...html.matchAll(/<[a-z][^>]*>/g)].map(([tag]) => tag);
+  return [...withoutComments(html).matchAll(/<[a-z][^>]*>/g)].map(([tag]) => tag);
 }
 
 /** Every opening tag named `name` in a document, as the raw text written. */
@@ -48,9 +64,13 @@ export function tagsOf(html: string, name: string) {
  * By name, never by position: a check that demanded `rel` before `href` would
  * fail a document that means the same thing, and nothing else in this repo is
  * allowed to depend on the order a serializer happened to emit.
+ *
+ * The opening quote is backreferenced rather than matched against a character
+ * class, so `content="A Circle's Transactions"` is read whole instead of ending
+ * at the apostrophe — which is not hypothetical, that is the share image's alt.
  */
 export function attributeOf(tag: string, name: string) {
-  return new RegExp(`\\s${name}=["']([^"']*)["']`).exec(tag)?.[1];
+  return new RegExp(`\\s${name}=(["'])(.*?)\\1`).exec(tag)?.[2];
 }
 
 /**
@@ -61,7 +81,7 @@ export function attributeOf(tag: string, name: string) {
  * an `href`, and a check that cannot see it would pass by not looking.
  */
 export function anchorsOf(html: string) {
-  return [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/g)].map((match) => ({
+  return [...withoutComments(html).matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/g)].map((match) => ({
     href: attributeOf(match[1] ?? "", "href") ?? "",
     className: attributeOf(match[1] ?? "", "class") ?? "",
     text: textOf(match[2] ?? ""),
@@ -76,7 +96,7 @@ export function anchorsOf(html: string) {
  * on the level.
  */
 export function headingsOf(html: string) {
-  return [...html.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map(
+  return [...withoutComments(html).matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/g)].map(
     (match) => [Number(match[1]), textOf(match[2] ?? "")] as const,
   );
 }

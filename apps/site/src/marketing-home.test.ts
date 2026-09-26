@@ -243,6 +243,63 @@ describe("the page asks for one thing", () => {
   });
 });
 
+/**
+ * Product promises the page must not make.
+ *
+ * Every one of these was written here first and had to be taken out, because the
+ * domain model says the product does not keep it. That is the class this list
+ * exists for: a marketing page is the one document where a plausible-sounding
+ * absolute becomes a promise the product has to honour forever, and nothing in
+ * the build would notice the day it stopped being true.
+ *
+ * So the rule is not "be careful with absolutes" — it is these specific ones, each
+ * with the domain reason it is on the list, and a new one joins the list when it
+ * is learned the same way. `CONTEXT.md` and the Convex functions are where the
+ * truth lives; this is only the memory of having been wrong.
+ */
+const PROMISES_THE_PRODUCT_DOES_NOT_KEEP: readonly {
+  readonly phrase: string;
+  readonly because: string;
+}[] = [
+  {
+    phrase: "and nothing else",
+    because:
+      "Google sign-in also yields Google's stable account identifier, which our own Privacy Policy §1 lists",
+  },
+  {
+    phrase: "before you can see anything",
+    because:
+      "getInvitationPreview is a public query: a valid Invitation Link reveals the Circle name, the Owner's name and picture, and the invited email to whoever holds it, signed in or not",
+  },
+  {
+    phrase: "can never be deleted",
+    because: "Account Deletion removes the Personal Circle and its records",
+  },
+  {
+    phrase: "only for as long as you leave the connection up",
+    because:
+      "revoking an MCP grant blocks future requests; it cannot retract Transactions a client has already fetched",
+  },
+  {
+    phrase: "sees nothing at all",
+    because: "same reason — a revoked connection stops asking, it does not unsee",
+  },
+  {
+    phrase: "Every grant is per Circle",
+    because:
+      "a connection is one grant holding several Circles, and get_current_user returns account-level identity",
+  },
+];
+
+describe("the page makes no promise the product does not keep", () => {
+  it.each(PROMISES_THE_PRODUCT_DOES_NOT_KEEP.map((p) => [p.phrase, p.because] as const))(
+    "does not claim %s",
+    (phrase, because) => {
+      expect(page.toLowerCase().includes(phrase.toLowerCase()), because).toBe(false);
+    },
+  );
+});
+
 describe("the page describes itself to a crawler and to a share preview", () => {
   /** The content of the first `meta` tag carrying `name` (or `property`) `key`. */
   const meta = (key: string) => metaContentOf(page, key);

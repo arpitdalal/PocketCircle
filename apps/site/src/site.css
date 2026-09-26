@@ -162,12 +162,29 @@
  * rather than `transform`, so a press without it snaps instead of easing. The
  * `disabled:` rules stay behind because a link is never disabled.
  *
+ * The hover state *lifts* the accent toward the foreground rather than fading it
+ * toward the page. Fading is what the product's button does, and it is wrong here:
+ * the label is ink, so fading the surface toward ink is fading it toward its own
+ * text, and it drops the pair from 5.16:1 to 4.01:1 — a silent AA failure, and
+ * one this stylesheet's own contrast test now fails on if it comes back. Lifting
+ * away from the ink does the opposite, 5.97:1, and reads as raised on a dark page,
+ * which is what a hover is trying to say anyway.
+ *
  * `@utility`, not `@layer components`: Tailwind v4 uses native cascade layers, so
  * a class written in a layer is unconditionally outranked by every utility and
  * cannot take a variant.
  */
 @utility cta {
-  @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform,scale] duration-150 ease-out-quart bg-primary text-background hover:bg-primary/85 active:scale-[0.97] motion-reduce:active:scale-100;
+  --cta-surface: var(--primary);
+  --cta-surface-hover: color-mix(in oklab, var(--primary) 88%, var(--foreground));
+
+  @apply inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md px-6 text-sm font-medium whitespace-nowrap shadow-sm transition-[background-color,border-color,color,transform,scale] duration-150 ease-out-quart active:scale-[0.97] motion-reduce:active:scale-100;
+  background-color: var(--cta-surface);
+  color: var(--background);
+
+  &:hover {
+    background-color: var(--cta-surface-hover);
+  }
 }
 
 /*
