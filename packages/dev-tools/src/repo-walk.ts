@@ -78,26 +78,27 @@ export function collectFiles(
   isSourceFile: (fileName: string, rootRelativePath: string) => boolean,
   options: WalkOptions = {},
 ): string[] {
-  return walk(root, options, isSourceFile, repoPath);
+  return walk(root, options, isSourceFile);
 }
 
 /**
- * The same walk, with absolute paths — for a caller that is going to open the
- * files rather than name them in an assertion.
+ * The same walk, with absolute paths — for a caller that is going to open the files
+ * rather than name them in an assertion. Re-rooting the relative paths is exact: they
+ * came from this root, and `join` is what undid that.
  */
 export function collectRepoFiles(
   repoRoot: string,
   isSourceFile: (fileName: string, repoRelativePath: string) => boolean,
   options: WalkOptions = {},
 ): string[] {
-  return walk(repoRoot, options, isSourceFile, (root, path) => path);
+  return walk(repoRoot, options, isSourceFile).map((path) => join(repoRoot, path));
 }
 
+/** Relative paths throughout; the one walk, and the one place the skip list is read. */
 function walk(
   root: string,
   { skipDirectories = [], skipDotDirectories = false }: WalkOptions,
   isSourceFile: (fileName: string, rootRelativePath: string) => boolean,
-  toResult: (root: string, absolutePath: string) => string,
 ): string[] {
   const skip = new Set([...SKIPPED_DIRECTORIES, ...skipDirectories]);
   const collected: string[] = [];
@@ -110,8 +111,9 @@ function walk(
         }
         continue;
       }
-      if (isSourceFile(entry.name, repoPath(root, path))) {
-        collected.push(toResult(root, path));
+      const relativePath = repoPath(root, path);
+      if (isSourceFile(entry.name, relativePath)) {
+        collected.push(relativePath);
       }
     }
   };
