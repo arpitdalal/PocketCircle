@@ -65,6 +65,12 @@ jobs:
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
+          # Must equal `MIGRATION_APP_ORIGIN` and `APP_ORIGIN` in
+          # packages/domain/src/origins.ts, the two origins the product Worker claims and
+          # the one auth has to trust — a workflow cannot import it, so
+          # `canonical-origins.test.ts` asserts the match.
+          APP_ORIGIN: https://pocketcircle.app
+          MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
@@ -79,6 +85,35 @@ jobs:
             exit 1
           fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
+          # The product Worker serves the app from the app subdomain as well as the apex
+          # (#410), and auth only answers sign-in from an origin it trusts — which is
+          # `MIGRATION_APP_ORIGIN` on this deployment, read when the auth routes load.
+          # Serving the host without it is the one failure this window exists to prevent:
+          # the app loads on the subdomain and sign-in there fails in the browser with no
+          # detail. Checked here, before anything is deployed, because the deploy's own
+          # origin check only proves the host serves the app. Drop this with the variable,
+          # in the same deploy that points SITE_URL at the app origin (ADR 0035).
+          set +e
+          MIGRATION_ERR=$(mktemp)
+          MIGRATION_OUT=$(pnpm --filter @pocketcircle/convex exec convex env get MIGRATION_APP_ORIGIN 2>"$MIGRATION_ERR")
+          set -e
+          MIGRATION=$(printf '%s' "$MIGRATION_OUT" | tr -d '[:space:]')
+          # Either claimed origin is acceptable: auth trusts `SITE_URL` *and* this
+          # variable, and between them they have to cover both hosts the Worker serves.
+          # The apex is the documented rollback state, not a gap — a release that trusts
+          # only the apex is not one where the subdomain is still being served.
+          if [ "$MIGRATION" = "$MIGRATION_APP_ORIGIN" ] || [ "$MIGRATION" = "$APP_ORIGIN" ]; then
+            rm -f "$MIGRATION_ERR"
+          elif grep -qi 'not found' "$MIGRATION_ERR"; then
+            echo "::error::MIGRATION_APP_ORIGIN is unset on this deployment, but the product Worker serves $MIGRATION_APP_ORIGIN — see README, origin migration"
+            rm -f "$MIGRATION_ERR"
+            exit 1
+          else
+            echo "::error::MIGRATION_APP_ORIGIN is '${MIGRATION:-unset}', want $MIGRATION_APP_ORIGIN (or $APP_ORIGIN while rolling back) — see README, origin migration" >&2
+            cat "$MIGRATION_ERR" >&2
+            rm -f "$MIGRATION_ERR"
+            exit 1
+          fi
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {
@@ -513,26 +548,19 @@ jobs:
           wranglerVersion: "4.121.0"
 
       # What a User gets on the two hosts the app is served from (ADR 0035), asserted
-      # against the artifact this job built rather than against a status code: the
-      # app shell at `/`, every asset that shell names, three deep links that only
-      # resolve through the Worker's SPA fallback, and the manifest and push service
-      # worker an installed PWA needs on a host it has never seen. Bytes, because
-      # Cloudflare caches and propagates each asset independently — a document served
-      # next to a stale bundle, or next to no bundle at all, looks exactly like a pass
-      # on a status. The first request to the subdomain is also what proves the DNS
-      # record and certificate wrangler provisioned for it, so this step is where a
-      # token without DNS edit fails loudly rather than at the next deploy. It runs
-      # inside the push-delivery gate, so nothing re-enables push until the display-
-      # capable service worker is the one being served. Retries because the asset
-      # manifest takes a moment to propagate, the same reason the Site and MCP checks
-      # retry.
+      # against the artifact this job built rather than against a status: the shell at
+      # `/`, every bundle it names, three deep links that only resolve through the
+      # Worker's SPA fallback, the web manifest, and the push service worker. Runs
+      # inside the push-delivery gate, so nothing re-enables push until the
+      # display-capable service worker is the one being served.
       #
-      # The apex is asserted only until the cutover hands it to the marketing Site;
-      # the app-origin half outlives it, and the apex half goes with that deploy.
+      # The apex is asserted only until the cutover hands it to the marketing Site; the
+      # app-origin half outlives it, and the apex half goes with that deploy.
       - name: Verify product app origins
         # APP_ORIGIN and MIGRATION_APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
-        # `canonical-origins.test.ts` asserts it.
+        # `canonical-origins.test.ts` asserts it. MIGRATION_APP_ORIGIN is the same
+        # literal the configuration check above asserts auth already trusts.
         env:
           APP_ORIGIN: https://pocketcircle.app
           MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
@@ -540,43 +568,79 @@ jobs:
           node --input-type=module <<'EOF'
           import { readFile } from "node:fs/promises";
 
-          // Normalizing through `new URL` fails the step immediately, before any
-          // retry, if an origin above is missing or is not a bare origin — a value
-          // that silently became "undefined" would otherwise fetch nothing and pass.
+          // Normalizing through `new URL` fails the step immediately, before any retry, if
+          // an origin above is missing or is not a bare origin — a value that silently
+          // became "undefined" would otherwise fetch nothing and pass.
           const origins = [process.env.APP_ORIGIN, process.env.MIGRATION_APP_ORIGIN].map(
             (value) => new URL(value).origin,
           );
 
           // Read once, before any retry, like the Site's check above: which documents,
           // which assets, and which header policy this build ships is a property of the
-          // artifact, and waiting cannot change it.
-          const clientDirectory = "apps/web-app/build/client";
+          // artifact, and waiting cannot change it. The directory comes from the Worker's
+          // own config rather than being written out again here.
+          const clientDirectory = /"directory"\s*:\s*"([^"]+)"/.exec(
+            await readFile("wrangler.jsonc", "utf8"),
+          )?.[1];
+          if (clientDirectory === undefined) {
+            throw new Error("wrangler.jsonc publishes no assets directory");
+          }
           const shell = (await readFile(`${clientDirectory}/index.html`)).toString("utf8");
           const builtPushServiceWorker = await readFile(`${clientDirectory}/push-sw.js`);
-          const headerPolicy = (await readFile("apps/web-app/public/_headers", "utf8"))
+
+          // The published header policy, read rather than restated, so this cannot pass
+          // against a policy the app no longer ships — including the service worker's
+          // `Cache-Control`, which is what stops a device caching a push handler it cannot
+          // display. Cloudflare applies every rule that covers a request, so a path's
+          // expected headers are the union of the rules that name it.
+          const headerRules = (await readFile(`${clientDirectory}/_headers`, "utf8"))
             .split(/\n\s*\n/)
             .map((rule) => rule.trim())
-            .find((rule) => rule.startsWith("/*"));
-          if (headerPolicy === undefined) {
-            throw new Error("the product _headers file has no /* rule");
+            .filter(Boolean)
+            .map((rule) => {
+              const [pattern, ...headers] = rule.split("\n").map((line) => line.trim());
+              return [
+                pattern,
+                Object.fromEntries(
+                  headers.map((header) => {
+                    const separator = header.indexOf(":");
+                    return [
+                      header.slice(0, separator).trim().toLowerCase(),
+                      header.slice(separator + 1).trim(),
+                    ];
+                  }),
+                ),
+              ];
+            });
+          if (headerRules.length === 0) {
+            throw new Error("the published _headers file has no rule");
           }
-          // The policy is read from the file the Worker applies rather than restated,
-          // so this cannot pass against a header set the app no longer ships.
-          const expectedHeaders = Object.fromEntries(
-            headerPolicy
-              .split("\n")
-              .slice(1)
-              .map((line) => {
-                const separator = line.indexOf(":");
-                return [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
-              }),
-          );
+          /** Whether one `_headers` rule covers a request path. */
+          function ruleCovers(pattern, path) {
+            if (pattern.includes(":")) {
+              // A placeholder would silently match nothing, and a policy check that skips
+              // a rule is worse than no check.
+              throw new Error(`_headers rule ${pattern} uses a placeholder this check cannot match`);
+            }
+            if (!pattern.endsWith("/*")) {
+              return pattern === path;
+            }
+            const prefix = pattern.slice(0, -1);
+            return path === prefix || path.startsWith(prefix);
+          }
+          function expectedHeadersFor(path) {
+            return Object.assign(
+              {},
+              ...headerRules
+                .filter(([pattern]) => ruleCovers(pattern, path))
+                .map(([, headers]) => headers),
+            );
+          }
 
-          // Every asset the shell names, with the bytes this job built for it. A shell
-          // that propagated ahead of its bundles is a 200 the assertions below all pass
-          // and an app that cannot boot, and only a request for the bundles themselves
-          // can tell. Their names are content-hashed, so a *stale* shell cannot quietly
-          // pair with new bundles either — the asset it names is gone from the manifest.
+          // Every bundle the shell names, with the bytes this job built for it. A shell
+          // that propagated ahead of its bundles is a 200 every assertion below passes and
+          // an app that cannot boot. Content-hashed names mean a *stale* shell cannot
+          // quietly pair with new bundles either — the bundle it names is gone.
           const builtAssets = new Map();
           for (const [, path] of shell.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
             builtAssets.set(path, await readFile(`${clientDirectory}${path}`));
@@ -585,10 +649,10 @@ jobs:
             throw new Error("the app shell names no built asset");
           }
 
-          // One deep link of each shape the app hands out, at the shape it hands them
-          // out in: a Circle Transaction, the same Transaction's edit form carrying the
-          // filtered ledger it was opened from, and a search with filters. None of these
-          // has a file behind it, so every one of them is answered by
+          // One deep link of each shape the app hands out, at the shape it hands them out
+          // in: a Circle Transaction, the same Transaction's edit form carrying the
+          // filtered ledger it was opened from, and a search with filters. None has a file
+          // behind it, so every one is answered by
           // `not_found_handling: "single-page-application"` — the whole of what makes a
           // cold load of a shared or bookmarked link work, on either host.
           const deepLinks = [
@@ -598,92 +662,63 @@ jobs:
           ];
 
           async function verifyOrigin(origin) {
-            const home = await fetch(`${origin}/`, { redirect: "manual" });
-            if (home.status !== 200) {
-              throw new Error(`${origin}/ answered ${home.status}`);
-            }
-            for (const [header, value] of Object.entries(expectedHeaders)) {
-              if (home.headers.get(header) !== value) {
-                throw new Error(`${origin}: ${header} is ${home.headers.get(header)}, want ${value}`);
-              }
-            }
-            const html = await home.text();
-            if (html !== shell) {
-              throw new Error(
-                `${origin}/ is ${html.length} characters and differs from the ${shell.length} character shell this job built`,
-              );
-            }
-
-            // Every asset that shell boots with, from this origin, against the bytes this
-            // job built — concurrently, because there are dozens of them and they are
-            // edge-cached.
-            await Promise.all(
-              [...builtAssets].map(async ([path, built]) => {
-                const asset = await fetch(`${origin}${path}`, { redirect: "manual" });
-                if (asset.status !== 200) {
-                  throw new Error(`${origin}${path} answered ${asset.status}, want the bundle this shell names`);
-                }
-                const served = Buffer.from(await asset.arrayBuffer());
-                if (!served.equals(built)) {
-                  throw new Error(
-                    `${origin}${path} is ${served.byteLength} bytes and differs from the ${built.byteLength} byte asset this job built`,
-                  );
-                }
-              }),
-            );
-
-            // Redirects are not followed, which is the point of the loop: a plain fetch
-            // follows a 307 and reports 200 with the right bytes, so a Worker that
-            // answered a deep link with a hop to the homepage would pass every other
-            // assertion here. The shell has to be served, not reached.
-            for (const path of deepLinks) {
+            async function fetchBuilt(path, built) {
               const response = await fetch(`${origin}${path}`, { redirect: "manual" });
               if (response.status !== 200) {
-                throw new Error(`${origin}${path} answered ${response.status}, want the app shell`);
+                throw new Error(`${origin}${path} answered ${response.status}, want the file this job built`);
               }
-              const text = await response.text();
-              if (text !== shell) {
+              for (const [header, value] of Object.entries(expectedHeadersFor(path))) {
+                if (response.headers.get(header) !== value) {
+                  throw new Error(
+                    `${origin}${path}: ${header} is ${response.headers.get(header)}, want ${value}`,
+                  );
+                }
+              }
+              // The bytes, because Cloudflare caches and propagates each file
+              // independently: a document served next to a stale file looks exactly like a
+              // pass on a status, and on the service worker the stale file is the silent
+              // push revoke the gate around this deploy exists to prevent.
+              const served = Buffer.from(await response.arrayBuffer());
+              if (!served.equals(built)) {
                 throw new Error(
-                  `${origin}${path} is ${text.length} characters and is not the app shell this job built`,
+                  `${origin}${path} is ${served.byteLength} bytes and differs from the ${built.byteLength} byte file this job built`,
                 );
               }
             }
 
-            // The push service worker is registered per origin, and the manifest names
-            // the install scope, so a host missing either breaks the installed PWA
-            // rather than the page. Bytes, not just the status: the *previous* release's
-            // worker answers 200 with the same `no-cache`, and serving that one is the
-            // silent push revoke the gate around this deploy exists to prevent — so the
-            // question is whether the display-capable worker is live, not whether a file
-            // is.
-            const serviceWorker = await fetch(`${origin}/push-sw.js`, { redirect: "manual" });
-            if (serviceWorker.status !== 200) {
-              throw new Error(`${origin}/push-sw.js answered ${serviceWorker.status}`);
-            }
-            if (serviceWorker.headers.get("cache-control") !== "no-cache") {
-              throw new Error(
-                `${origin}/push-sw.js is served with ${serviceWorker.headers.get("cache-control")}, want no-cache`,
-              );
-            }
-            const servedServiceWorker = Buffer.from(await serviceWorker.arrayBuffer());
-            if (!servedServiceWorker.equals(builtPushServiceWorker)) {
-              throw new Error(
-                `${origin}/push-sw.js is ${servedServiceWorker.byteLength} bytes and differs from the ${builtPushServiceWorker.byteLength} byte worker this job built`,
-              );
+            await fetchBuilt("/index.html", Buffer.from(shell));
+            // Concurrently, because there are dozens of them and they are edge-cached.
+            await Promise.all(
+              [...builtAssets].map(([path, built]) => fetchBuilt(path, built)),
+            );
+
+            // Redirects are not followed, which is the point: a plain fetch follows a 307
+            // and reports 200 with the right bytes, so a Worker that answered a deep link
+            // with a hop to the homepage would pass everything above. The shell has to be
+            // served, not reached.
+            for (const path of deepLinks) {
+              await fetchBuilt(path, Buffer.from(shell));
             }
 
-            // Relative ids and scope, so each host scopes its own origin: a manifest that
-            // named one host absolutely would install a PWA that launches another, and
-            // the deep links above would not cover the launch.
+            await fetchBuilt("/push-sw.js", builtPushServiceWorker);
+
+            // Relative id and scope, so each host scopes its own origin: a manifest naming
+            // one host absolutely would install a PWA that launches another, and the deep
+            // links above would not cover the launch.
             const manifest = await fetch(`${origin}/site.webmanifest`, { redirect: "manual" });
             if (manifest.status !== 200) {
               throw new Error(`${origin}/site.webmanifest answered ${manifest.status}`);
             }
-            const { id, start_url: startUrl, scope } = await manifest.json();
+            const { id, start_url: startUrl, scope, icons = [] } = await manifest.json();
             if (id !== "/" || startUrl !== "/" || scope !== "/") {
               throw new Error(
                 `${origin}/site.webmanifest scopes ${id} ${startUrl} ${scope}, want / / / on every host that serves the app`,
               );
+            }
+            // And the icons it names, or an install on this host gets a blank icon and
+            // nothing above would notice.
+            for (const icon of icons) {
+              await fetchBuilt(icon.src, await readFile(`${clientDirectory}${icon.src}`));
             }
           }
 
@@ -693,16 +728,23 @@ jobs:
             }
           }
 
+          // A hostname Cloudflare has just been asked for has to resolve and present its
+          // certificate before the first request is answered, and both outlast the sixty
+          // seconds the Site and MCP checks allow — so this one waits longer. The first
+          // release that claims the subdomain is the release that needs it.
+          const ATTEMPTS = 30;
+          const RETRY_MS = 10_000;
+
           let lastError;
-          for (let attempt = 1; attempt <= 12; attempt += 1) {
+          for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
             try {
               await verify();
               console.log(`Product app verified at ${origins.join(" and ")}`);
               process.exit(0);
             } catch (error) {
               lastError = error;
-              console.warn(`Product app attempt ${attempt}/12 failed: ${error.message}`);
-              await new Promise((resolve) => setTimeout(resolve, 5_000));
+              console.warn(`Product app attempt ${attempt}/${ATTEMPTS} failed: ${error.message}`);
+              await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
             }
           }
           throw lastError;

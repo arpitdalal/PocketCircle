@@ -194,11 +194,12 @@ describe("canonical origins are written down exactly once", () => {
 describe("the files that cannot import the module still match it", () => {
   it("each Worker claims its own custom domain", () => {
     const claims = customDomainClaims();
+    // The cutover takes the apex from the product Worker and gives it to the marketing
+    // Site, which claims it in the same deploy (ADR 0035) — this assertion goes then.
     expect(claims.get(APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
-    // The other origin the product app answers on, claimed by the same Worker: the
-    // app is served from the apex and from the subdomain the cutover moves it to
-    // (#410), which is what makes the move rehearsal rather than a migration. The
-    // cutover hands the apex to the marketing Site and this assertion goes with it.
+    // The other origin the product app answers on, and the one the cutover promotes to
+    // `APP_HOSTNAME` (#410). Both hosts serve the same app during the window, which is
+    // what makes the move rehearsal rather than a migration.
     expect(claims.get(MIGRATION_APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
     expect(claims.get(MCP_HOSTNAME)).toEqual(["packages/mcp-worker/wrangler.jsonc"]);
   });

@@ -268,6 +268,10 @@ _Avoid_: Marketing Domain, Website Domain
 The origin the authenticated product app is served from, and the origin a signed-in browser presents. Distinct from the **Apex**, though the same host until the two are split. Anything a signed-in browser reaches — a consent origin, a sign-in link, a redirect target — follows the **App Origin**, never the **Apex**.
 _Avoid_: Web Origin, Site URL
 
+**App Subdomain**:
+`app.` on the **Apex**, the host the product app moves to. During the cutover window the app is served from it *and* from the **App Origin** — the same Worker claims both, so the move can be rehearsed while the **Apex** still serves the app — and auth trusts both origins at once, so sign-in works on whichever a **User** lands on and returns them to it. The **App Origin** becomes the **App Subdomain** at the cutover, and the **Apex** stops serving the app.
+_Avoid_: Migration Origin, New App Domain
+
 **MCP Origin**:
 The origin of the hosted MCP server. It is the OAuth issuer clients discover and the resource identifier an access token is bound to.
 _Avoid_: MCP Server URL, Plugin URL

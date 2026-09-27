@@ -14,14 +14,27 @@ import {
   MCP_HOSTNAME,
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
+  MIGRATION_APP_HOSTNAME,
+  MIGRATION_APP_ORIGIN,
 } from "./origins.js";
 
 describe("canonical origins", () => {
   it("derives every production origin from the apex hostname", () => {
     expect(APEX_ORIGIN).toBe(`https://${APEX_HOSTNAME}`);
     expect(APP_ORIGIN).toBe(`https://${APP_HOSTNAME}`);
+    expect(MIGRATION_APP_ORIGIN).toBe(`https://${MIGRATION_APP_HOSTNAME}`);
     expect(MCP_ORIGIN).toBe(`https://${MCP_HOSTNAME}`);
     expect(MCP_RESOURCE_URI).toBe(`${MCP_ORIGIN}/mcp`);
+  });
+
+  it("keeps the cutover's app subdomain distinct from the app origin it becomes", () => {
+    // Two origins for the app is what the cutover window is, and the guards that
+    // depend on it — two custom-domain claims, the deploy's two-origin check — quietly
+    // become one of each the moment the cutover makes these constants equal. Failing
+    // here is the cutover saying "delete this constant, and the half of the deploy that
+    // used it", rather than leaving it to be noticed in production.
+    expect(MIGRATION_APP_HOSTNAME).not.toBe(APP_HOSTNAME);
+    expect(MIGRATION_APP_HOSTNAME).toBe(`app.${APEX_HOSTNAME}`);
   });
 
   it("derives the local app origin and its twin from the local host and port", () => {
