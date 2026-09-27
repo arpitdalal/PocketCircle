@@ -686,7 +686,10 @@ jobs:
               }
             }
 
-            await fetchBuilt("/index.html", Buffer.from(shell));
+            // The shell at `/`, never at `/index.html`: Workers' default
+            // `html_handling` answers the file name with a redirect to the canonical
+            // path, and a manual-redirect fetch would report that 3xx as a failure.
+            await fetchBuilt("/", Buffer.from(shell));
             // Concurrently, because there are dozens of them and they are edge-cached.
             await Promise.all(
               [...builtAssets].map(([path, built]) => fetchBuilt(path, built)),
