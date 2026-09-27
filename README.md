@@ -633,63 +633,81 @@ rule is a real product path — these are assets, not routes.
 
 **Revert #412 first.** It is what removed the second trusted origin, and the
 pre-cutover backend is the code that reads it — so `MIGRATION_APP_ORIGIN` does nothing
-until the older code is serving again. It is four steps, and the order is the whole of
-it:
+until the older code is serving again. It is four steps, and **step 3 reverts two PRs in
+a single release**, which is the part that is easy to get wrong:
 
 ```sh
 # 1. Revert #412 and tag it. This restores the second trusted origin in the backend,
 #    the deploy check that accepts either variable naming the app host, and the MCP
-#    Worker's retired apex. Reverting a merge commit needs `-m 1`, and the tag needs a
-#    `## [vX.Y.Z] - YYYY-MM-DD` section with real content in CHANGELOG.md, because
+#    Worker's retired apex. This repo squash-merges, so #412 lands on main as a
+#    single-parent commit; `git revert -m 1` is still correct (git 2.51 treats the only
+#    parent as the mainline and produces the same tree as a plain revert) and is also
+#    what you would need if that ever changes. The tag needs a `## [vX.Y.Z] -
+#    YYYY-MM-DD` section with real content in CHANGELOG.md, because
 #    `scripts/release-notes.sh` refuses to tag without one:
-#    (git revert -m 1 <#412 merge SHA> && git tag vX.Y.Z && git push origin vX.Y.Z)
+#    (git revert -m 1 <#412 SHA> && git tag vX.Y.Z && git push origin vX.Y.Z)
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
-# 2. Trust the apex alongside it. The apex is not serving the app yet, so this only
-#    has to be true by the time step 3 lands — but step 3 is what makes it load
-#    bearing, so do not skip it. No deploy: the auth handler reads the trusted-origin
-#    list per request.
+# 2. Trust the apex alongside it. The apex is not serving the app yet, so this only has
+#    to be true before step 3's product Worker deploys — and step 3 is a release, so it
+#    needs no deploy of its own: a Convex deploy pushes new bundles and recycles every
+#    isolate, and that release deploys the backend *before* the product Worker (the
+#    ordering in deploy.yml, which is what makes this safe). Writing this earlier than
+#    step 3 would warm isolates whose CORS allowlist predates it, and the apex would
+#    then refuse sign-in intermittently once it starts serving.
+#    No deploy here.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 
-# 3. Revert #411 and tag it, so the product Worker re-claims the apex and the marketing
-#    Site drops it. Do NOT revert the two wrangler configs by hand:
-#    canonical-origins.test.ts asserts the apex is claimed by apps/site/wrangler.jsonc
-#    and the app. route by the product Worker, and apps/site/src/wrangler.test.ts
-#    asserts the two deploys are adjacent, so a hand-edited config fails the build on
-#    the next tag. git revert restores the configs, the guards, the origin constants,
-#    and the MCP Worker's APP_ORIGIN together.
-#    The Worker now claims the apex *and* app. — #410 added that route and #411 only
-#    removed the apex one, so reverting #411 alone does not undo #410. Both are
-#    trusted and both are served, which is consistent.
+# 3. Revert #411 AND #410 in ONE release, then tag it. One release is the whole point:
+#
+#    - #411 restores the apex route to the product Worker and the marketing Site drops
+#      it, and it also resets the MCP Worker to APP_ORIGIN=https://pocketcircle.app with
+#      no retired origin beside it.
+#    - #410 is what *added* the app. route in the first place, so reverting #411 alone
+#      leaves the product Worker serving app. while the MCP Worker trusts only the apex
+#      — its consent, handoff and revoke endpoints answer 403 to an origin a User can
+#      still reach, and stay that way for as long as the second release is delayed.
+#
+#    Reverted in separate releases that window is unbounded: it lasts until somebody
+#    gets round to the next tag, which during an incident is not a safe assumption.
+#    In one release it is bounded by a single job.
+#
+#    Do NOT hand-edit the two wrangler configs: canonical-origins.test.ts asserts the
+#    apex is claimed by apps/site/wrangler.jsonc and the app. route by the product
+#    Worker, and apps/site/src/wrangler.test.ts asserts the two deploys are adjacent, so
+#    a hand-edited config fails the build on the next tag. git revert restores the
+#    configs, the guards, the origin constants, and the MCP Worker's APP_ORIGIN together.
+#    (git revert -m 1 <#411 SHA> && git revert -m 1 <#410 SHA> && git tag vX.Y.Z && \
+#     git push origin vX.Y.Z)
 
-# 4. Revert #410 and tag it, so the product Worker drops the app. route.
-#    THIS IS NOT OPTIONAL, and it is the step that is easy to miss. Without it the
-#    Worker keeps serving app. while step 5 stops trusting it, and sign-in fails on a
-#    host a User can still reach — the exact failure every step here exists to prevent,
-#    one layer further out. Order is deliberate: trust in the app origin is dropped
-#    only *after* the route that serves it, never before.
-#    Leaving auth still trusting app. here is harmless and necessary — nothing is
-#    untrusted while it is still being routed away.
-
-# 5. Point SITE_URL at the apex and drop the second origin. Now the Worker serves the
-#    apex alone and auth trusts the apex alone.
+# 4. Point SITE_URL at the apex and drop the second origin. Now the product Worker serves
+#    the apex alone, the MCP Worker trusts the apex alone, and auth trusts the apex
+#    alone.
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
-The invariant across all five: **every host a Worker serves is an origin auth trusts,
-and the change that stops trusting a host is never released separately from the change
-that stops serving it.** Step 2 exists so the apex is trusted before it serves; step 4
-exists so the app origin is untrusted only after it stops serving. Skipping either one
-breaks a host a User can reach, with sign-in failing in the browser and nothing to show
-for it.
+The invariant across all four: **every host a Worker serves is an origin auth trusts, and
+the change that stops trusting a host is never released separately from the change that
+stops serving it.** Step 2 exists so the apex is trusted before it serves; step 3 exists
+so the app origin stops being served in the same release that stops being trusted. Skip
+either and a host a User can reach stops working, with sign-in failing in the browser and
+nothing to show for it.
 
-The deploy's configuration check encodes the *post*-cutover invariant — `SITE_URL` must
-name the host the product Worker claims — so once step 5 lands, the next release fails
-that check until `packages/domain/src/origins.ts` is reverted too, which is part of
-finishing the rollback rather than an obstacle to it. `APP_ORIGIN` is baked into the
-workflow's env block and cannot be changed without editing the origins module.
+Two windows remain, and neither can be closed from here:
+
+- **Inside step 3's release**, the product Worker claims the apex several steps before
+  the MCP Worker is deployed to trust it, because the MCP Worker is not one of the two
+  Workers in the handover and is not the first of the release. It is bounded by that one
+  job and fails closed — the MCP endpoints answer 403 and a User retries once the release
+  finishes. Widening `RETIRED_APP_ORIGIN` by hand before the release would hide it, at
+  the cost of a variable the rollback exists to delete.
+- **After step 4**, the deploy's configuration check encodes the *post*-cutover invariant
+  — `SITE_URL` must name the host the product Worker claims — so the next release fails
+  it until `packages/domain/src/origins.ts` is reverted too, which is part of finishing
+  the rollback rather than an obstacle to it. `APP_ORIGIN` is baked into the workflow's
+  env block and cannot move without the origins module.
 
 Rolling back is now materially harder than rolling forward was, and that asymmetry is
 deliberate: the whole point of retiring the second origin is that there is one less
