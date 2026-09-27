@@ -38,7 +38,7 @@ Provide the demo username/password only through the portal's private reviewer-cr
 
 Reviewer login:
 
-1. Open https://pocketcircle.app/signin in a fresh browser session.
+1. Open https://app.pocketcircle.app/signin in a fresh browser session. (The app is served from the app subdomain; the plain address is the marketing homepage. The old address still redirects, but send the reviewer to the app directly.)
 2. Choose Google and sign in with the privately supplied demo credentials.
 3. Confirm the synthetic Home page loads.
 4. Connect the production MCP URL in the reviewing host. On consent, select `Pocket's Circle` and enable read/write for positive cases.

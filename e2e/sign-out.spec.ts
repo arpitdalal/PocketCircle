@@ -10,14 +10,18 @@ import {
 /**
  * TRUE-E2E (ADR 0019) regression guard for the sign-out wiring fixed in #132/#135.
  * Clicking Sign out runs the real `signOut` wrapper, and the user MUST end up signed
- * out on the public homepage — that holds via either path the fix defines, so we
- * assert the convergent outcome rather than which path fired:
+ * out — that holds via either path the fix defines, so we assert the convergent
+ * outcome rather than which path fired:
  *   - success: the wrapper resolves, the session clears, and the reactive
- *     ProtectedLayout shows the marketing homepage at `/`; or
+ *     ProtectedLayout redirects to `/signin`; or
  *   - failure: the wrapper throws (it now surfaces Better Auth's resolved `{ error }`
- *     instead of swallowing it), and AccountMenu's catch logs + routes to /signin
- *     (Continue with Google). In this self-hosted cross-domain backend the sign-out
- *     fetch often fails, so either signed-out landing is acceptable.
+ *     instead of swallowing it), and AccountMenu's catch logs + routes to /signin.
+ *     In this self-hosted cross-domain backend the sign-out fetch often fails, so
+ *     either signed-out landing is acceptable — both are `/signin`.
+ *
+ * The app root is behind sign-in like every other product path (#412): the public
+ * surfaces are the marketing Site's own origin, so a signed-out visit to `/` lands on
+ * the sign-in form rather than a landing page. That is what the revisit below asserts.
  *
  * Sign-out revokes the session, so this drives a throwaway user in its OWN anonymous
  * context rather than the per-worker `storageState`: tearing down that session can't
@@ -40,11 +44,11 @@ test("signing out clears the session and lands signed out", async ({ browser, ba
     await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
     await expect(accountMenuButton(page)).toHaveCount(0);
 
-    // Session is truly gone, not just a client redirect: revisiting `/` stays signed out.
+    // Session is truly gone, not just a client redirect: revisiting the app root stays
+    // signed out, and the root itself resolves to sign-in rather than to a landing page.
     await page.goto(`${resolvedBase}/`);
+    await expect(page).toHaveURL((url) => url.pathname === "/signin");
     await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
-    await expect(page).toHaveURL((url) => url.pathname === "/");
-    await expect(page.getByRole("heading", { name: "PocketCircle" })).toBeVisible();
   } finally {
     await context.close();
   }

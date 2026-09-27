@@ -23,13 +23,6 @@ declare global {
       MCP_WRITE_RATE_LIMITER: RateLimit;
       MCP_DESTRUCTIVE_RATE_LIMITER: RateLimit;
       APP_ORIGIN: string;
-      /**
-       * The app origin the ADR 0035 cutover is moving off — the apex — trusted only
-       * for as long as the handover needs both. Optional: absent means "one app
-       * origin", which is the state after the cutover settles. See
-       * `src/browser-origin.ts` for why the handover cannot rely on deploy order.
-       */
-      RETIRED_APP_ORIGIN?: string;
       CONVEX_SITE_URL: string;
       MCP_CLIENT_PROVISIONING_TOKEN?: string;
       MCP_WORKER_HMAC_SECRET: string;

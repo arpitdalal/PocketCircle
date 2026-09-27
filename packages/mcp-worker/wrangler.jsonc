@@ -74,16 +74,6 @@
     // (`src/browser-origin.ts`); pointing it at the apex would refuse every consent
     // the User starts from the app.
     "APP_ORIGIN": "https://app.pocketcircle.app",
-    // The apex, which this Worker still trusted until the cutover. Kept trusted for
-    // the length of the handover because the two Workers cannot both claim the apex
-    // and the swap is two deploys: this one is not among them, and it is not the
-    // first of them, so a single-valued APP_ORIGIN leaves the consent, revoke, and
-    // handoff endpoints refusing the only origin a User can reach in between — and
-    // refusing them for good if a verification step between the two fails.
-    //
-    // Remove this with the second trusted Convex origin (#412), in the deploy *after*
-    // the cutover is confirmed, not in the cutover's own deploy.
-    "RETIRED_APP_ORIGIN": "https://pocketcircle.app",
     // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a
     // *.convex.site host — Convex assigns the deployment subdomain.
     "CONVEX_SITE_URL": "https://placeholder.convex.site",

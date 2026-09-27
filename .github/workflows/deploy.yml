@@ -67,15 +67,11 @@ jobs:
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
-          # Must equal `MIGRATION_APP_ORIGIN` and `APP_ORIGIN` in
-          # packages/domain/src/origins.ts — the same origin twice, and both are the app
-          # subdomain since the ADR 0035 cutover. A workflow cannot import it, so
-          # `canonical-origins.test.ts` asserts the match. The pair is kept while the
-          # `SITE_URL` flip is a separate deploy from the Worker swap: either variable
-          # naming the host is what proves auth trusts it, and which one does is the
-          # deploy's business, not this workflow's. #412 drops the second.
+          # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
+          # cannot import it, so `canonical-origins.test.ts` asserts the match. It is
+          # the deployment a User signs in to, which since the ADR 0035 cutover is the
+          # app subdomain rather than the apex.
           APP_ORIGIN: https://app.pocketcircle.app
-          MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
@@ -90,47 +86,26 @@ jobs:
             exit 1
           fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
-          # Auth only answers sign-in from an origin it trusts — `SITE_URL`, plus
-          # `MIGRATION_APP_ORIGIN` for as long as the `SITE_URL` flip is a separate
-          # deploy from the Worker handover (#409), read when the auth routes load.
-          # Serving a host neither of them names is the one failure this check exists
-          # to prevent: the app loads there and sign-in fails in the browser with no
-          # detail at all. Checked before anything is deployed, because the deploy's own
-          # origin check only proves the host serves the app.
+          # Auth only answers sign-in from an origin it trusts, and `SITE_URL` is the
+          # only one it holds — read when the auth routes initialise. Serving a host it
+          # does not name is the one failure this check exists to prevent: the app loads
+          # there and sign-in fails in the browser with no detail at all. Checked before
+          # anything is deployed, because the deploy's own origin check only proves the
+          # host serves the app.
           #
-          # Either variable naming the host is enough, and which one it is changes with
-          # the cutover rather than with this file: the Worker handover and the
-          # `SITE_URL` flip are two deploys on purpose, so before the flip auth trusts
-          # the app origin through `MIGRATION_APP_ORIGIN` and after it through
-          # `SITE_URL`. Requiring both would fail the release that has not been
-          # flipped yet; requiring neither would ship an app nobody can sign in to.
-          # `canonical-origins.test.ts` holds the two env values against the module.
-          trusted_origin() {
-            local name="$1" err status value
-            err=$(mktemp)
-            set +e
-            value=$(pnpm --filter @pocketcircle/convex exec convex env get "$name" 2>"$err")
-            status=$?
-            set -e
-            # `not found` is how the CLI reports an unset variable, which is a legitimate
-            # answer here. Empty output with any other error is a transport failure, and
-            # must not be read as "auth trusts one origin".
-            if [ -z "$value" ] && [ "$status" -ne 0 ] && ! grep -qi 'not found' "$err"; then
-              echo "::error::convex env get $name failed (status=$status):" >&2
-              cat "$err" >&2
-              rm -f "$err"
-              exit 1
-            fi
-            rm -f "$err"
-            printf '%s' "$value" | tr -d '[:space:]'
-          }
-          SITE_URL_VALUE=$(trusted_origin SITE_URL)
-          MIGRATION_VALUE=$(trusted_origin MIGRATION_APP_ORIGIN)
-          case " $SITE_URL_VALUE $MIGRATION_VALUE " in
-            *" $APP_ORIGIN "*) ;;
-            *)
-              echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '$SITE_URL_VALUE' and MIGRATION_APP_ORIGIN is '${MIGRATION_VALUE:-unset}' — see README, origin migration"
-              exit 1
+          # An unset `SITE_URL` is a failure here, not a tolerated answer: the backend
+          # falls back to the local dev origin when it is absent, so a deployment
+          # missing it trusts nothing a User can reach. `canonical-origins.test.ts` holds
+          # the env value above against the module.
+          if ! SITE_URL_VALUE=$(pnpm --filter @pocketcircle/convex exec convex env get SITE_URL 2>&1); then
+            echo "::error::could not read SITE_URL from the Convex production deployment:"
+            echo "$SITE_URL_VALUE" >&2
+            exit 1
+          fi
+          SITE_URL_VALUE=$(printf '%s' "$SITE_URL_VALUE" | tr -d '[:space:]')
+          if [ "$SITE_URL_VALUE" != "$APP_ORIGIN" ]; then
+            echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '${SITE_URL_VALUE:-unset}' — see README, origin migration"
+            exit 1
               ;;
           esac
           node --input-type=module -e '

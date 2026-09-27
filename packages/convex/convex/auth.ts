@@ -23,18 +23,10 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  * CONVEX_SITE_URL is provided by Convex automatically and is where the auth
  * routes live.
  *
- * MIGRATION_APP_ORIGIN widens the trusted origins for the ADR 0035 cutover
- * window (#409): the SPA is served from the app origin while SITE_URL still
- * names the apex, so both have to be trusted for sign-in to work on whichever
- * one a User lands on. Unset means a single origin, which is what local, E2E,
- * and post-migration deployments run. Deploying the app origin is then not
- * itself the cutover — the DNS swap and the SITE_URL flip stay separate,
- * independently verifiable steps. Remove it once SITE_URL names the app origin;
- * that is the `migrationAppOrigin` value, the read in {@link createAuth}, the
- * second entry in the trusted-origins list there, the `declaredOrigin` call and
- * its parameter below, and the README section. `declaredOrigin` and
- * `BARE_ORIGIN` are not migration-specific — SITE_URL is checked with the same
- * helper — so they stay.
+ * `SITE_URL` is the only origin auth trusts, and it is the one the app is served
+ * from. The second trusted origin that widened it for the ADR 0035 cutover window
+ * (#409) is gone: `SITE_URL` names the app origin, the apex is the marketing
+ * Site's, and a hostname resolves to exactly one of them.
  *
  * E2E-only: when `E2E_TEST_AUTH=1` (set ONLY on ephemeral CI/self-hosted
  * deployments, NEVER in production — ADR 0019), email+password sign-in is also
@@ -82,23 +74,12 @@ function declaredOrigin(name: string, value: string) {
   return url.origin;
 }
 
-export function authRuntimeConfig(
-  siteUrlValue: string | undefined,
-  migrationAppOriginValue?: string,
-) {
-  // SITE_URL goes through the same check as the origin declared beside it. It is the
-  // origin better-auth trusts and the base a relative sign-in callback resolves
-  // against, so a pattern there is the hazard above rather than a shorthand.
+export function authRuntimeConfig(siteUrlValue: string | undefined) {
+  // SITE_URL is the origin better-auth trusts and the base a relative sign-in callback
+  // resolves against, so a pattern there is the hazard above rather than a shorthand.
   const siteUrl = declaredOrigin("SITE_URL", siteUrlValue ?? LOCAL_APP_ORIGIN);
   const verbose = isLoopbackHostname(new URL(siteUrl).hostname);
-  // Unset is the single-origin setup. Anything supplied is validated, an empty value
-  // included: `convex env set MIGRATION_APP_ORIGIN ""` is a mistake to be told about,
-  // not an absent variable to be read as "trust one origin".
-  const migrationAppOrigin =
-    migrationAppOriginValue === undefined
-      ? null
-      : declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue);
-  return { siteUrl, verbose, migrationAppOrigin };
+  return { siteUrl, verbose };
 }
 
 export function authComponentConfig(siteUrlValue: string | undefined) {
@@ -165,17 +146,14 @@ export const { getAuthUser } = authComponent.clientApi();
 const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const authRuntime = authRuntimeConfig(process.env.SITE_URL, process.env.MIGRATION_APP_ORIGIN);
+  const authRuntime = authRuntimeConfig(process.env.SITE_URL);
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
   const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
-  // crossDomain contributes SITE_URL to trustedOrigins; this list is every other
-  // origin auth trusts. Deduplicated against SITE_URL and itself, so an origin
-  // that is already trusted — the apex before the cutover, or the loopback twin
-  // locally — is not listed twice.
-  const extraTrustedOrigins = [...new Set([authRuntime.migrationAppOrigin, loopbackTwin])].filter(
-    (origin): origin is string => typeof origin === "string" && origin !== siteUrl,
-  );
+  // crossDomain contributes SITE_URL to trustedOrigins, so this is the whole of the
+  // widening: the loopback twin, and nothing else. A non-loopback origin has no twin
+  // and contributes no entry, which is how production runs.
+  const extraTrustedOrigins = loopbackTwin === undefined ? {} : { trustedOrigins: [loopbackTwin] };
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -212,7 +190,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    ...(extraTrustedOrigins.length > 0 ? { trustedOrigins: extraTrustedOrigins } : {}),
+    ...extraTrustedOrigins,
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };

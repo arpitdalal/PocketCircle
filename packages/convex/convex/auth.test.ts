@@ -113,24 +113,15 @@ describe("authRuntimeConfig", () => {
     expect(authRuntimeConfig(undefined)).toEqual({
       siteUrl: LOCAL_APP_ORIGIN,
       verbose: true,
-      migrationAppOrigin: null,
     });
     expect(authRuntimeConfig(LOCAL_APP_TWIN_ORIGIN)).toEqual({
       siteUrl: LOCAL_APP_TWIN_ORIGIN,
       verbose: true,
-      migrationAppOrigin: null,
     });
     expect(authRuntimeConfig("https://app.example.com/")).toEqual({
       siteUrl: "https://app.example.com",
       verbose: false,
-      migrationAppOrigin: null,
     });
-  });
-
-  it("normalizes a declared migration app origin to a bare origin", () => {
-    expect(authRuntimeConfig(APEX_ORIGIN, "https://app.example.com/").migrationAppOrigin).toBe(
-      "https://app.example.com",
-    );
   });
 
   it.each([
@@ -147,19 +138,7 @@ describe("authRuntimeConfig", () => {
     ["a backslash in the host", "https://evil.example\\app.example.com"],
     // The cross-domain flow ends in a redirect carrying a live session token.
     ["a plaintext public origin", "http://app.example.com"],
-    // Set-but-empty is a mistake to report, not an absent variable to read as
-    // "trust one origin" — which would fail sign-in on the app origin silently.
-    ["an empty value", ""],
-  ])("rejects %s as a migration app origin", (_label, value) => {
-    expect(() => authRuntimeConfig(APEX_ORIGIN, value)).toThrow(/MIGRATION_APP_ORIGIN/);
-  });
-
-  it.each([
-    ["a wildcard", "https://*.example.com"],
-    ["a comma-separated list", "https://a.example.com,https://b.example.com"],
-    ["credentials in the host", "https://app.example.com@evil.example"],
-    ["a plaintext public origin", "http://app.example.com"],
-  ])("rejects %s as SITE_URL, which is trusted the same way", (_label, value) => {
+  ])("rejects %s as SITE_URL", (_label, value) => {
     expect(() => authRuntimeConfig(value)).toThrow(/SITE_URL/);
   });
 
@@ -170,23 +149,16 @@ describe("authRuntimeConfig", () => {
 });
 
 describe("createAuth trusted origins", () => {
-  /** The app origin the ADR 0035 cutover moves the SPA to. */
-  const APP_ORIGIN_UNDER_MIGRATION = "https://app.example.com";
-
   /**
    * Stubs the deployment env `createAuth` reads, then asserts against the Better
    * Auth options it really builds. Assertions run inside a convex-test run because
    * its return value has to be Convex-serializable and the auth context is not.
    */
-  async function expectAuthContext(
-    env: { siteUrl: string; migrationAppOrigin?: string },
-    assert: (context: AuthContext) => void,
-  ) {
+  async function expectAuthContext(siteUrl: string, assert: (context: AuthContext) => void) {
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-test-secret-test-secret");
     vi.stubEnv("GOOGLE_CLIENT_ID", "");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "");
-    vi.stubEnv("SITE_URL", env.siteUrl);
-    vi.stubEnv("MIGRATION_APP_ORIGIN", env.migrationAppOrigin);
+    vi.stubEnv("SITE_URL", siteUrl);
 
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
@@ -200,51 +172,31 @@ describe("createAuth trusted origins", () => {
    * a listed origin only, and Better Auth's origin check reads the same list, so
    * sign-in from an origin absent from it fails. SITE_URL arrives via the crossDomain
    * plugin, which appends after the origins declared here — hence the order. The
-   * rejection direction is the next test, where the app origin is not declared.
+   * rejection direction is the exactness of the match: the app origin is absent from
+   * it, so sign-in served from there fails.
    */
-  it("accepts sign-in from SITE_URL and from the declared migration app origin", async () => {
-    await expectAuthContext(
-      { siteUrl: APEX_ORIGIN, migrationAppOrigin: APP_ORIGIN_UNDER_MIGRATION },
-      (context) => {
-        expect(context.options.trustedOrigins).toEqual([APP_ORIGIN_UNDER_MIGRATION, APEX_ORIGIN]);
-        // No entry Better Auth would read as a pattern: its matcher honours
-        // wildcards and the CORS router does not, so one entry could widen a trust
-        // decision and break sign-in at the same time.
-        expect(
-          (context.options.trustedOrigins ?? []).filter((origin) => /[*?]/.test(origin)),
-        ).toEqual([]);
-      },
-    );
-  });
-
-  it("rejects sign-in from the app origin when no second origin is declared", async () => {
-    await expectAuthContext({ siteUrl: APEX_ORIGIN }, (context) => {
+  it("accepts sign-in from SITE_URL alone, which is the one origin auth trusts", async () => {
+    await expectAuthContext(APEX_ORIGIN, (context) => {
       expect(context.options.trustedOrigins).toEqual([APEX_ORIGIN]);
+      // No entry Better Auth would read as a pattern: its matcher honours
+      // wildcards and the CORS router does not, so one entry could widen a trust
+      // decision and break sign-in at the same time.
+      expect(
+        (context.options.trustedOrigins ?? []).filter((origin) => /[*?]/.test(origin)),
+      ).toEqual([]);
     });
   });
 
-  it("declares no second origin when it is already SITE_URL", async () => {
-    await expectAuthContext(
-      { siteUrl: APEX_ORIGIN, migrationAppOrigin: APEX_ORIGIN },
-      (context) => {
-        expect(context.options.trustedOrigins).toEqual([APEX_ORIGIN]);
-      },
-    );
-  });
-
   it("also trusts the localhost twin when SITE_URL is 127.0.0.1", async () => {
-    await expectAuthContext({ siteUrl: LOCAL_APP_ORIGIN }, (context) => {
+    await expectAuthContext(LOCAL_APP_ORIGIN, (context) => {
       expect(context.options.trustedOrigins).toEqual([LOCAL_APP_TWIN_ORIGIN, LOCAL_APP_ORIGIN]);
     });
   });
 
-  it("lists the localhost twin once even when it is the declared origin", async () => {
-    await expectAuthContext(
-      { siteUrl: LOCAL_APP_ORIGIN, migrationAppOrigin: LOCAL_APP_TWIN_ORIGIN },
-      (context) => {
-        expect(context.options.trustedOrigins).toEqual([LOCAL_APP_TWIN_ORIGIN, LOCAL_APP_ORIGIN]);
-      },
-    );
+  it("names the loopback twin once when SITE_URL is the twin", async () => {
+    await expectAuthContext(LOCAL_APP_TWIN_ORIGIN, (context) => {
+      expect(context.options.trustedOrigins).toEqual([LOCAL_APP_ORIGIN, LOCAL_APP_TWIN_ORIGIN]);
+    });
   });
 });
 

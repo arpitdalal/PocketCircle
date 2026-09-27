@@ -25,11 +25,6 @@ export default [
     ]),
   ]),
 
-  // Always-on marketing homepage preview (no auth gate). Signed-out `/` uses
-  // the same component via ProtectedLayout; this path is for inspecting the
-  // landing page while signed in.
-  route("home", "routes/marketing-home.tsx"),
-
   // Authenticated app. The protected layout shows a splash while auth resolves,
   // redirects to /signin when unauthenticated, and renders the onboarding branch
   // until the User is bootstrapped and product-onboarded.

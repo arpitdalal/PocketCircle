@@ -1,4 +1,4 @@
-import { APEX_ORIGIN } from "@pocketcircle/domain";
+import { APP_ORIGIN } from "@pocketcircle/domain";
 import { vi } from "vitest";
 
 /**
@@ -8,9 +8,14 @@ import { vi } from "vitest";
  * `http://localhost:3000` is not an origin this app is ever served from, which would
  * let a test pass without saying anything about the real thing.
  *
+ * The default is the **app** origin, because that is the origin the app is served
+ * from (ADR 0035). The apex is the marketing Site's and never runs this app, so a
+ * test that reaches for the default is asserting against a host it would never be
+ * served from. Pass an origin explicitly to pin a different one.
+ *
  * Pair with {@link restoreBrowserOrigin} in `afterEach`.
  */
-export function pinBrowserOrigin(path = "/", origin: string = APEX_ORIGIN) {
+export function pinBrowserOrigin(path = "/", origin: string = APP_ORIGIN) {
   vi.stubGlobal("location", new URL(path, origin));
 }
 

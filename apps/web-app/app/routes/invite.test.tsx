@@ -1,4 +1,4 @@
-import { APEX_ORIGIN, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
+import { APP_ORIGIN, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConvexError } from "convex/values";
@@ -166,7 +166,7 @@ describe("Invite landing", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/invite/test-token`,
+      callbackURL: `${APP_ORIGIN}/invite/test-token`,
       loginHint: preview.invitedEmail,
     });
   });

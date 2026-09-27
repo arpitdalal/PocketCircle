@@ -1,7 +1,7 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { Route } from "./+types/root.js";
 import stylesheet from "./app.css?url";
-import { MarketingHome } from "./components/marketing-home.js";
+import { Splash } from "./components/splash.js";
 import { AppProviders } from "./providers.js";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -47,13 +47,16 @@ export default function App() {
 }
 
 /**
- * Baked into SPA `index.html` at build time. Google branding crawlers (no JS)
- * must see PocketCircle, purpose copy, and Privacy/Terms links here. Same UI as
- * signed-out `/` after hydrate. Deep-link fallbacks briefly show this shell
- * then client-route (same flash pattern as the old Splash shell).
+ * Baked into SPA `index.html` at build time, so it is the only thing a browser
+ * without JavaScript is given — and on this origin there is nothing to give it but
+ * a shell, because the public surfaces are the marketing Site's (ADR 0035) and
+ * everything here is behind sign-in. So this is the app's own loading shell, the
+ * same one the auth gate shows while a session resolves: a deep link briefly shows
+ * it and then client-routes, and the two states look the same rather than swapping
+ * one design for another.
  */
 export function HydrateFallback() {
-  return <MarketingHome />;
+  return <Splash />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

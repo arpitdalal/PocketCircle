@@ -763,8 +763,12 @@ describe("ProtectedLayout last-used Google email", () => {
   });
 });
 
-describe("ProtectedLayout unauthenticated homepage", () => {
-  it("shows the marketing homepage at / instead of redirecting to sign-in", async () => {
+describe("ProtectedLayout unauthenticated", () => {
+  it("redirects the app root to sign-in like any other protected path", async () => {
+    // The root used to be the one exception: a signed-out visitor was shown a marketing
+    // page there, baked into the shell for crawlers. The public surfaces are the
+    // marketing Site's own origin now (ADR 0035, #411), so there is nothing to show
+    // here but the sign-in form (#412).
     configureConvex();
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
 
@@ -780,14 +784,8 @@ describe("ProtectedLayout unauthenticated homepage", () => {
       ["/"],
     );
 
-    expect(await screen.findByRole("heading", { name: "PocketCircle" })).toBeInTheDocument();
-    expect(screen.getByText(/track spending together in shared Circles/i)).toBeInTheDocument();
+    expect(await screen.findByText("Sign in page")).toBeInTheDocument();
     expect(screen.queryByText("App home")).not.toBeInTheDocument();
-    expect(screen.queryByText("Sign in page")).not.toBeInTheDocument();
-    // No app chrome for a visitor: the marketing page owns the whole viewport, and the
-    // sidebar's controls all assume a signed-in User.
-    expect(document.querySelector('[data-slot="sidebar"]')).toBeNull();
-    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
   });
 
   it("still redirects other protected paths to sign-in", async () => {

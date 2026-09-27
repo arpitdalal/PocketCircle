@@ -23,12 +23,12 @@ export async function signInWithGoogle(callbackURL = "/", options: SignInWithGoo
   const result = await authClient.signIn.social({
     provider: "google",
     // Absolute, on the origin this browser is on. A relative path is rewritten
-    // server-side to the one configured SITE_URL, so a User who starts sign-in on
-    // the other trusted origin during the ADR 0035 cutover window would be handed
-    // back to SITE_URL with a one-time token only that origin's storage can redeem
-    // (#409). Better Auth checks the value against the trusted origins, so the
-    // redirect can only land on one of those — the origin it started on whenever
-    // that origin is trusted, which is what the window is for.
+    // server-side to the configured SITE_URL, so a User who starts sign-in on any
+    // other origin would be handed back to SITE_URL with a one-time token only
+    // SITE_URL's storage can redeem (#409). Better Auth checks the value against the
+    // trusted origins, so the redirect can only land on one of those — and naming
+    // the browser's own origin means the callback returns a User to where they
+    // started, which is the only origin whose session storage can redeem it.
     callbackURL: new URL(callbackURL, window.location.origin).toString(),
     ...(options.loginHint ? { loginHint: options.loginHint } : {}),
   });

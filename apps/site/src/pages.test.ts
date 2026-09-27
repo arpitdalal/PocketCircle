@@ -63,8 +63,10 @@ const material = publishedMaterial();
  *
  * The bare origin counts as the homepage, and the MCP origin is a different host
  * so it does not match. Everything else — the manifest's four interface URLs, the
- * submission's four, the plugin README's `/connections` — comes along, which is
- * the point: a path cited anywhere in public material is one somebody will type.
+ * submission's four — comes along, which is the point: a path cited anywhere in
+ * public material is one somebody will type. The submission's reviewer sign-in
+ * link is on the app subdomain, so it is not among them; this is what would catch
+ * a product path reappearing on the apex.
  */
 const citedApexPaths = [
   ...new Set(

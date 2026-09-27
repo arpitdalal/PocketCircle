@@ -60,10 +60,11 @@ test("account deletion verifies, signs out, and blocks protected access", async 
     });
     await expect(page).toHaveURL(/\/delete-account\/complete/);
 
+    // The app root is behind sign-in like every other product path (#412), so a
+    // deleted User revisiting it lands on the sign-in form.
     await page.goto(`${resolvedBase}/`);
-    await expect(page).toHaveURL((url) => url.pathname === "/");
+    await expect(page).toHaveURL((url) => url.pathname === "/signin");
     await expect(page.getByRole("button", { name: /Continue with Google/ }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "PocketCircle" })).toBeVisible();
 
     // Session is truly gone: getSession reports null (not just a client redirect).
     await waitForScE2E(page);
