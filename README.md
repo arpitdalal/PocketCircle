@@ -548,6 +548,11 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://p
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
+Step 2 is where the two stop covering both hosts, so the deploy's configuration
+check fails from there: drop the `app.` route in the same deploy that stops
+trusting the subdomain, or keep trusting it and nothing is untrusted. That is the
+check working, not a release to work around.
+
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.

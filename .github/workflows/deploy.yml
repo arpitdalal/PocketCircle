@@ -66,9 +66,9 @@ jobs:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
           # Must equal `MIGRATION_APP_ORIGIN` and `APP_ORIGIN` in
-          # packages/domain/src/origins.ts, the two origins the product Worker claims and
-          # the one auth has to trust — a workflow cannot import it, so
-          # `canonical-origins.test.ts` asserts the match.
+          # packages/domain/src/origins.ts — the two origins the product Worker claims and
+          # the two auth has to trust between `SITE_URL` and this variable. A workflow
+          # cannot import it, so `canonical-origins.test.ts` asserts the match.
           APP_ORIGIN: https://pocketcircle.app
           MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
         run: |
@@ -85,35 +85,46 @@ jobs:
             exit 1
           fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
-          # The product Worker serves the app from the app subdomain as well as the apex
-          # (#410), and auth only answers sign-in from an origin it trusts — which is
-          # `MIGRATION_APP_ORIGIN` on this deployment, read when the auth routes load.
-          # Serving the host without it is the one failure this window exists to prevent:
-          # the app loads on the subdomain and sign-in there fails in the browser with no
-          # detail. Checked here, before anything is deployed, because the deploy's own
-          # origin check only proves the host serves the app. Drop this with the variable,
-          # in the same deploy that points SITE_URL at the app origin (ADR 0035).
-          set +e
-          MIGRATION_ERR=$(mktemp)
-          MIGRATION_OUT=$(pnpm --filter @pocketcircle/convex exec convex env get MIGRATION_APP_ORIGIN 2>"$MIGRATION_ERR")
-          set -e
-          MIGRATION=$(printf '%s' "$MIGRATION_OUT" | tr -d '[:space:]')
-          # Either claimed origin is acceptable: auth trusts `SITE_URL` *and* this
-          # variable, and between them they have to cover both hosts the Worker serves.
-          # The apex is the documented rollback state, not a gap — a release that trusts
-          # only the apex is not one where the subdomain is still being served.
-          if [ "$MIGRATION" = "$MIGRATION_APP_ORIGIN" ] || [ "$MIGRATION" = "$APP_ORIGIN" ]; then
-            rm -f "$MIGRATION_ERR"
-          elif grep -qi 'not found' "$MIGRATION_ERR"; then
-            echo "::error::MIGRATION_APP_ORIGIN is unset on this deployment, but the product Worker serves $MIGRATION_APP_ORIGIN — see README, origin migration"
-            rm -f "$MIGRATION_ERR"
-            exit 1
-          else
-            echo "::error::MIGRATION_APP_ORIGIN is '${MIGRATION:-unset}', want $MIGRATION_APP_ORIGIN (or $APP_ORIGIN while rolling back) — see README, origin migration" >&2
-            cat "$MIGRATION_ERR" >&2
-            rm -f "$MIGRATION_ERR"
-            exit 1
-          fi
+          # The product Worker serves the app from two hosts, and auth only answers
+          # sign-in from an origin it trusts — `SITE_URL` plus `MIGRATION_APP_ORIGIN`
+          # (#409), read when the auth routes load. Serving a host neither of them names
+          # is the one failure this window exists to prevent: the app loads there and
+          # sign-in fails in the browser with no detail. Checked here, before anything is
+          # deployed, because the deploy's own origin check only proves the host serves
+          # the app. Both, not either: a deployment that trusts the apex alone while the
+          # Worker still claims the subdomain passes a one-value check and ships exactly
+          # that. Drop this with MIGRATION_APP_ORIGIN, in the same deploy that points
+          # SITE_URL at the app origin (ADR 0035).
+          trusted_origin() {
+            local name="$1" err status value
+            err=$(mktemp)
+            set +e
+            value=$(pnpm --filter @pocketcircle/convex exec convex env get "$name" 2>"$err")
+            status=$?
+            set -e
+            # `not found` is how the CLI reports an unset variable, which is a legitimate
+            # answer here. Empty output with any other error is a transport failure, and
+            # must not be read as "auth trusts one origin".
+            if [ -z "$value" ] && [ "$status" -ne 0 ] && ! grep -qi 'not found' "$err"; then
+              echo "::error::convex env get $name failed (status=$status):" >&2
+              cat "$err" >&2
+              rm -f "$err"
+              exit 1
+            fi
+            rm -f "$err"
+            printf '%s' "$value" | tr -d '[:space:]'
+          }
+          SITE_URL_VALUE=$(trusted_origin SITE_URL)
+          MIGRATION_VALUE=$(trusted_origin MIGRATION_APP_ORIGIN)
+          for origin in "$APP_ORIGIN" "$MIGRATION_APP_ORIGIN"; do
+            case " $SITE_URL_VALUE $MIGRATION_VALUE " in
+              *" $origin "*) ;;
+              *)
+                echo "::error::auth does not trust $origin, and the product Worker claims both hosts: SITE_URL is '$SITE_URL_VALUE' and MIGRATION_APP_ORIGIN is '${MIGRATION_VALUE:-unset}' — see README, origin migration"
+                exit 1
+                ;;
+            esac
+          done
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {
@@ -559,8 +570,8 @@ jobs:
       - name: Verify product app origins
         # APP_ORIGIN and MIGRATION_APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
-        # `canonical-origins.test.ts` asserts it. MIGRATION_APP_ORIGIN is the same
-        # literal the configuration check above asserts auth already trusts.
+        # `canonical-origins.test.ts` asserts it. The same two literals are what the
+        # configuration check above requires auth to already trust.
         env:
           APP_ORIGIN: https://pocketcircle.app
           MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
