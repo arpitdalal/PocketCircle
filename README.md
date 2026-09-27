@@ -554,27 +554,31 @@ deployment, where the variables do nothing. Note that the Convex CLI takes `--pr
 `CONVEX_DEPLOYMENT` or `CONVEX_DEPLOY_KEY`, and a bare `convex deploy` from
 `packages/convex` would follow the `CONVEX_DEPLOYMENT=dev:…` in its `.env.local`.
 
-Reading it back is a `convex env get`, which is unambiguous — the value, or `not
-found`:
+`convex env get` is the authoritative read: it states what the deployment is
+**configured** with, and it cannot be stale.
 
 ```sh
 pnpm --filter @pocketcircle/convex exec convex env get --prod SITE_URL
 ```
 
-Asking the auth routes instead is a **positive signal only**. An origin they answer
-`Access-Control-Allow-Origin` for is trusted; the absence of the header does **not**
-prove the opposite, because the component builds its CORS allowlist once per isolate
-and memoises it, so a warm isolate can keep answering for an origin an env write has
-already stopped trusting:
+Asking the auth routes instead establishes nothing in either direction, and it is worth
+knowing why before you trust it. The component builds its CORS allowlist **once per
+isolate** and memoises it, while the auth *handler* re-reads `SITE_URL` on every
+request:
 
 ```sh
 curl -s -o /dev/null -D - -H "Origin: https://app.pocketcircle.app" \
   https://lovable-snail-393.convex.site/api/auth/get-session | grep -i access-control-allow-origin
 ```
 
-A missing header is worth a retry, never a conclusion. Note also that the auth
-*handler* re-reads `SITE_URL` per request while the CORS list does not, so a
-half-applied change can serve requests correctly and still refuse the browser.
+A header **present** does not prove the origin is currently trusted — a warm isolate
+keeps emitting it for an origin the handler has already stopped trusting. A header
+**absent** does not prove the opposite either — a cold isolate has not built the list
+yet. So this answers "is some isolate serving a stale allowlist", which is a real thing
+to want during a flip and is not the same question as "will sign-in work".
+
+Only a real sign-in proves sign-in works. Use the probe to explain a failure, never to
+clear one.
 
 **The MCP Worker trusts one app origin.** `APP_ORIGIN` moved to the app subdomain in
 the cutover. It briefly trusted the apex alongside it, because the MCP Worker is not
@@ -644,37 +648,53 @@ it:
 
 # 2. Trust the apex alongside it. The apex is not serving the app yet, so this only
 #    has to be true by the time step 3 lands — but step 3 is what makes it load
-#    bearing, so do not skip it. No deploy: the auth routes read the trusted-origin
+#    bearing, so do not skip it. No deploy: the auth handler reads the trusted-origin
 #    list per request.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 
-# 3. Revert the cutover release and tag it, so the product Worker re-claims the apex
-#    and the marketing Site drops it. Do NOT revert the two wrangler configs by hand:
+# 3. Revert #411 and tag it, so the product Worker re-claims the apex and the marketing
+#    Site drops it. Do NOT revert the two wrangler configs by hand:
 #    canonical-origins.test.ts asserts the apex is claimed by apps/site/wrangler.jsonc
 #    and the app. route by the product Worker, and apps/site/src/wrangler.test.ts
 #    asserts the two deploys are adjacent, so a hand-edited config fails the build on
-#    the next tag. git revert of the release commit restores the configs, the guards,
-#    the origin constants, and the MCP Worker's APP_ORIGIN together.
-#    From here the app is served from the apex again and auth trusts both.
+#    the next tag. git revert restores the configs, the guards, the origin constants,
+#    and the MCP Worker's APP_ORIGIN together.
+#    The Worker now claims the apex *and* app. — #410 added that route and #411 only
+#    removed the apex one, so reverting #411 alone does not undo #410. Both are
+#    trusted and both are served, which is consistent.
 
-# 4. Point SITE_URL at the apex and drop the second origin. From here the two stop
-#    covering both hosts, so the deploy's configuration check fails if this is not the
-#    same deploy that stops trusting the subdomain — or the subdomain keeps being
-#    trusted and nothing is untrusted. That is the check working, not a release to
-#    work around.
+# 4. Revert #410 and tag it, so the product Worker drops the app. route.
+#    THIS IS NOT OPTIONAL, and it is the step that is easy to miss. Without it the
+#    Worker keeps serving app. while step 5 stops trusting it, and sign-in fails on a
+#    host a User can still reach — the exact failure every step here exists to prevent,
+#    one layer further out. Order is deliberate: trust in the app origin is dropped
+#    only *after* the route that serves it, never before.
+#    Leaving auth still trusting app. here is harmless and necessary — nothing is
+#    untrusted while it is still being routed away.
+
+# 5. Point SITE_URL at the apex and drop the second origin. Now the Worker serves the
+#    apex alone and auth trusts the apex alone.
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
-The hazard step 2 exists to avoid: an origin that is untrusted while it is still
-serving traffic fails sign-in in the browser with nothing to show for it. Skipping it
-puts the apex back in service with nothing trusting it, which is the one failure this
-whole arrangement was built to make impossible.
+The invariant across all five: **every host a Worker serves is an origin auth trusts,
+and the change that stops trusting a host is never released separately from the change
+that stops serving it.** Step 2 exists so the apex is trusted before it serves; step 4
+exists so the app origin is untrusted only after it stops serving. Skipping either one
+breaks a host a User can reach, with sign-in failing in the browser and nothing to show
+for it.
+
+The deploy's configuration check encodes the *post*-cutover invariant — `SITE_URL` must
+name the host the product Worker claims — so once step 5 lands, the next release fails
+that check until `packages/domain/src/origins.ts` is reverted too, which is part of
+finishing the rollback rather than an obstacle to it. `APP_ORIGIN` is baked into the
+workflow's env block and cannot be changed without editing the origins module.
 
 Rolling back is now materially harder than rolling forward was, and that asymmetry is
 deliberate: the whole point of retiring the second origin is that there is one less
-thing trusted. If you need it back, steps 1 and 2 are a normal revert and two env
-writes.
+thing trusted, and one fewer place where a host is served without being trusted. If you
+need it back, steps 1 and 2 are a normal revert and two env writes.
 
 ### If the Site deploy fails, mid-handover
 
