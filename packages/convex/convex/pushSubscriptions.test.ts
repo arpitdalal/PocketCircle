@@ -699,6 +699,25 @@ describe("pushSubscriptions", () => {
   // never invalidated, and never evicted by the per-user cap. Left alone, every
   // existing Push User gets each notification twice, indefinitely.
   describe("retiring subscriptions from the retired app origin", () => {
+    /** One retirement pass, as the operator's single call would make it. */
+    function drainRetirementOnce(t: ReturnType<typeof convexTest>) {
+      return mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+    }
+
+    /**
+     * The whole sweep, the way the runbook performs it: call it, and let the passes it
+     * schedules drain. `convex-test` runs scheduled functions through
+     * `finishAllScheduledFunctions`, so this is the real chain rather than a loop the
+     * test drives itself.
+     */
+    async function drainRetirement(t: ReturnType<typeof convexTest>) {
+      return await mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+    }
+
     it("removes rows created before the app origin went live, and keeps later ones", async () => {
       const t = convexTest(schema, modules);
       const user = await t.run((ctx) =>
@@ -730,9 +749,7 @@ describe("pushSubscriptions", () => {
         });
       });
 
-      await mutateAndDrain(t, () =>
-        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
-      );
+      await drainRetirement(t);
 
       await t.run(async (ctx) => {
         // Membership, not order: the list is ordered by `lastSeenAt`, which the seed
@@ -760,19 +777,54 @@ describe("pushSubscriptions", () => {
         }),
       );
 
-      const retire = () =>
-        mutateAndDrain(t, () =>
-          t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
-        );
+      const retire = () => drainRetirementOnce(t);
 
-      expect(await retire()).toEqual({ retired: 1 });
+      expect(await retire()).toEqual({ retired: 1, moreScheduled: false });
       // The second run finds nothing older than the cutoff and changes nothing —
       // which is what makes this safe to put in a runbook that a person follows by
       // hand and might run twice.
-      expect(await retire()).toEqual({ retired: 0 });
+      expect(await retire()).toEqual({ retired: 0, moreScheduled: false });
       await t.run(async (ctx) => {
         expect(await listPushSubscriptionsForUser(ctx, user.userId)).toHaveLength(0);
       });
+    });
+
+    it("drains across batches, and reports when it is done", async () => {
+      // A Convex mutation is a transaction, so a handler that threw after deleting a
+      // batch would roll that batch back and leave the table as it was. The sweep is
+      // therefore one batch per transaction that schedules the next, and this asserts
+      // the shape of that contract from both ends: it keeps going while a batch comes
+      // back full, and it stops and says so when one comes back short.
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 40; index += 1) {
+          await seedPushSubscription(ctx, {
+            userId: user.userId,
+            endpoint: `https://fcm.googleapis.com/fcm/send/apex-${index}`,
+            createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+          });
+        }
+      });
+
+      // One operator call, and the chain it schedules runs to completion: the first
+      // pass takes a full batch and says there is more, the scheduled pass takes the
+      // remaining 8 and says there is not, and both transactions commit. 40 stale rows
+      // is more than one pass, so a sweep that took a single batch and stopped — or one
+      // that threw to signal it had run out and rolled itself back — would leave rows
+      // behind and fail here.
+      const result = await drainRetirement(t);
+      expect(result).toEqual({ retired: 32, moreScheduled: true });
+
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, user.userId)).toHaveLength(0);
+      });
+
+      // And a confirmation call reports the settled state, which is what the runbook
+      // tells the operator to look for.
+      expect(await drainRetirementOnce(t)).toEqual({ retired: 0, moreScheduled: false });
     });
 
     it("spans more than one batch, so the sweep is not quietly one page deep", async () => {
@@ -801,9 +853,7 @@ describe("pushSubscriptions", () => {
         });
       });
 
-      await mutateAndDrain(t, () =>
-        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
-      );
+      await drainRetirement(t);
 
       await t.run(async (ctx) => {
         const remaining = await listPushSubscriptionsForUser(ctx, user.userId);
@@ -834,9 +884,7 @@ describe("pushSubscriptions", () => {
         });
       });
 
-      await mutateAndDrain(t, () =>
-        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
-      );
+      await drainRetirement(t);
 
       await t.run(async (ctx) => {
         expect(await listPushSubscriptionsForUser(ctx, first.userId)).toHaveLength(0);

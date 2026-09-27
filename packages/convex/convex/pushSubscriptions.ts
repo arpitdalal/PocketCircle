@@ -7,6 +7,7 @@ import {
   PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
+import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
   internalMutation,
@@ -256,16 +257,22 @@ export const removeInvalidPushSubscription = internalMutation({
  * re-grant notification permission on the app origin either way, because permission
  * is per-origin, and a row that is never delivered to is a row that only misleads.
  *
- * Batched, and it says so when it cannot finish. `.take(BATCH)` per pass, in the
- * shape `accountDeletion.ts` already uses, and no `createdAt` index: without one
- * Convex scans the table either way, so an index would buy a schema field for a
- * migration that runs once. The `retired` count is a floor, and re-running resumes —
- * which is safe because the sweep deletes by age and a deleted row cannot re-enter it.
+ * **One batch per transaction, self-scheduling.** A Convex mutation is a
+ * transaction: if the handler throws, every write in the call is rolled back. That is
+ * what rules out both alternatives a single call looks like it could use — deleting
+ * everything it matched and hoping it fits inside a mutation's budget, and deleting
+ * batch by batch and then *throwing* to signal it ran out, which discards the batches
+ * that already succeeded and leaves the table exactly as it was while the operator
+ * reads an error. A "loud" failure that undoes its own work is the quietest kind.
  *
- * The pass cap exists so that a table too large to finish fails **loudly**. That is
- * the whole reason it is a throw and not a `return`: a retirement that stops early
- * and reports success leaves exactly the duplicate notifications this exists to
- * remove, and the runbook step would look like it had worked.
+ * So each invocation takes a bounded batch, commits it, and schedules the next only if
+ * the batch came back full. Every transaction stands on its own, so a failure anywhere
+ * costs one batch and the rest still drain, and the same shape as
+ * `activation.ts:migrateActivationRows` and the account-deletion cleanup batches.
+ * Re-querying rather than paginating by cursor is enough here and is not a
+ * simplification: this sweep *deletes* what it reads, so the next `.take()` cannot
+ * return a row already handled, and a cursor would only make that true by more
+ * machinery.
  *
  * Idempotent and resumable by construction. It is an `internalMutation` on purpose:
  * nothing in the app should be able to call it, so the only way to retire
@@ -274,29 +281,21 @@ export const removeInvalidPushSubscription = internalMutation({
 export const retirePreCutoverPushSubscriptions = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const maxPasses = 64;
-    let retired = 0;
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-      const batch = await ctx.db
-        .query("pushSubscriptions")
-        .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
-        .take(RETIRE_SUBSCRIPTIONS_BATCH_SIZE);
-      if (batch.length === 0) {
-        return { retired };
-      }
-      for (const row of batch) {
-        await ctx.db.delete(row._id);
-        retired += 1;
-      }
-    }
-    const remaining = await ctx.db
+    const batch = await ctx.db
       .query("pushSubscriptions")
       .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
-      .first();
-    throw new Error(
-      `Retired ${retired} pre-cutover push subscriptions and ${maxPasses} passes were not enough; ` +
-        `${remaining === null ? "rows remain" : "at least one row remains"}. Re-run — it resumes where it stopped.`,
-    );
+      .take(RETIRE_SUBSCRIPTIONS_BATCH_SIZE);
+    for (const row of batch) {
+      await ctx.db.delete(row._id);
+    }
+    // A full batch is the only evidence there may be more, and it is how
+    // `accountDeletion.ts` signals the same thing. When the batch is short, the query
+    // reached the end of the matches, so nothing is scheduled.
+    const moreScheduled = batch.length === RETIRE_SUBSCRIPTIONS_BATCH_SIZE;
+    if (moreScheduled) {
+      await ctx.scheduler.runAfter(0, internal.pushSubscriptions.retirePreCutoverPushSubscriptions);
+    }
+    return { retired: batch.length, moreScheduled };
   },
 });
 
