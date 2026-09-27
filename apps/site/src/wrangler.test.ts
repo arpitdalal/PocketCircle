@@ -27,16 +27,19 @@ describe("the Site Worker", () => {
     expect(wranglerConfig).not.toMatch(/"script"\s*:/);
   });
 
-  it("claims the apex, and the staging hostname as well", () => {
+  it("claims the apex, and answers on the staging hostname as well", () => {
     // The cutover (#411) handed the apex over from the product app, so this Worker
     // owns it alone. Two Workers cannot both claim one hostname, which
     // `canonical-origins.test.ts` enforces repo-wide; this states the Site's half of
     // it where the config lives.
     //
-    // `workers_dev` stays on deliberately, and it is not a leftover: it is what lets a
-    // release verify the whole Site — every document, the share card, and every
-    // legacy redirect — on a hostname no User can reach, from the same job that built
-    // it, whatever the apex is doing.
+    // `workers_dev` is not a leftover and the deploy does not read it: the release
+    // verifies on the apex, because that is the only origin where a wrong answer is
+    // possible. It is kept for the two things only a second hostname is good for —
+    // inspecting this Worker without touching the public apex, and rolling back to it
+    // if the apex claim is the thing that broke. The test holds it because a flag
+    // that is load-bearing only in a failure nobody has had yet is exactly the flag
+    // that gets "cleaned up".
     expect(wranglerConfig).toMatch(/"workers_dev"\s*:\s*true/);
     expect(
       [...wranglerConfig.matchAll(/"pattern"\s*:\s*"([^"]+)"/g)].map(([, pattern]) => pattern),
@@ -104,8 +107,16 @@ describe("the Site Worker", () => {
 
 describe("the apex handover in the deploy workflow", () => {
   const workflow = readFileSync(join(repoRoot, ".github/workflows/deploy.yml"), "utf8");
-  /** Every `Deploy …` step, in the order the job runs them. */
-  const deploys = [...workflow.matchAll(/^ {6}- name: Deploy (.+)$/gm)].map(
+  /**
+   * Every step in the deploy job, in order — not just the ones named `Deploy`.
+   *
+   * The distinction is the whole test. A filter to deploy steps reads the same two
+   * names as a full list does while the two deploys are adjacent, so it passes, and
+   * it keeps passing after someone drops a `Verify` or a config step between them —
+   * which is exactly the edit the assertion exists to catch, and exactly the one
+   * that widens the handover gap without changing anything this list can see.
+   */
+  const steps = [...workflow.matchAll(/^ {6}- name: (.+)$/gm)].map(
     ([, name]) => name?.trim() ?? "",
   );
 
@@ -118,16 +129,28 @@ describe("the apex handover in the deploy workflow", () => {
     // name.
     //
     // Nothing else in the repo defends the ordering. Each deploy is correct on its
-    // own, the Site verifies against `workers.dev` whichever order it runs in, and
-    // the redirect check passes as soon as the Site is up — so a reordering here
-    // would ship green and quietly widen the gap to the length of the Convex and
-    // MCP deploys that sit between them.
-    const product = deploys.indexOf("product app Worker");
-    const site = deploys.indexOf("marketing Site");
-    expect(deploys.length, "no Deploy steps found — the workflow's shape changed").toBeGreaterThan(
-      2,
+    // own, the Site is the only Worker that can answer the apex afterwards, and the
+    // redirect check passes as soon as it is up — so a step inserted between them
+    // ships green and quietly widens the gap to the length of that step.
+    const product = steps.indexOf("Deploy product app Worker");
+    const site = steps.indexOf("Deploy marketing Site");
+    expect(steps.length, "no steps found — the workflow's shape changed").toBeGreaterThan(10);
+    expect(product, steps.join(" -> ")).toBeGreaterThanOrEqual(0);
+    expect(site, steps.join(" -> ")).toBe(product + 1);
+  });
+
+  it("builds the Site before anything is deployed, and deploys it last of the three", () => {
+    // The property that justifies splitting build from deploy: a Site that does not
+    // compile, a document that was never published, an invalid assets config — those
+    // are build failures, and catching them before the Convex deploy and the
+    // push-delivery gate have moved at all is worth the ordering. The deploy itself
+    // cannot come early, because claiming the apex is the *second* half of the
+    // handover, so this is the most the ordering can buy.
+    expect(steps.indexOf("Build marketing Site")).toBeLessThan(
+      steps.indexOf("Deploy Convex production backend"),
     );
-    expect(product, deploys.join(" -> ")).toBeGreaterThanOrEqual(0);
-    expect(site, deploys.join(" -> ")).toBe(product + 1);
+    expect(steps.indexOf("Deploy marketing Site")).toBeGreaterThan(
+      steps.indexOf("Deploy product app Worker"),
+    );
   });
 });

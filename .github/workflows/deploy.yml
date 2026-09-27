@@ -351,7 +351,6 @@ jobs:
       # deploys, which is the whole reason the ordering is asserted in
       # `apps/site/src/wrangler.test.ts` rather than left to this file's shape.
       - name: Deploy marketing Site
-        id: site
         uses: cloudflare/wrangler-action@v4
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -371,30 +370,67 @@ jobs:
       # The documents are fetched, never executed, so what is asserted here is what
       # a browser without JavaScript would be given.
       #
-      # Both origins are checked, and that is the point of running this after the
-      # handover rather than before it: the staging hostname and the apex are the
-      # same Worker on the same asset manifest, and the only thing that differs is
-      # the hostname a request arrived on. Checking the apex is what proves the
-      # custom domain is actually bound to this Worker — a claim that silently
-      # failed leaves the previous Worker serving it, and every assertion here would
-      # pass against the wrong deployment. Retries because the asset manifest and
-      # the route binding both take a moment to propagate, the same reason the MCP
-      # discovery check below retries.
+      # It runs after the handover rather than before it, and on the apex rather
+      # than on the staging hostname, because the apex is the only origin where a
+      # wrong answer is possible. Checking it is what proves the custom domain is
+      # actually bound to *this* Worker: a claim that silently failed leaves the
+      # previous Worker serving it, and a check run anywhere else would pass against
+      # the wrong deployment. Retries because the asset manifest and the route
+      # binding both take a moment to propagate, the same reason the MCP discovery
+      # check below retries.
       - name: Verify marketing Site
         # APEX_ORIGIN and APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
         # `canonical-origins.test.ts` asserts it.
+        #
+        # Deliberately no `steps.site.outputs.deployment-url`. That output is a single
+        # URL the action picks out of whatever Wrangler printed, and with a custom
+        # domain attached it is not reliably the `workers.dev` host — so a staging
+        # check built on it is a check on a hostname nobody can predict, and an empty
+        # one throws inside `new URL` with nothing to say. The apex is a constant
+        # `canonical-origins.test.ts` already holds against the module, it is the
+        # hostname this cutover is about, and comparing it byte-for-byte against the
+        # artifact this job built catches the failure that actually matters: a custom
+        # domain bound to the wrong Worker, or to the previous one. A second hostname
+        # on the same Worker and the same asset manifest says nothing the apex did not.
         env:
           APEX_ORIGIN: https://pocketcircle.app
           APP_ORIGIN: https://app.pocketcircle.app
-          SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
         run: |
           node --input-type=module <<'EOF'
           import { statSync } from "node:fs";
           import { readdir, readFile } from "node:fs/promises";
-          const staging = new URL(process.env.SITE_ORIGIN).origin;
-          const apex = new URL(process.env.APEX_ORIGIN).origin;
-          const app = new URL(process.env.APP_ORIGIN).origin;
+          /**
+           * One origin, normalized, or a failure that names the variable and says what
+           * was wrong with it.
+           *
+           * `new URL` on a bad value throws a `TypeError` about the value, several
+           * steps from the variable that is actually wrong — which on a release is the
+           * difference between a message naming `APEX_ORIGIN` and one that reads as a
+           * bug in this script. Normalizing here also means every fetch below is built
+           * from a bare origin rather than from whatever the environment happened to
+           * spell, so a trailing slash or a path in a value cannot quietly become a
+           * request for something other than what was checked.
+           */
+          function requireOrigin(raw, name) {
+            let url;
+            try {
+              url = new URL(raw ?? "");
+            } catch {
+              throw new Error(
+                `${name} is not a URL: ${JSON.stringify(raw)} — a workflow cannot import packages/domain/src/origins.ts, and canonical-origins.test.ts asserts these values match it`,
+              );
+            }
+            return url.origin;
+          }
+
+          const apex = requireOrigin(process.env.APEX_ORIGIN, "APEX_ORIGIN");
+          const app = requireOrigin(process.env.APP_ORIGIN, "APP_ORIGIN");
+          if (apex === app) {
+            throw new Error(
+              `APEX_ORIGIN and APP_ORIGIN are both ${apex}, so this step cannot tell the marketing Site from the app — the cutover is not in effect`,
+            );
+          }
 
           // Every product path the apex used to serve, as an apex path and the query
           // a delivered link carries on it. Read from the built `_redirects` rather
@@ -526,12 +562,12 @@ jobs:
             // notice it 404ing, and the share would silently be a blank
             // rectangle.
             //
-            // Fetched from *this* origin rather than from the URL the tag names,
-            // and the two now differ: the tag names the apex, and this runs against
-            // the staging hostname as well. Both are the same Worker and the same
-            // asset manifest, so the bytes are the same document either way — which
-            // is what makes comparing them against the artifact the check rather
-            // than fetching a third origin for them.
+            // Fetched from the origin under test rather than from the URL the tag
+            // names, and the two are the same origin now that the Site holds the
+            // apex. Before the cutover they were not: the tag had to name the apex
+            // for the site to be indexable while the apex still served the app, so
+            // this fetch used to be the only way to see the card the *Site* ships
+            // rather than the app's own index.html.
             //
             // The bytes, not the header: Cloudflare caches each asset
             // independently, so a propagated document can be served next to a card
@@ -683,14 +719,9 @@ jobs:
           }
 
           async function verify() {
-            // The staging hostname first: it is the one that has certainly been
-            // serving, so a failure there is a real one rather than a route that has
-            // not propagated yet.
-            await verifyOrigin(staging);
-            // Then the apex, which is the origin the rest of this is about. The
-            // redirect check runs only here — a custom domain is what sends these
-            // requests to this Worker at all, so on the staging hostname it would be
-            // asserting the routing of a hostname nothing is routed to.
+            // The redirects and the not-found document are the apex's answers, and a
+            // custom domain is what routes those requests to this Worker at all — so
+            // they are checked here and nowhere else.
             await verifyOrigin(apex);
             await verifyNotFound(apex);
             await verifyRedirects(apex);
@@ -700,7 +731,7 @@ jobs:
           for (let attempt = 1; attempt <= 12; attempt += 1) {
             try {
               await verify();
-              console.log(`Marketing Site verified at ${staging} and ${apex}`);
+              console.log(`Marketing Site verified at ${apex}`);
               process.exit(0);
             } catch (error) {
               lastError = error;

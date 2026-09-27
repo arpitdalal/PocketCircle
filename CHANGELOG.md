@@ -13,7 +13,9 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
   **You will be signed out once, everywhere.** The app and the homepage are now different addresses, and a signed-in session cannot be carried across that boundary by a browser — it is kept per address, and no browser setting changes that. Re-auth is one tap of **Continue with Google**, and nothing is lost: your Circles, Transactions, and history are untouched. If you use an AI assistant, it will need reconnecting once, and you will be asked to approve your Circles again.
 
-  Every link you have saved keeps working. A Circle link, a shared Transaction link, or an Invitation or Account Deletion email that points at the old address takes you straight to the right place on the new one — you may see it change address in your browser first. If you have PocketCircle installed as an app, it will open on the new address from now on, and it is worth opening it once.
+  Every link you have saved keeps working. A Circle link, a shared Transaction link, or an Invitation or Account Deletion email that points at the old address takes you straight to the right place on the new one — you may see it change address in your browser first.
+
+- **If you had PocketCircle installed as an app, install it again from the new address.** An installed app remembers the address it was installed from, and browsers give a site no way to move an existing installation to a different one. So the old icon on your home screen will now open the PocketCircle homepage, with a **Sign in** link into the app. Open `https://app.pocketcircle.app` once and use your browser's **Add to Home Screen** to get the app back where it was, then you can delete the old icon. Nothing about your Circles, Transactions, or history changes — it is the same app, and the same sign-in.
 
 ## [v0.7.0] - 2026-09-22
 

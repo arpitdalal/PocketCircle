@@ -251,8 +251,10 @@ before anything moves) and deployed late.
 
 Neither Worker has a Worker script, so both cost zero invocations per request —
 including every legacy redirect, which is a static `_redirects` file rather than a
-script. The marketing Site is also served on a `workers.dev` hostname, which is what
-lets a release verify the whole Site on a hostname no User can reach.
+script. The marketing Site is also served on a `workers.dev` hostname, which is not
+what the release verifies — it is a second handle on the same Worker, for inspecting
+the Site without touching the public apex and for rolling back to it if the apex
+claim is the thing that broke.
 
 After the product Worker deploy, the workflow fetches the app shell, every bundle
 it names, three deep links (a Transaction, its edit link with its filters, and a
@@ -265,8 +267,8 @@ marketing homepage. Before any of that, the configuration check reads the
 trusted origins off the production Convex deployment and fails the release if auth
 does not already name the app origin the Worker is about to claim.
 
-The marketing Site's own check asserts what a visitor gets on **both** of its
-hostnames: the homepage and every document byte-for-byte against the artifact the
+The marketing Site's own check asserts what a visitor gets on the apex: the homepage
+and every document byte-for-byte against the artifact the
 same job built, the security headers derived from the product's policy, the
 *absence* of a `noindex` (the Site carried one for its `workers.dev` staging
 hostname and the cutover deleted it — a `noindex` on the apex is a Google branding
@@ -282,12 +284,11 @@ written down: pages from the package directory, the sitemap from the page list
 minus the not-found document, the redirects from a list held against
 `apps/web-app/app/routes.ts`. A route added without a redirect fails the build; a
 route deleted with one still in place fails the build.
-  settles the SEO surface.
 
 The marketing site is its own Worker (`apps/site/wrangler.jsonc`): static HTML
-from `pnpm --filter @pocketcircle/site build`, no Worker script, and
-`workers.dev` only — it claims no custom domain, so nothing a visitor sees in
-production changes while the apex is still the product app's. The homepage is
+from `pnpm --filter @pocketcircle/site build`, no Worker script, claiming the apex.
+`apps/site/src/wrangler.test.ts` and `canonical-origins.test.ts` both hold which
+Worker owns which hostname. The homepage is
 `apps/site/index.html`, a checked-in document rather than a template: it ships no
 JavaScript, and the build substitutes the values it writes as placeholders —
 `%APEX_ORIGIN%` for the canonical link and for the marketing surfaces the apex
@@ -545,20 +546,50 @@ The flip is what the release notes call out: **every User is signed out once.** 
 session lives in origin-scoped `localStorage`, which no cookie setting can share
 across origins, so nothing on the server is invalidated and re-auth is one Continue
 with Google tap. Data, Circle history, MCP grants, and email delivery are untouched.
-Installed PWAs relaunch from the new manifest; device-local keys (last-used Google
-email, the PWA prompt and notification-announcement dismissals) reset.
+Device-local keys (last-used Google email, the PWA prompt and
+notification-announcement dismissals) reset.
 
-Keep this section until the follow-up ticket removes the second trusted origin from
-the code. A rollback is the same three steps in the other order, and the order is the
-whole of it — an origin that is untrusted while it is still serving traffic fails
-sign-in in the browser with nothing to show for it:
+An **installed PWA does not move**, and this is a platform limit rather than a choice
+here. A browser records the manifest URL and the resolved `start_url` at install time
+and gives a site no way to redirect an existing installation to another origin, so the
+icon a User installed from `pocketcircle.app` keeps launching that address — which is
+the marketing homepage now, and whose `/site.webmanifest` and icons 404. The release
+notes tell them to open `https://app.pocketcircle.app` once and **Add to Home Screen**
+again. The manifest is left relative (`start_url` and `scope` are `/`) precisely so
+that a *new* install from the app origin needs no edit and scopes its own origin; an
+absolute app-origin value would be the same answer with a second place to keep in step.
+A redirect rule for the PWA assets was considered and rejected: whether a manifest
+served through a redirect re-bases an already-installed app's `start_url` is
+browser-dependent and unverifiable here, and the redirect list's contract is that every
+rule is a real product path — these are assets, not routes.
+
+### Rolling the cutover back
+
+Keep this until the follow-up ticket removes the second trusted origin from the code.
+
+**Revert the release commit, not the two wrangler configs.** They cannot be reverted on
+their own: `canonical-origins.test.ts` asserts that the apex is claimed by
+`apps/site/wrangler.jsonc` and the `app.` route by the product Worker, and
+`apps/site/src/wrangler.test.ts` asserts the two deploys are adjacent — so a
+hand-edited config fails the build on the next tag, which is the worst moment to find
+out. `git revert` of the release commit restores the configs, the guards, the origin
+constants, and the MCP Worker's `APP_ORIGIN` together, and re-tagging it runs the
+handover in reverse.
+
+The order is the whole of it. An origin that is untrusted while it is still serving
+traffic fails sign-in in the browser with nothing to show for it, and
+`MIGRATION_APP_ORIGIN` has to be re-established *before* the revert puts the app
+subdomain back into production:
 
 ```sh
-# 1. Trust the apex alongside the app origin, so neither loses sign-in, and deploy.
+# 1. Trust the apex alongside the app origin, and deploy. Nothing is serving the apex
+#    yet, so this only has to be true by the time step 2 lands.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex deploy --prod -y
-# 2. Hand the apex back: revert the two wrangler configs to the pre-cutover shape and
-#    run a release, so the product Worker re-claims it and the Site drops it.
+
+# 2. Revert the release and tag it, so the product Worker re-claims the apex and the
+#    Site drops it. From here the app subdomain is serving again and auth trusts both.
+
 # 3. Point SITE_URL at the apex, drop the second origin, and deploy.
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
@@ -566,9 +597,29 @@ pnpm --filter @pocketcircle/convex exec convex deploy --prod -y
 ```
 
 Step 3 is where the two stop covering both hosts, so the deploy's configuration check
-fails from there: the `app.` route goes in the same deploy that stops trusting the
+fails from there: the `app.` route goes back in the same deploy that stops trusting the
 subdomain, or the subdomain keeps being trusted and nothing is untrusted. That is the
 check working, not a release to work around.
+
+### If the Site deploy fails, mid-handover
+
+The two deploys are adjacent because a custom domain sends *every* path on its
+hostname to the Worker bound to it: between the product Worker dropping the apex and
+the Site claiming it, **no Worker holds `pocketcircle.app`**, so the marketing pages,
+every legacy product redirect, every bookmark and every already-delivered email fail
+together. The window is one `wrangler` invocation wide and the job fails loudly if the
+Site deploy does, but "loudly" is not "repaired", so the recovery is one command:
+
+```sh
+pnpm build:site
+pnpm --filter @pocketcircle/site exec wrangler deploy
+```
+
+That re-claims the apex with the same artifact, from the same account, and is
+idempotent — a Worker already bound to the hostname is simply rebound to the new
+version. Re-running the failed job does the same thing and is the better first try,
+since it also re-runs the verification. Do not re-deploy the *product* Worker to
+"put something back": it would claim the apex and collide with the Site.
 
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta

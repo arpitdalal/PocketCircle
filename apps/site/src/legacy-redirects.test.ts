@@ -92,6 +92,38 @@ function sample(pattern: string) {
   return pattern.replaceAll(/:[^/]+/g, "sample");
 }
 
+describe("the rule semantics the coverage assertions above rely on", () => {
+  // These are assertions about Workers' behaviour, not about this file's regex, and
+  // they exist because the regex is a *model* of it. Modelled permissively, the
+  // coverage test would accept a splat rule for a route the rule does not actually
+  // serve — the precise failure it is here to catch, reintroduced through its own
+  // helper. Each expectation below was read off a real Workers runtime
+  // (`wrangler dev` over the built Site), not inferred from the syntax.
+  it("matches a splat's whole subtree", () => {
+    const circles = sourceMatcher("/circles/*");
+    expect(circles.test("/circles/sample")).toBe(true);
+    expect(circles.test("/circles/a/b/c")).toBe(true);
+    // The trailing-slash form is a real request and is redirected.
+    expect(circles.test("/circles/")).toBe(true);
+  });
+
+  it("does not match a splat's bare prefix, which 404s", () => {
+    // `/circles` is not a PocketCircle address — the routes are `circles/new` and
+    // `circles/:circleRef` — so nothing is lost here. What matters is that the
+    // matcher does not *claim* it: a bare prefix is a 404 on the apex, and a test
+    // that believed otherwise would let a future bare route through unredirected.
+    expect(sourceMatcher("/circles/*").test("/circles")).toBe(false);
+    expect(sourceMatcher("/invite/*").test("/invite")).toBe(false);
+  });
+
+  it("matches an exact source on that address and nothing else", () => {
+    const settings = sourceMatcher("/settings");
+    expect(settings.test("/settings")).toBe(true);
+    expect(settings.test("/settings/anything")).toBe(false);
+    expect(settings.test("/signin")).toBe(false);
+  });
+});
+
 describe("the paths the product serves", () => {
   it("are the ones this test reasons about, so it cannot pass by reading nothing", () => {
     // A walker that stopped composing would see only the top level and the coverage

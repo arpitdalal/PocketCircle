@@ -79,14 +79,19 @@ export function isSplat(source: string) {
 
 /**
  * A redirect source as a matcher over concrete paths, for the test that holds this
- * list against the product's route tree. `*` matches the rest of the path, including
- * nothing at all, because Cloudflare's splat is greedy over everything after the
- * prefix and `/circles` is a prefix of `/circles/new`.
+ * list against the product's route tree.
+ *
+ * Modelled on what Workers actually does, which is not what the syntax suggests: a
+ * splat source `/circles/*` matches `/circles/sample`, `/circles/a/b`, and
+ * `/circles/` — but **not** the bare `/circles`, which 404s. So the separator is
+ * required and the remainder is not. Getting this wrong in the permissive direction
+ * would let the coverage test accept a splat rule for a route the rule does not
+ * actually serve, which is the exact failure the test exists to catch.
  */
 export function sourceMatcher(source: string) {
-  const splat = source.endsWith("/*");
-  const prefix = (splat ? source.slice(0, -2) : source).replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${prefix}${splat ? "(?:/.*)?" : ""}$`);
+  const prefix = source.endsWith("/*") ? source.slice(0, -2) : source;
+  const escaped = prefix.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}${source.endsWith("/*") ? "/.*" : ""}$`);
 }
 
 /** The `_redirects` document the Workers asset manifest reads, comments and all. */
