@@ -1,4 +1,9 @@
-import { APEX_ORIGIN, LOCAL_APP_ORIGIN, LOCAL_APP_TWIN_ORIGIN } from "@pocketcircle/domain";
+import {
+  APEX_ORIGIN,
+  APP_ORIGIN,
+  LOCAL_APP_ORIGIN,
+  LOCAL_APP_TWIN_ORIGIN,
+} from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mutateAndDrain } from "../test/mutateAndDrain.js";
@@ -138,6 +143,11 @@ describe("authRuntimeConfig", () => {
     ["a backslash in the host", "https://evil.example\\app.example.com"],
     // The cross-domain flow ends in a redirect carrying a live session token.
     ["a plaintext public origin", "http://app.example.com"],
+    // Set-but-empty is a mistake to report, not an absent variable to fall back from.
+    // With SITE_URL the only origin there is no fallback to widen to, so this takes
+    // *all* auth down rather than silently narrowing it — which is the right outcome,
+    // and the reason it is still worth a case of its own.
+    ["an empty value", ""],
   ])("rejects %s as SITE_URL", (_label, value) => {
     expect(() => authRuntimeConfig(value)).toThrow(/SITE_URL/);
   });
@@ -176,14 +186,24 @@ describe("createAuth trusted origins", () => {
    * it, so sign-in served from there fails.
    */
   it("accepts sign-in from SITE_URL alone, which is the one origin auth trusts", async () => {
-    await expectAuthContext(APEX_ORIGIN, (context) => {
-      expect(context.options.trustedOrigins).toEqual([APEX_ORIGIN]);
+    // SITE_URL is the app origin, which is the invariant this suite exists to pin: the
+    // apex is the marketing Site's, so a test that passed the apex here would assert
+    // the pre-cutover shape while claiming to be the settled one, and nothing in the
+    // suite would notice SITE_URL being pointed back at it.
+    await expectAuthContext(APP_ORIGIN, (context) => {
+      expect(context.options.trustedOrigins).toEqual([APP_ORIGIN]);
       // No entry Better Auth would read as a pattern: its matcher honours
       // wildcards and the CORS router does not, so one entry could widen a trust
       // decision and break sign-in at the same time.
       expect(
         (context.options.trustedOrigins ?? []).filter((origin) => /[*?]/.test(origin)),
       ).toEqual([]);
+    });
+  });
+
+  it("does not trust the apex, which serves the marketing Site and not the app", async () => {
+    await expectAuthContext(APP_ORIGIN, (context) => {
+      expect(context.options.trustedOrigins).not.toContain(APEX_ORIGIN);
     });
   });
 

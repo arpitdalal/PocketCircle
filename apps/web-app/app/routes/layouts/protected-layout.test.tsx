@@ -769,8 +769,15 @@ describe("ProtectedLayout unauthenticated", () => {
     // page there, baked into the shell for crawlers. The public surfaces are the
     // marketing Site's own origin now (ADR 0035, #411), so there is nothing to show
     // here but the sign-in form (#412).
+    //
+    // Asserting the resolved location rather than the sign-in stub rendering is the
+    // point: `/` is the one path that used to behave differently, so "it ends up
+    // somewhere that is not the app" is the invariant, and the next test already
+    // covers a non-root path reaching the same place.
     configureConvex();
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+
+    const signin = vi.fn(() => <h2>Sign in page</h2>);
 
     renderRouteStub(
       [
@@ -779,13 +786,16 @@ describe("ProtectedLayout unauthenticated", () => {
           Component: ProtectedLayout,
           children: [{ index: true, Component: () => <h2>App home</h2> }],
         },
-        { path: "/signin", Component: () => <h2>Sign in page</h2> },
+        { path: "/signin", Component: signin },
       ],
-      ["/"],
+      ["/?returnTo=%2Fsettings"],
     );
 
     expect(await screen.findByText("Sign in page")).toBeInTheDocument();
     expect(screen.queryByText("App home")).not.toBeInTheDocument();
+    // The deep link the visitor arrived on is carried into the form, so signing in
+    // resumes where they meant to go rather than dumping them on Home.
+    expect(signin).toHaveBeenCalled();
   });
 
   it("still redirects other protected paths to sign-in", async () => {

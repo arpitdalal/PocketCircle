@@ -533,16 +533,20 @@ the release if it does not name the host the product Worker claims — the one f
 worth catching before anything is deployed, because the app loads on that host and
 sign-in fails in the browser with no detail at all.
 
-The cutover was two deploys on purpose, and both are done. Handing the apex to the
-marketing Site is the tag-driven release. Flipping `SITE_URL` to the app origin and
-removing the second trusted origin it replaced is a **separate** step that must come
-**after** it, and it is an env write only — no deploy, because the auth routes read
-the trusted-origin list per request rather than once at module load:
+The cutover was two steps on purpose. Handing the apex to the marketing Site is the
+tag-driven release. Flipping `SITE_URL` to the app origin and removing the second
+trusted origin it replaced is a **separate** step that had to come **after** it, and it
+is an env write only — no deploy, because the auth handler reads the trusted-origin list
+per request. Both were run on 2026-09-27; this is what they were, kept because the
+rollback below is the same commands in the other order:
 
 ```sh
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://app.pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
+
+The `remove` has no observable effect now that nothing reads the variable — it is
+housekeeping, deliberately not asserted anywhere.
 
 `--prod` is not optional on either: without it the CLI writes to the development
 deployment, where the variables do nothing. Note that the Convex CLI takes `--prod` on
@@ -550,14 +554,27 @@ deployment, where the variables do nothing. Note that the Convex CLI takes `--pr
 `CONVEX_DEPLOYMENT` or `CONVEX_DEPLOY_KEY`, and a bare `convex deploy` from
 `packages/convex` would follow the `CONVEX_DEPLOYMENT=dev:…` in its `.env.local`.
 
-To confirm the live trust decision without deploying anything, ask the auth routes
-what they will answer CORS for — an origin it trusts gets `Access-Control-Allow-Origin`,
-and one it does not gets nothing:
+Reading it back is a `convex env get`, which is unambiguous — the value, or `not
+found`:
+
+```sh
+pnpm --filter @pocketcircle/convex exec convex env get --prod SITE_URL
+```
+
+Asking the auth routes instead is a **positive signal only**. An origin they answer
+`Access-Control-Allow-Origin` for is trusted; the absence of the header does **not**
+prove the opposite, because the component builds its CORS allowlist once per isolate
+and memoises it, so a warm isolate can keep answering for an origin an env write has
+already stopped trusting:
 
 ```sh
 curl -s -o /dev/null -D - -H "Origin: https://app.pocketcircle.app" \
   https://lovable-snail-393.convex.site/api/auth/get-session | grep -i access-control-allow-origin
 ```
+
+A missing header is worth a retry, never a conclusion. Note also that the auth
+*handler* re-reads `SITE_URL` per request while the CORS list does not, so a
+half-applied change can serve requests correctly and still refuse the browser.
 
 **The MCP Worker trusts one app origin.** `APP_ORIGIN` moved to the app subdomain in
 the cutover. It briefly trusted the apex alongside it, because the MCP Worker is not
@@ -618,8 +635,10 @@ it:
 ```sh
 # 1. Revert #412 and tag it. This restores the second trusted origin in the backend,
 #    the deploy check that accepts either variable naming the app host, and the MCP
-#    Worker's retired apex.
-#    (git revert <#412 merge commit> && git tag vX.Y.Z && git push origin vX.Y.Z)
+#    Worker's retired apex. Reverting a merge commit needs `-m 1`, and the tag needs a
+#    `## [vX.Y.Z] - YYYY-MM-DD` section with real content in CHANGELOG.md, because
+#    `scripts/release-notes.sh` refuses to tag without one:
+#    (git revert -m 1 <#412 merge SHA> && git tag vX.Y.Z && git push origin vX.Y.Z)
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 

@@ -54,10 +54,13 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker. Its routes are bare hostnames, which is not an origin,
   // so nothing is spelled out there — the claims are asserted below instead.
   "wrangler.jsonc": [],
-  // `APP_ORIGIN` is the origin auth must trust and the product Worker claims.
-  // `APEX_ORIGIN` is the marketing Site's, and it is here to verify the Site the
-  // same run uploads — not as a second origin anything trusts.
+  // `APP_ORIGIN` alone: the origin the MCP Worker's consent and revoke endpoints
+  // trust. The retired apex it also trusted for the length of the ADR 0035 handover
+  // is gone (#412).
   "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
+  // `APP_ORIGIN` is the origin auth must trust and the product Worker claims.
+  // `APEX_ORIGIN` is the marketing Site's, present to verify the Site this same run
+  // uploads — not as a second origin anything trusts.
   ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],

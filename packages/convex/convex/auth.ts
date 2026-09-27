@@ -153,7 +153,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
   // crossDomain contributes SITE_URL to trustedOrigins, so this is the whole of the
   // widening: the loopback twin, and nothing else. A non-loopback origin has no twin
   // and contributes no entry, which is how production runs.
-  const extraTrustedOrigins = loopbackTwin === undefined ? {} : { trustedOrigins: [loopbackTwin] };
+  const loopbackTwinOptions = loopbackTwin === undefined ? {} : { trustedOrigins: [loopbackTwin] };
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -190,7 +190,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    ...extraTrustedOrigins,
+    ...loopbackTwinOptions,
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };

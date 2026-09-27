@@ -155,4 +155,20 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
       citedApexPaths.filter((path) => !sitePaths.includes(path) && !appRoutePaths.includes(path)),
     ).toEqual([]);
   });
+
+  it("cites no product path on the apex, only pages this Site publishes", () => {
+    // The assertion above is deliberately permissive: a cited path is allowed if the
+    // *app* serves it, because the apex answers those with a legacy redirect and a
+    // reader following one still arrives. That is the right rule for "does this
+    // resolve" and the wrong rule for "should this be here" — a product path in
+    // external material is a path the apex only redirects, so it moves with every
+    // request and a stale copy outlives the migration.
+    //
+    // This is the check that would catch one, and it is deliberately stricter than
+    // the resolvability assertion above: everything cited on the apex has to be a
+    // page this Site actually publishes.
+    expect(citedApexPaths.filter((path) => !sitePageFiles().map(pagePath).includes(path))).toEqual(
+      [],
+    );
+  });
 });
