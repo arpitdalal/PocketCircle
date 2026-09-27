@@ -1,11 +1,12 @@
 // @vitest-environment node
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { collectFiles } from "@pocketcircle/dev-tools/repo-walk";
 import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
 import { describe, expect, it } from "vitest";
 import viteConfig from "../vite.config.js";
-import { pagePath, sitePageFiles } from "./pages.js";
+import { indexablePagePaths, pagePath, sitePageFiles } from "./pages.js";
 
 /**
  * Which URLs the Site answers, and that they are the ones external material has
@@ -33,20 +34,25 @@ const repoRoot = join(import.meta.dirname, "..", "..", "..");
  * them is published without anybody editing a list here, and text files only —
  * the packages carry artwork too, and a URL cannot be hiding in a PNG.
  *
- * Walked here rather than through `@pocketcircle/dev-tools/repo-walk`, whose skip
- * list deliberately excludes `docs` and `plugins` from the repo-wide guards: those
- * guards are about source we own, and this is about text a third party is handed.
+ * Read through the shared walk, rooted at each directory rather than at the repo.
+ * Rooting matters: the shared skip list deliberately excludes `docs` and `plugins`
+ * from the repo-wide guards, because those guards are about source we own and this
+ * is about text a third party is handed — but the list only applies to directories
+ * met *below* the root, so pointing the walk at `docs/submission` reads exactly
+ * what is being looked for. One walk, and no second skip list to forget.
  */
 function publishedMaterial() {
   return ["docs/submission", "plugins/pocketcircle"].flatMap((directory) =>
-    readdirSync(join(repoRoot, directory), { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile() && /\.(?:json|md|mdx)$/.test(entry.name))
-      .map((entry) => {
-        // A recursive `readdir` reports each entry's parent as the path it walked,
-        // so the repo-relative one is derived rather than assumed.
-        const file = relative(repoRoot, join(entry.parentPath, entry.name)).split(sep).join("/");
-        return { file, source: readFileSync(join(repoRoot, file), "utf8") };
+    // No `skipDotDirectories`: `plugins/pocketcircle/.codex-plugin/plugin.json` is
+    // one of the manifests this reads, and the shared list names dot directories
+    // only as it meets them. Dot *files* (`.mcp.json`, `.app.json`) are never
+    // skipped either way — the option is about directories.
+    collectFiles(join(repoRoot, directory), (fileName) => /\.(?:json|md|mdx)$/.test(fileName)).map(
+      (name) => ({
+        file: `${directory}/${name}`,
+        source: readFileSync(join(repoRoot, directory, name), "utf8"),
       }),
+    ),
   );
 }
 
@@ -105,19 +111,30 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
     expect(sitePageFiles()).toContain("index.html");
   });
 
-  it("serves the four documents at the paths they already had", () => {
+  it("serves the four documents at the paths they already had, plus the not-found page", () => {
     // The file name is the path because the Worker publishes
     // `assets.html_handling: "auto-trailing-slash"`, which is what serves
     // `privacy.html` for `/privacy`; `wrangler.test.ts` holds that setting. These
     // are the URLs in external submission material, which is the whole reason the
     // apex keeps them (ADR 0035).
+    //
+    // `404.html` is published like any other page — it is the origin's answer to a
+    // path nothing matches, and `not_found_handling: "404-page"` is what serves it
+    // there — so `/404` answers it directly as well. Enumerated rather than matched
+    // loosely because this list is also the sitemap's, minus that one page
+    // (`src/crawl-assets.ts`), and a page that appeared here without appearing there
+    // would be a document Google is told about and a crawler cannot place.
     expect(sitePageFiles().map(pagePath)).toEqual([
+      // File-name order, so `404.html` leads: the list is the directory read, and the
+      // sitemap's is derived from it, so pinning the order here pins both.
+      "/404",
       "/",
       "/privacy",
       "/support",
       "/terms",
       "/whats-new",
     ]);
+    expect(indexablePagePaths()).not.toContain("/404");
   });
 
   it("answers every apex URL the published material cites", () => {

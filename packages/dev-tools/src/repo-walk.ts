@@ -2,18 +2,20 @@ import { readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 /**
- * One repo walk for the tests that guard repo-wide invariants.
+ * One directory walk for the tests and builds that read a tree.
  *
  * `canonical-origins.test.ts` (origins) and `tokens.test.ts` (brand tokens) both
- * need to read the whole tree to prove a fact is written down exactly once. They
+ * need to read the whole repo to prove a fact is written down exactly once. They
  * used to carry their own skip list and path helper, which meant a directory
  * added to one guard was missing from the other and the two drifted. The skip
  * list is the sensitive part: too wide and a guard reads build output or vendored
  * files, too narrow and it walks into `.pnpm-store` or a docs tree and reports
  * files nobody owns.
  *
- * A guard picks the files it cares about with `isSourceFile` and gets
- * repo-relative paths back, so its assertions read the way the repo is laid out.
+ * `apps/site` reads a tree too, rooted at the *package* rather than the repo, and
+ * it used to carry its own walk for the same reason — which is a second skip list
+ * waiting to disagree with the first. So there is one walk, here, and the roots
+ * differ only in what they return.
  */
 
 /** Build output, caches, vendored trees, and agent/tooling docs — never source we own. */
@@ -42,30 +44,79 @@ export function repoPath(repoRoot: string, absolutePath: string) {
   return relative(repoRoot, absolutePath).split(sep).join("/");
 }
 
+/** How a walk treats directories it does not want to descend into. */
+export interface WalkOptions {
+  /**
+   * Directory names to skip in addition to {@link SKIPPED_DIRECTORIES}.
+   *
+   * The shared list is repo-wide, and a walk rooted at a *package* can need one
+   * more exclusion the repo does not have: `apps/site` copies `public/` into its
+   * output verbatim, so an HTML file there is a served asset rather than a source
+   * document.
+   */
+  readonly skipDirectories?: readonly string[];
+  /**
+   * Whether to skip every dot-prefixed directory, not just the ones named above.
+   *
+   * {@link SKIPPED_DIRECTORIES} enumerates the dot directories this repo happens to
+   * have. A tool can create another at any time, and a walk rooted at a package
+   * meets it where the repo-wide list does not name it.
+   */
+  readonly skipDotDirectories?: boolean;
+}
+
 /**
- * Absolute paths of every file under `repoRoot` that `isSourceFile` selects,
- * skipping {@link SKIPPED_DIRECTORIES}. The predicate sees the file name and the
- * repo-relative path together, so a guard can match on either.
+ * Every file under `root` that `isSourceFile` selects, as a path relative to
+ * `root`, sorted. The predicate sees the file name and the relative path together.
+ *
+ * Sort order is the caller's contract as much as this function's: a build input
+ * list and an assertion over "the pages this package publishes" both read better
+ * when the order is the same every run, and `readdir` does not promise one.
+ */
+export function collectFiles(
+  root: string,
+  isSourceFile: (fileName: string, rootRelativePath: string) => boolean,
+  options: WalkOptions = {},
+): string[] {
+  return walk(root, options, isSourceFile);
+}
+
+/**
+ * The same walk, with absolute paths — for a caller that is going to open the files
+ * rather than name them in an assertion. Re-rooting the relative paths is exact: they
+ * came from this root, and `join` is what undid that.
  */
 export function collectRepoFiles(
   repoRoot: string,
   isSourceFile: (fileName: string, repoRelativePath: string) => boolean,
+  options: WalkOptions = {},
 ): string[] {
+  return walk(repoRoot, options, isSourceFile).map((path) => join(repoRoot, path));
+}
+
+/** Relative paths throughout; the one walk, and the one place the skip list is read. */
+function walk(
+  root: string,
+  { skipDirectories = [], skipDotDirectories = false }: WalkOptions,
+  isSourceFile: (fileName: string, rootRelativePath: string) => boolean,
+): string[] {
+  const skip = new Set([...SKIPPED_DIRECTORIES, ...skipDirectories]);
   const collected: string[] = [];
-  const walk = (directory: string) => {
+  const descend = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIPPED_DIRECTORIES.has(entry.name)) {
-          walk(path);
+        if (!skip.has(entry.name) && !(skipDotDirectories && entry.name.startsWith("."))) {
+          descend(path);
         }
         continue;
       }
-      if (isSourceFile(entry.name, repoPath(repoRoot, path))) {
-        collected.push(path);
+      const relativePath = repoPath(root, path);
+      if (isSourceFile(entry.name, relativePath)) {
+        collected.push(relativePath);
       }
     }
   };
-  walk(repoRoot);
-  return collected;
+  descend(root);
+  return collected.sort();
 }

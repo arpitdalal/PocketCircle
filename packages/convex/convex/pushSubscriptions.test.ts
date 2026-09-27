@@ -1,4 +1,4 @@
-import { MAX_PUSH_SUBSCRIPTIONS_PER_USER } from "@pocketcircle/domain";
+import { MAX_PUSH_SUBSCRIPTIONS_PER_USER, PUSH_APP_ORIGIN_LIVE_AT_MS } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
@@ -12,7 +12,7 @@ import {
 } from "../test/pushFixtures.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { makeUser, seedPersonalCircleOwner } from "../test/seed.js";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import schema from "./schema.js";
@@ -691,6 +691,205 @@ describe("pushSubscriptions", () => {
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, deleting.userId)).toHaveLength(0);
       expect(await listPushSubscriptionsForUser(ctx, other._id)).toHaveLength(1);
+    });
+  });
+
+  // ADR 0035, #411. A Push subscription belongs to the origin that made it, and the
+  // app origin cannot see the apex's — so a pre-cutover row is never refreshed,
+  // never invalidated, and never evicted by the per-user cap. Left alone, every
+  // existing Push User gets each notification twice, indefinitely.
+  describe("retiring subscriptions from the retired app origin", () => {
+    /** One retirement pass, as the operator's single call would make it. */
+    function drainRetirementOnce(t: ReturnType<typeof convexTest>) {
+      return mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+    }
+
+    /**
+     * The whole sweep, the way the runbook performs it: call it, and let the passes it
+     * schedules drain. `convex-test` runs scheduled functions through
+     * `finishAllScheduledFunctions`, so this is the real chain rather than a loop the
+     * test drives itself.
+     */
+    async function drainRetirement(t: ReturnType<typeof convexTest>) {
+      return await mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+    }
+
+    it("removes rows created before the app origin went live, and keeps later ones", async () => {
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+
+      await t.run(async (ctx) => {
+        // Before the cutoff: registered on the apex, unreachable from the app origin.
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        });
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-laptop",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 86_400_000,
+        });
+        // Exactly on the cutoff, and after it: these are the app origin's.
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS,
+        });
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app-laptop",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 1,
+        });
+      });
+
+      await drainRetirement(t);
+
+      await t.run(async (ctx) => {
+        // Membership, not order: the list is ordered by `lastSeenAt`, which the seed
+        // sets to the same instant for every row, so its order is a `_id` tie-break
+        // and not something this is about.
+        const endpoints = (await listPushSubscriptionsForUser(ctx, user.userId)).map(
+          (row) => row.endpoint,
+        );
+        expect(endpoints).toHaveLength(2);
+        expect(endpoints).toContain("https://fcm.googleapis.com/fcm/send/app-phone");
+        expect(endpoints).toContain("https://fcm.googleapis.com/fcm/send/app-laptop");
+      });
+    });
+
+    it("is idempotent, so re-running the runbook step is free", async () => {
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      await t.run((ctx) =>
+        seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        }),
+      );
+
+      const retire = () => drainRetirementOnce(t);
+
+      expect(await retire()).toEqual({ retired: 1, moreScheduled: false });
+      // The second run finds nothing older than the cutoff and changes nothing —
+      // which is what makes this safe to put in a runbook that a person follows by
+      // hand and might run twice.
+      expect(await retire()).toEqual({ retired: 0, moreScheduled: false });
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, user.userId)).toHaveLength(0);
+      });
+    });
+
+    it("drains across batches, and reports when it is done", async () => {
+      // A Convex mutation is a transaction, so a handler that threw after deleting a
+      // batch would roll that batch back and leave the table as it was. The sweep is
+      // therefore one batch per transaction that schedules the next, and this asserts
+      // the shape of that contract from both ends: it keeps going while a batch comes
+      // back full, and it stops and says so when one comes back short.
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 40; index += 1) {
+          await seedPushSubscription(ctx, {
+            userId: user.userId,
+            endpoint: `https://fcm.googleapis.com/fcm/send/apex-${index}`,
+            createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+          });
+        }
+      });
+
+      // One operator call, and the chain it schedules runs to completion: the first
+      // pass takes a full batch and says there is more, the scheduled pass takes the
+      // remaining 8 and says there is not, and both transactions commit. 40 stale rows
+      // is more than one pass, so a sweep that took a single batch and stopped — or one
+      // that threw to signal it had run out and rolled itself back — would leave rows
+      // behind and fail here.
+      const result = await drainRetirement(t);
+      expect(result).toEqual({ retired: 32, moreScheduled: true });
+
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, user.userId)).toHaveLength(0);
+      });
+
+      // And a confirmation call reports the settled state, which is what the runbook
+      // tells the operator to look for.
+      expect(await drainRetirementOnce(t)).toEqual({ retired: 0, moreScheduled: false });
+    });
+
+    it("spans more than one batch, so the sweep is not quietly one page deep", async () => {
+      // The sweep deletes in batches rather than `collect()`ing the matches, so a
+      // table with more stale rows than fit in one pass has to be fully drained by the
+      // loop. Seeding past the batch size is what proves the loop is there — an
+      // implementation that took one batch and returned would pass every other test in
+      // this block and leave the rest duplicated.
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      const staleCount = 40;
+      await t.run(async (ctx) => {
+        for (let index = 0; index < staleCount; index += 1) {
+          await seedPushSubscription(ctx, {
+            userId: user.userId,
+            endpoint: `https://fcm.googleapis.com/fcm/send/apex-${index}`,
+            createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+          });
+        }
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 1,
+        });
+      });
+
+      await drainRetirement(t);
+
+      await t.run(async (ctx) => {
+        const remaining = await listPushSubscriptionsForUser(ctx, user.userId);
+        expect(remaining.map((row) => row.endpoint)).toEqual([
+          "https://fcm.googleapis.com/fcm/send/app",
+        ]);
+      });
+    });
+
+    it("leaves another User's app-origin subscription alone", async () => {
+      // The retirement is a sweep by age, not by User, so a User who re-enabled Push
+      // on the app origin before the step ran keeps it.
+      const t = convexTest(schema, modules);
+      const [first, second] = await t.run(async (ctx) => [
+        await seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+        await seedPersonalCircleOwner(ctx, { email: "bob@example.com", displayName: "Bob" }),
+      ]);
+      await t.run(async (ctx) => {
+        await seedPushSubscription(ctx, {
+          userId: first.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        });
+        await seedPushSubscription(ctx, {
+          userId: second.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 5_000,
+        });
+      });
+
+      await drainRetirement(t);
+
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, first.userId)).toHaveLength(0);
+        expect(await listPushSubscriptionsForUser(ctx, second.userId)).toHaveLength(1);
+      });
     });
   });
 });

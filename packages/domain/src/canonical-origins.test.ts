@@ -35,7 +35,6 @@ import {
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
   MIGRATION_APP_HOSTNAME,
-  MIGRATION_APP_ORIGIN,
 } from "./origins.js";
 
 const repoRoot = join(import.meta.dirname, "../../..");
@@ -56,8 +55,13 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker. Its routes are bare hostnames, which is not an origin,
   // so nothing is spelled out there — the claims are asserted below instead.
   "wrangler.jsonc": [],
-  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
-  ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN, MIGRATION_APP_ORIGIN],
+  // `RETIRED_APP_ORIGIN` is the apex, and it goes with the second trusted Convex
+  // origin in #412.
+  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN, APEX_ORIGIN],
+  // `MIGRATION_APP_ORIGIN` is the same string as `APP_ORIGIN` since the cutover, so
+  // one allowance covers both; a third entry would only be a duplicate that rots
+  // when #412 drops the variable.
+  ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
   // Shipped plugin manifests: read by ChatGPT/Codex, never executed here.
@@ -89,11 +93,11 @@ function readRepoFile(path: string) {
  * app subdomain is a hostname of its own, not a longer apex, so it is listed
  * rather than left to match as part of the apex.
  */
+// Deduplicated because `APP_HOSTNAME` and `MIGRATION_APP_HOSTNAME` are the same
+// string since the cutover, and a repeated alternative in the pattern below is a
+// quiet sign that the pair has not been collapsed yet.
 const OWNED_HOSTNAMES: readonly string[] = [
-  APEX_HOSTNAME,
-  APP_HOSTNAME,
-  MIGRATION_APP_HOSTNAME,
-  MCP_HOSTNAME,
+  ...new Set([APEX_HOSTNAME, APP_HOSTNAME, MIGRATION_APP_HOSTNAME, MCP_HOSTNAME]),
 ];
 
 const OWNED_ORIGIN = new RegExp(
@@ -194,13 +198,19 @@ describe("canonical origins are written down exactly once", () => {
 describe("the files that cannot import the module still match it", () => {
   it("each Worker claims its own custom domain", () => {
     const claims = customDomainClaims();
-    // The cutover takes the apex from the product Worker and gives it to the marketing
-    // Site, which claims it in the same deploy (ADR 0035) — this assertion goes then.
+    // The product Worker claims the app origin, and only the app origin. It held the
+    // apex as well until the cutover (#411), and this is the assertion that says the
+    // handover happened — which matters because it is two Workers in one release
+    // rather than two, so a config still listing the apex here is a hostname two
+    // Workers claim, and Cloudflare would refuse the second deploy.
     expect(claims.get(APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
-    // The other origin the product app answers on, and the one the cutover promotes to
-    // `APP_HOSTNAME` (#410). Both hosts serve the same app during the window, which is
-    // what makes the move rehearsal rather than a migration.
-    expect(claims.get(MIGRATION_APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
+    // The apex belongs to the marketing Site, which claims it in the deploy
+    // immediately after the product Worker drops it (ADR 0035). This assertion was
+    // silently vacuous before the cutover: nothing claimed the apex, and a test that
+    // only read the product Worker's claim could not tell an un-handed-over apex from
+    // a correctly handed-over one. An apex with no Worker behind it is a hostname
+    // that answers nothing at all — every path on it, including every bookmark.
+    expect(claims.get(APEX_HOSTNAME)).toEqual(["apps/site/wrangler.jsonc"]);
     expect(claims.get(MCP_HOSTNAME)).toEqual(["packages/mcp-worker/wrangler.jsonc"]);
   });
 

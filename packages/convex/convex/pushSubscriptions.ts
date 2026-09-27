@@ -3,9 +3,11 @@ import {
   isValidPushSubscriptionMaterial,
   isValidVapidPublicKey,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  PUSH_APP_ORIGIN_LIVE_AT_MS,
   PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
+import { internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
   internalMutation,
@@ -17,6 +19,17 @@ import {
 import { requireCurrentUser } from "./auth.js";
 
 const INVALID_SUBSCRIPTION = "Invalid push subscription";
+
+/**
+ * Rows retired per pass. The same shape and the same reason as
+ * `ACCOUNT_DELETION_BATCH_SIZE`: a table-wide sweep that `collect()`s first holds
+ * every match in memory at once, and a mutation has a document and time budget. A
+ * `pushSubscriptions` table is small in practice — at most
+ * {@link MAX_PUSH_SUBSCRIPTIONS_PER_USER} rows per User, and this runs once — but
+ * "small in practice" is not a bound, and a migration that exceeds a mutation's
+ * limits fails in the middle of deleting.
+ */
+const RETIRE_SUBSCRIPTIONS_BATCH_SIZE = 32;
 
 /** Expand-contract: parent tabs omit pushSwVersion; new clients send it. */
 const subscriptionFields = {
@@ -223,6 +236,66 @@ export const removeInvalidPushSubscription = internalMutation({
       return;
     }
     await ctx.db.delete(row._id);
+  },
+});
+
+/**
+ * Retire every Push subscription registered under the retired app origin (ADR 0035,
+ * #411). Run once, after the cutover, from the runbook.
+ *
+ * A subscription is bound to the origin that made it — the permission, the
+ * `push-sw.js` registration, and the endpoint all live there — so a row created
+ * before {@link PUSH_APP_ORIGIN_LIVE_AT_MS} can never be refreshed or removed by
+ * anything running on the app origin. Reconcile reads the *current* origin's
+ * registration and cannot see the old one; the endpoint remains valid while the
+ * browser holds it, so `removeInvalidPushSubscription` never fires for it; and
+ * `makeRoomForOneSubscription` only evicts when a later bind reaches the per-user
+ * cap, which a User with two rows and a cap of ten never does. Left alone, every
+ * existing Push User gets each notification twice, for good.
+ *
+ * Deleting is the right end state rather than marking them dead: the User has to
+ * re-grant notification permission on the app origin either way, because permission
+ * is per-origin, and a row that is never delivered to is a row that only misleads.
+ *
+ * **One batch per transaction, self-scheduling.** A Convex mutation is a
+ * transaction: if the handler throws, every write in the call is rolled back. That is
+ * what rules out both alternatives a single call looks like it could use — deleting
+ * everything it matched and hoping it fits inside a mutation's budget, and deleting
+ * batch by batch and then *throwing* to signal it ran out, which discards the batches
+ * that already succeeded and leaves the table exactly as it was while the operator
+ * reads an error. A "loud" failure that undoes its own work is the quietest kind.
+ *
+ * So each invocation takes a bounded batch, commits it, and schedules the next only if
+ * the batch came back full. Every transaction stands on its own, so a failure anywhere
+ * costs one batch and the rest still drain, and the same shape as
+ * `activation.ts:migrateActivationRows` and the account-deletion cleanup batches.
+ * Re-querying rather than paginating by cursor is enough here and is not a
+ * simplification: this sweep *deletes* what it reads, so the next `.take()` cannot
+ * return a row already handled, and a cursor would only make that true by more
+ * machinery.
+ *
+ * Idempotent and resumable by construction. It is an `internalMutation` on purpose:
+ * nothing in the app should be able to call it, so the only way to retire
+ * subscriptions is the deliberate one in the runbook.
+ */
+export const retirePreCutoverPushSubscriptions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const batch = await ctx.db
+      .query("pushSubscriptions")
+      .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
+      .take(RETIRE_SUBSCRIPTIONS_BATCH_SIZE);
+    for (const row of batch) {
+      await ctx.db.delete(row._id);
+    }
+    // A full batch is the only evidence there may be more, and it is how
+    // `accountDeletion.ts` signals the same thing. When the batch is short, the query
+    // reached the end of the matches, so nothing is scheduled.
+    const moreScheduled = batch.length === RETIRE_SUBSCRIPTIONS_BATCH_SIZE;
+    if (moreScheduled) {
+      await ctx.scheduler.runAfter(0, internal.pushSubscriptions.retirePreCutoverPushSubscriptions);
+    }
+    return { retired: batch.length, moreScheduled };
   },
 });
 

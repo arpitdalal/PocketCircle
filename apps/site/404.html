@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover unlocks env(safe-area-inset-*), which the header and
+      footer padding in site.css are written against — without it those insets
+      are 0 and the padding silently collapses. Same call the product makes.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Page not found — PocketCircle</title>
+    <!--
+      One description, written once and repeated into both card formats, because
+      a social card that says something different from the search result is a
+      second promise to keep straight. `assert-site-html.mjs` reads the tag below
+      and fails the build if either card has drifted from it.
+    -->
+    <meta
+      name="description"
+      content="That PocketCircle page does not exist. Here is the way back to the homepage, to Support, and to the policies."
+    />
+    <!--
+      This document answers at no address in particular: Workers serves it for every
+      path that matches no page and no legacy redirect. Nothing should index it, and
+      nothing should treat `/404` as a canonical URL for anything.
+    -->
+    <meta name="robots" content="noindex, follow" />
+    <!-- Replaced with the canonical apex origin at build time; see src/site-html.ts. -->
+    <link rel="canonical" href="%APEX_ORIGIN%/404" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PocketCircle" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Page not found — PocketCircle" />
+    <meta
+      property="og:description"
+      content="That PocketCircle page does not exist. Here is the way back to the homepage, to Support, and to the policies."
+    />
+    <meta property="og:url" content="%APEX_ORIGIN%/404" />
+    <meta property="og:image" content="%APEX_ORIGIN%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Page not found — PocketCircle" />
+    <meta
+      name="twitter:description"
+      content="That PocketCircle page does not exist. Here is the way back to the homepage, to Support, and to the policies."
+    />
+    <meta name="twitter:image" content="%APEX_ORIGIN%/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PocketCircle: a shared ledger for a home, a trip, or a family. A Circle's Transactions for a month, with totals."
+    />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <!--
+      The not-found document (#411), as a page of the marketing Site like every other
+      one: no runtime, the shared stylesheet, and the same per-page contract the rest
+      are held to by `src/documents.test.ts` and `scripts/assert-site-html.mjs`.
+
+      It is a page rather than a file copied out of `public/` because a dead end has to
+      offer a way onward, and the way onward is the app origin — which a copied file
+      cannot name, since the origin placeholders are resolved by the build. A relative
+      href would be the wrong answer here: it would resolve to the marketing Site
+      rather than the app.
+
+      Reached only by a path this Site matches nothing for. Every product path is a
+      legacy redirect (`src/legacy-redirects.ts`), so a User following a bookmark or an
+      old email does not land here — and a signed-in User who mistypes an app URL gets
+      the app's own not-found, which is the one that can sign them back in.
+    -->
+    <div
+      class="safe-x relative flex min-h-dvh flex-col bg-background text-foreground"
+    >
+      <header
+        class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 safe-top pb-4 sm:px-6 lg:px-10"
+      >
+        <a
+          href="%APEX_ORIGIN%/"
+          class="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
+        >
+          <span
+            aria-hidden="true"
+            class="relative flex size-6 items-center justify-center rounded-full border-2 border-primary/35"
+          >
+            <span class="size-2.5 rounded-full bg-primary"></span>
+          </span>
+          PocketCircle
+        </a>
+        <a class="quiet-link" href="%APP_ORIGIN%/signin">Sign in</a>
+      </header>
+
+      <main id="main" class="flex flex-1 flex-col">
+        <article class="mx-auto w-full max-w-3xl px-4 pt-12 pb-16 sm:px-6 lg:pt-16">
+          <header class="space-y-3 border-b border-border/60 pb-8">
+            <p class="font-display text-xs font-medium tracking-[0.16em] text-primary uppercase">
+              404
+            </p>
+            <h1 class="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              That page is not here
+            </h1>
+            <p class="text-pretty text-base leading-7 text-muted-foreground">
+              The address may have a typo in it, or the page may have moved. Circle and
+              Transaction links live on a different address now — the one you followed
+              takes you there on its own.
+            </p>
+          </header>
+
+          <div class="space-y-6 pt-8 text-pretty text-base leading-7 text-muted-foreground">
+            <p>
+              <a
+                href="%APEX_ORIGIN%/"
+                class="font-medium text-primary underline underline-offset-4"
+                >Start from the homepage</a
+              >, read
+              <a
+                href="%APEX_ORIGIN%/whats-new"
+                class="font-medium text-primary underline underline-offset-4"
+                >What's new</a
+              >, or
+              <a
+                href="%APP_ORIGIN%/signin"
+                class="font-medium text-primary underline underline-offset-4"
+                >sign in</a
+              >
+              to get back to your Circles.
+            </p>
+            <p>
+              If a link in an email or on a shared page brought you here,
+              <a
+                href="%APEX_ORIGIN%/support"
+                class="font-medium text-primary underline underline-offset-4"
+                >tell us what it was</a
+              >. See also the
+              <a
+                href="%APEX_ORIGIN%/privacy"
+                class="font-medium text-primary underline underline-offset-4"
+                >Privacy Policy</a
+              >
+              and the
+              <a
+                href="%APEX_ORIGIN%/terms"
+                class="font-medium text-primary underline underline-offset-4"
+                >Terms</a
+              >.
+            </p>
+          </div>
+        </article>
+      </main>
+
+      <footer
+        class="border-t border-border/60 px-4 pt-12 safe-bottom sm:px-6 lg:px-10"
+      >
+        <p class="mx-auto max-w-6xl text-xs text-muted-foreground">
+          © %YEAR% PocketCircle. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

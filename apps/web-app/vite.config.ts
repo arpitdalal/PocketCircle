@@ -3,45 +3,11 @@ import { reactRouter } from "@react-router/dev/vite";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { reactCompilerPreset } from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
-import { crawlAssets } from "./crawl-assets.js";
+import { defineConfig } from "vite";
 import { resolveAppRelease, resolveAppVersion } from "./resolve-app-version.js";
 
 const appVersion = resolveAppVersion();
 const appRelease = resolveAppRelease();
-
-/**
- * Serves `robots.txt` and `sitemap.xml` from `crawl-assets.ts` (built from the
- * canonical apex origin, #404) in dev and in the build. They are deliberately
- * not files in `public/`: a checked-in copy is a second place an origin move
- * would have to be applied by hand.
- */
-function crawlAssetsPlugin() {
-  const assets = Object.entries(crawlAssets());
-  return {
-    name: "pocketcircle:crawl-assets",
-    configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        const match = assets.find(([fileName]) => request.url === `/${fileName}`);
-        if (!match) {
-          next();
-          return;
-        }
-        const [fileName, source] = match;
-        response.setHeader(
-          "Content-Type",
-          fileName.endsWith(".xml") ? "application/xml" : "text/plain",
-        );
-        response.end(source);
-      });
-    },
-    generateBundle() {
-      for (const [fileName, source] of assets) {
-        this.emitFile({ type: "asset", fileName, source });
-      }
-    },
-  } satisfies Plugin;
-}
 
 export default defineConfig({
   define: {
@@ -98,7 +64,6 @@ export default defineConfig({
     // pattern first; opt-out is last resort. ESLint (lint:react-compiler) and
     // vitest.config.ts mirror this compiler pass so CI catches miscompiles.
     babel({ presets: [reactCompilerPreset()] }),
-    crawlAssetsPlugin(),
     reactRouter(),
   ],
 });

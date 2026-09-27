@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join } from "node:path";
+import { collectFiles } from "@pocketcircle/dev-tools/repo-walk";
 
 /**
  * The Site's pages, and the apex path each one answers on.
@@ -25,34 +25,49 @@ import { join, relative, sep } from "node:path";
 export const packageRoot = join(import.meta.dirname, "..");
 
 /**
- * Directories that hold no authored page, excluded by name rather than by depth so
- * a page nested in a subdirectory is still found:
- *
- * - `dist` and `node_modules`: the build's own output and the installed packages.
- * - `coverage`: a coverage report is HTML too, and `vitest --coverage` writes one
- *   into this package.
- * - `public`: copied verbatim into the output, so an HTML file in it is a served
- *   asset rather than a page of the Site — and the cutover adds a `404.html` there
- *   (#411), which is not a document this Site answers at `/404`.
+ * The one directory this walk needs beyond the shared skip list: `public` is copied
+ * verbatim into the output, so an HTML file in it is a served asset rather than a
+ * page of the Site. `dist`, `node_modules`, and `coverage` are already in
+ * `@pocketcircle/dev-tools/repo-walk`'s list, which is the point of using it — a
+ * second skip list here is a second thing to forget when a generated directory
+ * appears.
  */
-const NOT_SOURCES = new Set(["coverage", "dist", "node_modules", "public"]);
+const PAGE_WALK = { skipDirectories: ["public"], skipDotDirectories: true } as const;
 
-/** Every authored page, as a path relative to the package root, sorted. */
+/**
+ * The document the Worker serves for a path that matches no page and no legacy
+ * redirect, named for `assets.not_found_handling: "404-page"` (#411).
+ *
+ * It is an ordinary authored page rather than a file in `public/`, which is what
+ * gives it the two things a dead end needs and a copied file cannot have: the
+ * origin placeholders resolved, so its way onward names the app origin rather than
+ * resolving against whichever host served it, and the same per-page contract the
+ * other documents are held to.
+ */
+export const NOT_FOUND_PAGE = "404.html";
+
+/**
+ * Every authored page, as a path relative to the package root, sorted.
+ *
+ * The shared walk descends only into directories that can hold a page rather than
+ * reading the whole tree and filtering afterwards. That is not a micro-optimisation:
+ * `readdirSync` with `recursive: true` walks `node_modules` and `dist` in full
+ * before a filter sees them, and this list is read by the build, by
+ * `assert-site-html.mjs`, and by three test files.
+ */
 export function sitePageFiles() {
-  return readdirSync(packageRoot, { recursive: true, withFileTypes: true })
-    .filter((entry) => {
-      if (!entry.isFile() || !entry.name.endsWith(".html")) {
-        return false;
-      }
-      // A dotfile directory is the toolchain's or the editor's rather than a
-      // source of pages — `.git`, `.vite`, `.wrangler` — and nothing authored is
-      // hidden in one.
-      return !entry.parentPath
-        .split(sep)
-        .some((directory) => NOT_SOURCES.has(directory) || directory.startsWith("."));
-    })
-    .map((entry) => relative(packageRoot, join(entry.parentPath, entry.name)).split(sep).join("/"))
-    .sort();
+  return collectFiles(packageRoot, (fileName) => fileName.endsWith(".html"), PAGE_WALK);
+}
+
+/**
+ * The pages a crawler should be told about: everything published except the
+ * not-found document, which answers at no address in particular and exists only for
+ * the paths that match nothing.
+ */
+export function indexablePagePaths() {
+  return sitePageFiles()
+    .filter((file) => file !== NOT_FOUND_PAGE)
+    .map(pagePath);
 }
 
 /** The apex path a published page is served on. */

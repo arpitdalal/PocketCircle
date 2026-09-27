@@ -23,8 +23,10 @@ jobs:
     environment:
       name: production
       # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
-      # cannot import it, so `canonical-origins.test.ts` asserts the match.
-      url: https://pocketcircle.app
+      # cannot import it, so `canonical-origins.test.ts` asserts the match. The
+      # deployment a User signs in to, which since the ADR 0035 cutover is the app
+      # subdomain rather than the apex.
+      url: https://app.pocketcircle.app
     steps:
       - uses: actions/checkout@v6
         with:
@@ -66,10 +68,13 @@ jobs:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
           # Must equal `MIGRATION_APP_ORIGIN` and `APP_ORIGIN` in
-          # packages/domain/src/origins.ts — the two origins the product Worker claims and
-          # the two auth has to trust between `SITE_URL` and this variable. A workflow
-          # cannot import it, so `canonical-origins.test.ts` asserts the match.
-          APP_ORIGIN: https://pocketcircle.app
+          # packages/domain/src/origins.ts — the same origin twice, and both are the app
+          # subdomain since the ADR 0035 cutover. A workflow cannot import it, so
+          # `canonical-origins.test.ts` asserts the match. The pair is kept while the
+          # `SITE_URL` flip is a separate deploy from the Worker swap: either variable
+          # naming the host is what proves auth trusts it, and which one does is the
+          # deploy's business, not this workflow's. #412 drops the second.
+          APP_ORIGIN: https://app.pocketcircle.app
           MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
@@ -85,16 +90,21 @@ jobs:
             exit 1
           fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
-          # The product Worker serves the app from two hosts, and auth only answers
-          # sign-in from an origin it trusts — `SITE_URL` plus `MIGRATION_APP_ORIGIN`
-          # (#409), read when the auth routes load. Serving a host neither of them names
-          # is the one failure this window exists to prevent: the app loads there and
-          # sign-in fails in the browser with no detail. Checked here, before anything is
-          # deployed, because the deploy's own origin check only proves the host serves
-          # the app. Both, not either: a deployment that trusts the apex alone while the
-          # Worker still claims the subdomain passes a one-value check and ships exactly
-          # that. Drop this with MIGRATION_APP_ORIGIN, in the same deploy that points
-          # SITE_URL at the app origin (ADR 0035).
+          # Auth only answers sign-in from an origin it trusts — `SITE_URL`, plus
+          # `MIGRATION_APP_ORIGIN` for as long as the `SITE_URL` flip is a separate
+          # deploy from the Worker handover (#409), read when the auth routes load.
+          # Serving a host neither of them names is the one failure this check exists
+          # to prevent: the app loads there and sign-in fails in the browser with no
+          # detail at all. Checked before anything is deployed, because the deploy's own
+          # origin check only proves the host serves the app.
+          #
+          # Either variable naming the host is enough, and which one it is changes with
+          # the cutover rather than with this file: the Worker handover and the
+          # `SITE_URL` flip are two deploys on purpose, so before the flip auth trusts
+          # the app origin through `MIGRATION_APP_ORIGIN` and after it through
+          # `SITE_URL`. Requiring both would fail the release that has not been
+          # flipped yet; requiring neither would ship an app nobody can sign in to.
+          # `canonical-origins.test.ts` holds the two env values against the module.
           trusted_origin() {
             local name="$1" err status value
             err=$(mktemp)
@@ -116,15 +126,13 @@ jobs:
           }
           SITE_URL_VALUE=$(trusted_origin SITE_URL)
           MIGRATION_VALUE=$(trusted_origin MIGRATION_APP_ORIGIN)
-          for origin in "$APP_ORIGIN" "$MIGRATION_APP_ORIGIN"; do
-            case " $SITE_URL_VALUE $MIGRATION_VALUE " in
-              *" $origin "*) ;;
-              *)
-                echo "::error::auth does not trust $origin, and the product Worker claims both hosts: SITE_URL is '$SITE_URL_VALUE' and MIGRATION_APP_ORIGIN is '${MIGRATION_VALUE:-unset}' — see README, origin migration"
-                exit 1
-                ;;
-            esac
-          done
+          case " $SITE_URL_VALUE $MIGRATION_VALUE " in
+            *" $APP_ORIGIN "*) ;;
+            *)
+              echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '$SITE_URL_VALUE' and MIGRATION_APP_ORIGIN is '${MIGRATION_VALUE:-unset}' — see README, origin migration"
+              exit 1
+              ;;
+          esac
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {
@@ -252,18 +260,97 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: pnpm build
 
-      # The marketing Site (ADR 0035) goes first, and that ordering is the point:
-      # it is static HTML on workers.dev, with no hostname, no Worker script, and
-      # nothing any visitor sees. A failure here — a Cloudflare scope problem, an
-      # invalid assets config, a build that does not compile — aborts the tag
-      # before the Convex deploy, the product Worker, and the push-delivery gate
-      # have moved at all. `packageManager` is explicit because the action infers
-      # one from a lockfile in `workingDirectory`, and this repo's is at the root.
+      # The marketing Site is built here, second and before anything is deployed,
+      # and deployed last, next to the product Worker. Both halves are deliberate.
+      # Building early means a failure that is only visible in the build — an
+      # invalid assets config, a document that does not compile, a page that was
+      # never published — aborts the tag before the Convex deploy, the product
+      # Worker, and the push-delivery gate have moved at all. Deploying last is
+      # the ADR 0035 handover: two Workers cannot both claim the apex, so the
+      # product Worker drops it in the deploy immediately before this one claims
+      # it, and every path on that hostname fails for as long as neither holds it.
+      # `packageManager` is explicit because the action infers one from a lockfile
+      # in `workingDirectory`, and this repo's is at the root.
       - name: Build marketing Site
         run: pnpm build:site
 
+      # Install verification material before deploying code that requires it.
+      # Current + previous keys let in-flight handoffs and the previously
+      # deployed Worker remain valid while the new Worker rolls out.
+      - name: Sync MCP Worker verification keys to Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
+          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
+          MCP_WORKER_VERIFYING_JWKS: ${{ secrets.MCP_WORKER_VERIFYING_JWKS }}
+          VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
+        run: |
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
+          if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET_PREVIOUS "$MCP_WORKER_HMAC_SECRET_PREVIOUS"
+          fi
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
+          if [ -z "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
+            pnpm --filter @pocketcircle/convex exec convex env remove MCP_WORKER_HMAC_SECRET_PREVIOUS
+          fi
+          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_ORIGIN "$VITE_MCP_WORKER_ORIGIN"
+
+      # Convex before Worker: this release's web bundle needs additive Convex
+      # fields/functions (Feature Announcements, #282) immediately. Deploy the
+      # backward-compatible backend first. If Convex succeeds and the Worker
+      # fails, leave the additive backend deployed and retry the Worker. Old
+      # web code remains compatible with the new optional field and unused
+      # functions. Breaking Convex changes still use expand-contract releases.
+      #
+      # Push delivery pauses until the Cloudflare assets (display-capable
+      # push-sw.js) are live — silent Push can make Safari revoke permission.
+      # Jobs keep enqueueing; send defers until enabled again.
+      - name: Disable Push delivery for rollout
+        id: push_gate
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set +e
+          ERR=$(mktemp)
+          OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>"$ERR")
+          STATUS=$?
+          set -e
+          PREV=$(printf '%s' "$OUT" | tr -d '[:space:]')
+          if [ -n "$PREV" ]; then
+            echo "previous_captured=true" >> "$GITHUB_OUTPUT"
+            echo "previous=$PREV" >> "$GITHUB_OUTPUT"
+          elif grep -qi 'not found' "$ERR"; then
+            # Truly unset — pause as 0; no restore value to claim.
+            echo "previous_captured=false" >> "$GITHUB_OUTPUT"
+            PREV=0
+          else
+            # Auth/transport flake — do not pause without a restore path.
+            echo "convex env get PUSH_DELIVERY_ENABLED failed (status=$STATUS):" >&2
+            cat "$ERR" >&2
+            rm -f "$ERR"
+            exit 1
+          fi
+          rm -f "$ERR"
+          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
+
+      - name: Deploy Convex production backend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
+
+      - name: Deploy product app Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: "4.121.0"
+
+      # The second half of the apex handover, and the reason this step is here and
+      # not above the Convex deploy: the product Worker has just stopped claiming
+      # `pocketcircle.app`, and this is what takes it. Nothing sits between the two
+      # deploys, which is the whole reason the ordering is asserted in
+      # `apps/site/src/wrangler.test.ts` rather than left to this file's shape.
       - name: Deploy marketing Site
-        id: site
         uses: cloudflare/wrangler-action@v4
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -272,34 +359,117 @@ jobs:
           wranglerVersion: "4.121.0"
           workingDirectory: apps/site
 
-      # What a visitor gets on the staging hostname, asserted on the deployed
-      # origin rather than on the artifact: the canonical apex origin the build
-      # injected, the security headers derived from the product's policy, the
-      # noindex that keeps `workers.dev` out of search results until the apex
-      # cutover removes it, the sign-in link that leaves for the app origin, the
-      # stylesheet the page is nothing but, and every published document answering
-      # at the path it is cited at. The document is fetched, never executed, so what
-      # is asserted here is what a browser without JavaScript would be given.
-      # Retries because the asset manifest takes a moment to propagate, the same
-      # reason the MCP discovery check below retries.
+      # What a visitor gets on the apex, asserted on the deployed origins rather
+      # than on the artifact: the canonical apex origin the build injected, the
+      # security headers derived from the product's policy, the *absence* of a
+      # noindex now that this origin is the indexable one, the sign-in link that
+      # leaves for the app origin, the stylesheet the page is nothing but, every
+      # published document answering at the path it is cited at, the not-found
+      # document answering a path nothing matches, and every legacy product path
+      # answering 302 to the same path on the app origin with its query intact.
+      # The documents are fetched, never executed, so what is asserted here is what
+      # a browser without JavaScript would be given.
+      #
+      # It runs after the handover rather than before it, and on the apex rather
+      # than on the staging hostname, because the apex is the only origin where a
+      # wrong answer is possible. Checking it is what proves the custom domain is
+      # actually bound to *this* Worker: a claim that silently failed leaves the
+      # previous Worker serving it, and a check run anywhere else would pass against
+      # the wrong deployment. Retries because the asset manifest and the route
+      # binding both take a moment to propagate, the same reason the MCP discovery
+      # check below retries.
       - name: Verify marketing Site
         # APEX_ORIGIN and APP_ORIGIN must equal the constants in
         # packages/domain/src/origins.ts — a workflow cannot import it, so
         # `canonical-origins.test.ts` asserts it.
+        #
+        # Deliberately no `steps.site.outputs.deployment-url`. That output is a single
+        # URL the action picks out of whatever Wrangler printed, and with a custom
+        # domain attached it is not reliably the `workers.dev` host — so a staging
+        # check built on it is a check on a hostname nobody can predict, and an empty
+        # one throws inside `new URL` with nothing to say. The apex is a constant
+        # `canonical-origins.test.ts` already holds against the module, it is the
+        # hostname this cutover is about, and comparing it byte-for-byte against the
+        # artifact this job built catches the failure that actually matters: a custom
+        # domain bound to the wrong Worker, or to the previous one. A second hostname
+        # on the same Worker and the same asset manifest says nothing the apex did not.
         env:
           APEX_ORIGIN: https://pocketcircle.app
-          APP_ORIGIN: https://pocketcircle.app
-          SITE_ORIGIN: ${{ steps.site.outputs.deployment-url }}
+          APP_ORIGIN: https://app.pocketcircle.app
         run: |
           node --input-type=module <<'EOF'
           import { statSync } from "node:fs";
           import { readdir, readFile } from "node:fs/promises";
-          const origin = new URL(process.env.SITE_ORIGIN).origin;
+          /**
+           * One origin, normalized, or a failure that names the variable and says what
+           * was wrong with it.
+           *
+           * `new URL` on a bad value throws a `TypeError` about the value, several
+           * steps from the variable that is actually wrong — which on a release is the
+           * difference between a message naming `APEX_ORIGIN` and one that reads as a
+           * bug in this script. Normalizing here also means every fetch below is built
+           * from a bare origin rather than from whatever the environment happened to
+           * spell, so a trailing slash or a path in a value cannot quietly become a
+           * request for something other than what was checked.
+           */
+          function requireOrigin(raw, name) {
+            let url;
+            try {
+              url = new URL(raw ?? "");
+            } catch {
+              throw new Error(
+                `${name} is not a URL: ${JSON.stringify(raw)} — a workflow cannot import packages/domain/src/origins.ts, and canonical-origins.test.ts asserts these values match it`,
+              );
+            }
+            return url.origin;
+          }
+
+          const apex = requireOrigin(process.env.APEX_ORIGIN, "APEX_ORIGIN");
+          const app = requireOrigin(process.env.APP_ORIGIN, "APP_ORIGIN");
+          if (apex === app) {
+            throw new Error(
+              `APEX_ORIGIN and APP_ORIGIN are both ${apex}, so this step cannot tell the marketing Site from the app — the cutover is not in effect`,
+            );
+          }
+
+          // Every product path the apex used to serve, as an apex path and the query
+          // a delivered link carries on it. Read from the built `_redirects` rather
+          // than listed here, so this checks the artifact the Worker uploaded rather
+          // than a second copy of the same list that could agree with the first and
+          // both be wrong.
+          const builtRedirects = (
+            await readFile("apps/site/dist/_redirects", "utf8")
+          )
+            .split("\n")
+            .filter((line) => line.length > 0 && !line.startsWith("#"))
+            .map((line) => {
+              const [source, destination, status] = line.split(/\s+/);
+              // One sample segment stands in for the splat on *both* sides. The
+              // request is the half that is easy to get wrong: fetching the source
+              // literally asks for a path containing `*`, which is not the URL any
+              // User has and does not exercise the rule the way a real link does.
+              //
+              // Every line is requested, so the trailing-slash twin of each exact
+              // address is proven here as well — those are the lines that stop a saved
+              // `/settings/` or `/delete-account/verify/?token=…` from being a 404 on
+              // the apex. The bare form of a splat is deliberately not requested:
+              // Workers answers `/circles` 404 whether or not a rule covers it, so
+              // the request could not tell the two apart, and nothing in the product
+              // serves that address.
+              const sample = "sample";
+              return {
+                request: source.replace("*", sample),
+                want: new URL(destination.replace(":splat", sample)).pathname,
+                status,
+              };
+            });
+          if (builtRedirects.length === 0) {
+            throw new Error("the build published no legacy redirects");
+          }
           const expected = {
             "x-frame-options": "DENY",
             "x-content-type-options": "nosniff",
             "referrer-policy": "strict-origin-when-cross-origin",
-            "x-robots-tag": "noindex",
           };
 
           // Read once, before any retry: which documents this build published is a
@@ -318,7 +488,7 @@ jobs:
             throw new Error("the build published no page other than the homepage");
           }
 
-          async function verify() {
+          async function verifyOrigin(origin) {
             const response = await fetch(`${origin}/`);
             if (!response.ok) {
               throw new Error(`homepage returned ${response.status}`);
@@ -327,6 +497,16 @@ jobs:
               if (response.headers.get(header) !== value) {
                 throw new Error(`${header} is ${response.headers.get(header)}, want ${value}`);
               }
+            }
+            // The apex is the origin Google reads for branding, and `noindex` on it
+            // is a branding failure that nothing else here would catch: the document
+            // is complete, correctly headed, and indexable in every other respect.
+            // The Site carried the header for its `workers.dev` staging hostname and
+            // the cutover deleted it with the staging role.
+            if (response.headers.get("x-robots-tag") !== null) {
+              throw new Error(
+                `${origin} sends X-Robots-Tag: ${response.headers.get("x-robots-tag")}, which keeps the marketing homepage out of search results`,
+              );
             }
             const html = await response.text();
             // What the origin serves has to be the document this job built, byte
@@ -390,14 +570,12 @@ jobs:
             // notice it 404ing, and the share would silently be a blank
             // rectangle.
             //
-            // Fetched from *this* origin, not from the URL the tag names, and
-            // that is deliberate: the tag has to name the apex for the cutover
-            // to leave the site indexable at all, and until the cutover the apex
-            // is still the product app, which answers an unmatched path with the
-            // app's own index.html and a 200. Comparing the bytes the two halves
-            // against the artifact this job built is what can be verified now, and
-            // the cutover has to move the card onto the apex Worker and drop
-            // `X-Robots-Tag` in the same change.
+            // Fetched from the origin under test rather than from the URL the tag
+            // names, and the two are the same origin now that the Site holds the
+            // apex. Before the cutover they were not: the tag had to name the apex
+            // for the site to be indexable while the apex still served the app, so
+            // this fetch used to be the only way to see the card the *Site* ships
+            // rather than the app's own index.html.
             //
             // The bytes, not the header: Cloudflare caches each asset
             // independently, so a propagated document can be served next to a card
@@ -472,11 +650,96 @@ jobs:
             }
           }
 
+          // A path the apex matches nothing for, which is what every product path
+          // used to be before `_redirects` covered it. The 404 document is checked
+          // here rather than in the loop above because the loop asks for the document
+          // at the path it is *cited* at, and this one is cited at nothing: it is the
+          // origin's answer to a URL that has no address. A Worker still on the
+          // default `not_found_handling` answers 404 with Cloudflare's own page, which
+          // is the same status and would pass any check that only looked at it.
+          async function verifyNotFound(origin) {
+            const response = await fetch(`${origin}/no-such-page-9f2c`, {
+              redirect: "manual",
+            });
+            if (response.status !== 404) {
+              throw new Error(
+                `${origin}/no-such-page-9f2c answered ${response.status}, want 404`,
+              );
+            }
+            const built = await readFile("apps/site/dist/404.html", "utf8");
+            const served = await response.text();
+            if (served !== built) {
+              throw new Error(
+                `${origin} answers an unknown path with ${served.length} characters that are not the 404 document this job built`,
+              );
+            }
+          }
+
+          // Every legacy product path, on the apex, resolving to the same path on the
+          // app origin.
+          //
+          // The query is the reason this is asserted rather than assumed. Cloudflare
+          // documents that `_redirects` cannot *match* on a query parameter and says
+          // nothing about whether an untouched one survives a plain redirect — and
+          // the Account Deletion verification link carries its token in exactly that
+          // query (`packages/convex/convex/accountDeletion.ts`). If the query were
+          // dropped, the redirect would still be a 302 to a plausible URL, this check
+          // would still see a 302, and the only symptom would be an email link that
+          // lands on the app's own error page. So each rule is fetched with a query
+          // the source cannot match on, and the `Location` is parsed rather than
+          // string-matched: the path has to survive, the query has to survive, and the
+          // host has to be the app origin and not somewhere else.
+          async function verifyRedirects(origin) {
+            for (const { request, want, status } of builtRedirects) {
+              // A query the source cannot match on, so the assertion below is about
+              // the redirect carrying one through rather than about a rule that
+              // happened to select on it.
+              const query = "?token=query-must-survive-4d1f&returnTo=%2Fcircles";
+              const response = await fetch(`${origin}${request}${query}`, {
+                redirect: "manual",
+              });
+              const location = response.headers.get("location");
+              if (response.status !== Number(status)) {
+                throw new Error(
+                  `${origin}${request} answered ${response.status}, want ${status}`,
+                );
+              }
+              if (location === null) {
+                throw new Error(`${origin}${request} answered ${status} with no Location`);
+              }
+              const landed = new URL(location);
+              if (landed.origin !== app) {
+                throw new Error(
+                  `${origin}${request} redirects to ${landed.origin}, want the app origin`,
+                );
+              }
+              if (landed.pathname !== want) {
+                throw new Error(
+                  `${origin}${request} redirects to ${landed.pathname}, want ${want}`,
+                );
+              }
+              if (landed.search !== query) {
+                throw new Error(
+                  `${origin}${request} redirects to ${landed.pathname}${landed.search || " with no query"}, want the query carried through verbatim — a dropped query silently breaks the Account Deletion verification link, which carries its token in one`,
+                );
+              }
+            }
+          }
+
+          async function verify() {
+            // The redirects and the not-found document are the apex's answers, and a
+            // custom domain is what routes those requests to this Worker at all — so
+            // they are checked here and nowhere else.
+            await verifyOrigin(apex);
+            await verifyNotFound(apex);
+            await verifyRedirects(apex);
+          }
+
           let lastError;
           for (let attempt = 1; attempt <= 12; attempt += 1) {
             try {
               await verify();
-              console.log(`Marketing Site verified at ${origin}`);
+              console.log(`Marketing Site verified at ${apex}`);
               process.exit(0);
             } catch (error) {
               lastError = error;
@@ -487,94 +750,24 @@ jobs:
           throw lastError;
           EOF
 
-      # Install verification material before deploying code that requires it.
-      # Current + previous keys let in-flight handoffs and the previously
-      # deployed Worker remain valid while the new Worker rolls out.
-      - name: Sync MCP Worker verification keys to Convex
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          MCP_WORKER_HMAC_SECRET: ${{ secrets.MCP_WORKER_HMAC_SECRET }}
-          MCP_WORKER_HMAC_SECRET_PREVIOUS: ${{ secrets.MCP_WORKER_HMAC_SECRET_PREVIOUS }}
-          MCP_WORKER_VERIFYING_JWKS: ${{ secrets.MCP_WORKER_VERIFYING_JWKS }}
-          VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
-        run: |
-          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_VERIFYING_JWKS "$MCP_WORKER_VERIFYING_JWKS"
-          if [ -n "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
-            pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET_PREVIOUS "$MCP_WORKER_HMAC_SECRET_PREVIOUS"
-          fi
-          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_HMAC_SECRET "$MCP_WORKER_HMAC_SECRET"
-          if [ -z "$MCP_WORKER_HMAC_SECRET_PREVIOUS" ]; then
-            pnpm --filter @pocketcircle/convex exec convex env remove MCP_WORKER_HMAC_SECRET_PREVIOUS
-          fi
-          pnpm --filter @pocketcircle/convex exec convex env set MCP_WORKER_ORIGIN "$VITE_MCP_WORKER_ORIGIN"
-
-      # Convex before Worker: this release's web bundle needs additive Convex
-      # fields/functions (Feature Announcements, #282) immediately. Deploy the
-      # backward-compatible backend first. If Convex succeeds and the Worker
-      # fails, leave the additive backend deployed and retry the Worker. Old
-      # web code remains compatible with the new optional field and unused
-      # functions. Breaking Convex changes still use expand-contract releases.
+      # What a User gets on the app origin, asserted against the artifact this job
+      # built rather than against a status: the shell at `/`, every bundle it names,
+      # three deep links that only resolve through the Worker's SPA fallback, the web
+      # manifest and its icons, and the push service worker. Runs inside the
+      # push-delivery gate, so nothing re-enables push until the display-capable
+      # service worker is the one being served.
       #
-      # Push delivery pauses until the Cloudflare assets (display-capable
-      # push-sw.js) are live — silent Push can make Safari revoke permission.
-      # Jobs keep enqueueing; send defers until enabled again.
-      - name: Disable Push delivery for rollout
-        id: push_gate
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: |
-          set +e
-          ERR=$(mktemp)
-          OUT=$(pnpm --filter @pocketcircle/convex exec convex env get PUSH_DELIVERY_ENABLED 2>"$ERR")
-          STATUS=$?
-          set -e
-          PREV=$(printf '%s' "$OUT" | tr -d '[:space:]')
-          if [ -n "$PREV" ]; then
-            echo "previous_captured=true" >> "$GITHUB_OUTPUT"
-            echo "previous=$PREV" >> "$GITHUB_OUTPUT"
-          elif grep -qi 'not found' "$ERR"; then
-            # Truly unset — pause as 0; no restore value to claim.
-            echo "previous_captured=false" >> "$GITHUB_OUTPUT"
-            PREV=0
-          else
-            # Auth/transport flake — do not pause without a restore path.
-            echo "convex env get PUSH_DELIVERY_ENABLED failed (status=$STATUS):" >&2
-            cat "$ERR" >&2
-            rm -f "$ERR"
-            exit 1
-          fi
-          rm -f "$ERR"
-          pnpm --filter @pocketcircle/convex exec convex env set PUSH_DELIVERY_ENABLED 0
-
-      - name: Deploy Convex production backend
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-        run: pnpm --filter @pocketcircle/convex exec convex deploy -y
-
-      - name: Deploy product app Worker
-        uses: cloudflare/wrangler-action@v4
-        with:
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          wranglerVersion: "4.121.0"
-
-      # What a User gets on the two hosts the app is served from (ADR 0035), asserted
-      # against the artifact this job built rather than against a status: the shell at
-      # `/`, every bundle it names, three deep links that only resolve through the
-      # Worker's SPA fallback, the web manifest, and the push service worker. Runs
-      # inside the push-delivery gate, so nothing re-enables push until the
-      # display-capable service worker is the one being served.
-      #
-      # The apex is asserted only until the cutover hands it to the marketing Site; the
-      # app-origin half outlives it, and the apex half goes with that deploy.
+      # One host, since the ADR 0035 cutover: the apex is the marketing Site's, and
+      # the marketing Site's own check above is what asserts what a visitor gets
+      # there. The manifest is the reason that split is clean — `start_url` and
+      # `scope` are relative, so the app scopes its own origin and an install from
+      # `app.` cannot launch the marketing homepage.
       - name: Verify product app origins
-        # APP_ORIGIN and MIGRATION_APP_ORIGIN must equal the constants in
-        # packages/domain/src/origins.ts — a workflow cannot import it, so
-        # `canonical-origins.test.ts` asserts it. The same two literals are what the
-        # configuration check above requires auth to already trust.
+        # APP_ORIGIN must equal the constant in packages/domain/src/origins.ts — a
+        # workflow cannot import it, so `canonical-origins.test.ts` asserts the match.
+        # It is the same literal the configuration check above requires auth to trust.
         env:
-          APP_ORIGIN: https://pocketcircle.app
-          MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
+          APP_ORIGIN: https://app.pocketcircle.app
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from "node:fs/promises";
@@ -582,9 +775,7 @@ jobs:
           // Normalizing through `new URL` fails the step immediately, before any retry, if
           // an origin above is missing or is not a bare origin — a value that silently
           // became "undefined" would otherwise fetch nothing and pass.
-          const origins = [process.env.APP_ORIGIN, process.env.MIGRATION_APP_ORIGIN].map(
-            (value) => new URL(value).origin,
-          );
+          const origins = [new URL(process.env.APP_ORIGIN).origin];
 
           // Read once, before any retry, like the Site's check above: which documents,
           // which assets, and which header policy this build ships is a property of the
@@ -716,9 +907,11 @@ jobs:
 
             await fetchBuilt("/push-sw.js", builtPushServiceWorker);
 
-            // Relative id and scope, so each host scopes its own origin: a manifest naming
-            // one host absolutely would install a PWA that launches another, and the deep
-            // links above would not cover the launch.
+            // Relative id and scope, so this host scopes its own origin. That is what
+            // makes the manifest correct on the app origin without being edited at the
+            // cutover: a manifest naming a host absolutely would install a PWA that
+            // launches the marketing homepage, and the deep links above would not cover
+            // the launch.
             const manifest = await fetch(`${origin}/site.webmanifest`, { redirect: "manual" });
             if (manifest.status !== 200) {
               throw new Error(`${origin}/site.webmanifest answered ${manifest.status}`);
@@ -745,7 +938,8 @@ jobs:
           // A hostname Cloudflare has just been asked for has to resolve and present its
           // certificate before the first request is answered, and both outlast the sixty
           // seconds the Site and MCP checks allow — so this one waits longer. The first
-          // release that claims the subdomain is the release that needs it.
+          // release that claims a hostname is the release that needs it, and after the
+          // cutover that is the marketing Site claiming the apex.
           const ATTEMPTS = 30;
           const RETRY_MS = 10_000;
 
