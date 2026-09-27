@@ -7,6 +7,8 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-09-27
+
 ### Changed
 
 - **The app moved to `app.pocketcircle.app`, and `pocketcircle.app` is now the PocketCircle homepage.** Everything public — the homepage, Privacy, Terms, Support, What's New — is on the plain address now, and the signed-in app lives on `app.`. Your Circles, Transactions, and history are all exactly where you left them; nothing moved but the address bar.
