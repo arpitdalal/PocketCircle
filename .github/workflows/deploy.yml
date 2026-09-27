@@ -505,12 +505,164 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: pnpm --filter @pocketcircle/convex exec convex deploy -y
 
-      - name: Deploy Cloudflare Worker
+      - name: Deploy product app Worker
         uses: cloudflare/wrangler-action@v4
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4.121.0"
+
+      # What a User gets on the two hosts the app is served from (ADR 0035), asserted
+      # against the artifact this job built rather than against a status code: the
+      # app shell at `/`, three deep links that only resolve through the Worker's SPA
+      # fallback, and the manifest and push service worker an installed PWA needs on
+      # a host it has never seen. Bytes, because Cloudflare caches each asset
+      # independently — a propagated document served next to a stale one looks exactly
+      # like a pass. The first request to the subdomain is also what proves the DNS
+      # record and certificate wrangler provisioned for it, so this step is where a
+      # token without DNS edit fails loudly rather than at the next deploy. Retries
+      # because the asset manifest takes a moment to propagate, the same reason the
+      # Site and MCP checks retry.
+      #
+      # The apex is asserted only until the cutover hands it to the marketing Site;
+      # the app-origin half outlives it, and the apex half goes with that deploy.
+      - name: Verify product app origins
+        # APP_ORIGIN and MIGRATION_APP_ORIGIN must equal the constants in
+        # packages/domain/src/origins.ts — a workflow cannot import it, so
+        # `canonical-origins.test.ts` asserts it.
+        env:
+          APP_ORIGIN: https://pocketcircle.app
+          MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFile } from "node:fs/promises";
+
+          // Normalizing through `new URL` fails the step immediately, before any
+          // retry, if an origin above is missing or is not a bare origin — a value
+          // that silently became "undefined" would otherwise fetch nothing and pass.
+          const origins = [process.env.APP_ORIGIN, process.env.MIGRATION_APP_ORIGIN].map(
+            (value) => new URL(value).origin,
+          );
+
+          // Read once, before any retry, like the Site's check above: which documents
+          // and which header policy this build ships is a property of the artifact, and
+          // waiting cannot change it.
+          const shell = (await readFile("apps/web-app/build/client/index.html")).toString("utf8");
+          const headerPolicy = (await readFile("apps/web-app/public/_headers", "utf8"))
+            .split(/\n\s*\n/)
+            .map((rule) => rule.trim())
+            .find((rule) => rule.startsWith("/*"));
+          if (headerPolicy === undefined) {
+            throw new Error("the product _headers file has no /* rule");
+          }
+          // The policy is read from the file the Worker applies rather than restated,
+          // so this cannot pass against a header set the app no longer ships.
+          const expectedHeaders = Object.fromEntries(
+            headerPolicy
+              .split("\n")
+              .slice(1)
+              .map((line) => {
+                const separator = line.indexOf(":");
+                return [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
+              }),
+          );
+
+          // One deep link of each shape the app hands out, at the shape it hands them
+          // out in: a Circle Transaction, the same Transaction's edit form carrying the
+          // filtered ledger it was opened from, and a search with filters. None of these
+          // has a file behind it, so every one of them is answered by
+          // `not_found_handling: "single-page-application"` — the whole of what makes a
+          // cold load of a shared or bookmarked link work, on either host.
+          const deepLinks = [
+            "/circles/groceries-a1b2c3d4/transactions/coffee-a1b2c3d4",
+            "/circles/groceries-a1b2c3d4/transactions/coffee-a1b2c3d4/edit?returnTo=%2Fcircles%2Fgroceries-a1b2c3d4%2Ftransactions%3Fmonth%3D2026-03",
+            "/circles/groceries-a1b2c3d4/search?type=expense&min=10&max=250&page=1",
+          ];
+
+          async function verifyOrigin(origin) {
+            const home = await fetch(`${origin}/`, { redirect: "manual" });
+            if (home.status !== 200) {
+              throw new Error(`${origin}/ answered ${home.status}`);
+            }
+            for (const [header, value] of Object.entries(expectedHeaders)) {
+              if (home.headers.get(header) !== value) {
+                throw new Error(`${origin}: ${header} is ${home.headers.get(header)}, want ${value}`);
+              }
+            }
+            const html = await home.text();
+            if (html !== shell) {
+              throw new Error(
+                `${origin}/ is ${html.length} characters and differs from the ${shell.length} character shell this job built`,
+              );
+            }
+
+            // Redirects are not followed, which is the point of the loop: a plain fetch
+            // follows a 307 and reports 200 with the right bytes, so a Worker that
+            // answered a deep link with a hop to the homepage would pass every other
+            // assertion here. The shell has to be served, not reached.
+            for (const path of deepLinks) {
+              const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+              if (response.status !== 200) {
+                throw new Error(`${origin}${path} answered ${response.status}, want the app shell`);
+              }
+              const text = await response.text();
+              if (text !== shell) {
+                throw new Error(
+                  `${origin}${path} is ${text.length} characters and is not the app shell this job built`,
+                );
+              }
+            }
+
+            // The push service worker is registered per origin, and the manifest names
+            // the install scope, so a host missing either breaks the installed PWA
+            // rather than the page. `no-cache` on the worker is not cosmetic: a cached
+            // one is how a device ends up with a push handler it cannot display, which
+            // is why the push-delivery gate below brackets this deploy.
+            const serviceWorker = await fetch(`${origin}/push-sw.js`, { redirect: "manual" });
+            if (serviceWorker.status !== 200) {
+              throw new Error(`${origin}/push-sw.js answered ${serviceWorker.status}`);
+            }
+            if (serviceWorker.headers.get("cache-control") !== "no-cache") {
+              throw new Error(
+                `${origin}/push-sw.js is served with ${serviceWorker.headers.get("cache-control")}, want no-cache`,
+              );
+            }
+
+            // Relative ids and scope, so each host scopes its own origin: a manifest that
+            // named one host absolutely would install a PWA that launches another, and
+            // the deep links above would not cover the launch.
+            const manifest = await fetch(`${origin}/site.webmanifest`, { redirect: "manual" });
+            if (manifest.status !== 200) {
+              throw new Error(`${origin}/site.webmanifest answered ${manifest.status}`);
+            }
+            const { id, start_url: startUrl, scope } = await manifest.json();
+            if (id !== "/" || startUrl !== "/" || scope !== "/") {
+              throw new Error(
+                `${origin}/site.webmanifest scopes ${id} ${startUrl} ${scope}, want / / / on every host that serves the app`,
+              );
+            }
+          }
+
+          async function verify() {
+            for (const origin of origins) {
+              await verifyOrigin(origin);
+            }
+          }
+
+          let lastError;
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              await verify();
+              console.log(`Product app verified at ${origins.join(" and ")}`);
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              console.warn(`Product app attempt ${attempt}/12 failed: ${error.message}`);
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+          }
+          throw lastError;
+          EOF
 
       - name: Enable Push delivery
         id: push_enable

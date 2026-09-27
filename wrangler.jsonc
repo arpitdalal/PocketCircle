@@ -10,6 +10,17 @@
       // config cannot import it, so `canonical-origins.test.ts` asserts the match.
       "pattern": "pocketcircle.app",
       "custom_domain": true
+    },
+    {
+      // The app subdomain the ADR 0035 cutover moves the SPA to, claimed while the
+      // apex still serves the same app, so the move is rehearsed with nothing a User
+      // can notice (#410). Must equal `MIGRATION_APP_HOSTNAME` in
+      // packages/domain/src/origins.ts; `canonical-origins.test.ts` asserts that too.
+      // Wrangler provisions the DNS record and the certificate for a custom domain,
+      // so this needs no new secret and no DNS record authored by hand. The cutover
+      // drops the apex route above and promotes this one to `APP_HOSTNAME`.
+      "pattern": "app.pocketcircle.app",
+      "custom_domain": true
     }
   ],
   "assets": {
