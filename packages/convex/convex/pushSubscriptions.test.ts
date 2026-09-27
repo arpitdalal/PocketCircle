@@ -775,6 +775,44 @@ describe("pushSubscriptions", () => {
       });
     });
 
+    it("spans more than one batch, so the sweep is not quietly one page deep", async () => {
+      // The sweep deletes in batches rather than `collect()`ing the matches, so a
+      // table with more stale rows than fit in one pass has to be fully drained by the
+      // loop. Seeding past the batch size is what proves the loop is there — an
+      // implementation that took one batch and returned would pass every other test in
+      // this block and leave the rest duplicated.
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      const staleCount = 40;
+      await t.run(async (ctx) => {
+        for (let index = 0; index < staleCount; index += 1) {
+          await seedPushSubscription(ctx, {
+            userId: user.userId,
+            endpoint: `https://fcm.googleapis.com/fcm/send/apex-${index}`,
+            createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+          });
+        }
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 1,
+        });
+      });
+
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+
+      await t.run(async (ctx) => {
+        const remaining = await listPushSubscriptionsForUser(ctx, user.userId);
+        expect(remaining.map((row) => row.endpoint)).toEqual([
+          "https://fcm.googleapis.com/fcm/send/app",
+        ]);
+      });
+    });
+
     it("leaves another User's app-origin subscription alone", async () => {
       // The retirement is a sweep by age, not by User, so a User who re-enabled Push
       // on the app origin before the step ran keeps it.

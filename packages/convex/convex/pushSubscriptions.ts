@@ -19,6 +19,17 @@ import { requireCurrentUser } from "./auth.js";
 
 const INVALID_SUBSCRIPTION = "Invalid push subscription";
 
+/**
+ * Rows retired per pass. The same shape and the same reason as
+ * `ACCOUNT_DELETION_BATCH_SIZE`: a table-wide sweep that `collect()`s first holds
+ * every match in memory at once, and a mutation has a document and time budget. A
+ * `pushSubscriptions` table is small in practice — at most
+ * {@link MAX_PUSH_SUBSCRIPTIONS_PER_USER} rows per User, and this runs once — but
+ * "small in practice" is not a bound, and a migration that exceeds a mutation's
+ * limits fails in the middle of deleting.
+ */
+const RETIRE_SUBSCRIPTIONS_BATCH_SIZE = 32;
+
 /** Expand-contract: parent tabs omit pushSwVersion; new clients send it. */
 const subscriptionFields = {
   endpoint: v.string(),
@@ -245,22 +256,47 @@ export const removeInvalidPushSubscription = internalMutation({
  * re-grant notification permission on the app origin either way, because permission
  * is per-origin, and a row that is never delivered to is a row that only misleads.
  *
- * Idempotent, and safe to re-run — a second call finds nothing older than the
- * cutoff. It is an `internalMutation` on purpose: nothing in the app should be able
- * to call it, so the only way to retire subscriptions is the deliberate one in the
- * runbook.
+ * Batched, and it says so when it cannot finish. `.take(BATCH)` per pass, in the
+ * shape `accountDeletion.ts` already uses, and no `createdAt` index: without one
+ * Convex scans the table either way, so an index would buy a schema field for a
+ * migration that runs once. The `retired` count is a floor, and re-running resumes —
+ * which is safe because the sweep deletes by age and a deleted row cannot re-enter it.
+ *
+ * The pass cap exists so that a table too large to finish fails **loudly**. That is
+ * the whole reason it is a throw and not a `return`: a retirement that stops early
+ * and reports success leaves exactly the duplicate notifications this exists to
+ * remove, and the runbook step would look like it had worked.
+ *
+ * Idempotent and resumable by construction. It is an `internalMutation` on purpose:
+ * nothing in the app should be able to call it, so the only way to retire
+ * subscriptions is the deliberate one in the runbook.
  */
 export const retirePreCutoverPushSubscriptions = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const stale = await ctx.db
+    const maxPasses = 64;
+    let retired = 0;
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      const batch = await ctx.db
+        .query("pushSubscriptions")
+        .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
+        .take(RETIRE_SUBSCRIPTIONS_BATCH_SIZE);
+      if (batch.length === 0) {
+        return { retired };
+      }
+      for (const row of batch) {
+        await ctx.db.delete(row._id);
+        retired += 1;
+      }
+    }
+    const remaining = await ctx.db
       .query("pushSubscriptions")
       .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
-      .collect();
-    for (const row of stale) {
-      await ctx.db.delete(row._id);
-    }
-    return { retired: stale.length };
+      .first();
+    throw new Error(
+      `Retired ${retired} pre-cutover push subscriptions and ${maxPasses} passes were not enough; ` +
+        `${remaining === null ? "rows remain" : "at least one row remains"}. Re-run — it resumes where it stopped.`,
+    );
   },
 });
 
