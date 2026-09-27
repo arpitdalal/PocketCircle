@@ -574,13 +574,19 @@ the origin that created it, so a pre-cutover row is invisible to everything on t
 origin: reconcile reads the current origin's registration, the endpoint stays valid so
 failed delivery never prunes it, and the per-user LRU cap only evicts once a later bind
 reaches it. Every existing Push User would otherwise get each notification twice,
-indefinitely. One idempotent call after the cutover clears them, and the User re-enables
+indefinitely. One call after the cutover clears them, and the User re-enables
 Push in Settings — which they have to do anyway, because notification permission is
 per-origin and does not carry over:
 
 ```sh
 pnpm --filter @pocketcircle/convex exec convex run prod pushSubscriptions:retirePreCutoverPushSubscriptions
 ```
+
+It reports `{"retired": N, "moreScheduled": true}` while it has more to do and drains
+the rest itself — one bounded batch per transaction, because a Convex mutation that
+throws rolls back everything it wrote, so a sweep cannot be "loud about not finishing"
+from inside a single call. Run it a second time to confirm the settled state:
+`{"retired": 0, "moreScheduled": false}`.
 
 An **installed PWA does not move**, and this is a platform limit rather than a choice
 here. A browser records the manifest URL and the resolved `start_url` at install time
