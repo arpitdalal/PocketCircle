@@ -47,9 +47,27 @@ requireHtml("index.html", [
   "Continue with Google",
 ]);
 
+/**
+ * The app origin's own crawl directives. Checked for *content*, not just presence,
+ * because the failure that matters here is a robots.txt that exists but is too
+ * permissive: the marketing Site's directives are generated from the page list, and
+ * this one is checked in, so nothing else would notice it being loosened.
+ *
+ * Also the check that the SPA fallback has not started answering `/robots.txt` with
+ * the app shell, which is what an absent file produces.
+ */
+const robots = readFileSync(join(clientDir, "robots.txt"), "utf8");
+if (!/^User-agent: \*$/m.test(robots) || !/^Disallow: \/$/m.test(robots)) {
+  throw new Error(
+    "robots.txt does not disallow everything on the app origin: the public surfaces are the marketing Site's, and the shell behind the auth gate is a near-duplicate of its homepage",
+  );
+}
+
 requireHtml("privacy/index.html", ["Privacy Policy", "Information we collect"]);
 requireHtml("terms/index.html", ["Terms &amp; Conditions"]);
 requireHtml("support/index.html", ["Support", MCP_RESOURCE_URI]);
 requireHtml("whats-new/index.html", ["What&#x27;s new"]);
 
-console.log("Branding HTML ok (index + privacy + terms + support + whats-new).");
+console.log(
+  "Branding HTML ok (index + privacy + terms + support + whats-new + app-origin robots).",
+);

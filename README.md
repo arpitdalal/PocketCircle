@@ -299,8 +299,14 @@ palette, font, and shape from
 [`packages/brand/src/tokens.css`](packages/brand/src/tokens.css), which
 `tokens.test.ts` guards against redefinition, and the site build derives its
 `_headers` from the product's, so the two origins serve one security-header
-policy. ADR 0035 covers the cutover that eventually moves the apex to this site.
-It needs no extra Cloudflare permission: no route, no binding, no secret.
+policy. It claims the apex as a **custom domain**, which is what the cutover
+(#411) needed and what no earlier step did — so the `CLOUDFLARE_API_TOKEN` needs
+Zone → Workers Routes → Edit, which the existing token already carries for
+`app.pocketcircle.app`, and wrangler provisions the DNS record and the
+certificate. No binding and no secret. `workers_dev` stays on, so the Site is
+reachable on a non-apex hostname for inspection and as a rollback handle; the
+release verifies on the apex, because that is the only origin where a wrong
+answer is possible.
 
 Configure the GitHub `production` environment before the first deployment:
 
@@ -542,12 +548,39 @@ names the apex and the app origin is trusted through `MIGRATION_APP_ORIGIN`; the
 deploy's configuration check accepts either variable naming the host the product
 Worker claims, so it holds on both sides of the flip.
 
+**The MCP Worker trusts both app origins for the length of the handover**, which is why
+nothing above is racing the release job. `APP_ORIGIN` moves to the app subdomain in
+the cutover, but the MCP Worker is not one of the two Workers in the handover and not
+the first step of the release, so between the apex handover and the MCP Worker deploy
+the app is served from the subdomain by a Worker that still names the apex alone — and
+its consent, revoke, and handoff endpoints answer 403 to the only origin a User can
+reach, for as long as that lasts and for good if a verification step in between fails.
+`RETIRED_APP_ORIGIN` in `packages/mcp-worker/wrangler.jsonc` keeps the apex trusted
+alongside, so the outcome no longer depends on deploy order.
+`canonical-origins.test.ts` fails the build if that variable is removed without the
+allowance next to it, so it comes out deliberately — in the deploy **after** the
+cutover is confirmed, with the second trusted Convex origin (#412), not in the
+cutover's own deploy.
+
 The flip is what the release notes call out: **every User is signed out once.** The
 session lives in origin-scoped `localStorage`, which no cookie setting can share
 across origins, so nothing on the server is invalidated and re-auth is one Continue
 with Google tap. Data, Circle history, MCP grants, and email delivery are untouched.
 Device-local keys (last-used Google email, the PWA prompt and
 notification-announcement dismissals) reset.
+
+**Push is duplicated until one retirement step runs.** A Push subscription belongs to
+the origin that created it, so a pre-cutover row is invisible to everything on the app
+origin: reconcile reads the current origin's registration, the endpoint stays valid so
+failed delivery never prunes it, and the per-user LRU cap only evicts once a later bind
+reaches it. Every existing Push User would otherwise get each notification twice,
+indefinitely. One idempotent call after the cutover clears them, and the User re-enables
+Push in Settings — which they have to do anyway, because notification permission is
+per-origin and does not carry over:
+
+```sh
+pnpm --filter @pocketcircle/convex exec convex run prod pushSubscriptions:retirePreCutoverPushSubscriptions
+```
 
 An **installed PWA does not move**, and this is a platform limit rather than a choice
 here. A browser records the manifest URL and the resolved `start_url` at install time

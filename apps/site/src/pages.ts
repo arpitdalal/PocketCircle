@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { collectFiles } from "@pocketcircle/dev-tools/repo-walk";
 
 /**
  * The Site's pages, and the apex path each one answers on.
@@ -25,16 +25,14 @@ import { join } from "node:path";
 export const packageRoot = join(import.meta.dirname, "..");
 
 /**
- * Directories that hold no authored page, excluded by name rather than by depth so
- * a page nested in a subdirectory is still found:
- *
- * - `dist` and `node_modules`: the build's own output and the installed packages.
- * - `coverage`: a coverage report is HTML too, and `vitest --coverage` writes one
- *   into this package.
- * - `public`: copied verbatim into the output, so an HTML file in it is a served
- *   asset rather than a page of the Site.
+ * The one directory this walk needs beyond the shared skip list: `public` is copied
+ * verbatim into the output, so an HTML file in it is a served asset rather than a
+ * page of the Site. `dist`, `node_modules`, and `coverage` are already in
+ * `@pocketcircle/dev-tools/repo-walk`'s list, which is the point of using it — a
+ * second skip list here is a second thing to forget when a generated directory
+ * appears.
  */
-const NOT_SOURCES = new Set(["coverage", "dist", "node_modules", "public"]);
+const PAGE_WALK = { skipDirectories: ["public"], skipDotDirectories: true } as const;
 
 /**
  * The document the Worker serves for a path that matches no page and no legacy
@@ -48,34 +46,17 @@ const NOT_SOURCES = new Set(["coverage", "dist", "node_modules", "public"]);
  */
 export const NOT_FOUND_PAGE = "404.html";
 
-/** Every authored page, as a path relative to the package root, sorted. */
+/**
+ * Every authored page, as a path relative to the package root, sorted.
+ *
+ * The shared walk descends only into directories that can hold a page rather than
+ * reading the whole tree and filtering afterwards. That is not a micro-optimisation:
+ * `readdirSync` with `recursive: true` walks `node_modules` and `dist` in full
+ * before a filter sees them, and this list is read by the build, by
+ * `assert-site-html.mjs`, and by three test files.
+ */
 export function sitePageFiles() {
-  const found: string[] = [];
-  /**
-   * Descends only into directories that can hold an authored page, rather than
-   * reading the whole tree and filtering afterwards. `readdirSync` with
-   * `recursive: true` walks `node_modules` and `dist` in full before the filter
-   * sees them, so every call paid for the installed tree — which is why this reads
-   * like `dev-tools/repo-walk.ts`, which walks the repo for the origin and token
-   * guards the same way and for the same reason.
-   */
-  const walk = (directory: string) => {
-    for (const entry of readdirSync(join(packageRoot, directory), { withFileTypes: true })) {
-      const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
-      if (entry.isDirectory()) {
-        // A dotfile directory is the toolchain's or the editor's rather than a
-        // source of pages — `.git`, `.vite`, `.wrangler` — and nothing authored is
-        // hidden in one.
-        if (!NOT_SOURCES.has(entry.name) && !entry.name.startsWith(".")) {
-          walk(path);
-        }
-      } else if (entry.name.endsWith(".html")) {
-        found.push(path);
-      }
-    }
-  };
-  walk("");
-  return found.sort();
+  return collectFiles(packageRoot, (fileName) => fileName.endsWith(".html"), PAGE_WALK);
 }
 
 /**

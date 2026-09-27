@@ -14,6 +14,29 @@ export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
 export const DEFAULT_VAPID_KEY_ID = "primary";
 
 /**
+ * When the product app became reachable on its own origin (ADR 0035, #411).
+ *
+ * A Push subscription is bound to the *origin* that created it: the permission, the
+ * `push-sw.js` registration, and the endpoint all live there. So every row created
+ * before this instant belongs to the retired apex, and nothing running on the app
+ * origin can refresh or remove one — reconcile reads the current origin's
+ * registration, and the endpoint stays valid as long as the browser holds it, so
+ * failed delivery never prunes it either. The per-user LRU cap only evicts once a
+ * later bind reaches it, which for a User with two rows and a cap of ten is never.
+ *
+ * The result would be every existing Push User receiving each notification twice,
+ * indefinitely. `retirePreCutoverPushSubscriptions` deletes those rows once, after
+ * the cutover, and the User re-enables Push on the app origin — which they have to do
+ * regardless, because notification permission is per-origin and does not carry over.
+ *
+ * A plain instant rather than a configuration value, because it is a historical fact
+ * rather than a deployment choice, and because a value in `convex env` is one more
+ * thing that can be set wrong in a release. A *future* origin move needs the same
+ * treatment with its own instant; there is no code path that infers one.
+ */
+export const PUSH_APP_ORIGIN_LIVE_AT_MS = Date.UTC(2026, 8, 27);
+
+/**
  * push-sw.js must report at least this version before a subscription is
  * delivery-eligible after `PUSH_DELIVERY_SINCE_MS` is set. Covers display
  * (#382) and authenticated click routing (#384). Parent-release tabs can bump

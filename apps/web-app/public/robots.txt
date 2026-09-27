@@ -1,0 +1,24 @@
+# The product app origin has nothing to index. (Named without a scheme: this file is
+# scanned by `canonical-origins.test.ts`, which is right to hold every public origin
+# in `packages/domain/src/origins.ts` and nowhere else.)
+#
+# Everything public lives on the apex, which is the marketing Site and publishes its
+# own robots.txt and sitemap (ADR 0035, #411). This origin is the authenticated SPA
+# behind Cloudflare's `single-page-application` fallback, so the only HTML it can
+# produce for an unmatched path is its own shell — the same marketing copy the apex
+# serves at `/`. Left without a file here, a crawler asking this origin for
+# `/robots.txt` gets that shell back with a 200, and the near-duplicate homepage
+# behind an auth gate becomes indexable.
+#
+# Checked in rather than generated: this is a constant, it names no origin, and a
+# generated file would be a second mechanism for a directive that never changes. It
+# is deliberately NOT an `X-Robots-Tag` header, because the marketing Site derives its
+# `_headers` from this package's global `/*` rule and would inherit the header along
+# with it — which is precisely the trap the Site's own `security-headers.ts` used to
+# guard against when it carried a staging `noindex`.
+#
+# `apps/web-app/scripts/assert-branding-html.mjs` asserts the content below, so a
+# loosened directive fails the build rather than shipping.
+
+User-agent: *
+Disallow: /

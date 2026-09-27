@@ -30,6 +30,19 @@ import { pagePath, sitePageFiles } from "./pages.js";
  * silently replace that document with a redirect to the app. The test asserts no
  * rule does.
  *
+ * Every address is written **twice**, once bare and once with a trailing slash, and
+ * that is the one thing here that is not obvious. The apex used to be an SPA behind
+ * Cloudflare's `single-page-application` fallback, so *any* path served the shell and
+ * React Router accepted `/settings/` and `/signin/` as readily as `/settings`. A
+ * saved, bookmarked, or hand-typed trailing-slash form was a working PocketCircle
+ * link, and after the handover it matches no rule here and no document on the Site:
+ * a 404. `_redirects` cannot say "this path, optionally slashed", so the twin is
+ * emitted as its own rule and {@link apexForms} is what keeps the two in step.
+ *
+ * A splat already covers its own trailing-slash form — `/circles/*` matches
+ * `/circles/` — which `legacy-redirects.test.ts` verifies against the runtime rather
+ * than assuming, because it is the reason only exact rules need the twin.
+ *
  * The destination is built from `APP_ORIGIN` rather than written out, so the origin
  * migration #404 made a one-line change stays a one-line change here — and so this
  * file, which has no extension and so is not one of the source types
@@ -78,6 +91,18 @@ export function isSplat(source: string) {
 }
 
 /**
+ * Every apex address one rule answers for.
+ *
+ * A splat serves its own trailing-slash form, so it yields one address; an exact
+ * rule yields two — the bare path and the slashed one — both handing off to the same
+ * canonical app path. Deriving this instead of writing 26 rules by hand is what keeps
+ * the pair from drifting: a new exact path cannot be added in one spelling.
+ */
+export function apexForms({ source }: LegacyRedirect): string[] {
+  return isSplat(source) ? [source] : [source, `${source}/`];
+}
+
+/**
  * A redirect source as a matcher over concrete paths, for the test that holds this
  * list against the product's route tree.
  *
@@ -96,7 +121,11 @@ export function sourceMatcher(source: string) {
 
 /** The `_redirects` document the Workers asset manifest reads, comments and all. */
 export function redirectsFile() {
-  const order = [...LEGACY_REDIRECTS].sort(
+  // One entry per emitted rule: a bare form and its slashed twin carry the same
+  // destination, and Cloudflare wants the statics ahead of the splats.
+  const rules = LEGACY_REDIRECTS.flatMap((redirect) =>
+    apexForms(redirect).map((source) => ({ source, path: redirect.path })),
+  ).sort(
     (a, b) =>
       Number(isSplat(a.source)) - Number(isSplat(b.source)) || a.source.localeCompare(b.source),
   );
@@ -107,7 +136,7 @@ export function redirectsFile() {
     "# Generated from apps/site/src/legacy-redirects.ts — the destinations come from",
     "# APP_ORIGIN, so the origin migration stays a one-line change. The list is held",
     "# against apps/web-app/app/routes.ts by src/legacy-redirects.test.ts.",
-    ...order.map(({ source, path }) => `${source}  ${APP_ORIGIN}${path}  ${REDIRECT_STATUS}`),
+    ...rules.map(({ source, path }) => `${source}  ${APP_ORIGIN}${path}  ${REDIRECT_STATUS}`),
   ].join("\n")}\n`;
 }
 

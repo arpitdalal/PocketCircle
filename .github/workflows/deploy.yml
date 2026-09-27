@@ -448,6 +448,14 @@ jobs:
               // request is the half that is easy to get wrong: fetching the source
               // literally asks for a path containing `*`, which is not the URL any
               // User has and does not exercise the rule the way a real link does.
+              //
+              // Every line is requested, so the trailing-slash twin of each exact
+              // address is proven here as well — those are the lines that stop a saved
+              // `/settings/` or `/delete-account/verify/?token=…` from being a 404 on
+              // the apex. The bare form of a splat is deliberately not requested:
+              // Workers answers `/circles` 404 whether or not a rule covers it, so
+              // the request could not tell the two apart, and nothing in the product
+              // serves that address.
               const sample = "sample";
               return {
                 request: source.replace("*", sample),

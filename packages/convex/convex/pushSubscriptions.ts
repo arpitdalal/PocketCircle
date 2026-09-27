@@ -3,6 +3,7 @@ import {
   isValidPushSubscriptionMaterial,
   isValidVapidPublicKey,
   MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  PUSH_APP_ORIGIN_LIVE_AT_MS,
   PUSH_DISPLAY_SW_VERSION,
 } from "@pocketcircle/domain";
 import { v } from "convex/values";
@@ -223,6 +224,43 @@ export const removeInvalidPushSubscription = internalMutation({
       return;
     }
     await ctx.db.delete(row._id);
+  },
+});
+
+/**
+ * Retire every Push subscription registered under the retired app origin (ADR 0035,
+ * #411). Run once, after the cutover, from the runbook.
+ *
+ * A subscription is bound to the origin that made it — the permission, the
+ * `push-sw.js` registration, and the endpoint all live there — so a row created
+ * before {@link PUSH_APP_ORIGIN_LIVE_AT_MS} can never be refreshed or removed by
+ * anything running on the app origin. Reconcile reads the *current* origin's
+ * registration and cannot see the old one; the endpoint remains valid while the
+ * browser holds it, so `removeInvalidPushSubscription` never fires for it; and
+ * `makeRoomForOneSubscription` only evicts when a later bind reaches the per-user
+ * cap, which a User with two rows and a cap of ten never does. Left alone, every
+ * existing Push User gets each notification twice, for good.
+ *
+ * Deleting is the right end state rather than marking them dead: the User has to
+ * re-grant notification permission on the app origin either way, because permission
+ * is per-origin, and a row that is never delivered to is a row that only misleads.
+ *
+ * Idempotent, and safe to re-run — a second call finds nothing older than the
+ * cutoff. It is an `internalMutation` on purpose: nothing in the app should be able
+ * to call it, so the only way to retire subscriptions is the deliberate one in the
+ * runbook.
+ */
+export const retirePreCutoverPushSubscriptions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const stale = await ctx.db
+      .query("pushSubscriptions")
+      .filter((q) => q.lt(q.field("createdAt"), PUSH_APP_ORIGIN_LIVE_AT_MS))
+      .collect();
+    for (const row of stale) {
+      await ctx.db.delete(row._id);
+    }
+    return { retired: stale.length };
   },
 });
 

@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
  */
 import appRoutes from "../../web-app/app/routes.js";
 import {
+  apexForms,
   apexOwnedPaths,
   isSplat,
   LEGACY_REDIRECTS,
@@ -86,6 +87,9 @@ const matchers = LEGACY_REDIRECTS.map((redirect) => ({
   redirect,
   matches: sourceMatcher(redirect.source),
 }));
+
+/** Every apex address the file publishes a rule for, trailing-slash twins included. */
+const emittedForms = LEGACY_REDIRECTS.flatMap(apexForms);
 
 /** A concrete address for a route pattern, for matching against a source. */
 function sample(pattern: string) {
@@ -193,13 +197,49 @@ describe("every rule points at an address the product serves", () => {
     // Cloudflare resolves redirects before the asset manifest, so a rule matching
     // `/privacy` would replace the document with a hop to the app. Nothing else in the
     // build can see that: the document is still published, and still correct.
-    const shadowing = LEGACY_REDIRECTS.filter(({ source }) =>
+    //
+    // Over the *emitted* forms rather than the list, because a trailing-slash twin is
+    // a rule like any other and could shadow just as effectively.
+    const shadowing = emittedForms.filter((source) =>
       apexOwned.some((path) => sourceMatcher(source).test(path)),
     );
     expect(
-      shadowing.map(({ source }) => source),
+      shadowing,
       shadowing.length === 0 ? "" : "The apex owns these paths; a redirect outranks the asset.",
     ).toEqual([]);
+  });
+});
+
+describe("the trailing-slash form of every legacy address", () => {
+  // The apex was an SPA behind Cloudflare's `single-page-application` fallback, so it
+  // served the shell for *any* path and React Router accepted `/settings/` as readily
+  // as `/settings`. A saved or hand-typed trailing-slash link was a working
+  // PocketCircle URL; after the handover it matches no rule and no document, so it is
+  // a 404 on the marketing Site. These are the addresses that regressed silently.
+  const emitted = emittedForms.filter((source) => !isSplat(source));
+
+  it("is served for every exact rule", () => {
+    // Verified against a real Workers runtime, not inferred: `/settings/`,
+    // `/signin/`, `/delete-account/verify/?token=…` and the rest each answer 302.
+    for (const { source, path } of LEGACY_REDIRECTS.filter(({ source }) => !isSplat(source))) {
+      expect(emitted, source).toContain(`${source}/`);
+      // Both spellings hand off to the one canonical app path, so the app's router
+      // never has to know a slashed form exists.
+      const twin = redirectsFile()
+        .split("\n")
+        .find((line) => line.startsWith(`${source}/ `));
+      expect(twin, `${source}/ has no rule`).toBeDefined();
+      expect(twin, `${source}/`).toContain(`${APP_ORIGIN}${path} `);
+    }
+  });
+
+  it("needs no twin of its own for a splat, which already covers it", () => {
+    // `/circles/*` matches `/circles/` but *not* the bare `/circles` — verified
+    // against the same runtime, and the reason the twin is only for exact rules. A
+    // splat emitted a twin as well would be a rule matching nothing.
+    for (const { source } of LEGACY_REDIRECTS.filter(({ source }) => isSplat(source))) {
+      expect(emitted).not.toContain(`${source.slice(0, -1)}/`);
+    }
   });
 });
 
@@ -211,28 +251,35 @@ describe("the published _redirects document", () => {
       .split("\n")
       .filter((line) => line.length > 0 && !line.startsWith("#"))
       .map((line) => line.split(/\s+/));
-    const statics = LEGACY_REDIRECTS.filter(({ source }) => !isSplat(source));
-    const dynamics = LEGACY_REDIRECTS.length - statics.length;
+    // The ceilings are counted over the emitted rules rather than the list, because
+    // the file is what Cloudflare parses and the trailing-slash twins are rules in it.
+    const statics = emittedForms.filter((source) => !isSplat(source));
+    const dynamics = emittedForms.length - statics.length;
 
-    expect(rules).toHaveLength(LEGACY_REDIRECTS.length);
+    expect(rules).toHaveLength(emittedForms.length);
     // "Static redirects should appear before dynamic redirects" — and a splat rule
     // above an exact one would swallow it, which is the failure mode an ordering slip
     // produces rather than an error.
     expect(rules.slice(0, statics.length).every(([source]) => !source?.endsWith("/*"))).toBe(true);
     expect(rules.slice(statics.length).every(([source]) => source?.endsWith("/*"))).toBe(true);
     // Cloudflare's per-file ceilings. Far away, but a list that grew into them would
-    // be silently truncated at the last rule.
+    // be silently truncated at the last rule — at the *last* rule, silently, which is
+    // the worst place to discover a limit.
     expect(statics.length).toBeLessThan(2_000);
     expect(dynamics).toBeLessThan(100);
 
     for (const [source, destination, status] of rules) {
-      expect(
-        LEGACY_REDIRECTS.map((rule) => rule.source),
-        source,
-      ).toContain(source);
+      expect(emittedForms, source).toContain(source);
+      // Every rule's destination is the app origin, spelled once from the constant.
       expect(destination, source).toMatch(new RegExp(`^${APP_ORIGIN}/`));
       expect(status, source).toBe("302");
     }
+    // No rule is written twice, and none is missing: a duplicate is dead weight and a
+    // gap is a 404, and both are invisible in a diff of a generated file.
+    expect(
+      new Set(emittedForms).size,
+      `${emittedForms.length} addresses, ${new Set(emittedForms).size} distinct`,
+    ).toBe(emittedForms.length);
     expect(file).not.toMatch(/%[A-Z_]+%/);
   });
 

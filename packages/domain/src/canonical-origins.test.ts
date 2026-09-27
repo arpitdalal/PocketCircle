@@ -55,7 +55,9 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker. Its routes are bare hostnames, which is not an origin,
   // so nothing is spelled out there — the claims are asserted below instead.
   "wrangler.jsonc": [],
-  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
+  // `RETIRED_APP_ORIGIN` is the apex, and it goes with the second trusted Convex
+  // origin in #412.
+  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN, APEX_ORIGIN],
   // `MIGRATION_APP_ORIGIN` is the same string as `APP_ORIGIN` since the cutover, so
   // one allowance covers both; a third entry would only be a duplicate that rots
   // when #412 drops the variable.

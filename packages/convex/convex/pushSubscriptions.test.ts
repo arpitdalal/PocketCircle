@@ -1,4 +1,4 @@
-import { MAX_PUSH_SUBSCRIPTIONS_PER_USER } from "@pocketcircle/domain";
+import { MAX_PUSH_SUBSCRIPTIONS_PER_USER, PUSH_APP_ORIGIN_LIVE_AT_MS } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMockCurrentUser, signInAs } from "../test/mockAuth.js";
@@ -12,7 +12,7 @@ import {
 } from "../test/pushFixtures.js";
 import { listPushSubscriptionsForUser, seedPushSubscription } from "../test/pushSubscriptions.js";
 import { makeUser, seedPersonalCircleOwner } from "../test/seed.js";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { finalizeOnUserDelete } from "./accountDeletionFinalize.js";
 import { isSubscriptionEligibleForPushDelivery } from "./pushDelivery.js";
 import schema from "./schema.js";
@@ -691,6 +691,119 @@ describe("pushSubscriptions", () => {
     await t.run(async (ctx) => {
       expect(await listPushSubscriptionsForUser(ctx, deleting.userId)).toHaveLength(0);
       expect(await listPushSubscriptionsForUser(ctx, other._id)).toHaveLength(1);
+    });
+  });
+
+  // ADR 0035, #411. A Push subscription belongs to the origin that made it, and the
+  // app origin cannot see the apex's — so a pre-cutover row is never refreshed,
+  // never invalidated, and never evicted by the per-user cap. Left alone, every
+  // existing Push User gets each notification twice, indefinitely.
+  describe("retiring subscriptions from the retired app origin", () => {
+    it("removes rows created before the app origin went live, and keeps later ones", async () => {
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+
+      await t.run(async (ctx) => {
+        // Before the cutoff: registered on the apex, unreachable from the app origin.
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        });
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-laptop",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 86_400_000,
+        });
+        // Exactly on the cutoff, and after it: these are the app origin's.
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS,
+        });
+        await seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app-laptop",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 1,
+        });
+      });
+
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+
+      await t.run(async (ctx) => {
+        // Membership, not order: the list is ordered by `lastSeenAt`, which the seed
+        // sets to the same instant for every row, so its order is a `_id` tie-break
+        // and not something this is about.
+        const endpoints = (await listPushSubscriptionsForUser(ctx, user.userId)).map(
+          (row) => row.endpoint,
+        );
+        expect(endpoints).toHaveLength(2);
+        expect(endpoints).toContain("https://fcm.googleapis.com/fcm/send/app-phone");
+        expect(endpoints).toContain("https://fcm.googleapis.com/fcm/send/app-laptop");
+      });
+    });
+
+    it("is idempotent, so re-running the runbook step is free", async () => {
+      const t = convexTest(schema, modules);
+      const user = await t.run((ctx) =>
+        seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+      );
+      await t.run((ctx) =>
+        seedPushSubscription(ctx, {
+          userId: user.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex-phone",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        }),
+      );
+
+      const retire = () =>
+        mutateAndDrain(t, () =>
+          t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+        );
+
+      expect(await retire()).toEqual({ retired: 1 });
+      // The second run finds nothing older than the cutoff and changes nothing —
+      // which is what makes this safe to put in a runbook that a person follows by
+      // hand and might run twice.
+      expect(await retire()).toEqual({ retired: 0 });
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, user.userId)).toHaveLength(0);
+      });
+    });
+
+    it("leaves another User's app-origin subscription alone", async () => {
+      // The retirement is a sweep by age, not by User, so a User who re-enabled Push
+      // on the app origin before the step ran keeps it.
+      const t = convexTest(schema, modules);
+      const [first, second] = await t.run(async (ctx) => [
+        await seedPersonalCircleOwner(ctx, { email: "ada@example.com", displayName: "Ada" }),
+        await seedPersonalCircleOwner(ctx, { email: "bob@example.com", displayName: "Bob" }),
+      ]);
+      await t.run(async (ctx) => {
+        await seedPushSubscription(ctx, {
+          userId: first.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/apex",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS - 1,
+        });
+        await seedPushSubscription(ctx, {
+          userId: second.userId,
+          endpoint: "https://fcm.googleapis.com/fcm/send/app",
+          createdAt: PUSH_APP_ORIGIN_LIVE_AT_MS + 5_000,
+        });
+      });
+
+      await mutateAndDrain(t, () =>
+        t.mutation(internal.pushSubscriptions.retirePreCutoverPushSubscriptions, {}),
+      );
+
+      await t.run(async (ctx) => {
+        expect(await listPushSubscriptionsForUser(ctx, first.userId)).toHaveLength(0);
+        expect(await listPushSubscriptionsForUser(ctx, second.userId)).toHaveLength(1);
+      });
     });
   });
 });

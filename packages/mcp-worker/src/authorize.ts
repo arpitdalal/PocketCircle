@@ -49,7 +49,8 @@ const revokeRequestSchema = z.object({
 
 function corsHeaders(env: Env, requestOriginHeader: string | null) {
   const allowOrigin =
-    requestOriginHeader && browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN)
+    requestOriginHeader &&
+    browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN, env.RETIRED_APP_ORIGIN)
       ? requestOriginHeader
       : env.APP_ORIGIN;
   return {
@@ -344,7 +345,10 @@ export const defaultHandler = {
       url.pathname === "/authorize/deny" ||
       url.pathname === "/authorize/handoff" ||
       url.pathname === "/revoke";
-    if (browserEndpoint && !browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN)) {
+    if (
+      browserEndpoint &&
+      !browserOriginAllowed(requestOriginHeader, env.APP_ORIGIN, env.RETIRED_APP_ORIGIN)
+    ) {
       return new Response("Forbidden", { status: 403, headers: { "cache-control": "no-store" } });
     }
     if (browserEndpoint && request.method === "OPTIONS") {
