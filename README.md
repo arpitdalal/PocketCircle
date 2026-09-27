@@ -211,7 +211,8 @@ Local install is not public directory publication.
 
 Production uses the default provider URLs documented in ADR 0007:
 
-- Web: `https://pocketcircle.app`
+- Web: `https://pocketcircle.app` and `https://app.pocketcircle.app` (both serve the
+  product app; see the origin migration below)
 - API: the production deployment's `*.convex.cloud` URL
 - Auth/HTTP actions: the same production deployment's `*.convex.site` URL
 
@@ -224,9 +225,50 @@ canonical record.
 
 `.github/workflows/deploy.yml` validates and builds the app, deploys the Convex
 backend, publishes `apps/web-app/build/client` as Cloudflare Worker static
-assets, then deploys and smoke-tests the MCP Worker, and finally publishes the
-marketing site. Cloudflare's `single-page-application` fallback in
-`wrangler.jsonc` serves `index.html` for direct navigation to client routes.
+assets and verifies both app origins, then deploys and smoke-tests the MCP
+Worker, and finally publishes the marketing site. Cloudflare's
+`single-page-application` fallback in `wrangler.jsonc` serves `index.html` for
+direct navigation to client routes.
+
+The product app is served from **two** hosts: the apex and
+`https://app.pocketcircle.app`, both claimed as custom domains by the same
+Worker, which has no Worker script and so costs no invocations for either. That
+is rehearsal for the [ADR 0035](docs/adr/0035-static-marketing-site-on-apex-and-product-spa-on-app-subdomain.md)
+cutover (#410): the app subdomain is deployed and verified while the apex is
+still the app, so the eventual handover is a formality instead of a one-shot
+migration. The app's own links, the MCP Worker's consent redirect, and the
+marketing homepage's sign-in button all still name the apex, and the apex is not
+redirected to the subdomain. Sign-in works on either host, because the callback
+follows the origin the User started from, so one who lands on the subdomain is
+handed back to it.
+
+After the product Worker deploy, the workflow fetches the app shell, every bundle
+it names, three deep links (a Transaction, its edit link with its filters, and a
+filtered search), the web manifest and its icons, and the push service worker
+from **both** origins and compares the bytes to the artifact the same job built,
+so DNS, TLS, the SPA fallback, the header policy, and push are checked on the new
+host rather than assumed. Before any of that, the configuration check reads
+`MIGRATION_APP_ORIGIN` off the production Convex deployment and fails the release
+if auth does not already trust the subdomain the Worker is about to claim.
+
+Four things are still the apex's alone, and each moves at the cutover:
+
+- The app's legal and support chrome still names the apex — the agreement a User
+  accepts before signing in, the marketing shell's footer, Support. Following one
+  of those links from the subdomain hands the User back to the apex, where
+  `/privacy`, `/terms`, `/support`, and `/whats-new` are the **Apex**'s by
+  ADR 0035.
+- MCP consent is refused from the subdomain. The MCP Worker's `APP_ORIGIN` is the
+  apex, so its origin allowlist has no second host and the browser reports a CORS
+  failure the app cannot explain.
+- Push is granted per origin, so a User who allows notifications on both hosts
+  holds two subscriptions and receives each notification twice. Nothing links
+  Users to the subdomain during the window, so it takes a User visiting it and
+  opting in.
+- The subdomain serves the same documents as the apex, and a `noindex` header
+  cannot be given to one host and not the other without putting a Worker script
+  back on the app (ADR 0007), so crawlers can see both copies until the cutover
+  settles the SEO surface.
 
 The marketing site is its own Worker (`apps/site/wrangler.jsonc`): static HTML
 from `pnpm --filter @pocketcircle/site build`, no Worker script, and
@@ -283,9 +325,19 @@ GitHub Actions variables or committed configuration.
 
 The Cloudflare token needs `Account → Workers Scripts → Edit` and
 `Account → Workers KV Storage → Edit`, scoped to the deployment account. The
-root web Worker also needs `Zone → Workers Routes → Edit`, scoped to
-`pocketcircle.app`. The Convex key needs only `deployment:deploy`, scoped to the
-production deployment.
+root web Worker also needs `Zone → Workers Routes → Edit` and `Zone → DNS →
+Edit`, scoped to `pocketcircle.app`: attaching a custom domain makes Cloudflare
+create the DNS record for it, so a token that can attach the apex can attach a
+subdomain and one that cannot write DNS cannot. (Cloudflare's API reference
+documents the attach itself as `Account → Workers Scripts → Edit`; DNS edit is
+the scope that covers the record it creates.) No GitHub secret is added for
+this. Confirm both scopes **before** the first release that claims
+`app.pocketcircle.app`: the attach happens in the product Worker deploy, after
+the Convex deploy and with push delivery paused, and wrangler's error does not
+name the scope it is missing. Note too that wrangler is non-interactive in CI,
+so it overrides a conflicting DNS record — or an existing custom domain — on that
+hostname rather than asking. Make sure nothing else already answers there. The
+Convex key needs only `deployment:deploy`, scoped to the production deployment.
 
 Configure these GitHub Actions variables with the URLs shown by the Convex
 production deployment:
@@ -422,13 +474,13 @@ That callback URL is the only one: sign-in returns to whichever app origin the
 User started from, but Google always redirects to the auth deployment, so no
 per-app-origin redirect URI is needed or allowed.
 
-**Authorized JavaScript origins.** Add every origin the app is served from — today
-`https://pocketcircle.app`, and `https://app.pocketcircle.app` from the cutover
-on. This app signs in with a server-side redirect rather than the Google
-JavaScript library, so the list is not what gates sign-in (the auth deployment's
-own origin check is — see the migration note below); keep it current anyway, so
-the client stays valid if that ever changes and branding verification sees a
-consistent client.
+**Authorized JavaScript origins.** Add every origin the app is served from: both
+`https://pocketcircle.app` and `https://app.pocketcircle.app`, which the product
+Worker claims at the same time (#410). This app signs in with a server-side
+redirect rather than the Google JavaScript library, so the list is not what gates
+sign-in (the auth deployment's own origin check is — see the migration note
+below); keep it current anyway, so the client stays valid if that ever changes and
+branding verification sees a consistent client.
 
 **Origin migration (temporary, [ADR 0035](docs/adr/0035-static-marketing-site-on-apex-and-product-spa-on-app-subdomain.md)).**
 While the SPA is being moved to `https://app.pocketcircle.app`, auth has to trust
@@ -451,6 +503,20 @@ from the auth routes and sign-in fails in the browser with no detail, which also
 means a Worker `workers.dev` host and a bumped local dev port are not places sign-in
 works. Verify sign-in on a declared origin, and point `SITE_URL` at the port you are
 serving from.
+
+With the variable deployed, sign-in works on `https://app.pocketcircle.app` and
+returns the User to that host: the callback URL is resolved against the origin the
+browser is on, so a sign-in started on the subdomain is handed back to the
+subdomain, and the session stays in that origin's storage. The deploy reads this
+variable off the production deployment and refuses to release without it, because
+the product Worker claims the subdomain and an untrusted origin fails sign-in in
+the browser with nothing to show for it; the check comes out with the variable, in
+the same deploy that points `SITE_URL` at the app origin. Two things stay manual:
+completing a real Google sign-in on the subdomain (the deploy verifies the app
+there, not that a User can get in), and the Authorized JavaScript origins entry
+above. The `workers.dev` host is not a place sign-in works at all: it is not an
+origin auth trusts, and sign-in from an untrusted origin is refused rather than
+redirected.
 
 `MIGRATION_APP_ORIGIN` and `SITE_URL` each take one bare origin — no wildcard, no
 list, no path. Anything else is refused, loudly, the first time the auth routes
@@ -481,6 +547,11 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://p
 # 3. Only then drop the second origin.
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
+
+Step 2 is where the two stop covering both hosts, so the deploy's configuration
+check fails from there: drop the `app.` route in the same deploy that stops
+trusting the subdomain, or keep trusting it and nothing is untrusted. That is the
+check working, not a release to work around.
 
 Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta

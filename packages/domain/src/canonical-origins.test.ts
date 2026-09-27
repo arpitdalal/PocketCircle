@@ -34,6 +34,8 @@ import {
   MCP_HOSTNAME,
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
+  MIGRATION_APP_HOSTNAME,
+  MIGRATION_APP_ORIGIN,
 } from "./origins.js";
 
 const repoRoot = join(import.meta.dirname, "../../..");
@@ -51,10 +53,11 @@ const ORIGINS_MODULE = "packages/domain/src/origins.ts";
  * that no longer appears also fails, so the list cannot rot.
  */
 const ALLOWED_LITERALS: Record<string, readonly string[]> = {
-  // The product app Worker, once served from the app subdomain (ADR 0035).
+  // The product app Worker. Its routes are bare hostnames, which is not an origin,
+  // so nothing is spelled out there — the claims are asserted below instead.
   "wrangler.jsonc": [],
   "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
-  ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN],
+  ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN, MIGRATION_APP_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
   // Shipped plugin manifests: read by ChatGPT/Codex, never executed here.
@@ -82,9 +85,16 @@ function readRepoFile(path: string) {
  * The lookbehind keeps a different subdomain of the apex (`assets.` for R2
  * media, which this module does not own) from reading as the apex itself, and
  * requiring a scheme keeps a bare hostname out of scope — a wrangler route
- * pattern is a hostname, not an origin, and is asserted separately below.
+ * pattern is a hostname, not an origin, and is asserted separately below. The
+ * app subdomain is a hostname of its own, not a longer apex, so it is listed
+ * rather than left to match as part of the apex.
  */
-const OWNED_HOSTNAMES: readonly string[] = [APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME];
+const OWNED_HOSTNAMES: readonly string[] = [
+  APEX_HOSTNAME,
+  APP_HOSTNAME,
+  MIGRATION_APP_HOSTNAME,
+  MCP_HOSTNAME,
+];
 
 const OWNED_ORIGIN = new RegExp(
   `(?<![\\w.-])https?://(?:${OWNED_HOSTNAMES.map(escapeForRegExp).join("|")})(?![\\w-])`,
@@ -184,7 +194,13 @@ describe("canonical origins are written down exactly once", () => {
 describe("the files that cannot import the module still match it", () => {
   it("each Worker claims its own custom domain", () => {
     const claims = customDomainClaims();
+    // The cutover takes the apex from the product Worker and gives it to the marketing
+    // Site, which claims it in the same deploy (ADR 0035) — this assertion goes then.
     expect(claims.get(APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
+    // The other origin the product app answers on, and the one the cutover promotes to
+    // `APP_HOSTNAME` (#410). Both hosts serve the same app during the window, which is
+    // what makes the move rehearsal rather than a migration.
+    expect(claims.get(MIGRATION_APP_HOSTNAME)).toEqual(["wrangler.jsonc"]);
     expect(claims.get(MCP_HOSTNAME)).toEqual(["packages/mcp-worker/wrangler.jsonc"]);
   });
 

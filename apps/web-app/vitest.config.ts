@@ -29,6 +29,11 @@ export default defineProject({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["app/**/*.test.{ts,tsx}", "crawl-assets.test.ts", "resolve-app-version.test.ts"],
+    include: [
+      "app/**/*.test.{ts,tsx}",
+      "crawl-assets.test.ts",
+      "resolve-app-version.test.ts",
+      "wrangler.test.ts",
+    ],
   },
 });
