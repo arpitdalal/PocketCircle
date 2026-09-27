@@ -612,37 +612,50 @@ rule is a real product path — these are assets, not routes.
 
 **Revert #412 first.** It is what removed the second trusted origin, and the
 pre-cutover backend is the code that reads it — so `MIGRATION_APP_ORIGIN` does nothing
-until the older code is serving again. Written as the three steps it is:
+until the older code is serving again. It is four steps, and the order is the whole of
+it:
 
 ```sh
 # 1. Revert #412 and tag it. This restores the second trusted origin in the backend,
 #    the deploy check that accepts either variable naming the app host, and the MCP
-#    Worker's retired apex. Both origins are trusted again from here.
+#    Worker's retired apex.
 #    (git revert <#412 merge commit> && git tag vX.Y.Z && git push origin vX.Y.Z)
+#    The variable is still unset in production, so at this point auth trusts the app
+#    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
-# 2. Revert the cutover release and tag it, so the product Worker re-claims the apex
+# 2. Trust the apex alongside it. The apex is not serving the app yet, so this only
+#    has to be true by the time step 3 lands — but step 3 is what makes it load
+#    bearing, so do not skip it. No deploy: the auth routes read the trusted-origin
+#    list per request.
+pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
+
+# 3. Revert the cutover release and tag it, so the product Worker re-claims the apex
 #    and the marketing Site drops it. Do NOT revert the two wrangler configs by hand:
 #    canonical-origins.test.ts asserts the apex is claimed by apps/site/wrangler.jsonc
 #    and the app. route by the product Worker, and apps/site/src/wrangler.test.ts
 #    asserts the two deploys are adjacent, so a hand-edited config fails the build on
 #    the next tag. git revert of the release commit restores the configs, the guards,
 #    the origin constants, and the MCP Worker's APP_ORIGIN together.
+#    From here the app is served from the apex again and auth trusts both.
 
-# 3. Point SITE_URL at the apex, drop the second origin, and deploy.
+# 4. Point SITE_URL at the apex and drop the second origin. From here the two stop
+#    covering both hosts, so the deploy's configuration check fails if this is not the
+#    same deploy that stops trusting the subdomain — or the subdomain keeps being
+#    trusted and nothing is untrusted. That is the check working, not a release to
+#    work around.
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
 
-Step 1 has to land before step 2, and both before step 3. An origin that is untrusted
-while it is still serving traffic fails sign-in in the browser with nothing to show for
-it. Step 3 is where the two stop covering both hosts, so the deploy's configuration
-check fails from there: the `app.` route goes back in the same deploy that stops
-trusting the subdomain, or the subdomain keeps being trusted and nothing is untrusted.
-That is the check working, not a release to work around.
+The hazard step 2 exists to avoid: an origin that is untrusted while it is still
+serving traffic fails sign-in in the browser with nothing to show for it. Skipping it
+puts the apex back in service with nothing trusting it, which is the one failure this
+whole arrangement was built to make impossible.
 
 Rolling back is now materially harder than rolling forward was, and that asymmetry is
 deliberate: the whole point of retiring the second origin is that there is one less
-thing trusted. If you need it back, step 1 is a normal revert and a normal release.
+thing trusted. If you need it back, steps 1 and 2 are a normal revert and two env
+writes.
 
 ### If the Site deploy fails, mid-handover
 

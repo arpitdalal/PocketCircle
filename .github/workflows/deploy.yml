@@ -106,8 +106,7 @@ jobs:
           if [ "$SITE_URL_VALUE" != "$APP_ORIGIN" ]; then
             echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '${SITE_URL_VALUE:-unset}' — see README, origin migration"
             exit 1
-              ;;
-          esac
+          fi
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {
