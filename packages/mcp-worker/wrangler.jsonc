@@ -68,8 +68,12 @@
     }
   ],
   "vars": {
-    // Must equal `APP_ORIGIN` in packages/domain/src/origins.ts (see routes above).
-    "APP_ORIGIN": "https://pocketcircle.app",
+    // Must equal `APP_ORIGIN` in packages/domain/src/origins.ts (see routes above),
+    // which is the app subdomain since the ADR 0035 cutover. This is the origin a
+    // browser may present `Origin` on for the consent and revoke endpoints
+    // (`src/browser-origin.ts`); pointing it at the apex would refuse every consent
+    // the User starts from the app.
+    "APP_ORIGIN": "https://app.pocketcircle.app",
     // Production deploy.yml substitutes vars.VITE_CONVEX_SITE_URL. Never invent a
     // *.convex.site host — Convex assigns the deployment subdomain.
     "CONVEX_SITE_URL": "https://placeholder.convex.site",

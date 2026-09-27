@@ -80,7 +80,7 @@ References: [Cloudflare named tunnels](https://developers.cloudflare.com/cloudfl
 
 ## Connection / revoke
 
-- Manage grants at https://pocketcircle.app/connections (revoke, reconnect, Circle selection).
+- Manage grants at https://app.pocketcircle.app/connections (revoke, reconnect, Circle selection). The app moved to this subdomain when the apex became the marketing site; a link to the old address redirects here.
 - Re-consent after revoke or when a new Circle should become visible.
 - Raw MCP URL (Dev Mode connector) still works; the package is the installable wrapper around the same server.
 

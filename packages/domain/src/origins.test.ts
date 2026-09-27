@@ -27,14 +27,18 @@ describe("canonical origins", () => {
     expect(MCP_RESOURCE_URI).toBe(`${MCP_ORIGIN}/mcp`);
   });
 
-  it("keeps the cutover's app subdomain distinct from the app origin it becomes", () => {
-    // Two origins for the app is what the cutover window is, and the guards that
-    // depend on it — two custom-domain claims, the deploy's two-origin check — quietly
-    // become one of each the moment the cutover makes these constants equal. Failing
-    // here is the cutover saying "delete this constant, and the half of the deploy that
-    // used it", rather than leaving it to be noticed in production.
-    expect(MIGRATION_APP_HOSTNAME).not.toBe(APP_HOSTNAME);
+  it("names the app origin after the cutover, on the subdomain and nowhere else", () => {
+    // The cutover (#411) promoted the app subdomain to `APP_HOSTNAME`, which made these
+    // two constants the same string. That is the signal #412 acts on: the migration
+    // name has served its purpose, the second trusted origin is redundant, and the
+    // pair collapses. Asserting the collapse has not happened yet keeps #412 from
+    // landing as a silent rename with the deploy workflow still reading a variable the
+    // backend no longer has.
+    expect(APP_HOSTNAME).toBe(MIGRATION_APP_HOSTNAME);
     expect(MIGRATION_APP_HOSTNAME).toBe(`app.${APEX_HOSTNAME}`);
+    // And the app is not the apex any more, which is the whole of the cutover: one
+    // Worker per hostname, and a User who signs in lands somewhere auth trusts.
+    expect(APP_HOSTNAME).not.toBe(APEX_HOSTNAME);
   });
 
   it("derives the local app origin and its twin from the local host and port", () => {

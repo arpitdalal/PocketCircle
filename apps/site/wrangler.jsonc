@@ -2,15 +2,31 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pocketcircle-site",
   "compatibility_date": "2026-08-11",
-  // workers.dev only. This Worker claims no custom domain until the ADR 0035
-  // cutover hands the apex over, and until then the apex is the product app's —
-  // two Workers cannot claim one hostname, which `canonical-origins.test.ts`
-  // enforces repo-wide.
+  // Still on `workers_dev`, and that is what makes the cutover a formality rather
+  // than a leap: the whole Site is verified on the staging hostname from the release
+  // that builds it, and the apex route below is added in the deploy that takes the
+  // hostname off the product Worker.
   "workers_dev": true,
-  // Assets-only (no `main`): every request is a static file, so the marketing
-  // homepage costs zero Worker invocations and stays inside the free tier. The
-  // no-`main` shape is also what lets a future edge behaviour be added later
-  // without moving the site off Workers (ADR 0035).
+  "routes": [
+    {
+      // Must equal `APEX_HOSTNAME` in packages/domain/src/origins.ts — wrangler
+      // config cannot import it, so `canonical-origins.test.ts` asserts the match,
+      // and asserts that no two Workers claim one hostname.
+      //
+      // The product Worker drops this hostname in the same release, in the deploy
+      // immediately before this one: two Workers cannot both claim a custom domain,
+      // and a custom domain sends *every* path on its hostname to the Worker bound
+      // to it. So the apex is never long-lived without an owner — see the ordering
+      // assertion in `src/wrangler.test.ts`, which is what holds that line.
+      "pattern": "pocketcircle.app",
+      "custom_domain": true
+    }
+  ],
+  // Assets-only (no `main`): every request is a static file or a static redirect, so
+  // the marketing homepage and every legacy product path cost zero Worker
+  // invocations and stay inside the free tier. The no-`main` shape is also what lets
+  // a future edge behaviour be added later without moving the site off Workers
+  // (ADR 0035).
   "assets": {
     "directory": "./dist",
     // Every document here is served at a path that is not its file name: the
@@ -29,6 +45,16 @@
     // `none` serves only `/privacy.html`, so all four cited paths 404. Neither
     // changes what the build publishes, and `src/wrangler.test.ts` is what holds
     // this line.
-    "html_handling": "auto-trailing-slash"
+    "html_handling": "auto-trailing-slash",
+    // Serve the authored `404.html` for a path that matches no document and no
+    // legacy redirect, rather than Cloudflare's own error page. The default,
+    // `none`, answers a dead end on a marketing origin with a bare 404 and no way
+    // onward; `404-page` is the one that names the file, and `src/pages.ts` and
+    // `src/wrangler.test.ts` hold the two together.
+    //
+    // Never `single-page-application`: a marketing Site that answered every unknown
+    // path with the homepage would be duplicate content on every typo, and would
+    // make the redirects above look like they had failed.
+    "not_found_handling": "404-page"
   }
 }

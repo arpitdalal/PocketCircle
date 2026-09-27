@@ -8,17 +8,13 @@
     {
       // Must equal `APP_HOSTNAME` in packages/domain/src/origins.ts — wrangler
       // config cannot import it, so `canonical-origins.test.ts` asserts the match.
-      "pattern": "pocketcircle.app",
-      "custom_domain": true
-    },
-    {
-      // The app subdomain the ADR 0035 cutover moves the SPA to, claimed while the
-      // apex still serves the same app, so the move is rehearsed with nothing a User
-      // can notice (#410). Must equal `MIGRATION_APP_HOSTNAME` in
-      // packages/domain/src/origins.ts; `canonical-origins.test.ts` asserts that too.
-      // Wrangler provisions the DNS record and the certificate for a custom domain,
-      // so this needs no new secret and no DNS record authored by hand. The cutover
-      // drops the apex route above and promotes this one to `APP_HOSTNAME`.
+      //
+      // The apex route this Worker used to claim as well was dropped by the ADR 0035
+      // cutover (#411): the hostname belongs to `apps/site` alone, and two Workers
+      // cannot both claim one. Every product path that used to answer here is a
+      // static redirect on the marketing Site instead
+      // (`apps/site/src/legacy-redirects.ts`), so a bookmark, a shared link, or an
+      // already-delivered email still resolves — on the app origin.
       "pattern": "app.pocketcircle.app",
       "custom_domain": true
     }

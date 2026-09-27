@@ -7,6 +7,14 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The app moved to `app.pocketcircle.app`, and `pocketcircle.app` is now the PocketCircle homepage.** Everything public — the homepage, Privacy, Terms, Support, What's New — is on the plain address now, and the signed-in app lives on `app.`. Your Circles, Transactions, and history are all exactly where you left them; nothing moved but the address bar.
+
+  **You will be signed out once, everywhere.** The app and the homepage are now different addresses, and a signed-in session cannot be carried across that boundary by a browser — it is kept per address, and no browser setting changes that. Re-auth is one tap of **Continue with Google**, and nothing is lost: your Circles, Transactions, and history are untouched. If you use an AI assistant, it will need reconnecting once, and you will be asked to approve your Circles again.
+
+  Every link you have saved keeps working. A Circle link, a shared Transaction link, or an Invitation or Account Deletion email that points at the old address takes you straight to the right place on the new one — you may see it change address in your browser first. If you have PocketCircle installed as an app, it will open on the new address from now on, and it is worth opening it once.
+
 ## [v0.7.0] - 2026-09-22
 
 ### Added

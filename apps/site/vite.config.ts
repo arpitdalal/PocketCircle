@@ -1,5 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { crawlAssetsPlugin } from "./src/crawl-assets.js";
+import { legacyRedirectsPlugin } from "./src/legacy-redirects.js";
 import { sitePageFiles } from "./src/pages.js";
 import { securityHeadersPlugin } from "./src/security-headers.js";
 import { shareImagePlugin } from "./src/share-image.js";
@@ -27,5 +29,10 @@ export default defineConfig({
     whatsNewPlugin(),
     securityHeadersPlugin(),
     shareImagePlugin(),
+    // The two files the Worker reads but Vite has no reason to build: the apex's
+    // crawl directives, and the legacy product redirects the cutover makes the
+    // whole backward-compatibility story (`src/legacy-redirects.ts`).
+    crawlAssetsPlugin(),
+    legacyRedirectsPlugin(),
   ],
 });

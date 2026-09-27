@@ -181,44 +181,54 @@ During the window that route is *added* to the apex route rather than replacing 
 
 Two Workers cannot both claim one hostname, so the apex handover is sequential. Deploy and verify everything *before* the swap so the swap is a formality.
 
+**Status (2026-09-26).** Every code-side step below has shipped in #411 and is described here as it landed rather than as it was planned. What remains is manual: tagging the release, the Convex `SITE_URL` flip, the Authorized JavaScript origins check, and completing a real Google sign-in on the app origin — CI can prove the app is *served* there, not that a User can get *in*. The one deviation from the plan is noted at step 4: the marketing Site is built early and deployed late, because "deploy the site first so a failure aborts the tag" and "keep the two Worker deploys adjacent" cannot both hold once the site claims a hostname the product Worker still holds.
+
 1. Widen auth first, while apex is still the only public origin: `convex env set --prod MIGRATION_APP_ORIGIN https://app.pocketcircle.app` + `convex deploy --prod -y` (`--prod` on both — the CLI otherwise writes to the development deployment, where the variable does nothing), and add `https://app.pocketcircle.app` to the Google OAuth client's **Authorized JavaScript origins** in the Cloud Console. The deploy matters as much as the `env set`: the auth routes read the trusted-origin list when their module loads. `SITE_URL` still names the apex, so nothing changes for Users yet. The Google branding homepage and privacy URLs stay on apex, which is what Google requires; `app.` only needs to be an authorized JS origin and inside the authorized redirect domain. The callback URL stays on `*.convex.site` — the app origin is where the User is returned to *after* Google, never where Google redirects.
 2. Add the `app.` route to the product Worker; deploy. Both apex and `app.` now serve the app, and sign-in works on either origin. Verify deep links, assets, and a real sign-in on `app.` — on the `workers.dev` host it will not work at all, because that origin is not one auth trusts and sign-in from an untrusted origin is refused rather than redirected. MCP consent from `app.` is *not* expected to work yet — the Worker's `APP_ORIGIN` still names the apex until step 6, so its origin check rejects the app origin.
    **Landed in #410.** The route is claimed alongside the apex, and `deploy.yml` verifies both origins against the artifact the same job built: the app shell, every bundle it names, a Transaction deep link, its edit link with its filters, a filtered search, the web manifest and its icons, and the push service worker. It also refuses to release unless step 1's variable is on the production deployment, since a host auth does not trust serves an app nobody can sign in to. What CI cannot do is sign in as a User, so completing a real Google sign-in on `app.` remains a manual check on the first release that serves the subdomain.
 3. Publish `apps/site/public/_redirects` (below) with the marketing Worker's first deploy, to `workers.dev` only, and verify the product paths redirect there. It has to exist *before* the Worker claims the apex: the moment it does, every legacy and already-emailed product link resolves through that file, so deploying it afterwards leaves a window where a bookmarked Circle link 404s.
 4. Flip the product Worker config to `app.` only **and** add the apex route to the marketing Worker, back-to-back in one run. A custom domain sends *every* path on its hostname to the Worker bound to it, so the gap is not only the marketing homepage: apex-hosted product links — a bookmarked Circle, an already-delivered Invitation — fail for as long as neither Worker holds the name. Sub-minute, and `_redirects` is already live from step 3 for everything after the swap.
+
+   **As shipped**, the product Worker deploy and the marketing Site deploy are consecutive steps in `deploy.yml`, and `apps/site/src/wrangler.test.ts` asserts they are consecutive steps by reading the workflow. That assertion is the point: both deploys are individually correct, the Site verifies against `workers.dev` in either order, and the redirect check passes as soon as the Site is up — so a reordering ships green and widens the gap to the length of the Convex and MCP deploys that would then sit between them. The "deploy the site first so a failure aborts the tag" property survives as a *build* step, which is where a build failure is actually caught; what is given up is aborting before the Convex deploy on a *deploy* failure, which was never the common case.
 5. `convex env set --prod SITE_URL https://app.pocketcircle.app` + `convex env remove --prod MIGRATION_APP_ORIGIN` + `convex deploy --prod -y`. The second trusted origin has served its purpose and is dropped in the same deploy that makes it redundant. Rolling any of this back to apex-only is the same three steps in the other order: set `MIGRATION_APP_ORIGIN` to the apex *first*, so the app origin stays trusted while it is still serving traffic, then `SITE_URL` back to the apex, then remove the variable. The window is only truly closed once the follow-up ticket removes the support from the code.
-6. `APP_ORIGIN` → `https://app.pocketcircle.app` in `packages/mcp-worker/wrangler.jsonc:69`.
-7. Update `robots.txt` / `sitemap.xml` to the apex marketing surface, and `site.webmanifest` `start_url`/`scope` to the app origin.
-8. Re-check branding with a no-JS `curl https://pocketcircle.app/` for product name, purpose copy, and a Privacy link.
+6. `APP_ORIGIN` → `https://app.pocketcircle.app` in `packages/mcp-worker/wrangler.jsonc`. As shipped this is a consequence of `APP_HOSTNAME` changing in `origins.ts` rather than a separate edit, and `canonical-origins.test.ts` holds the Worker's literal against that constant — so the consent origin cannot be left naming the apex.
+7. `robots.txt` / `sitemap.xml` move to `apps/site` and are generated there from the page list, so they cannot advertise the old host and cannot list a page that is not published. `site.webmanifest` `start_url`/`scope` stay relative (`/`): the manifest is only served from the app origin now, and a relative value is what scopes each host to itself — the deploy's product-origin check asserts it. An absolute app-origin value would be the same answer with a second place to keep in step.
+8. The deploy's "Verify marketing Site" step does the no-JS fetch of the apex on every release, byte-for-byte against the artifact the same job built: product name, purpose copy, the Privacy link, the sign-in link to the app origin, and the **absence** of `X-Robots-Tag` — which the Site used to carry for its `workers.dev` staging hostname and which is a Google branding failure on the apex. Re-run branding verification in the Cloud Console after the release anyway; the fetch proves the page, not the review.
 
 ### URL and email compatibility
 
-`apps/site/public/_redirects`:
+`apps/site/public/_redirects` in the original plan; generated at build time by `apps/site/src/legacy-redirects.ts` as it shipped, so the destinations come from `APP_ORIGIN` and the list is held against `apps/web-app/app/routes.ts` by `apps/site/src/legacy-redirects.test.ts`. The shape it produces:
 
 ```txt
-# Legacy product paths and already-delivered emails -> app subdomain.
-# Static redirects, no Worker script, no invocations.
-/signin                        https://app.pocketcircle.app/signin 302
-/invite/*                      https://app.pocketcircle.app/invite/:splat 302
-/delete-account/verify         https://app.pocketcircle.app/delete-account/verify 302
-/delete-account/complete       https://app.pocketcircle.app/delete-account/complete 302
-/connections/*                 https://app.pocketcircle.app/connections/:splat 302
-/circles/*                     https://app.pocketcircle.app/circles/:splat 302
-/onboarding                    https://app.pocketcircle.app/onboarding 302
-/settings/*                    https://app.pocketcircle.app/settings/:splat 302
-/transactions/*                https://app.pocketcircle.app/transactions/:splat 302
-/my-transactions                https://app.pocketcircle.app/my-transactions 302
-/invitations/*                 https://app.pocketcircle.app/invitations/:splat 302
-/feedback                      https://app.pocketcircle.app/feedback 302
-/from-notification             https://app.pocketcircle.app/from-notification 302
-/mcp/*                         https://app.pocketcircle.app/mcp/:splat 302
-/home                          https://app.pocketcircle.app/home 302
-/dev/*                         https://app.pocketcircle.app/dev/:splat 302
+# Legacy product paths -> the app subdomain. Static redirects, no Worker script,
+# no invocations (ADR 0035, #411).
+#
+# Generated from apps/site/src/legacy-redirects.ts — the destinations come from
+# APP_ORIGIN, so the origin migration stays a one-line change. The list is held
+# against apps/web-app/app/routes.ts by src/legacy-redirects.test.ts.
+/connections  https://app.pocketcircle.app/connections  302
+/delete-account/complete  https://app.pocketcircle.app/delete-account/complete  302
+/delete-account/verify  https://app.pocketcircle.app/delete-account/verify  302
+/dev/email-preview  https://app.pocketcircle.app/dev/email-preview  302
+/feedback  https://app.pocketcircle.app/feedback  302
+/from-notification  https://app.pocketcircle.app/from-notification  302
+/home  https://app.pocketcircle.app/home  302
+/mcp/authorize  https://app.pocketcircle.app/mcp/authorize  302
+/my-transactions  https://app.pocketcircle.app/my-transactions  302
+/onboarding  https://app.pocketcircle.app/onboarding  302
+/settings  https://app.pocketcircle.app/settings  302
+/signin  https://app.pocketcircle.app/signin  302
+/transactions/new  https://app.pocketcircle.app/transactions/new  302
+/circles/*  https://app.pocketcircle.app/circles/:splat  302
+/invitations/*  https://app.pocketcircle.app/invitations/:splat  302
+/invite/*  https://app.pocketcircle.app/invite/:splat  302
 ```
 
 - Invitation tokens are **path** segments (`routes/invite/:token`), so the splat carries them verbatim.
-- Account Deletion verification carries `?token=` in the **query** (`packages/convex/convex/accountDeletion.ts:229`). Cloudflare's `_redirects` reference lists query-parameter *matching* as unsupported; passthrough of an untouched query on a plain redirect must be confirmed with `curl -I` against the preview deploy. If it does not hold, add a minimal Worker on the marketing origin restricted to `/delete-account/*` that forwards `request.url` verbatim — negligible traffic.
+- Account Deletion verification carries `?token=` in the **query** (`packages/convex/convex/accountDeletion.ts:229`). Cloudflare's `_redirects` reference lists query-parameter *matching* as unsupported, and is silent on whether an untouched query survives a plain redirect. **It does** — verified 2026-09-26 by serving the built `apps/site/dist` with `wrangler dev` and reading the `Location` back: `/delete-account/verify?token=verify-token-123` answers `302 https://app.pocketcircle.app/delete-account/verify?token=verify-token-123`. The minimal Worker scoped to `/delete-account/*` is therefore not built. The deployed origin re-proves it on every release (`deploy.yml`, "Verify marketing Site"), because a Worker runtime is not the only thing that could differ.
 - Expired deletion tokens were already unusable, so the exposure is bounded regardless.
+- Two Cloudflare behaviours the redirect file depends on, both confirmed the same way: **redirects are resolved before the asset manifest** ("Redirects are always followed, regardless of whether or not an asset matches the incoming request"), so a source colliding with a published page would replace that page with a redirect — `apps/site/src/legacy-redirects.test.ts` asserts no rule does; and **a splat matches the empty remainder**, so `/circles/*` also covers `/circles`.
+- The list is a frozen record of what the apex served before the cutover, not a live projection of `routes.ts`: a route added afterwards has no delivered links behind it and needs no legacy redirect. `legacy-redirects.test.ts` holds the list against the product's route tree and fails on a route that is *removed* or renamed, and asks for a one-line acknowledgement in `POST_CUTOVER_ROUTES` for one that is added.
 
 ### Accepted cost: one forced sign-out
 

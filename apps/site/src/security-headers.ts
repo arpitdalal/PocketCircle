@@ -14,8 +14,13 @@ import type { Plugin } from "vite";
  * assets apply a rule per matched path, so a rule for a file that does not exist
  * here is dead weight the Site has no reason to carry.
  *
- * The staging rule below is the Site's own, and the inverse case: a header the
- * product must not have while the two origins are separate.
+ * There is nothing Site-specific left to add. The Site used to carry
+ * `X-Robots-Tag: noindex` for its `workers.dev` staging hostname, and the cutover
+ * (#411) deleted it with the staging role: the apex is the indexable marketing
+ * origin now, and a `noindex` inherited from a staging recipe is a Google branding
+ * failure that no other check would see. The staging hostname keeps the canonical
+ * link every document already carries, which is the part that is actually load
+ * bearing for it.
  */
 
 /** The product's policy file, relative to this package root. */
@@ -24,24 +29,8 @@ const PRODUCT_HEADERS = join("..", "web-app", "public", "_headers");
 const GLOBAL_RULE = "/*";
 
 /**
- * Headers for the staging hostname. The Site is served from `workers.dev` until
- * the ADR 0035 cutover moves it to the apex, and Cloudflare's documented recipe
- * for a `workers.dev` URL is to keep it out of search results: a `noindex` here
- * beats relying on the canonical link alone, which other crawlers treat as a
- * hint. The apex must not inherit it, so it is added here rather than to the
- * shared policy, and the cutover deletes it with the staging hostname.
+ * The product's `/*` rule as this origin publishes it, verbatim.
  *
- * Deleting it is one half of a pairing, and the other half is not optional: the
- * same cutover is what puts `/og.png` on the Worker that serves the apex, and the
- * document's `og:image` already names that origin. A cutover that dropped the
- * header without moving the card would launch the site indexed, with every share
- * of it rendering a 404, and the deploy check would not catch it because it only
- * ever runs against the staging origin. `deploy.yml` says so at the check.
- */
-const STAGING_HEADERS = ["X-Robots-Tag: noindex"];
-
-/**
- * The product's `/*` rule, plus the Site's own headers, as one `_headers` rule.
  * Throws when the product file has no global rule, because a Site that silently
  * published without one would serve the marketing document with no security
  * headers at all.
@@ -54,8 +43,7 @@ export function siteSecurityHeaders(productHeaders: string) {
   if (globalRule === undefined) {
     throw new Error(`The product _headers file has no ${GLOBAL_RULE} rule`);
   }
-  const siteOnly = STAGING_HEADERS.map((header) => `  ${header}`).join("\n");
-  return `${globalRule}\n${siteOnly}\n`;
+  return `${globalRule}\n`;
 }
 
 /** Emits the derived `_headers` next to the built document the Workers serve. */

@@ -5,7 +5,7 @@ import { join, relative, sep } from "node:path";
 import { APEX_ORIGIN } from "@pocketcircle/domain/origins";
 import { describe, expect, it } from "vitest";
 import viteConfig from "../vite.config.js";
-import { pagePath, sitePageFiles } from "./pages.js";
+import { indexablePagePaths, pagePath, sitePageFiles } from "./pages.js";
 
 /**
  * Which URLs the Site answers, and that they are the ones external material has
@@ -105,19 +105,30 @@ describe("the Site publishes the pages the apex is meant to answer", () => {
     expect(sitePageFiles()).toContain("index.html");
   });
 
-  it("serves the four documents at the paths they already had", () => {
+  it("serves the four documents at the paths they already had, plus the not-found page", () => {
     // The file name is the path because the Worker publishes
     // `assets.html_handling: "auto-trailing-slash"`, which is what serves
     // `privacy.html` for `/privacy`; `wrangler.test.ts` holds that setting. These
     // are the URLs in external submission material, which is the whole reason the
     // apex keeps them (ADR 0035).
+    //
+    // `404.html` is published like any other page — it is the origin's answer to a
+    // path nothing matches, and `not_found_handling: "404-page"` is what serves it
+    // there — so `/404` answers it directly as well. Enumerated rather than matched
+    // loosely because this list is also the sitemap's, minus that one page
+    // (`src/crawl-assets.ts`), and a page that appeared here without appearing there
+    // would be a document Google is told about and a crawler cannot place.
     expect(sitePageFiles().map(pagePath)).toEqual([
+      // File-name order, so `404.html` leads: the list is the directory read, and the
+      // sitemap's is derived from it, so pinning the order here pins both.
+      "/404",
       "/",
       "/privacy",
       "/support",
       "/terms",
       "/whats-new",
     ]);
+    expect(indexablePagePaths()).not.toContain("/404");
   });
 
   it("answers every apex URL the published material cites", () => {
