@@ -122,15 +122,14 @@ jobs:
             exit 1
           fi
           rm -f "$SITE_ERR"
-          # Only the newline the CLI prints, and deliberately not `[:space:]` like the
-          # push-delivery gate below. Stripping all whitespace would launder away the
-          # one difference that matters: `declaredOrigin` refuses a `SITE_URL` carrying
-          # any whitespace (`BARE_ORIGIN` in packages/convex/convex/auth.ts), so
-          # `convex env set SITE_URL " https://app.pocketcircle.app"` takes *all* auth
-          # down on a deployment whose configured value this check would have
-          # normalised into a pass. The gate has to agree with the parser, not be more
-          # forgiving than it.
-          SITE_URL_VALUE=$(printf '%s' "$SITE_URL_VALUE" | tr -d '\n\r')
+          # Nothing to strip: command substitution already removed the CLI's trailing
+          # newline, and that is exactly the right amount. An earlier version ran
+          # `tr -d '\n\r'` here, which is both unnecessary and too forgiving — a
+          # configured value carrying a trailing CR passed the gate while
+          # `declaredOrigin` rejected the very value it approved, and the release
+          # would have shipped with sign-in down. The gate has to be as strict as the
+          # parser, not more forgiving: every byte the parser sees, the gate sees.
+          SITE_URL_VALUE=$(printf '%s' "$SITE_URL_VALUE")
           if [ "$SITE_URL_VALUE" != "$APP_ORIGIN" ]; then
             if [ -z "$SITE_URL_VALUE" ]; then
               echo "::error::SITE_URL is not set on the Convex production deployment, so auth falls back to the local dev origin and trusts no origin a User can reach, while the product Worker claims $APP_ORIGIN. Set it: convex env set --prod SITE_URL $APP_ORIGIN"
