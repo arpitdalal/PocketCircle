@@ -7,7 +7,7 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [v0.8.1] - 2026-09-27
+## [v0.8.2] - 2026-09-27
 
 ### Changed
 
