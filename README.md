@@ -633,19 +633,23 @@ rule is a real product path — these are assets, not routes.
 
 **Revert #412 first.** It is what removed the second trusted origin, and the
 pre-cutover backend is the code that reads it — so `MIGRATION_APP_ORIGIN` does nothing
-until the older code is serving again. It is four steps, and **step 3 reverts two PRs in
-a single release**, which is the part that is easy to get wrong:
+until the older code is serving again. It is four steps and **two releases**, and the two
+things people get wrong are that the releases need *different* version numbers and that
+the commits have to reach `main`, not just the tags:
 
 ```sh
-# 1. Revert #412 and tag it. This restores the second trusted origin in the backend,
-#    the deploy check that accepts either variable naming the app host, and the MCP
-#    Worker's retired apex. This repo squash-merges, so #412 lands on main as a
-#    single-parent commit; `git revert -m 1` is still correct (git 2.51 treats the only
-#    parent as the mainline and produces the same tree as a plain revert) and is also
-#    what you would need if that ever changes. The tag needs a `## [vX.Y.Z] -
-#    YYYY-MM-DD` section with real content in CHANGELOG.md, because
-#    `scripts/release-notes.sh` refuses to tag without one:
-#    (git revert -m 1 <#412 SHA> && git tag vX.Y.Z && git push origin vX.Y.Z)
+# 1. Revert #412: push the BRANCH, then tag it as vA.B.C.
+#    Both, and the order matters. Pushing only the tag would roll production back while
+#    main still carried #412, so the next ordinary release from main would silently
+#    restore everything being rolled back.
+#    This repo squash-merges, so #412 lands on main as a single-parent commit;
+#    `git revert -m 1` is still correct (git 2.51 treats the only parent as the mainline
+#    and produces the same tree as a plain revert) and is also what you would need if
+#    that ever changes. The tag needs a `## [vA.B.C] - YYYY-MM-DD` section with real
+#    content in CHANGELOG.md, because `scripts/release-notes.sh` refuses to tag without
+#    one:
+#    (git revert -m 1 <#412 SHA> && git push origin HEAD:main && \
+#     git tag vA.B.C && git push origin vA.B.C)
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
@@ -659,7 +663,8 @@ a single release**, which is the part that is easy to get wrong:
 #    No deploy here.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 
-# 3. Revert #411 AND #410 in ONE release, then tag it. One release is the whole point:
+# 3. Revert #411 AND #410 in ONE release, then tag it as vD.E.F — a DIFFERENT
+#    version from step 1. One release is the whole point:
 #
 #    - #411 restores the apex route to the product Worker and the marketing Site drops
 #      it, and it also resets the MCP Worker to APP_ORIGIN=https://pocketcircle.app with
@@ -673,17 +678,23 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #    gets round to the next tag, which during an incident is not a safe assumption.
 #    In one release it is bounded by a single job.
 #
+#    vD.E.F must not be vA.B.C. Step 1 already created that tag, and `git tag` on an
+#    existing tag fails without `-f` — which is not something to force on a tag that has
+#    already triggered a release. So this needs its own CHANGELOG section too, and it is
+#    a real release, not a retag.
+#
 #    Do NOT hand-edit the two wrangler configs: canonical-origins.test.ts asserts the
 #    apex is claimed by apps/site/wrangler.jsonc and the app. route by the product
 #    Worker, and apps/site/src/wrangler.test.ts asserts the two deploys are adjacent, so
 #    a hand-edited config fails the build on the next tag. git revert restores the
 #    configs, the guards, the origin constants, and the MCP Worker's APP_ORIGIN together.
-#    (git revert -m 1 <#411 SHA> && git revert -m 1 <#410 SHA> && git tag vX.Y.Z && \
-#     git push origin vX.Y.Z)
+#    (git revert -m 1 <#411 SHA> && git revert -m 1 <#410 SHA> && \
+#     git push origin HEAD:main && git tag vD.E.F && git push origin vD.E.F)
 
 # 4. Point SITE_URL at the apex and drop the second origin. Now the product Worker serves
 #    the apex alone, the MCP Worker trusts the apex alone, and auth trusts the apex
 #    alone.
+#    Do this immediately after step 3 finishes — the email window below is the reason.
 pnpm --filter @pocketcircle/convex exec convex env set --prod SITE_URL https://pocketcircle.app
 pnpm --filter @pocketcircle/convex exec convex env remove --prod MIGRATION_APP_ORIGIN
 ```
@@ -695,7 +706,7 @@ so the app origin stops being served in the same release that stops being truste
 either and a host a User can reach stops working, with sign-in failing in the browser and
 nothing to show for it.
 
-Two windows remain, and neither can be closed from here:
+Three windows remain, and none can be closed from here:
 
 - **Inside step 3's release**, the product Worker claims the apex several steps before
   the MCP Worker is deployed to trust it, because the MCP Worker is not one of the two
@@ -703,6 +714,19 @@ Two windows remain, and neither can be closed from here:
   job and fails closed — the MCP endpoints answer 403 and a User retries once the release
   finishes. Widening `RETIRED_APP_ORIGIN` by hand before the release would hide it, at
   the cost of a variable the rollback exists to delete.
+- **Between step 3 finishing and step 4**, `SITE_URL` still names the app origin while
+  the product Worker no longer serves it, so any *outbound* mail generated in that gap —
+  welcome, Invitation, Account Deletion verification — carries links to a host that is
+  not serving. Unlike the window above this one does not heal on retry: a delivered link
+  is dead until re-sent. It is two `convex env` calls wide, which is why step 4 says to
+  run it immediately, and if a transactional mail did go out in the gap, re-send it.
+
+  This is not fixable by flipping `SITE_URL` first, which is the obvious suggestion and
+  the wrong one: `SITE_URL` and `MIGRATION_APP_ORIGIN` would then both name the apex, so
+  auth would trust the apex alone while the product Worker is *still serving the app
+  subdomain* — unbreaking sign-in for the whole of step 3's release to save a few seconds
+  of dead email links. A dead link is recoverable; sign-in being down for ten minutes is
+  not. Keep the order.
 - **After step 4**, the deploy's configuration check encodes the *post*-cutover invariant
   — `SITE_URL` must name the host the product Worker claims — so the next release fails
   it until `packages/domain/src/origins.ts` is reverted too, which is part of finishing

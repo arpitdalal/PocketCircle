@@ -110,26 +110,28 @@ jobs:
           # welding it onto the origin would fail a correct configuration for a reason
           # the message could not name. This is the same shape the push-delivery gate
           # below uses.
+          SITE_OUT=$(mktemp)
           SITE_ERR=$(mktemp)
           set +e
-          SITE_URL_VALUE=$(pnpm --filter @pocketcircle/convex exec convex env get SITE_URL 2>"$SITE_ERR")
+          pnpm --filter @pocketcircle/convex exec convex env get SITE_URL >"$SITE_OUT" 2>"$SITE_ERR"
           SITE_STATUS=$?
           set -e
+          # Read the bytes instead of using `$(...)`. Command substitution strips *every*
+          # trailing newline, so a configured SITE_URL carrying a trailing LF is laundered
+          # into a pass while `declaredOrigin` — whose BARE_ORIGIN refuses any whitespace —
+          # rejects that same value: the release clears and sign-in goes down. Strip exactly
+          # the one newline the CLI prints after the value, and nothing else, so the gate
+          # sees every byte the parser sees. Verified against a stub for a clean value, a
+          # value with no trailing newline, and a stored trailing LF, CR and CRLF.
+          IFS= read -r -d '' SITE_URL_VALUE <"$SITE_OUT" || true
+          SITE_URL_VALUE=${SITE_URL_VALUE%$'\n'}
           if [ -z "$SITE_URL_VALUE" ] && [ "$SITE_STATUS" -ne 0 ] && ! grep -qi 'not found' "$SITE_ERR"; then
             echo "::error::could not read SITE_URL from the Convex production deployment (status=$SITE_STATUS) — auth's trust in $APP_ORIGIN is unknown, and this check will not guess:" >&2
             cat "$SITE_ERR" >&2
-            rm -f "$SITE_ERR"
+            rm -f "$SITE_OUT" "$SITE_ERR"
             exit 1
           fi
-          rm -f "$SITE_ERR"
-          # Nothing to strip: command substitution already removed the CLI's trailing
-          # newline, and that is exactly the right amount. An earlier version ran
-          # `tr -d '\n\r'` here, which is both unnecessary and too forgiving — a
-          # configured value carrying a trailing CR passed the gate while
-          # `declaredOrigin` rejected the very value it approved, and the release
-          # would have shipped with sign-in down. The gate has to be as strict as the
-          # parser, not more forgiving: every byte the parser sees, the gate sees.
-          SITE_URL_VALUE=$(printf '%s' "$SITE_URL_VALUE")
+          rm -f "$SITE_OUT" "$SITE_ERR"
           if [ "$SITE_URL_VALUE" != "$APP_ORIGIN" ]; then
             if [ -z "$SITE_URL_VALUE" ]; then
               echo "::error::SITE_URL is not set on the Convex production deployment, so auth falls back to the local dev origin and trusts no origin a User can reach, while the product Worker claims $APP_ORIGIN. Set it: convex env set --prod SITE_URL $APP_ORIGIN"
