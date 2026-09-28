@@ -26,8 +26,8 @@ import type { Plugin } from "vite";
  *
  * The hostnames and the MCP resource URI are here for the same reason, and are
  * needed by the Support document rather than the homepage: it names where to sign
- * in, which the two Origins do not spell (`pocketcircle.app/signin`, which the app
- * prints as a hostname with no scheme), the MCP server URL an assistant is
+ * in, which the two Origins do not spell (`app.pocketcircle.app/signin`, which the
+ * app prints as a hostname with no scheme), the MCP server URL an assistant is
  * configured with, and the two public mailboxes, which are derived from the apex
  * host. Spelling any of them out in a document instead would put the origin
  * migration #404 made a one-line change back into a hunt, and

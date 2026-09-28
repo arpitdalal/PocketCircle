@@ -11,7 +11,7 @@
  * | ------------------------------------------- | ----------------------- | ------------------------------------------------------- |
  * | Marketing copy, `robots.txt`, sitemap        | `APEX_ORIGIN`           | Baked in — the same on every deployment                  |
  * | Browser `Origin` allowlists, consent URLs    | `APP_HOSTNAME`          | Baked in, plus the host of the `APP_ORIGIN` override    |
- * | Deploy-time check of what auth trusts        | `MIGRATION_APP_ORIGIN`  | Baked in — deploy configuration only, never a link      |
+ * | Deploy-time check of what auth trusts        | `SITE_URL`             | Baked in — deploy configuration only, never a link      |
  * | MCP issuer / resource URI, plugin manifests  | `MCP_ORIGIN`            | Baked in, plus the `MCP_ISSUER` env override            |
  * | Support and legal mailboxes                  | `APEX_HOSTNAME`         | Baked in                                                |
  * | Vite dev server, Playwright base URL          | `LOCAL_APP_ORIGIN`      | Baked in; local dev and E2E only                        |
@@ -19,9 +19,7 @@
  * The split that matters: the **apex** is the marketing Site and the mailbox
  * domain, and the **app origin** is the authenticated SPA. Two Workers cannot both
  * claim one hostname, so since the ADR 0035 cutover each of them owns its own, and
- * a hostname resolves to exactly one of them. `MIGRATION_APP_HOSTNAME` is the name
- * `APP_HOSTNAME` took when the cutover promoted it; the two are the same string
- * until #412 collapses the pair.
+ * a hostname resolves to exactly one of them.
  *
  * Anything a browser reaches *while signed in* — a consent `Origin`, a redirect
  * target, a sign-in link — must name the app origin rather than the apex, which is
@@ -55,40 +53,19 @@
 export const APEX_HOSTNAME = "pocketcircle.app";
 
 /**
- * Host the cutover moved the SPA to, and the one the product Worker claims alone
- * (#410, #411). Kept under the migration name because #412 retires the second
- * trusted origin and collapses this onto a name that says what it is.
- *
- * Named for the Convex `MIGRATION_APP_ORIGIN` variable that trusted this origin
- * alongside `SITE_URL` while the apex still served the same app (#409) — the same
- * origin, deliberately, so the deploy and the runbook that widened auth and the
- * config that claims the host could not drift.
+ * Host the authenticated product SPA is served from, and the one the product
+ * Worker claims alone. The apex until the ADR 0035 cutover; the app subdomain
+ * since, which is this one line and every consumer follows — the app's own links,
+ * the MCP Worker's consent redirect, the deploy workflow, and the email links
+ * `SITE_URL` builds.
  */
-export const MIGRATION_APP_HOSTNAME = `app.${APEX_HOSTNAME}`;
-
-/**
- * Host the authenticated product SPA is served from. The apex until the ADR 0035
- * cutover; the app subdomain since, which is this one line and every consumer
- * follows — the app's own links, the MCP Worker's consent redirect, the deploy
- * workflow, and the email links `SITE_URL` builds.
- */
-export const APP_HOSTNAME = MIGRATION_APP_HOSTNAME;
+export const APP_HOSTNAME = `app.${APEX_HOSTNAME}`;
 
 /** Host of the hosted MCP server (OAuth issuer, resource, and PRM allowlist). */
 export const MCP_HOSTNAME = `mcp.${APEX_HOSTNAME}`;
 
 export const APEX_ORIGIN = `https://${APEX_HOSTNAME}`;
 export const APP_ORIGIN = `https://${APP_HOSTNAME}`;
-
-/**
- * The app origin, named for the Convex `MIGRATION_APP_ORIGIN` variable that trusted
- * it alongside `SITE_URL` for the window in which the apex still served the same
- * app. It is the same string as {@link APP_ORIGIN} since the cutover and is read
- * separately by the deploy workflow, which asserts that *something* auth holds
- * names the host the product Worker claims — `SITE_URL` before the `SITE_URL` flip,
- * this variable after it. Deploy configuration, not a link target.
- */
-export const MIGRATION_APP_ORIGIN = `https://${MIGRATION_APP_HOSTNAME}`;
 
 export const MCP_ORIGIN = `https://${MCP_HOSTNAME}`;
 
@@ -97,7 +74,6 @@ export const MCP_RESOURCE_URI = `${MCP_ORIGIN}/mcp`;
 
 /** Host every local app (Vite dev server, the E2E suite) is served on. */
 export const LOCAL_APP_HOSTNAME = "127.0.0.1";
-
 /** Port the Vite dev server and the E2E suite use. */
 export const LOCAL_APP_PORT = 5173;
 
@@ -117,6 +93,37 @@ const LOOPBACK_TWIN_HOSTNAMES: ReadonlyMap<string, string> = new Map([
   ["localhost", "127.0.0.1"],
   ["127.0.0.1", "localhost"],
 ]);
+
+/**
+ * `scheme://host[:port]` and nothing else — the shape an origin a deployment
+ * *declares* may take. Patterns are refused deliberately: Better Auth reads
+ * `https://*.example.com` as a wildcard that matches any subdomain — including as a
+ * `callbackURL` destination, which would hand a live one-time session token to whatever
+ * host matched — while the component's CORS router matches exact origins only, so the
+ * same string would also break sign-in from the origin it was meant to allow. A
+ * comma-separated list is refused for the same reason: Better Auth's own
+ * `BETTER_AUTH_TRUSTED_ORIGINS` splits on commas, this value must not. `@`, `%`, `\` and
+ * whitespace are refused because a host is none of them:
+ * `https://app.example.com@evil.example`, `https://ex%41mple.com`,
+ * `https://evil.example\app.example.com` and `" https://app.example.com"` each parse to
+ * a *different* origin than they read as — the last because the URL parser reads `\` as
+ * `/` — and a trust decision must never be rewritten on its way in.
+ *
+ * **This lives here so the two places that must agree cannot drift.** The backend
+ * applies it to `SITE_URL` on every auth request (`packages/convex/convex/auth.ts`), and
+ * the deploy's configuration check applies the *same* predicate to the same variable
+ * before a release is allowed to ship. That check was three bugs in a row before this
+ * moved: a `tr` that stripped a byte the backend refuses, then `command substitution`
+ * stripping a different one, each of which could approve a release that took sign-in
+ * down on the value it had just validated. A gate that re-implements the parser is a
+ * second parser; this is one rule with two callers.
+ */
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
+
+/** Whether a declared origin is a bare origin, and so safe to trust as one. */
+export function isDeclaredOrigin(value: string) {
+  return BARE_ORIGIN.test(value);
+}
 
 export function isLoopbackHostname(hostname: string) {
   return LOOPBACK_HOSTNAMES.includes(hostname);

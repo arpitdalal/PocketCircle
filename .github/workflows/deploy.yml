@@ -67,15 +67,11 @@ jobs:
           VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_MCP_WORKER_ORIGIN: ${{ vars.VITE_MCP_WORKER_ORIGIN }}
-          # Must equal `MIGRATION_APP_ORIGIN` and `APP_ORIGIN` in
-          # packages/domain/src/origins.ts — the same origin twice, and both are the app
-          # subdomain since the ADR 0035 cutover. A workflow cannot import it, so
-          # `canonical-origins.test.ts` asserts the match. The pair is kept while the
-          # `SITE_URL` flip is a separate deploy from the Worker swap: either variable
-          # naming the host is what proves auth trusts it, and which one does is the
-          # deploy's business, not this workflow's. #412 drops the second.
+          # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
+          # cannot import it, so `canonical-origins.test.ts` asserts the match. It is
+          # the deployment a User signs in to, which since the ADR 0035 cutover is the
+          # app subdomain rather than the apex.
           APP_ORIGIN: https://app.pocketcircle.app
-          MIGRATION_APP_ORIGIN: https://app.pocketcircle.app
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID secret"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN secret"; exit 1; }
@@ -90,49 +86,23 @@ jobs:
             exit 1
           fi
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
-          # Auth only answers sign-in from an origin it trusts — `SITE_URL`, plus
-          # `MIGRATION_APP_ORIGIN` for as long as the `SITE_URL` flip is a separate
-          # deploy from the Worker handover (#409), read when the auth routes load.
-          # Serving a host neither of them names is the one failure this check exists
-          # to prevent: the app loads there and sign-in fails in the browser with no
-          # detail at all. Checked before anything is deployed, because the deploy's own
-          # origin check only proves the host serves the app.
+          # Auth only answers sign-in from an origin it trusts, and `SITE_URL` is the
+          # only one it holds. Serving a host it does not name is the one failure this
+          # gate exists to prevent: the app loads there and sign-in fails in the browser
+          # with no detail at all. Checked before anything is deployed, because the
+          # deploy's own origin check only proves the host serves the app.
           #
-          # Either variable naming the host is enough, and which one it is changes with
-          # the cutover rather than with this file: the Worker handover and the
-          # `SITE_URL` flip are two deploys on purpose, so before the flip auth trusts
-          # the app origin through `MIGRATION_APP_ORIGIN` and after it through
-          # `SITE_URL`. Requiring both would fail the release that has not been
-          # flipped yet; requiring neither would ship an app nobody can sign in to.
-          # `canonical-origins.test.ts` holds the two env values against the module.
-          trusted_origin() {
-            local name="$1" err status value
-            err=$(mktemp)
-            set +e
-            value=$(pnpm --filter @pocketcircle/convex exec convex env get "$name" 2>"$err")
-            status=$?
-            set -e
-            # `not found` is how the CLI reports an unset variable, which is a legitimate
-            # answer here. Empty output with any other error is a transport failure, and
-            # must not be read as "auth trusts one origin".
-            if [ -z "$value" ] && [ "$status" -ne 0 ] && ! grep -qi 'not found' "$err"; then
-              echo "::error::convex env get $name failed (status=$status):" >&2
-              cat "$err" >&2
-              rm -f "$err"
-              exit 1
-            fi
-            rm -f "$err"
-            printf '%s' "$value" | tr -d '[:space:]'
-          }
-          SITE_URL_VALUE=$(trusted_origin SITE_URL)
-          MIGRATION_VALUE=$(trusted_origin MIGRATION_APP_ORIGIN)
-          case " $SITE_URL_VALUE $MIGRATION_VALUE " in
-            *" $APP_ORIGIN "*) ;;
-            *)
-              echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '$SITE_URL_VALUE' and MIGRATION_APP_ORIGIN is '${MIGRATION_VALUE:-unset}' — see README, origin migration"
-              exit 1
-              ;;
-          esac
+          # This was a block of inline shell until four review rounds found four bugs in
+          # it, every one a byte it treated differently from the backend that consumes the
+          # value — and no test could catch any of them, because nothing executed a
+          # workflow. The decision now lives in `scripts/check-auth-origin.mjs`, whose
+          # classifier is unit tested in `packages/domain` against the real backend
+          # predicate, and `APP_ORIGIN` comes from the canonical origins module rather than
+          # from this file, so the value checked against cannot drift from the value the
+          # backend uses. `canonical-origins.test.ts` still holds the `APP_ORIGIN` below
+          # to the module, for the later steps that fetch origins rather than read config.
+          pnpm exec node scripts/check-auth-origin.mjs
+
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {
@@ -675,6 +645,30 @@ jobs:
             }
           }
 
+          // The retired marketing preview, named rather than left to the generic case
+          // above. `/home` was the product app's always-on marketing page (#412 removed
+          // it), so for one release it was a real product path on the apex with a
+          // `_redirects` rule — and `verifyRedirects` above iterates the *built* file,
+          // so deleting that rule silently shrinks what is asserted here rather than
+          // failing. This is the one deployed assertion the retirement rests on: the
+          // interim marketing page is not reachable at the apex, and the answer is a
+          // real 404 rather than the SPA fallback serving the app shell.
+          //
+          // A 404 is the correct outcome and not a broken link: `/home` existed only to
+          // inspect the landing page while signed in, was never published in an email
+          // or in any external material, and has no app route to redirect to. The 404
+          // document carries onward navigation to the homepage, sign-in, and Support.
+          async function verifyRetiredMarketingPreview(origin) {
+            for (const path of ["/home", "/home/"]) {
+              const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+              if (response.status !== 404) {
+                throw new Error(
+                  `${origin}${path} answered ${response.status}, want 404 — the retired marketing preview is still reachable at the apex`,
+                );
+              }
+            }
+          }
+
           // Every legacy product path, on the apex, resolving to the same path on the
           // app origin.
           //
@@ -732,6 +726,7 @@ jobs:
             // they are checked here and nowhere else.
             await verifyOrigin(apex);
             await verifyNotFound(apex);
+            await verifyRetiredMarketingPreview(apex);
             await verifyRedirects(apex);
           }
 

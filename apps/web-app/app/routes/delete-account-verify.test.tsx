@@ -1,4 +1,4 @@
-import { APEX_ORIGIN } from "@pocketcircle/domain";
+import { APP_ORIGIN } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -77,7 +77,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
+      callbackURL: `${APP_ORIGIN}/delete-account/verify?token=return-token`,
     });
     expect(auth.deleteUser).not.toHaveBeenCalled();
   });
@@ -91,7 +91,7 @@ describe("Delete account verify", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/delete-account/verify?token=return-token`,
+      callbackURL: `${APP_ORIGIN}/delete-account/verify?token=return-token`,
       loginHint: "ada@gmail.com",
     });
   });

@@ -34,7 +34,6 @@ import {
   MCP_HOSTNAME,
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
-  MIGRATION_APP_HOSTNAME,
 } from "./origins.js";
 
 const repoRoot = join(import.meta.dirname, "../../..");
@@ -55,12 +54,13 @@ const ALLOWED_LITERALS: Record<string, readonly string[]> = {
   // The product app Worker. Its routes are bare hostnames, which is not an origin,
   // so nothing is spelled out there — the claims are asserted below instead.
   "wrangler.jsonc": [],
-  // `RETIRED_APP_ORIGIN` is the apex, and it goes with the second trusted Convex
-  // origin in #412.
-  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN, APEX_ORIGIN],
-  // `MIGRATION_APP_ORIGIN` is the same string as `APP_ORIGIN` since the cutover, so
-  // one allowance covers both; a third entry would only be a duplicate that rots
-  // when #412 drops the variable.
+  // `APP_ORIGIN` alone: the origin the MCP Worker's consent and revoke endpoints
+  // trust. The retired apex it also trusted for the length of the ADR 0035 handover
+  // is gone (#412).
+  "packages/mcp-worker/wrangler.jsonc": [APP_ORIGIN],
+  // `APP_ORIGIN` is the origin auth must trust and the product Worker claims.
+  // `APEX_ORIGIN` is the marketing Site's, present to verify the Site this same run
+  // uploads — not as a second origin anything trusts.
   ".github/workflows/deploy.yml": [APP_ORIGIN, APEX_ORIGIN],
   // The backend's SITE_URL has to match the origin Playwright drives the app on.
   ".github/workflows/e2e.yml": [LOCAL_APP_ORIGIN],
@@ -93,12 +93,7 @@ function readRepoFile(path: string) {
  * app subdomain is a hostname of its own, not a longer apex, so it is listed
  * rather than left to match as part of the apex.
  */
-// Deduplicated because `APP_HOSTNAME` and `MIGRATION_APP_HOSTNAME` are the same
-// string since the cutover, and a repeated alternative in the pattern below is a
-// quiet sign that the pair has not been collapsed yet.
-const OWNED_HOSTNAMES: readonly string[] = [
-  ...new Set([APEX_HOSTNAME, APP_HOSTNAME, MIGRATION_APP_HOSTNAME, MCP_HOSTNAME]),
-];
+const OWNED_HOSTNAMES: readonly string[] = [APEX_HOSTNAME, APP_HOSTNAME, MCP_HOSTNAME];
 
 const OWNED_ORIGIN = new RegExp(
   `(?<![\\w.-])https?://(?:${OWNED_HOSTNAMES.map(escapeForRegExp).join("|")})(?![\\w-])`,

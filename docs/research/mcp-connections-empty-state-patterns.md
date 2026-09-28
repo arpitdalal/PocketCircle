@@ -34,7 +34,7 @@ Deploy verifies protected-resource metadata as:
 
 [`.github/workflows/deploy.yml` “Verify MCP Worker discovery”](../../.github/workflows/deploy.yml), [hosted MCP research](./hosted-mcp-server.md), Worker tests (`resource: …/mcp`).
 
-Consent SPA path is **`https://pocketcircle.app/mcp/authorize`** (app origin), reached only after the MCP client hits the Worker and gets redirected — Users do not start there with a blank URL.
+Consent SPA path is **`https://app.pocketcircle.app/mcp/authorize`** (app origin), reached only after the MCP client hits the Worker and gets redirected — Users do not start there with a blank URL.
 
 ### Production origin risk
 

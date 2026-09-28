@@ -1,4 +1,4 @@
-import { APEX_ORIGIN } from "@pocketcircle/domain";
+import { APP_ORIGIN } from "@pocketcircle/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pinBrowserOrigin, restoreBrowserOrigin } from "~/test/browser-origin.js";
 
@@ -42,11 +42,11 @@ afterEach(() => {
 });
 
 describe("signInWithGoogle", () => {
-  /** The app origin the ADR 0035 cutover moves the SPA to. */
-  const APP_ORIGIN_UNDER_MIGRATION = "https://app.example.com";
+  /** An app origin other than the one `pinBrowserOrigin` defaults to. */
+  const OTHER_APP_ORIGIN = "https://app.example.com";
 
   it("resolves the callback path against the origin the browser is on", async () => {
-    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
+    pinBrowserOrigin("/signin", OTHER_APP_ORIGIN);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth");
@@ -58,10 +58,12 @@ describe("signInWithGoogle", () => {
   });
 
   it("returns to whichever origin sign-in started on", async () => {
-    // Both origins serve the app through the ADR 0035 cutover window, so the
-    // callback has to follow the User's origin instead of the single configured
-    // SITE_URL (#409). Only the browser knows which one it is on.
-    for (const origin of [APEX_ORIGIN, APP_ORIGIN_UNDER_MIGRATION]) {
+    // The callback follows the User's own origin rather than a hardcoded one (#409),
+    // because only that origin's storage can redeem the one-time token. Only the
+    // browser knows which one it is on, and the app origin is the one it is served
+    // from — a callback pinned to a single origin would be a User silently returned
+    // somewhere they have no session.
+    for (const origin of [APP_ORIGIN, OTHER_APP_ORIGIN]) {
       pinBrowserOrigin("/signin", origin);
       auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
@@ -75,7 +77,7 @@ describe("signInWithGoogle", () => {
   });
 
   it("forwards loginHint when provided", async () => {
-    pinBrowserOrigin("/signin", APP_ORIGIN_UNDER_MIGRATION);
+    pinBrowserOrigin("/signin", OTHER_APP_ORIGIN);
     auth.social.mockResolvedValue({ data: { redirect: true }, error: null });
 
     await signInWithGoogle("/after-auth", { loginHint: "a@b.com" });

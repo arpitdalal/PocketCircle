@@ -1,4 +1,4 @@
-import { APEX_ORIGIN } from "@pocketcircle/domain";
+import { APP_ORIGIN } from "@pocketcircle/domain";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route } from "react-router";
@@ -71,7 +71,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/`,
+      callbackURL: `${APP_ORIGIN}/`,
     });
     expect(screen.getByRole("button", { name: "Signing in..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Signing in..." })).toHaveAttribute(
@@ -165,7 +165,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/mcp/authorize?handoffId=test-id`,
+      callbackURL: `${APP_ORIGIN}/mcp/authorize?handoffId=test-id`,
     });
   });
 
@@ -207,7 +207,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/`,
+      callbackURL: `${APP_ORIGIN}/`,
       loginHint: "alice@gmail.com",
     });
   });
@@ -222,7 +222,7 @@ describe("SignIn", () => {
 
     expect(auth.social).toHaveBeenCalledWith({
       provider: "google",
-      callbackURL: `${APEX_ORIGIN}/`,
+      callbackURL: `${APP_ORIGIN}/`,
     });
   });
 

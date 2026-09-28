@@ -39,43 +39,13 @@ describe("browserOriginAllowed", () => {
     expect(browserOriginAllowed(LOCAL_APP_ORIGIN, ipv6App)).toBe(false);
   });
 
-  // The ADR 0035 handover is two deploys and this Worker's variable is in neither of
-  // the first two steps of the release, so between them the app is served from the
-  // subdomain while this Worker still names the apex alone — and the consent, revoke,
-  // and handoff endpoints answer 403 to the only origin a User can reach. These
-  // assert the second origin is honoured, because the alternative is a release whose
-  // correctness depends on step order.
-  it("honours a retired app origin alongside the current one", () => {
-    expect(browserOriginAllowed(APEX_ORIGIN, APP_ORIGIN, APEX_ORIGIN)).toBe(true);
-    expect(browserOriginAllowed(APP_ORIGIN, APP_ORIGIN, APEX_ORIGIN)).toBe(true);
-    // Still not a widened net: an origin that is neither is refused, and so is a
-    // substring of one.
-    expect(browserOriginAllowed("https://evil.example", APP_ORIGIN, APEX_ORIGIN)).toBe(false);
-    expect(browserOriginAllowed(`${APEX_ORIGIN}.evil.example`, APP_ORIGIN, APEX_ORIGIN)).toBe(
-      false,
-    );
-  });
-
-  it("treats an absent retired origin as one app origin, which is the settled state", () => {
-    // The variable is optional on purpose: after the cutover there is nothing to
-    // straddle, and `undefined` must mean "no second origin" rather than "a crash".
-    expect(browserOriginAllowed(APP_ORIGIN, APP_ORIGIN, undefined)).toBe(true);
-    expect(browserOriginAllowed(APEX_ORIGIN, APP_ORIGIN, undefined)).toBe(false);
-    // And the one-argument form the single-origin callers use still works.
-    expect(browserOriginAllowed(APP_ORIGIN, APP_ORIGIN)).toBe(true);
-  });
-
-  it("applies the loopback-twin widening to every app origin, not just the first", () => {
-    // The widening is per-origin, and skipping it for the second would mean a local
-    // E2E run that serves the app on `localhost` and pins the retired origin to
-    // `127.0.0.1` is refused — the exact bug the pair exists to prevent, reintroduced
-    // one argument in.
-    expect(
-      browserOriginAllowed(LOCAL_APP_TWIN_ORIGIN, LOCAL_APP_ORIGIN, LOCAL_APP_TWIN_ORIGIN),
-    ).toBe(true);
-    expect(browserOriginAllowed(LOCAL_APP_ORIGIN, LOCAL_APP_ORIGIN, LOCAL_APP_TWIN_ORIGIN)).toBe(
-      true,
-    );
+  // The retired apex was trusted alongside the app origin for the length of the
+  // ADR 0035 handover. It is gone (#412), and this is the direction that matters now:
+  // the apex is the marketing Site's, so a request presenting it is refused.
+  it("refuses the retired apex rather than widening the net to it", () => {
+    expect(browserOriginAllowed(APEX_ORIGIN, APP_ORIGIN)).toBe(false);
+    // Still not a substring match either.
+    expect(browserOriginAllowed(`${APP_ORIGIN}.evil.example`, APP_ORIGIN)).toBe(false);
   });
 
   it("rejects a missing or opaque Origin", () => {

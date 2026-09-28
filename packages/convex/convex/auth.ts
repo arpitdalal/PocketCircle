@@ -1,7 +1,12 @@
 import { type AuthFunctions, createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireRunMutationCtx } from "@convex-dev/better-auth/utils";
-import { isLoopbackHostname, LOCAL_APP_ORIGIN, loopbackTrustedOrigins } from "@pocketcircle/domain";
+import {
+  isDeclaredOrigin,
+  isLoopbackHostname,
+  LOCAL_APP_ORIGIN,
+  loopbackTrustedOrigins,
+} from "@pocketcircle/domain";
 import { betterAuth } from "better-auth";
 import { components, internal } from "./_generated/api.js";
 import type { DataModel, Doc } from "./_generated/dataModel.js";
@@ -23,18 +28,10 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
  * CONVEX_SITE_URL is provided by Convex automatically and is where the auth
  * routes live.
  *
- * MIGRATION_APP_ORIGIN widens the trusted origins for the ADR 0035 cutover
- * window (#409): the SPA is served from the app origin while SITE_URL still
- * names the apex, so both have to be trusted for sign-in to work on whichever
- * one a User lands on. Unset means a single origin, which is what local, E2E,
- * and post-migration deployments run. Deploying the app origin is then not
- * itself the cutover — the DNS swap and the SITE_URL flip stay separate,
- * independently verifiable steps. Remove it once SITE_URL names the app origin;
- * that is the `migrationAppOrigin` value, the read in {@link createAuth}, the
- * second entry in the trusted-origins list there, the `declaredOrigin` call and
- * its parameter below, and the README section. `declaredOrigin` and
- * `BARE_ORIGIN` are not migration-specific — SITE_URL is checked with the same
- * helper — so they stay.
+ * `SITE_URL` is the only origin auth trusts, and it is the one the app is served
+ * from. The second trusted origin that widened it for the ADR 0035 cutover window
+ * (#409) is gone: `SITE_URL` names the app origin, the apex is the marketing
+ * Site's, and a hostname resolves to exactly one of them.
  *
  * E2E-only: when `E2E_TEST_AUTH=1` (set ONLY on ephemeral CI/self-hosted
  * deployments, NEVER in production — ADR 0019), email+password sign-in is also
@@ -45,29 +42,20 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
 const authFunctions: AuthFunctions = internal.auth;
 
 /**
- * `scheme://host[:port]` and nothing else. Patterns are refused deliberately:
- * Better Auth reads `https://*.example.com` as a wildcard that matches any
- * subdomain — including as a `callbackURL` destination, which would hand a live
- * one-time session token to whatever host matched — while the component's CORS
- * router matches exact origins only, so the same string would also break sign-in
- * from the origin it was meant to allow. A comma-separated list is refused for
- * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
- * commas, this value must not. `@`, `%` and `\` are refused because a host is none
- * of them: `https://app.example.com@evil.example`, `https://ex%41mple.com` and
- * `https://evil.example\app.example.com` each parse to a *different* origin than
- * they read as — the last because the URL parser reads `\` as `/` — and a trust
- * decision must never be rewritten on its way in.
- */
-const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
-
-/**
  * The origin a deployment declares, or a throw naming the variable that is wrong.
  * This runs when the auth routes initialise, per request, not at deploy — so a
  * malformed value surfaces as every auth call failing, loudly, rather than quietly
  * leaving an origin untrusted.
+ *
+ * The shape rule itself is {@link isDeclaredOrigin}, which lives in
+ * `packages/domain/src/origins.ts` because the deploy's configuration check has to apply
+ * the identical predicate to the identical variable before it lets a release ship. It
+ * used to be a local constant here, and the check re-implemented the comparison beside
+ * it — two parsers, which is how a release once cleared this check on a value this
+ * function would have thrown on.
  */
 function declaredOrigin(name: string, value: string) {
-  if (!BARE_ORIGIN.test(value)) {
+  if (!isDeclaredOrigin(value)) {
     throw new Error(
       `${name} must be a single origin such as https://app.example.com, not a pattern or a list: ${value}`,
     );
@@ -82,23 +70,12 @@ function declaredOrigin(name: string, value: string) {
   return url.origin;
 }
 
-export function authRuntimeConfig(
-  siteUrlValue: string | undefined,
-  migrationAppOriginValue?: string,
-) {
-  // SITE_URL goes through the same check as the origin declared beside it. It is the
-  // origin better-auth trusts and the base a relative sign-in callback resolves
-  // against, so a pattern there is the hazard above rather than a shorthand.
+export function authRuntimeConfig(siteUrlValue: string | undefined) {
+  // SITE_URL is the origin better-auth trusts and the base a relative sign-in callback
+  // resolves against, so a pattern there is the hazard above rather than a shorthand.
   const siteUrl = declaredOrigin("SITE_URL", siteUrlValue ?? LOCAL_APP_ORIGIN);
   const verbose = isLoopbackHostname(new URL(siteUrl).hostname);
-  // Unset is the single-origin setup. Anything supplied is validated, an empty value
-  // included: `convex env set MIGRATION_APP_ORIGIN ""` is a mistake to be told about,
-  // not an absent variable to be read as "trust one origin".
-  const migrationAppOrigin =
-    migrationAppOriginValue === undefined
-      ? null
-      : declaredOrigin("MIGRATION_APP_ORIGIN", migrationAppOriginValue);
-  return { siteUrl, verbose, migrationAppOrigin };
+  return { siteUrl, verbose };
 }
 
 export function authComponentConfig(siteUrlValue: string | undefined) {
@@ -165,17 +142,14 @@ export const { getAuthUser } = authComponent.clientApi();
 const e2eTestAuth = process.env.E2E_TEST_AUTH === "1";
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const authRuntime = authRuntimeConfig(process.env.SITE_URL, process.env.MIGRATION_APP_ORIGIN);
+  const authRuntime = authRuntimeConfig(process.env.SITE_URL);
   // Browsers treat the two loopback names as different origins. Vite may open
   // either one; trust the twin so local Google sign-in CORS matches SITE_URL.
   const [siteUrl, loopbackTwin] = loopbackTrustedOrigins(authRuntime.siteUrl);
-  // crossDomain contributes SITE_URL to trustedOrigins; this list is every other
-  // origin auth trusts. Deduplicated against SITE_URL and itself, so an origin
-  // that is already trusted — the apex before the cutover, or the loopback twin
-  // locally — is not listed twice.
-  const extraTrustedOrigins = [...new Set([authRuntime.migrationAppOrigin, loopbackTwin])].filter(
-    (origin): origin is string => typeof origin === "string" && origin !== siteUrl,
-  );
+  // crossDomain contributes SITE_URL to trustedOrigins, so this is the whole of the
+  // widening: the loopback twin, and nothing else. A non-loopback origin has no twin
+  // and contributes no entry, which is how production runs.
+  const loopbackTwinOptions = loopbackTwin === undefined ? {} : { trustedOrigins: [loopbackTwin] };
   return betterAuth({
     baseURL: process.env.CONVEX_SITE_URL,
     database: authComponent.adapter(ctx),
@@ -212,7 +186,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    ...(extraTrustedOrigins.length > 0 ? { trustedOrigins: extraTrustedOrigins } : {}),
+    ...loopbackTwinOptions,
     plugins: [convex({ authConfig }), crossDomain({ siteUrl })],
   });
 };

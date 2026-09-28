@@ -70,7 +70,6 @@ export const LEGACY_REDIRECTS: readonly LegacyRedirect[] = [
   { source: "/dev/email-preview", path: "/dev/email-preview" },
   { source: "/feedback", path: "/feedback" },
   { source: "/from-notification", path: "/from-notification" },
-  { source: "/home", path: "/home" },
   { source: "/mcp/authorize", path: "/mcp/authorize" },
   { source: "/my-transactions", path: "/my-transactions" },
   { source: "/onboarding", path: "/onboarding" },

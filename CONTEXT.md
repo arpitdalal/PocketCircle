@@ -265,11 +265,11 @@ The public hostname PocketCircle serves its marketing surfaces from. It owns the
 _Avoid_: Marketing Domain, Website Domain
 
 **App Origin**:
-The origin the authenticated product app is served from, and the origin a signed-in browser presents. Distinct from the **Apex**, though the same host until the two are split. Anything a signed-in browser reaches — a consent origin, a sign-in link, a redirect target — follows the **App Origin**, never the **Apex**.
+The origin the authenticated product app is served from, and the origin a signed-in browser presents. Distinct from the **Apex**, which serves the **Marketing Site**. Anything a signed-in browser reaches — a consent origin, a sign-in link, a redirect target — follows the **App Origin**, never the **Apex**. It is the one origin auth trusts.
 _Avoid_: Web Origin, Site URL
 
 **App Subdomain**:
-`app.` on the **Apex**, the host the product app moves to. During the cutover window the app is served from it *and* from the **App Origin** — the same Worker claims both, so the move can be rehearsed while the **Apex** still serves the app — and auth trusts both origins at once, so sign-in works on whichever a **User** lands on and returns them to it. The **App Origin** becomes the **App Subdomain** at the cutover, and the **Apex** stops serving the app.
+`app.` on the **Apex**. The host the product app is served from, and the one its Worker claims alone; the **Apex** belongs to the **Marketing Site**. Two Workers cannot both claim a hostname, so a hostname resolves to exactly one of them.
 _Avoid_: Migration Origin, New App Domain
 
 **MCP Origin**:

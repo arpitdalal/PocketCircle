@@ -79,14 +79,11 @@
       request, no "learn more" — because a page that asks for two different things
       gets neither, and the one thing being asked for is an account.
 
-      The two are deliberately *not* kept in step. The product SPA still renders
-      its own marketing page for signed-out visitors
-      (`apps/web-app/app/components/marketing-home.tsx`, and as the root
-      `HydrateFallback`) carrying the old copy, and the correction this page works
-      hardest on — that Settlement, Budgets, and bank import are not built — is
-      only on the apex. #412 retires that React page, which is the right way to
-      end the drift; until then a second homepage with the previous copy is
-      reachable at the app origin, and nothing in the build compares the two.
+      The drift this page exists to end is over: the product SPA retired its own
+      marketing page for signed-out visitors (#412), so the app origin now serves a
+      loading shell and a sign-in form, and this is the only homepage. The correction
+      this page works hardest on — that Settlement, Budgets, and bank import are not
+      built — is stated here and nowhere else, because there is nowhere else.
     -->
     <!--
       `overflow-x-clip`, not `overflow-x-hidden`. Both stop the hero's blurred

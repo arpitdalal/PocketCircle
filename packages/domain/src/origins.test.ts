@@ -14,28 +14,23 @@ import {
   MCP_HOSTNAME,
   MCP_ORIGIN,
   MCP_RESOURCE_URI,
-  MIGRATION_APP_HOSTNAME,
-  MIGRATION_APP_ORIGIN,
 } from "./origins.js";
 
 describe("canonical origins", () => {
   it("derives every production origin from the apex hostname", () => {
     expect(APEX_ORIGIN).toBe(`https://${APEX_HOSTNAME}`);
     expect(APP_ORIGIN).toBe(`https://${APP_HOSTNAME}`);
-    expect(MIGRATION_APP_ORIGIN).toBe(`https://${MIGRATION_APP_HOSTNAME}`);
     expect(MCP_ORIGIN).toBe(`https://${MCP_HOSTNAME}`);
     expect(MCP_RESOURCE_URI).toBe(`${MCP_ORIGIN}/mcp`);
   });
 
   it("names the app origin after the cutover, on the subdomain and nowhere else", () => {
-    // The cutover (#411) promoted the app subdomain to `APP_HOSTNAME`, which made these
-    // two constants the same string. That is the signal #412 acts on: the migration
-    // name has served its purpose, the second trusted origin is redundant, and the
-    // pair collapses. Asserting the collapse has not happened yet keeps #412 from
-    // landing as a silent rename with the deploy workflow still reading a variable the
-    // backend no longer has.
-    expect(APP_HOSTNAME).toBe(MIGRATION_APP_HOSTNAME);
-    expect(MIGRATION_APP_HOSTNAME).toBe(`app.${APEX_HOSTNAME}`);
+    // #412 collapsed the `MIGRATION_APP_HOSTNAME` / `APP_HOSTNAME` pair: the cutover
+    // (#411) had promoted the app subdomain to `APP_HOSTNAME`, leaving two constants
+    // that were the same string, and the second trusted origin they were named for is
+    // gone. One hostname, one name, and the deploy workflow's variable and the backend
+    // that reads it are the same thing again.
+    expect(APP_HOSTNAME).toBe(`app.${APEX_HOSTNAME}`);
     // And the app is not the apex any more, which is the whole of the cutover: one
     // Worker per hostname, and a User who signs in lands somewhere auth trusts.
     expect(APP_HOSTNAME).not.toBe(APEX_HOSTNAME);

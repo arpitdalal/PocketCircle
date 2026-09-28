@@ -11,7 +11,6 @@ import {
 } from "~/components/circle-mobile-bottom-nav.js";
 import { CircleSwitcher } from "~/components/circle-switcher.js";
 import { FeatureAnnouncementCard } from "~/components/feature-announcement-card.js";
-import { MarketingHome } from "~/components/marketing-home.js";
 import { NotificationAnnouncementStrip } from "~/components/notification-announcement-strip.js";
 import { NotificationCenter } from "~/components/notification-center.js";
 import { PushNotificationClickListener } from "~/components/push-notification-click-listener.js";
@@ -74,8 +73,9 @@ export default function ProtectedLayout() {
   const readyUserEmail = session.state === "ready" ? session.user.email : undefined;
   // Strip reports when it covers the viewport top so header drops duplicate safe-area.
   const [notificationStripOwnsTopSafeArea, setNotificationStripOwnsTopSafeArea] = useState(false);
-  // Mount on every auth gate (Splash / MarketingHome), not only the ready shell —
-  // SW postMessage is last-resort after openWindow fails (#384).
+  // Mounted on the loading gate, which is where a push click arrives — the session is
+  // still resolving, so the deep link cannot be resolved yet. SW postMessage is
+  // last-resort after openWindow fails (#384).
   const pushClickListener = !MOCKS ? <PushNotificationClickListener /> : null;
 
   useEffect(() => {
@@ -102,16 +102,9 @@ export default function ProtectedLayout() {
     );
   }
   if (session.state === "unauthenticated") {
-    // `/` stays public so Google branding (and visitors) see product purpose
-    // instead of a login-only redirect. Other protected paths still require sign-in.
-    if (location.pathname === "/") {
-      return (
-        <>
-          {pushClickListener}
-          <MarketingHome />
-        </>
-      );
-    }
+    // Every path here is behind sign-in, including the app root: the public surfaces
+    // are the marketing Site's own origin (ADR 0035), so there is nothing to show a
+    // signed-out visitor here but the sign-in form.
     return <Navigate to={signinRedirect} replace />;
   }
   if (session.state === "bootstrap") {
