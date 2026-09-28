@@ -21,9 +21,10 @@
  * The three outcomes a caller has to tell apart, because two of them are the same
  * symptom with opposite fixes:
  *
- *   - `unreachable` — the CLI failed for a reason that is not "not found", so the value
- *     is unknown. Reading that as a wrong value sends someone to fix a variable that is
- *     probably fine.
+ *   - `unreachable` — the command failed, so the value is unknown. Reading that as a wrong
+ *     value sends someone to fix a variable that is probably fine. `convex env get`
+ *     exits 0 for a variable that is not set, so *every* non-zero status is a genuine
+ *     failure and none of them is a legitimate answer.
  *   - `unset` — no value at all. The backend falls back to the local dev origin, so it
  *     trusts nothing a User can reach.
  *   - `wrong` — set, and names a host the product Worker does not serve.
@@ -64,11 +65,6 @@ export type AuthOriginVerdict =
  */
 const CLI_TRAILING_NEWLINE = "\n";
 
-/** Whether the CLI reported the variable as absent, which it does on stderr. */
-function reportsNotFound(stderr: string) {
-  return /not found/i.test(stderr);
-}
-
 /**
  * The stored value, with the CLI's own delimiter removed and nothing else.
  *
@@ -95,13 +91,17 @@ function readDeclaredOrigin({ stdout }: ConvexEnvRead) {
  * and none of the arms stay reachable at the call site.
  */
 export function classifyAuthOrigin(read: ConvexEnvRead, expected: string): AuthOriginVerdict {
-  const siteUrl = readDeclaredOrigin(read);
-
-  // Empty stdout with a non-zero exit that does not say "not found" is a transport or
-  // auth failure, and is the one outcome that carries no information about the value.
-  if (siteUrl === "" && read.status !== 0 && !reportsNotFound(read.stderr)) {
+  // A non-zero exit is a failed read, whatever it managed to print. `convex env get`
+  // exits 0 for a variable that is not set, so there is no legitimate non-zero status
+  // here at all — which means this does not need to tell "not found" from a transport
+  // failure, and must not try. It also must not be narrowed to "non-zero *and* empty
+  // stdout": an interrupted command can flush the value and then fail, and a gate that
+  // accepts a failed probe because the bytes it managed to emit look right is not a gate.
+  if (read.status !== 0) {
     return { kind: "unreachable", status: read.status, detail: read.stderr.trim() };
   }
+
+  const siteUrl = readDeclaredOrigin(read);
   if (siteUrl === "") {
     return { kind: "unset" };
   }

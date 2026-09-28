@@ -116,6 +116,29 @@ describe("classifyAuthOrigin", () => {
     ).toEqual({ kind: "unreachable", status: 1, detail: "✖ connection refused" });
   });
 
+  it("refuses a failed read even when it managed to print the right value", () => {
+    // A command interrupted after flushing stdout has failed, and its output is not a
+    // result. Accepting it because the bytes look right is how a release ships on a
+    // configuration nobody successfully read — and it is the one case where the old
+    // empty-stdout condition let a definitive failure through.
+    expect(
+      classifyAuthOrigin(
+        { stdout: `${APP_ORIGIN}\n`, stderr: "✖ interrupted", status: 1 },
+        APP_ORIGIN,
+      ),
+    ).toEqual({ kind: "unreachable", status: 1, detail: "✖ interrupted" });
+  });
+
+  it("treats every non-zero status as a failure, since not-set exits zero", () => {
+    // `convex env get` reports an absent variable on stderr and still exits 0, so there is
+    // no non-zero status that is a legitimate answer — not even one that says "not found".
+    for (const stderr of ["✖ not found", "✖ connection refused", ""]) {
+      expect(classifyAuthOrigin({ stdout: "", stderr, status: 2 }, APP_ORIGIN).kind).toBe(
+        "unreachable",
+      );
+    }
+  });
+
   it("ignores stderr noise on a successful read", () => {
     // The CLI writes progress to stderr. Merging it into the value fails a correct
     // configuration for a reason no message could name.
