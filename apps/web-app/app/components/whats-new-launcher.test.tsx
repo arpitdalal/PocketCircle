@@ -110,8 +110,17 @@ describe("WhatsNewLauncher feed", () => {
     // would quietly turn into a no-op there.
     const expected = sections.slice(0, 3);
     for (const section of expected) {
-      expect(within(feed).getByText(section.version)).toBeInTheDocument();
-      expect(within(feed).getByText(section.date)).toBeInTheDocument();
+      // Anchored to the row, because a release date is NOT unique. Two versions released
+      // on the same day is ordinary — v0.8.0 and v0.8.1 were — and a feed-wide
+      // `getByText(date)` throws "found multiple elements" on exactly that, while
+      // `getAllByText(...)[0]` would pass on a feed showing the wrong date for this
+      // version. The version is the unique key, so the row it identifies is where the
+      // date has to be checked.
+      const row = within(feed).getByText(section.version).closest("li");
+      if (!row) {
+        throw new Error(`No feed row rendered for ${section.version}`);
+      }
+      expect(within(row).getByText(section.date)).toBeInTheDocument();
     }
     expect(within(feed).getAllByRole("heading", { level: 3 })).toHaveLength(expected.length);
     expect(within(feed).queryByText(/unreleased/i)).not.toBeInTheDocument();
@@ -127,7 +136,7 @@ describe("WhatsNewLauncher feed", () => {
       expect(row.querySelectorAll("ul > li")).toHaveLength(Math.min(3, bullets.length));
       expect(row.querySelectorAll(":scope > p")).toHaveLength(Math.min(1, section.intro.length));
       for (const item of bullets.slice(0, 3)) {
-        expect(within(feed).getByText(item)).toBeInTheDocument();
+        expect(within(row).getByText(item)).toBeInTheDocument();
       }
     }
   });
