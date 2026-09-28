@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRoutesStub, Link, useSearchParams } from "react-router";
+import { createRoutesStub, Link, useLocation, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAIN_CONTENT_ID } from "~/components/skip-navigation.js";
 import { circleNavItems } from "~/lib/circle-nav.js";
@@ -769,15 +769,17 @@ describe("ProtectedLayout unauthenticated", () => {
     // page there, baked into the shell for crawlers. The public surfaces are the
     // marketing Site's own origin now (ADR 0035, #411), so there is nothing to show
     // here but the sign-in form (#412).
-    //
-    // Asserting the resolved location rather than the sign-in stub rendering is the
-    // point: `/` is the one path that used to behave differently, so "it ends up
-    // somewhere that is not the app" is the invariant, and the next test already
-    // covers a non-root path reaching the same place.
     configureConvex();
     convexReactMock.useConvexAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
 
-    const signin = vi.fn(() => <h2>Sign in page</h2>);
+    // Reports where it actually landed, so this asserts the *destination* rather than
+    // that a component happened to render. The destination is the whole claim: the root
+    // is no longer a path of its own, and it must resolve to a bare sign-in with no query,
+    // which is also what keeps it from bouncing back into the app it just refused.
+    function SignInStub() {
+      const location = useLocation();
+      return <h2>{`Sign in page at ${location.pathname}${location.search}`}</h2>;
+    }
 
     renderRouteStub(
       [
@@ -786,16 +788,17 @@ describe("ProtectedLayout unauthenticated", () => {
           Component: ProtectedLayout,
           children: [{ index: true, Component: () => <h2>App home</h2> }],
         },
-        { path: "/signin", Component: signin },
+        { path: "/signin", Component: SignInStub },
       ],
       ["/?returnTo=%2Fsettings"],
     );
 
-    expect(await screen.findByText("Sign in page")).toBeInTheDocument();
+    // Bare `/signin`, and specifically *not* carrying the `returnTo` it was given:
+    // `shouldPreserveReturnTo` covers the MCP handoff and push clicks, not the app root,
+    // so a `returnTo` here would be a claim the guard does not make. Pinned because the
+    // line between the two is invisible otherwise.
+    expect(await screen.findByText("Sign in page at /signin")).toBeInTheDocument();
     expect(screen.queryByText("App home")).not.toBeInTheDocument();
-    // The deep link the visitor arrived on is carried into the form, so signing in
-    // resumes where they meant to go rather than dumping them on Home.
-    expect(signin).toHaveBeenCalled();
   });
 
   it("still redirects other protected paths to sign-in", async () => {
