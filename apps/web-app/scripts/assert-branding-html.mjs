@@ -17,8 +17,9 @@ import { MCP_RESOURCE_URI } from "@pocketcircle/domain/origins";
  * What is left is the app origin's own integrity, which is a different question and
  * still fails the build when broken: the crawl directives that keep the authenticated
  * app out of search results, the four legal documents the app's chrome links to for a
- * signed-in User, and the `__spa-fallback.html` guard. `legal-documents.test.tsx` is
- * what holds the app's copy identical to the apex's, which is the copy Google reads.
+ * signed-in User, the existence of the SPA shell every request here falls back to, and
+ * the `__spa-fallback.html` guard. `legal-documents.test.tsx` is what holds the app's
+ * copy identical to the apex's, which is the copy Google reads.
  */
 const clientDir = join(dirname(fileURLToPath(import.meta.url)), "../build/client");
 
@@ -40,6 +41,21 @@ if (existsSync(join(clientDir, "__spa-fallback.html"))) {
     "Unexpected __spa-fallback.html — prerendering `/` breaks Cloudflare SPA fallback (always uses /index.html). Keep `/` off the prerender list.",
   );
 }
+
+/**
+ * The SPA shell exists — and that is the whole assertion.
+ *
+ * It used to also be the marketing copy, which #412 deleted along with the page it came
+ * from. Removing those needles took this file's only pre-deploy read of the shell with it,
+ * and nothing replaced it: the deploy's "Verify product app origins" step reads
+ * `index.html`, but it runs *after* "Deploy product app Worker", so a build that produced
+ * the legal pages and robots.txt and no shell would ship and only then fail the job.
+ *
+ * A build that cannot produce the file every request to this origin falls back to is
+ * broken in a way no other check here would notice, so the check that catches it belongs
+ * at build time where it costs a release nothing.
+ */
+requireHtml("index.html", []);
 
 /**
  * The app origin's own crawl directives. Checked for *content*, not just presence,

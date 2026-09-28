@@ -28,9 +28,12 @@
  *     trusts nothing a User can reach.
  *   - `wrong` — set, and names a host the product Worker does not serve.
  *
- * The `./auth-origin` subpath export exists for the same reason `./origins` does: this is
- * loaded by `scripts/check-auth-origin.mjs` under plain Node, which cannot resolve the
- * package's own `.js`-for-`.ts` specifiers.
+ * The `./auth-origin` subpath export does **not** exist, and adding one was a mistake
+ * worth recording: `scripts/check-auth-origin.mjs` imports this file by relative path, so
+ * the export had no consumer. It would also have been the wrong shape — a subpath exists
+ * so a *bundler-independent* tool can load a module whose internal `.js`-for-`.ts`
+ * specifiers Node cannot follow, and this module has no imports at all, so plain Node
+ * resolves it directly.
  */
 
 /** What `convex env get` hands back: the bytes it printed, and how it exited. */
@@ -69,9 +72,11 @@ function reportsNotFound(stderr: string) {
 /**
  * The stored value, with the CLI's own delimiter removed and nothing else.
  *
- * Exported for the tests that assert the exact bytes; the verdict below is the API.
+ * Not exported: the verdict is the whole API, and it reports the value it read verbatim
+ * in its `wrong` arm — so a caller, and the tests, can see the exact bytes without a
+ * second entry point that exists only to be looked at.
  */
-export function readDeclaredOrigin({ stdout }: ConvexEnvRead) {
+function readDeclaredOrigin({ stdout }: ConvexEnvRead) {
   return stdout.endsWith(CLI_TRAILING_NEWLINE)
     ? stdout.slice(0, -CLI_TRAILING_NEWLINE.length)
     : stdout;
@@ -83,6 +88,11 @@ export function readDeclaredOrigin({ stdout }: ConvexEnvRead) {
  * `expected` is the origin that must be configured — the product Worker's `APP_ORIGIN`.
  * A value that equals it passes. A value that does not is reported with what it actually
  * was, never with what it was trimmed to.
+ *
+ * The return type is annotated where the rest of this module infers, and deliberately:
+ * it is a four-arm discriminated union that {@link describeAuthOriginFailure} narrows on,
+ * so without the annotation TypeScript widens each returned literal to `{ kind: string }`
+ * and none of the arms stay reachable at the call site.
  */
 export function classifyAuthOrigin(read: ConvexEnvRead, expected: string): AuthOriginVerdict {
   const siteUrl = readDeclaredOrigin(read);

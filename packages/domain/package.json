@@ -8,10 +8,6 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./auth-origin": {
-      "types": "./src/auth-origin.ts",
-      "default": "./src/auth-origin.ts"
-    },
     "./changelog": {
       "types": "./src/changelog.ts",
       "default": "./src/changelog.ts"

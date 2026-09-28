@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  type ConvexEnvRead,
-  classifyAuthOrigin,
-  describeAuthOriginFailure,
-  readDeclaredOrigin,
-} from "./auth-origin.js";
+import { classifyAuthOrigin, describeAuthOriginFailure } from "./auth-origin.js";
 import { APEX_ORIGIN, APP_ORIGIN, isDeclaredOrigin, LOCAL_APP_ORIGIN } from "./origins.js";
 
 /** What `convex env get SITE_URL` prints for a deployment storing `stored`. */
-function cliRead(stored: string, { status = 0, stderr = "" } = {}): ConvexEnvRead {
+function cliRead(stored: string, { status = 0, stderr = "" } = {}) {
   return { stdout: stored === "" ? "" : `${stored}\n`, stderr, status };
 }
 
@@ -34,22 +29,28 @@ const MATRIX = [
   "",
 ];
 
-describe("readDeclaredOrigin", () => {
+describe("the bytes the gate reads", () => {
+  /** The stored value as the gate reports it, which is verbatim or not at all. */
+  function storedValue(stdout: string) {
+    const verdict = classifyAuthOrigin({ stdout, stderr: "", status: 0 }, APP_ORIGIN);
+    // Both the accepted and the refused arm report the value in full, so this is the
+    // stored bytes verbatim whichever way the verdict went.
+    if (verdict.kind === "ok" || verdict.kind === "wrong") {
+      return verdict.siteUrl;
+    }
+    throw new Error(`expected a value, got ${verdict.kind}`);
+  }
+
   it("removes the CLI's own newline and nothing else", () => {
     // The whole point: a stored value carrying its own trailing newline must survive,
     // because the backend refuses it and a gate that tidied it away would approve a
     // release that takes sign-in down.
-    expect(readDeclaredOrigin(cliRead(APP_ORIGIN))).toBe(APP_ORIGIN);
-    expect(readDeclaredOrigin({ stdout: `${APP_ORIGIN}\n`, stderr: "", status: 0 })).toBe(
-      APP_ORIGIN,
-    );
-    expect(readDeclaredOrigin({ stdout: `${APP_ORIGIN}\n\n`, stderr: "", status: 0 })).toBe(
-      `${APP_ORIGIN}\n`,
-    );
+    expect(storedValue(`${APP_ORIGIN}\n`)).toBe(APP_ORIGIN);
+    expect(storedValue(`${APP_ORIGIN}\n\n`)).toBe(`${APP_ORIGIN}\n`);
   });
 
   it("leaves a value the CLI printed without a newline alone", () => {
-    expect(readDeclaredOrigin({ stdout: APP_ORIGIN, stderr: "", status: 0 })).toBe(APP_ORIGIN);
+    expect(storedValue(APP_ORIGIN)).toBe(APP_ORIGIN);
   });
 
   it("preserves every byte the deployment stored, whatever it is", () => {
@@ -60,7 +61,7 @@ describe("readDeclaredOrigin", () => {
       `${APP_ORIGIN}\r`,
       `${APP_ORIGIN}\r\n`,
     ]) {
-      expect(readDeclaredOrigin(cliRead(stored))).toBe(stored);
+      expect(storedValue(`${stored}\n`)).toBe(stored);
     }
   });
 });
