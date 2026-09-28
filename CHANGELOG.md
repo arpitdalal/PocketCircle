@@ -7,6 +7,12 @@ and PocketCircle uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-09-27
+
+### Changed
+
+- **Opening the app address now takes you straight to sign-in.** `app.pocketcircle.app` used to greet anyone not signed in with a short product page, left over from before the homepage moved to the plain address. That page is gone, so a signed-out visit lands on the sign-in form — which is what every other address in the app already did. **Nothing about your account changes.** Sign in once with Google and you land exactly where you were, and the homepage is still at `pocketcircle.app` if you were looking for that.
+
 ## [v0.8.0] - 2026-09-27
 
 ### Changed
