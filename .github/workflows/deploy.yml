@@ -88,58 +88,21 @@ jobs:
           test -n "$VITE_CONVEX_URL" || { echo "::error::Missing VITE_CONVEX_URL variable"; exit 1; }
           # Auth only answers sign-in from an origin it trusts, and `SITE_URL` is the
           # only one it holds. Serving a host it does not name is the one failure this
-          # check exists to prevent: the app loads there and sign-in fails in the
-          # browser with no detail at all. Checked before anything is deployed, because
-          # the deploy's own origin check only proves the host serves the app.
+          # gate exists to prevent: the app loads there and sign-in fails in the browser
+          # with no detail at all. Checked before anything is deployed, because the
+          # deploy's own origin check only proves the host serves the app.
           #
-          # Three answers, deliberately kept apart, because two of them are the same
-          # symptom with opposite fixes:
-          #
-          #   unset        -> auth falls back to the local dev origin and trusts nothing
-          #                   a User can reach. `convex env get` reports this on stderr
-          #                   and still exits 0, so the exit code carries no signal and
-          #                   only the message can tell it from a real value.
-          #   wrong        -> the variable is set and names a host the product Worker
-          #                   does not serve. An operator reading this has a typo or a
-          #                   stale deployment to fix.
-          #   unreachable  -> the CLI failed for a reason that is not "not found", so
-          #                   the value is unknown. Reading that as a wrong value would
-          #                   send someone to fix a variable that is probably fine.
-          #
-          # stderr is never merged into the value: the CLI writes progress there, and
-          # welding it onto the origin would fail a correct configuration for a reason
-          # the message could not name. This is the same shape the push-delivery gate
-          # below uses.
-          SITE_OUT=$(mktemp)
-          SITE_ERR=$(mktemp)
-          set +e
-          pnpm --filter @pocketcircle/convex exec convex env get SITE_URL >"$SITE_OUT" 2>"$SITE_ERR"
-          SITE_STATUS=$?
-          set -e
-          # Read the bytes instead of using `$(...)`. Command substitution strips *every*
-          # trailing newline, so a configured SITE_URL carrying a trailing LF is laundered
-          # into a pass while `declaredOrigin` — whose BARE_ORIGIN refuses any whitespace —
-          # rejects that same value: the release clears and sign-in goes down. Strip exactly
-          # the one newline the CLI prints after the value, and nothing else, so the gate
-          # sees every byte the parser sees. Verified against a stub for a clean value, a
-          # value with no trailing newline, and a stored trailing LF, CR and CRLF.
-          IFS= read -r -d '' SITE_URL_VALUE <"$SITE_OUT" || true
-          SITE_URL_VALUE=${SITE_URL_VALUE%$'\n'}
-          if [ -z "$SITE_URL_VALUE" ] && [ "$SITE_STATUS" -ne 0 ] && ! grep -qi 'not found' "$SITE_ERR"; then
-            echo "::error::could not read SITE_URL from the Convex production deployment (status=$SITE_STATUS) — auth's trust in $APP_ORIGIN is unknown, and this check will not guess:" >&2
-            cat "$SITE_ERR" >&2
-            rm -f "$SITE_OUT" "$SITE_ERR"
-            exit 1
-          fi
-          rm -f "$SITE_OUT" "$SITE_ERR"
-          if [ "$SITE_URL_VALUE" != "$APP_ORIGIN" ]; then
-            if [ -z "$SITE_URL_VALUE" ]; then
-              echo "::error::SITE_URL is not set on the Convex production deployment, so auth falls back to the local dev origin and trusts no origin a User can reach, while the product Worker claims $APP_ORIGIN. Set it: convex env set --prod SITE_URL $APP_ORIGIN"
-            else
-              echo "::error::auth does not trust $APP_ORIGIN, and the product Worker claims it: SITE_URL is '$SITE_URL_VALUE' — see README, origin migration"
-            fi
-            exit 1
-          fi
+          # This was a block of inline shell until four review rounds found four bugs in
+          # it, every one a byte it treated differently from the backend that consumes the
+          # value — and no test could catch any of them, because nothing executed a
+          # workflow. The decision now lives in `scripts/check-auth-origin.mjs`, whose
+          # classifier is unit tested in `packages/domain` against the real backend
+          # predicate, and `APP_ORIGIN` comes from the canonical origins module rather than
+          # from this file, so the value checked against cannot drift from the value the
+          # backend uses. `canonical-origins.test.ts` still holds the `APP_ORIGIN` below
+          # to the module, for the later steps that fetch origins rather than read config.
+          pnpm exec node scripts/check-auth-origin.mjs
+
           node --input-type=module -e '
             function requireHttpsOrigin(raw, name, { convexSite } = {}) {
               if (!raw?.trim()) {

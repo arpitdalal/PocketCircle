@@ -683,13 +683,32 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #    already triggered a release. So this needs its own CHANGELOG section too, and it is
 #    a real release, not a retag.
 #
+#    **This step WILL conflict in CHANGELOG.md, and that is expected.** #411 wrote the
+#    migration notes under `[Unreleased]`, and the v0.8.0 release commit afterwards moved
+#    them beneath the `## [v0.8.0]` heading — so the parent of #411 and the current tree
+#    disagree about the same lines. Resolve it by keeping the v0.8.0 section and dropping
+#    the empty side, because v0.8.0 was a real shipped release and its notes are history,
+#    not something a rollback erases:
+#
+#      git revert -m 1 <#411 SHA>        # stops here, conflicted
+#      git checkout --ours CHANGELOG.md  # keeps the v0.8.0 notes
+#      git add CHANGELOG.md
+#      GIT_EDITOR=true git revert --continue
+#      git revert -m 1 <#410 SHA>        # no conflict
+#      git push origin HEAD:main
+#      git tag vD.E.F && git push origin vD.E.F
+#
+#    Do not let the `git revert` for #411 sit unresolved: a conflict stops the command
+#    before the push and the tag, so the route handoff silently never ships and the
+#    intermediate state from step 1 becomes the resting one. Nothing is deployed from an
+#    unfinished revert, so this fails safe — it just leaves you further back than you
+#    meant to be.
+#
 #    Do NOT hand-edit the two wrangler configs: canonical-origins.test.ts asserts the
 #    apex is claimed by apps/site/wrangler.jsonc and the app. route by the product
 #    Worker, and apps/site/src/wrangler.test.ts asserts the two deploys are adjacent, so
 #    a hand-edited config fails the build on the next tag. git revert restores the
 #    configs, the guards, the origin constants, and the MCP Worker's APP_ORIGIN together.
-#    (git revert -m 1 <#411 SHA> && git revert -m 1 <#410 SHA> && \
-#     git push origin HEAD:main && git tag vD.E.F && git push origin vD.E.F)
 
 # 4. Point SITE_URL at the apex and drop the second origin. Now the product Worker serves
 #    the apex alone, the MCP Worker trusts the apex alone, and auth trusts the apex
@@ -706,8 +725,27 @@ so the app origin stops being served in the same release that stops being truste
 either and a host a User can reach stops working, with sign-in failing in the browser and
 nothing to show for it.
 
-Three windows remain, and none can be closed from here:
+Four windows remain, and none can be closed from here:
 
+- **After step 3, `app.pocketcircle.app` answers for nothing at all**, and this is the
+  one with no workaround. #410 is what put that host on the product Worker, so reverting
+  it removes the only route there — verified: after the three reverts the Worker's config
+  claims `pocketcircle.app` and nothing else. So the rollback does not return the app to
+  where it was; it moves it, and takes with it every link the v0.8.0 notes told Users to
+  keep — the `https://app.pocketcircle.app` they were told to open to reinstall the PWA,
+  every welcome, Invitation and Account Deletion email sent since the cutover, every
+  bookmark and shared Transaction link, every push-click target, and every installed PWA,
+  which no browser will move. Flipping `SITE_URL` cannot repair those; they were already
+  delivered.
+
+  **Decide this before step 3, not during it.** The options are to leave the `app.` route
+  in place and accept that the app is served from two hosts, or to keep the host answered
+  by something. The marketing Site already owns static redirects and could claim
+  `app.pocketcircle.app` to hand every path to the apex, which is a change to
+  `apps/site` and needs its own release *before* step 3 — not something to improvise
+  afterwards, because the interval with the host fully unserved is the whole problem.
+  Which of those is right depends on how long Users have had the new address, so it is a
+  judgement call and deliberately not pre-built here.
 - **Inside step 3's release**, the product Worker claims the apex several steps before
   the MCP Worker is deployed to trust it, because the MCP Worker is not one of the two
   Workers in the handover and is not the first of the release. It is bounded by that one
@@ -717,9 +755,9 @@ Three windows remain, and none can be closed from here:
 - **Between step 3 finishing and step 4**, `SITE_URL` still names the app origin while
   the product Worker no longer serves it, so any *outbound* mail generated in that gap —
   welcome, Invitation, Account Deletion verification — carries links to a host that is
-  not serving. Unlike the window above this one does not heal on retry: a delivered link
-  is dead until re-sent. It is two `convex env` calls wide, which is why step 4 says to
-  run it immediately, and if a transactional mail did go out in the gap, re-send it.
+  not serving. It is two `convex env` calls wide, which is why step 4 says to run it
+  immediately. This window is a special case of the one above and the fix is the same
+  shape, so it is worth deciding once rather than twice.
 
   This is not fixable by flipping `SITE_URL` first, which is the obvious suggestion and
   the wrong one: `SITE_URL` and `MIGRATION_APP_ORIGIN` would then both name the apex, so
@@ -727,6 +765,15 @@ Three windows remain, and none can be closed from here:
   subdomain* — unbreaking sign-in for the whole of step 3's release to save a few seconds
   of dead email links. A dead link is recoverable; sign-in being down for ten minutes is
   not. Keep the order.
+- **Push subscriptions are bound to the origin that created them, and the forward
+  retirement was one-directional.** `retirePreCutoverPushSubscriptions` deleted the rows
+  that predate the app origin; the ones Users created *after* re-enabling Push there are
+  still bound to app-origin service workers, and an apex page can neither see nor remove
+  them — the apex is a static document with no client runtime. So they keep receiving
+  through rows pointing at a host that is no longer serving, with dead click targets, and
+  will duplicate once the User re-enables Push on the apex. There is no mirror of that
+  mutation today; the honest reading is that a complete rollback needs one written, and
+  Users told to re-enable Push on the restored origin either way.
 - **After step 4**, the deploy's configuration check encodes the *post*-cutover invariant
   — `SITE_URL` must name the host the product Worker claims — so the next release fails
   it until `packages/domain/src/origins.ts` is reverted too, which is part of finishing

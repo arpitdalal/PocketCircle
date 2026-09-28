@@ -74,7 +74,6 @@ export const MCP_RESOURCE_URI = `${MCP_ORIGIN}/mcp`;
 
 /** Host every local app (Vite dev server, the E2E suite) is served on. */
 export const LOCAL_APP_HOSTNAME = "127.0.0.1";
-
 /** Port the Vite dev server and the E2E suite use. */
 export const LOCAL_APP_PORT = 5173;
 
@@ -94,6 +93,37 @@ const LOOPBACK_TWIN_HOSTNAMES: ReadonlyMap<string, string> = new Map([
   ["localhost", "127.0.0.1"],
   ["127.0.0.1", "localhost"],
 ]);
+
+/**
+ * `scheme://host[:port]` and nothing else — the shape an origin a deployment
+ * *declares* may take. Patterns are refused deliberately: Better Auth reads
+ * `https://*.example.com` as a wildcard that matches any subdomain — including as a
+ * `callbackURL` destination, which would hand a live one-time session token to whatever
+ * host matched — while the component's CORS router matches exact origins only, so the
+ * same string would also break sign-in from the origin it was meant to allow. A
+ * comma-separated list is refused for the same reason: Better Auth's own
+ * `BETTER_AUTH_TRUSTED_ORIGINS` splits on commas, this value must not. `@`, `%`, `\` and
+ * whitespace are refused because a host is none of them:
+ * `https://app.example.com@evil.example`, `https://ex%41mple.com`,
+ * `https://evil.example\app.example.com` and `" https://app.example.com"` each parse to
+ * a *different* origin than they read as — the last because the URL parser reads `\` as
+ * `/` — and a trust decision must never be rewritten on its way in.
+ *
+ * **This lives here so the two places that must agree cannot drift.** The backend
+ * applies it to `SITE_URL` on every auth request (`packages/convex/convex/auth.ts`), and
+ * the deploy's configuration check applies the *same* predicate to the same variable
+ * before a release is allowed to ship. That check was three bugs in a row before this
+ * moved: a `tr` that stripped a byte the backend refuses, then `command substitution`
+ * stripping a different one, each of which could approve a release that took sign-in
+ * down on the value it had just validated. A gate that re-implements the parser is a
+ * second parser; this is one rule with two callers.
+ */
+const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
+
+/** Whether a declared origin is a bare origin, and so safe to trust as one. */
+export function isDeclaredOrigin(value: string) {
+  return BARE_ORIGIN.test(value);
+}
 
 export function isLoopbackHostname(hostname: string) {
   return LOOPBACK_HOSTNAMES.includes(hostname);

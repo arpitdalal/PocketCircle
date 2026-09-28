@@ -1,7 +1,12 @@
 import { type AuthFunctions, createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireRunMutationCtx } from "@convex-dev/better-auth/utils";
-import { isLoopbackHostname, LOCAL_APP_ORIGIN, loopbackTrustedOrigins } from "@pocketcircle/domain";
+import {
+  isDeclaredOrigin,
+  isLoopbackHostname,
+  LOCAL_APP_ORIGIN,
+  loopbackTrustedOrigins,
+} from "@pocketcircle/domain";
 import { betterAuth } from "better-auth";
 import { components, internal } from "./_generated/api.js";
 import type { DataModel, Doc } from "./_generated/dataModel.js";
@@ -37,29 +42,20 @@ import { createUserWithPersonalCircle, syncUserEmail } from "./model.js";
 const authFunctions: AuthFunctions = internal.auth;
 
 /**
- * `scheme://host[:port]` and nothing else. Patterns are refused deliberately:
- * Better Auth reads `https://*.example.com` as a wildcard that matches any
- * subdomain — including as a `callbackURL` destination, which would hand a live
- * one-time session token to whatever host matched — while the component's CORS
- * router matches exact origins only, so the same string would also break sign-in
- * from the origin it was meant to allow. A comma-separated list is refused for
- * the same reason: Better Auth's own `BETTER_AUTH_TRUSTED_ORIGINS` splits on
- * commas, this value must not. `@`, `%` and `\` are refused because a host is none
- * of them: `https://app.example.com@evil.example`, `https://ex%41mple.com` and
- * `https://evil.example\app.example.com` each parse to a *different* origin than
- * they read as — the last because the URL parser reads `\` as `/` — and a trust
- * decision must never be rewritten on its way in.
- */
-const BARE_ORIGIN = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[^:/?#*@%\\\s,]+)(?::\d+)?\/?$/i;
-
-/**
  * The origin a deployment declares, or a throw naming the variable that is wrong.
  * This runs when the auth routes initialise, per request, not at deploy — so a
  * malformed value surfaces as every auth call failing, loudly, rather than quietly
  * leaving an origin untrusted.
+ *
+ * The shape rule itself is {@link isDeclaredOrigin}, which lives in
+ * `packages/domain/src/origins.ts` because the deploy's configuration check has to apply
+ * the identical predicate to the identical variable before it lets a release ship. It
+ * used to be a local constant here, and the check re-implemented the comparison beside
+ * it — two parsers, which is how a release once cleared this check on a value this
+ * function would have thrown on.
  */
 function declaredOrigin(name: string, value: string) {
-  if (!BARE_ORIGIN.test(value)) {
+  if (!isDeclaredOrigin(value)) {
     throw new Error(
       `${name} must be a single origin such as https://app.example.com, not a pattern or a list: ${value}`,
     );
