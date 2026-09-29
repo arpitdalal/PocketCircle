@@ -120,45 +120,67 @@ describe("release workflow", () => {
     // depends on the gate" would pass on the strength of a comment elsewhere, and
     // "the tag job runs no checks" would pass on the strength of the gate's. The
     // gate's own marker is the witness that the two really are separate.
-    expect(gate).toContain("pnpm validate");
-    expect(cut).not.toContain("pnpm validate");
+    expect(gate).toContain("Wait for main to clear this commit");
+    expect(cut).not.toContain("Wait for main to clear this commit");
 
     // THE invariant of #423. A tag makes a version number real and cannot be
-    // un-made: release immutability locks it once a release is published against
-    // it, and until then deleting it is the only way back. So the one job that
-    // creates a tag must not be reachable except through a job that has already
-    // run the checks. `needs: gate` is the whole mechanism, and it is invisible to
+    // un-made: once a release is published against it, release immutability locks
+    // the tag and reserves the name for good. So the one job that creates a tag
+    // must not be reachable except through a job that has already established the
+    // commit passed. `needs: gate` is the whole mechanism, and it is invisible to
     // a test that only looks for the tag push somewhere in the file — a `needs:`
     // dropped during a refactor reads exactly like a passing workflow.
     expect(cut).toContain("needs: gate");
     // And `gate` is the only thing it depends on: a second entry, or an entry on
     // some other job, satisfies the line above while still cutting a tag whose
-    // gates never ran.
+    // commit was never checked.
     expect([...cut.matchAll(/^ {4}needs: (.+)$/gm)].map(([, value]) => value.trim())).toEqual([
       "gate",
     ]);
   });
 
-  it("gates on every check that fails without a code change to fix it", () => {
-    // Deterministic failures are pre-tag because fixing them needs a new commit,
-    // which spends the version. E2E, the deploys, and a missing secret are all
-    // absent on purpose: each is recoverable by re-running `deploy.yml` on the
-    // same tag, so gating on them here would cost every release nine minutes to
-    // re-derive an answer `main`'s own CI already gives.
-    expect(gate).toContain("pnpm install --frozen-lockfile");
-    expect(gate).toContain("run: pnpm validate");
-    expect(gate).toContain("run: pnpm build");
-    expect(gate).toContain("run: pnpm build:site");
+  it("gates on main's own CI and E2E verdicts, waited for rather than re-run", () => {
+    // The gate that stopped v0.8.1, and it is a bigger gate than re-running the
+    // checks here would be: CI on main already runs typecheck, lint, the unit
+    // tests and both production builds, and E2E is the real Playwright suite
+    // against a live backend. Re-running any of it would cost ~9 minutes per
+    // release to re-derive a verdict main has already reached.
+    expect(gate).toContain("actions/runs?head_sha=");
+    expect(gate).toContain("verdict CI");
+    expect(gate).toContain("verdict E2E");
+    // E2E is the one that makes this a gate rather than a formality. A commit
+    // whose E2E is red can need a code change, and a code change means the tag
+    // cannot be reused — which is the exact failure this workflow is for.
+    expect(gate).toContain('"$ci" == "success" && "$e2e" == "success"');
+    // And a red verdict must stop the release rather than be waited out.
+    expect(gate).toMatch(/if failed "\$ci" \|\| failed "\$e2e"; then/);
+    // Bounded, because this waits on somebody else's workflow; and a timeout is
+    // explicitly not a spent version, because nothing was cut.
+    expect(gate).toMatch(/deadline=\$\(\( \$\(date \+%s\) \+ 2700 \)\)/);
+    expect(gate).toMatch(/no version was spent/);
     // The same script `deploy.yml` runs, so the two cannot disagree about which
     // version is releasable.
     expect(gate).toContain("./scripts/release-notes.sh");
   });
 
+  it("releases main's tip, not merely any commit main once contained", () => {
+    // An ancestry test is not enough. A stale branch whose tip was merged last
+    // week is an ancestor of main, and releasing from it would tag and deploy code
+    // main has been superseded by while every check stayed green — which is a
+    // worse failure than a red commit, because nothing reports it.
+    expect(gate).toMatch(/if \[\[ "\$DISPATCH_REF" != "refs\/heads\/main" \]\]; then/);
+    // And the commit is captured once, here, because main can advance between the
+    // dispatch and the cut, and the tag has to name what the release asked for.
+    expect(gate).toContain("sha=$DISPATCH_SHA");
+    expect(cut).toContain("ref: $" + "{{ needs.gate.outputs.sha }}");
+  });
+
   it("cannot deploy, roll back, or reach a User", () => {
-    // This workflow builds and cuts a tag. It holds no production credential, so
-    // the deploy stays the only thing that can move production — a release gate
-    // that could also deploy would double the blast radius of every mistake in it
-    // for no gain, since the gate's whole job is to have already run.
+    // This workflow reads main's verdicts, cuts a tag and dispatches. It holds no
+    // production credential, so the deploy stays the only thing that can move
+    // production — a release gate that could also deploy would double the blast
+    // radius of every mistake in it, and the gate's whole job is to have already
+    // run.
     for (const secret of [
       "CLOUDFLARE_API_TOKEN",
       "CONVEX_DEPLOY_KEY",
@@ -168,12 +190,13 @@ describe("release workflow", () => {
     ]) {
       expect(release).not.toContain(secret);
     }
-    // And the write permissions are scoped to the job that needs them: the gate
-    // reads. `actions: write` is not optional alongside the dispatch — an
+    // And the writes are scoped to the job that needs them: the gate only reads
+    // run verdicts. `actions: write` is not optional alongside the dispatch — an
     // unspecified scope is `none`, so leaving it out fails the dispatch with a
-    // 403 after the tag is already cut, which is the worst place to find out.
+    // 403 *after* the tag is already cut, which is the worst place to find out.
     expect(gate).not.toContain("contents: write");
     expect(gate).not.toContain("actions: write");
+    expect(gate).toContain("actions: read");
     expect(cut).toContain("contents: write");
     expect(cut).toContain("actions: write");
   });
@@ -205,6 +228,17 @@ describe("release workflow", () => {
     expect(deploy).toContain("version=$GITHUB_REF_NAME");
   });
 
+  it("deploys the commit it was dispatched against, not whatever the tag says later", () => {
+    // A tag is protected from the moment a release is published against it, not
+    // from the moment it is created — so between the dispatch and the release
+    // job, a tag with no release yet is still deletable and re-creatable.
+    // `github.ref` re-resolves it at each checkout; a run that spent minutes in
+    // E2E and then waited on a human approval could deploy a commit no check in
+    // that run ever saw. `github.sha` is fixed for the life of the run.
+    expect(deploy).not.toContain("ref: $" + "{{ github.ref }}");
+    expect([...deploy.matchAll(/^ {10}ref: \$\{\{ github\.sha \}\}$/gm)]).toHaveLength(2);
+  });
+
   it("agrees with every other gate about what a version looks like", () => {
     // Four places parse or accept the version: this workflow, `deploy.yml`,
     // `scripts/release-notes.sh`, and `packages/domain/src/changelog.ts`. A tag one
@@ -215,8 +249,10 @@ describe("release workflow", () => {
   });
 
   it("never cancels a release in flight", () => {
-    // The run this would cancel is the one holding the gates for a version
-    // somebody is waiting on. A second dispatch queues behind it instead.
+    // The run this would cancel is the one holding the gate for a version
+    // somebody is waiting on. A *pending* run is still replaced by a newer one,
+    // which is the right way round here: a second dispatch is a correction of
+    // the first, and the newest request is the one that should run.
     expect(release).toMatch(/concurrency:\n {2}group: release\n {2}cancel-in-progress: false/);
   });
 });

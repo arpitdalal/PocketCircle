@@ -311,8 +311,22 @@ answer is possible.
 Configure the GitHub `production` environment before the first deployment:
 
 - Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
-- Add at least one required reviewer who is not the person initiating deployments,
-  then enable **Prevent self-review**.
+- Add at least one required reviewer, then consider **Prevent self-review**.
+
+⚠️ **Two-person approval does not work the way it reads, and pretending otherwise
+is worse than saying so.** The Release workflow dispatches `deploy.yml` with
+`GITHUB_TOKEN`, so the deployment is initiated as `github-actions[bot]`, not as
+the person who ran Release. GitHub's "Prevent self-review" therefore compares the
+approver against the *bot*, which approves nothing — so the person who started the
+release can still approve its deployment, and enabling the setting would give the
+appearance of a control that is not there. On a single-maintainer repository it is
+also not satisfiable: there is no second person.
+
+The real controls are the gate (no tag is cut on a commit `main` has not cleared)
+and the audit trail (`gh release list`, and the Actions log of who dispatched
+what). If a genuine second approver is ever needed, it has to be a person who is
+not the Release initiator approving the `production` environment — a rule about
+roles, not about self-review, because the platform no longer sees the human.
 
 Tag immutability comes from **Settings → General → Releases → Enable release
 immutability**, not from a hand-written ruleset. GitHub's own feature locks a tag
@@ -832,38 +846,54 @@ paragraph under it, and the deployment workflow publishes that section as the
 GitHub Release only after production succeeds.
 
 Then run the **Release** workflow on `main` (**Actions → Release → Run workflow**)
-with `version` set to the same `vMAJOR.MINOR.PATCH`. It gates the commit, cuts the
-tag, and dispatches the deploy:
+with `version` set to the same `vMAJOR.MINOR.PATCH`:
 
 ```sh
 # What the workflow does, for reading rather than for running:
-#   pnpm validate + both production builds   ->  git tag vX.Y.Z  ->  deploy.yml
+#   wait for main's CI + E2E to be green on the commit   ->  tag vX.Y.Z  ->  deploy.yml
 ```
 
+The gate is `main`'s own verdicts, **waited for rather than re-run**. Every push to
+`main` already runs typecheck, lint, the unit tests, both production builds, and
+the real E2E suite against a live Convex backend (ADR [0019](docs/adr/0019-e2e-against-self-hosted-convex-backend.md)),
+so there is nothing to re-run — only something to wait for, which normally
+returns on the first poll. `main` must be the branch you dispatch from, not merely
+a commit it once contained: a stale merged branch would pass an ancestry test and
+release code `main` has been superseded by, with every check green and nothing to
+report it.
+
 **Do not push the tag by hand.** The tag is what makes a version number real —
-once it exists, release immutability owns it — and `51e359e2` (v0.8.1) was
-tagged onto a commit whose own CI run had already gone red, so the deploy re-ran
-the same `pnpm validate`, failed, and the fix shipped as v0.8.2 with v0.8.1
-stranded on a deploy that never happened ([#423](https://github.com/arpitdalal/PocketCircle/issues/423)).
-Gating before the tag is what makes a failed release cost nothing.
+`51e359e2` (v0.8.1) was tagged onto a commit whose own CI run had already gone
+red, so the deploy re-ran the same `pnpm validate`, failed, and the fix shipped as
+v0.8.2 with v0.8.1 stranded on a deploy that never happened
+([#423](https://github.com/arpitdalal/PocketCircle/issues/423)). Gating before the
+tag is what makes a failed release cost nothing.
 
 ### Recovering a failed release
 
-The version is only spent if the commit itself was wrong. Everything else is a
-re-run against the same tag:
+The question is not "is there a GitHub Release?" but **"did production move?"**
+`deploy.yml` mutates the Convex backend and both Workers *before* its release job
+runs, so a tag with no Release behind it is **not** evidence that nothing reached
+Users. The line that matters is the first production mutation, the Convex deploy:
 
-| What failed | Cost | What to do |
+| Where it failed | Production | What to do |
 | --- | --- | --- |
-| `pnpm validate` or a build in the Release workflow | nothing — no tag was cut | Fix on `main`, merge, re-run Release with the same version |
-| E2E, a deploy, or a missing secret in `deploy.yml` | nothing — the tag is correct | **Re-run the failed `deploy.yml` workflow** (Re-run failed jobs). Same tag, same commit, same version |
-| The commit was genuinely bad and is already tagged | that version number | Delete the tag (it has no release, so it is still mutable), fix, re-run Release with the same version |
+| The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
+| `deploy.yml` before the Convex deploy: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
+| `deploy.yml` at or after the Convex deploy | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
+| A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
 
-That last row is the one case the old `v*` ruleset made impossible and release
-immutability makes possible: a tag with no GitHub Release behind it can be
-deleted and re-cut, because nothing was ever published under that name. A tag
-that *does* have a release cannot be moved — that is the guarantee worth having —
-so a version that reached Users is spent, and the next release takes the next
-number.
+That is the whole cost model: **a version is only spent when the production change
+it named is wrong and cannot be finished by re-running.** Everything a re-run can
+fix — a flaky suite, an expired credential, a dropped connection, a wrong
+hostname — costs nothing but the re-run.
+
+The one case the old `v*` ruleset made impossible and release immutability makes
+possible is the last-but-one: a tag with **no** release behind it is still
+deletable, because nothing was ever published under that name. A tag that *does*
+have one cannot be moved, and its name is reserved permanently — which is the
+guarantee worth having, and the reason a shipped version is genuinely spent
+instead of merely inconvenient to correct.
 
 The workflow fails before deployment when a required secret or Convex URL
 variable is missing.
