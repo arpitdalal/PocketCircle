@@ -1,0 +1,215 @@
+name: Release
+
+# Cuts the release tag, and only once the commit has passed every check that can
+# fail without anyone's help. This workflow exists because of v0.8.1 (#423).
+#
+# The tag is what makes a version number real. Once `refs/tags/v*` exists it is
+# immutable — GitHub's release immutability locks a tag the moment a release is
+# published against it, and a tag that never got one is still ours to delete — so
+# a version that produced a tag cannot be re-cut. v0.8.1 was tagged onto a commit
+# whose own CI run had already gone red; the deploy then re-ran the same
+# `pnpm validate`, failed at step 8 of 25, deployed nothing, and the fix shipped as
+# v0.8.2 with v0.8.1 stranded on a deploy that never happened. A tag cut by hand,
+# before anything checked the commit, is what spent the number.
+#
+# So the tag is cut here, at the end, by a workflow that has already run the
+# checks. Nothing about the release changes for whoever cuts it: the version comes
+# from a changelog section that is already on `main`, and the deploy that follows
+# is the same one a hand-pushed tag would have triggered.
+#
+# The gate is `pnpm validate` and both production builds, and deliberately nothing
+# else. The line is deterministic-failures-are-pre-tag, everything-else-is-not:
+#
+#   - validate or a build failing means the code is wrong. Fixing it needs a new
+#     commit, so the version is spent. Caught here, that costs nothing: fix it,
+#     re-run this workflow with the same version, cut the tag from the new commit.
+#   - E2E failing, a deploy failing, or a secret being unset need no code change,
+#     so they are all recoverable by re-running `deploy.yml` against the same tag,
+#     which leaves the version untouched. They stay there. E2E is also already
+#     green on every push to `main`, so a real failure this gate would have caught
+#     is rare, and re-running the suite to re-derive that answer would add about
+#     nine minutes to every release.
+#
+# Nothing here reads a production credential, so this workflow cannot deploy
+# anything, roll anything back, or reach a User even if it were granted more. The
+# deploy stays the only thing that holds those secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable SemVer to release, e.g. v0.8.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One release at a time, and never cancelled. The run this would cancel is the one
+# holding the gates for a version somebody is waiting on, so a second dispatch
+# queues behind it rather than replacing it.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history, because the ancestry check below reads origin/main, and
+          # no persisted credentials because nothing in this job pushes anything.
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: resolve
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # The same shape `deploy.yml` gates on, and the same one
+          # `scripts/release-notes.sh` and `packages/domain/src/changelog.ts`
+          # parse. A version that is not this cannot be a changelog heading, and a
+          # changelog heading that is not this cannot be released.
+          if [[ ! "$REQUESTED" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version must be stable SemVer: vMAJOR.MINOR.PATCH (got '$REQUESTED')"
+            exit 1
+          fi
+          # The tag lands on the dispatched commit, so that commit has to be one
+          # `main` carries. A tag on a side branch would put production on code
+          # the next ordinary release from `main` does not contain, and `main`'s
+          # own history would then disagree with what is deployed — which is the
+          # one state the rollback runbook in the README cannot reason about.
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$(git rev-parse HEAD) is not reachable from main. Run this workflow from main."
+            exit 1
+          fi
+          echo "version=$REQUESTED" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Gating $REQUESTED at $(git rev-parse HEAD)"
+
+      # The same script `deploy.yml` runs, on the same changelog, so the two
+      # cannot disagree about which version is releasable. A section that exists
+      # but says nothing fails here rather than after the tag.
+      - name: Validate release notes
+        run: ./scripts/release-notes.sh "${{ steps.resolve.outputs.version }}" >/dev/null
+
+      # No `version:` — action-setup reads the pinned pnpm from package.json's
+      # `packageManager` field. Specifying both errors (ERR_PNPM_BAD_PM_VERSION).
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          # jsdom 30 (tightest): ^22.22.2 || ^24.15 || >=26.
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The check v0.8.1 was tagged past. On `main` it is CI, which is how that
+      # commit was already red when it was tagged; here it is the last thing
+      # standing between a red commit and a version number.
+      - run: pnpm validate
+
+      - name: Build production web app
+        env:
+          # Placeholders, and the reason they are placeholders is the same one
+          # `ci.yml` gives: the SPA prerender evaluates the module graph, which
+          # constructs the ConvexReactClient at import time and throws on an empty
+          # address. What this proves is that the artifact compiles, which is a
+          # property of the commit and not of the environment — the deploy injects
+          # the real origins and rebuilds the same source.
+          VITE_CONVEX_URL: https://placeholder.convex.cloud
+          VITE_CONVEX_SITE_URL: https://placeholder.convex.site
+        run: pnpm build
+
+      - name: Build marketing Site
+        run: pnpm build:site
+
+  cut:
+    name: Cut tag and deploy
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      # The only two permissions this workflow wants, and the only two reasons it
+      # is not `contents: read` throughout: creating `refs/tags/<version>`, and
+      # dispatching the deploy that consumes it (`Create a workflow dispatch
+      # event` is an Actions write, and an unspecified scope is `none`, so leaving
+      # this out fails the dispatch with a 403 rather than a deploy).
+      #
+      # Neither can move production. `contents: write` on this repository can
+      # rewrite `main`, which is a far larger claim than a release deserves, and it
+      # is the price of cutting a tag at all — GitHub offers no narrower scope.
+      # Everything this workflow actually does with it is the one POST below.
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Create the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          err="$(mktemp)"
+          if gh api --method POST "repos/$GH_REPO/git/refs" \
+            -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>"$err"; then
+            echo "Cut $VERSION at $SHA."
+            rm -f "$err"
+            exit 0
+          fi
+
+          # The create failed, which is either "this tag already exists" — the
+          # ordinary re-run of a release whose dispatch or deploy did not finish,
+          # and the case this branch exists for — or a real error. Which one it is
+          # decides whether the version is still usable, so it is read back rather
+          # than inferred from the message.
+          existing="$(gh api "repos/$GH_REPO/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null)" || {
+            echo "::error::Could not cut refs/tags/$VERSION, and could not read it back either:"
+            cat "$err" >&2
+            rm -f "$err"
+            exit 1
+          }
+          if [ "$existing" != "$SHA" ]; then
+            # Not recoverable by deleting and re-cutting, and not something to
+            # correct: the version is spent on different code. The next release
+            # takes the next number, and the changelog says why.
+            echo "::error::$VERSION already tags $existing, not $SHA. That version is spent on different code and the tag cannot be moved — release the next one."
+            rm -f "$err"
+            exit 1
+          fi
+          echo "$VERSION already tags $SHA — reusing it."
+          rm -f "$err"
+
+      - name: Deploy the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A tag pushed with GITHUB_TOKEN does not trigger workflows, so the
+          # deploy cannot wait on `deploy.yml`'s `push: tags` trigger the way a
+          # hand-pushed tag would. It is dispatched explicitly instead, on the tag
+          # ref itself — which is what keeps the `production` environment's
+          # deployment branch policy satisfied, since that policy allows the tag
+          # pattern `v*` and nothing else.
+          #
+          # Dispatching on the tag rather than passing a version in also means
+          # `deploy.yml` is byte-for-byte the same workflow either way: it reads
+          # `GITHUB_REF_NAME`, so the version it releases, the commit it deploys
+          # and the changelog section it publishes all still come from the tag, and
+          # there is no second copy of the version to keep in step with the first.
+          gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION"
+          echo "Dispatched deploy.yml for $VERSION. If it fails, re-run it on this tag — the version is not spent."

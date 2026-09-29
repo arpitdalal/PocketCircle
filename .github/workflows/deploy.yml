@@ -3,6 +3,18 @@ name: Deploy Production
 on:
   push:
     tags: [v*]
+  # The Release workflow cuts the tag after gating the commit, and then dispatches
+  # this workflow on it: a tag pushed with GITHUB_TOKEN does not trigger
+  # `push: tags`, and waiting for a trigger that will not fire is how a release
+  # silently stops. Dispatched with `--ref vMAJOR.MINOR.PATCH`, this workflow runs
+  # against the tag ref itself, so everything below still reads the version from
+  # `GITHUB_REF_NAME` and the deploy is the same one a hand-pushed tag gets.
+  #
+  # A dispatch from a branch is not a release and cannot become one: the
+  # `production` environment's deployment branch policy allows the tag pattern
+  # `v*` and nothing else, so the deploy job is refused before it starts, and the
+  # SemVer gate below would refuse it too.
+  workflow_dispatch:
 
 concurrency:
   group: production
@@ -43,7 +55,7 @@ jobs:
         id: release
         run: |
           if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Production tags must be stable SemVer: vMAJOR.MINOR.PATCH"
+            echo "::error::Production deploys run against an immutable stable SemVer tag: vMAJOR.MINOR.PATCH. Got '$GITHUB_REF_NAME' — push that tag, or dispatch this workflow with --ref vMAJOR.MINOR.PATCH."
             exit 1
           fi
           echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"

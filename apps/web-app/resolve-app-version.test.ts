@@ -83,6 +83,144 @@ describe("Vite version injection", () => {
   });
 });
 
+/**
+ * One workflow's `jobs:` block per job name, so an assertion can be about the job
+ * that does a thing rather than about the file that mentions it.
+ */
+function jobBlocks(workflow: string) {
+  const jobs = workflow.slice(workflow.indexOf("\njobs:\n"));
+  const starts = [...jobs.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)];
+  return new Map(
+    starts.map((match, index) => [
+      match[1],
+      jobs.slice(match.index, starts[index + 1]?.index ?? jobs.length),
+    ]),
+  );
+}
+
+/** The stable-SemVer shape every gate in the repo agrees on. */
+const STABLE_SEMVER = String.raw`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`;
+
+describe("release workflow", () => {
+  const release = readFileSync(
+    join(import.meta.dirname, "../../.github/workflows/release.yml"),
+    "utf8",
+  );
+  const deploy = readFileSync(
+    join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
+    "utf8",
+  );
+  const jobs = jobBlocks(release);
+  const gate = jobs.get("gate") ?? "";
+  const cut = jobs.get("cut") ?? "";
+
+  it("cuts the tag only from a job that depends on the gate", () => {
+    // Every assertion in this block is scoped to one job, so it is only as good
+    // as the split. If `cut` ever came back as the whole file, "the tag job
+    // depends on the gate" would pass on the strength of a comment elsewhere, and
+    // "the tag job runs no checks" would pass on the strength of the gate's. The
+    // gate's own marker is the witness that the two really are separate.
+    expect(gate).toContain("pnpm validate");
+    expect(cut).not.toContain("pnpm validate");
+
+    // THE invariant of #423. A tag makes a version number real and cannot be
+    // un-made: release immutability locks it once a release is published against
+    // it, and until then deleting it is the only way back. So the one job that
+    // creates a tag must not be reachable except through a job that has already
+    // run the checks. `needs: gate` is the whole mechanism, and it is invisible to
+    // a test that only looks for the tag push somewhere in the file — a `needs:`
+    // dropped during a refactor reads exactly like a passing workflow.
+    expect(cut).toContain("needs: gate");
+    // And `gate` is the only thing it depends on: a second entry, or an entry on
+    // some other job, satisfies the line above while still cutting a tag whose
+    // gates never ran.
+    expect([...cut.matchAll(/^ {4}needs: (.+)$/gm)].map(([, value]) => value.trim())).toEqual([
+      "gate",
+    ]);
+  });
+
+  it("gates on every check that fails without a code change to fix it", () => {
+    // Deterministic failures are pre-tag because fixing them needs a new commit,
+    // which spends the version. E2E, the deploys, and a missing secret are all
+    // absent on purpose: each is recoverable by re-running `deploy.yml` on the
+    // same tag, so gating on them here would cost every release nine minutes to
+    // re-derive an answer `main`'s own CI already gives.
+    expect(gate).toContain("pnpm install --frozen-lockfile");
+    expect(gate).toContain("run: pnpm validate");
+    expect(gate).toContain("run: pnpm build");
+    expect(gate).toContain("run: pnpm build:site");
+    // The same script `deploy.yml` runs, so the two cannot disagree about which
+    // version is releasable.
+    expect(gate).toContain("./scripts/release-notes.sh");
+  });
+
+  it("cannot deploy, roll back, or reach a User", () => {
+    // This workflow builds and cuts a tag. It holds no production credential, so
+    // the deploy stays the only thing that can move production — a release gate
+    // that could also deploy would double the blast radius of every mistake in it
+    // for no gain, since the gate's whole job is to have already run.
+    for (const secret of [
+      "CLOUDFLARE_API_TOKEN",
+      "CONVEX_DEPLOY_KEY",
+      "MCP_WORKER_HMAC_SECRET",
+      "MCP_WORKER_SIGNING_PRIVATE_JWK",
+      "MCP_WORKER_VERIFYING_JWKS",
+    ]) {
+      expect(release).not.toContain(secret);
+    }
+    // And the write permissions are scoped to the job that needs them: the gate
+    // reads. `actions: write` is not optional alongside the dispatch — an
+    // unspecified scope is `none`, so leaving it out fails the dispatch with a
+    // 403 after the tag is already cut, which is the worst place to find out.
+    expect(gate).not.toContain("contents: write");
+    expect(gate).not.toContain("actions: write");
+    expect(cut).toContain("contents: write");
+    expect(cut).toContain("actions: write");
+  });
+
+  it("reuses a tag that already points at the gated commit, and refuses one that does not", () => {
+    // The re-run of a release whose dispatch or deploy did not finish. Because
+    // the tag already names this exact commit, deploying it is correct and the
+    // version is not spent — which is the recovery this whole workflow exists to
+    // make possible.
+    expect(cut).toContain('gh api "repos/$GH_REPO/git/ref/tags/$VERSION"');
+    expect(cut).toContain("reusing it");
+    // A tag pointing anywhere else is that version spent on different code, and
+    // it is not recoverable by deleting and re-cutting. Refusing is the only
+    // honest answer, so the message has to say what to do instead.
+    expect(cut).toMatch(/already tags \$existing, not \$SHA/);
+    expect(cut).toMatch(/release the next one/i);
+  });
+
+  it("dispatches the deploy on the tag, so no version is passed twice", () => {
+    // A tag pushed with GITHUB_TOKEN does not trigger `push: tags`, so the deploy
+    // is dispatched explicitly — on the tag ref, not on a branch with the version
+    // as an input. That is what keeps the `production` environment's `v*` tag
+    // policy satisfied, and it means `deploy.yml` still reads the version from
+    // `GITHUB_REF_NAME`, so there is no second copy of it to drift.
+    expect(cut).toContain("gh workflow run deploy.yml");
+    expect(cut).toMatch(/--repo "\$GH_REPO" --ref "\$VERSION"/);
+    expect(deploy).toMatch(/^ {2}workflow_dispatch:$/m);
+    expect(deploy).toContain("tags: [v*]");
+    expect(deploy).toContain("version=$GITHUB_REF_NAME");
+  });
+
+  it("agrees with every other gate about what a version looks like", () => {
+    // Four places parse or accept the version: this workflow, `deploy.yml`,
+    // `scripts/release-notes.sh`, and `packages/domain/src/changelog.ts`. A tag one
+    // of them accepts and another rejects is a release that cannot be cut, so the
+    // two workflows at least are held to the same shape.
+    expect(release).toContain(STABLE_SEMVER);
+    expect(deploy).toContain(STABLE_SEMVER);
+  });
+
+  it("never cancels a release in flight", () => {
+    // The run this would cancel is the one holding the gates for a version
+    // somebody is waiting on. A second dispatch queues behind it instead.
+    expect(release).toMatch(/concurrency:\n {2}group: release\n {2}cancel-in-progress: false/);
+  });
+});
+
 describe("release-notes.sh", () => {
   const script = join(import.meta.dirname, "../../scripts/release-notes.sh");
 

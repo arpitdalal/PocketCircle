@@ -313,8 +313,21 @@ Configure the GitHub `production` environment before the first deployment:
 - Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
 - Add at least one required reviewer who is not the person initiating deployments,
   then enable **Prevent self-review**.
-- Add a tag ruleset for `v*` that restricts updates and deletion. Release tags are
-  immutable; use a new tag for a fix or rollback.
+
+Tag immutability comes from **Settings → General → Releases → Enable release
+immutability**, not from a hand-written ruleset. GitHub's own feature locks a tag
+at the moment a release is published against it and leaves a tag with no release
+mutable, which is exactly the distinction that matters: the thing worth protecting
+is the history of what Users received, not the history of what was attempted. A
+hand-written `v*` ruleset restricting updates and deletion cannot tell those apart,
+so it also blocks the correction of a release that never deployed — which is how
+v0.8.1 ended up as a permanent tag on a commit whose deploy failed
+([#423](https://github.com/arpitdalal/PocketCircle/issues/423)).
+
+Two releases on the same day are ordinary and supported. Nothing keys on the date:
+`packages/domain/src/changelog.ts` identifies a release by its version, and every
+consumer of that (the unread badge, both What's New surfaces) keys on the version
+too. `v0.8.0` and `v0.8.1` are both dated 2026-09-27.
 
 The release workflow runs the real E2E suite again, waits for the production
 approval, then deploys only an immutable stable SemVer tag (`vMAJOR.MINOR.PATCH`).
@@ -638,18 +651,21 @@ things people get wrong are that the releases need *different* version numbers a
 the commits have to reach `main`, not just the tags:
 
 ```sh
-# 1. Revert #412: push the BRANCH, then tag it as vA.B.C.
+# 1. Revert #412: push the BRANCH, then release it as vA.B.C.
 #    Both, and the order matters. Pushing only the tag would roll production back while
 #    main still carried #412, so the next ordinary release from main would silently
 #    restore everything being rolled back.
 #    This repo squash-merges, so #412 lands on main as a single-parent commit;
 #    `git revert -m 1` is still correct (git 2.51 treats the only parent as the mainline
 #    and produces the same tree as a plain revert) and is also what you would need if
-#    that ever changes. The tag needs a `## [vA.B.C] - YYYY-MM-DD` section with real
-#    content in CHANGELOG.md, because `scripts/release-notes.sh` refuses to tag without
-#    one:
-#    (git revert -m 1 <#412 SHA> && git push origin HEAD:main && \
-#     git tag vA.B.C && git push origin vA.B.C)
+#    that ever changes. The CHANGELOG needs a `## [vA.B.C] - YYYY-MM-DD` section with
+#    real content, because `scripts/release-notes.sh` refuses to release without one:
+#    (git revert -m 1 <#412 SHA> && git push origin HEAD:main)
+#    Then run the **Release** workflow on main with version=vA.B.C, which gates the
+#    commit, cuts the tag and dispatches the deploy. During an incident, pushing the
+#    tag by hand instead (`git tag vA.B.C && git push origin vA.B.C`) still works and
+#    still triggers deploy.yml — it just skips the gate, which during a rollback is
+#    the trade you are there to make.
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
@@ -663,7 +679,7 @@ the commits have to reach `main`, not just the tags:
 #    No deploy here.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 
-# 3. Revert #411 AND #410 in ONE release, then tag it as vD.E.F — a DIFFERENT
+# 3. Revert #411 AND #410 in ONE release, then release it as vD.E.F — a DIFFERENT
 #    version from step 1. One release is the whole point:
 #
 #    - #411 restores the apex route to the product Worker and the marketing Site drops
@@ -678,10 +694,10 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #    gets round to the next tag, which during an incident is not a safe assumption.
 #    In one release it is bounded by a single job.
 #
-#    vD.E.F must not be vA.B.C. Step 1 already created that tag, and `git tag` on an
-#    existing tag fails without `-f` — which is not something to force on a tag that has
-#    already triggered a release. So this needs its own CHANGELOG section too, and it is
-#    a real release, not a retag.
+#    vD.E.F must not be vA.B.C. Step 1 already released that version, and a tag
+#    that carries a GitHub Release cannot be moved — that is the one guarantee
+#    release immutability actually gives, and it is the right one. So this needs
+#    its own CHANGELOG section too, and it is a real release, not a retag.
 #
 #    **This step WILL conflict in CHANGELOG.md, and that is expected.** #411 wrote the
 #    migration notes under `[Unreleased]`, and the v0.8.0 release commit afterwards moved
@@ -696,7 +712,7 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #      GIT_EDITOR=true git revert --continue
 #      git revert -m 1 <#410 SHA>        # no conflict
 #      git push origin HEAD:main
-#      git tag vD.E.F && git push origin vD.E.F
+#    Then run the **Release** workflow on main with version=vD.E.F.
 #
 #    Do not let the `git revert` for #411 sit unresolved: a conflict stops the command
 #    before the push and the tag, so the route handoff silently never ships and the
@@ -809,17 +825,45 @@ Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.
 
-Before tagging, prepare the versioned `CHANGELOG.md` section on `main` (the
-repo-local `$generate-changelog` skill drafts it). The deployment workflow
-requires the exact heading `## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD`, then
-publishes that section as the GitHub Release only after production succeeds.
+First prepare the versioned `CHANGELOG.md` section on `main` and get it merged
+(the repo-local `$generate-changelog` skill drafts it). The heading must be
+exactly `## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD` with at least one bullet or
+paragraph under it, and the deployment workflow publishes that section as the
+GitHub Release only after production succeeds.
 
-Tag the tested release-preparation commit and push the tag:
+Then run the **Release** workflow on `main` (**Actions → Release → Run workflow**)
+with `version` set to the same `vMAJOR.MINOR.PATCH`. It gates the commit, cuts the
+tag, and dispatches the deploy:
 
 ```sh
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
+# What the workflow does, for reading rather than for running:
+#   pnpm validate + both production builds   ->  git tag vX.Y.Z  ->  deploy.yml
 ```
+
+**Do not push the tag by hand.** The tag is what makes a version number real —
+once it exists, release immutability owns it — and `51e359e2` (v0.8.1) was
+tagged onto a commit whose own CI run had already gone red, so the deploy re-ran
+the same `pnpm validate`, failed, and the fix shipped as v0.8.2 with v0.8.1
+stranded on a deploy that never happened ([#423](https://github.com/arpitdalal/PocketCircle/issues/423)).
+Gating before the tag is what makes a failed release cost nothing.
+
+### Recovering a failed release
+
+The version is only spent if the commit itself was wrong. Everything else is a
+re-run against the same tag:
+
+| What failed | Cost | What to do |
+| --- | --- | --- |
+| `pnpm validate` or a build in the Release workflow | nothing — no tag was cut | Fix on `main`, merge, re-run Release with the same version |
+| E2E, a deploy, or a missing secret in `deploy.yml` | nothing — the tag is correct | **Re-run the failed `deploy.yml` workflow** (Re-run failed jobs). Same tag, same commit, same version |
+| The commit was genuinely bad and is already tagged | that version number | Delete the tag (it has no release, so it is still mutable), fix, re-run Release with the same version |
+
+That last row is the one case the old `v*` ruleset made impossible and release
+immutability makes possible: a tag with no GitHub Release behind it can be
+deleted and re-cut, because nothing was ever published under that name. A tag
+that *does* have a release cannot be moved — that is the guarantee worth having —
+so a version that reached Users is spent, and the next release takes the next
+number.
 
 The workflow fails before deployment when a required secret or Convex URL
 variable is missing.
