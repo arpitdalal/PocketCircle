@@ -27,18 +27,21 @@ mirroring what's already there.
 
 ### Convex — new query in [`dashboard.ts`](../../packages/convex/convex/dashboard.ts)
 
-`getCategoryAnalytics` query: args `{ circleId, month?, type? }`
+`getCategoryAnalytics` query: args `{ circleId, month?, type?, categoryIds?, status? }`
 (`type` = `v.optional(transactionType)` — `"expense" | "income"`).
 
 1. `resolveCircleAccess(ctx, args.circleId)` → `null` if inaccessible/missing (ADR 0016 —
    indistinguishable, anti-enumeration; same guard the other dashboard queries use).
 2. Default month: `args.month ?? currentMonth(new Date())`; throw `"Invalid month"` if
    `!isValidPlainMonth(month)` — **mirror `getDashboard` exactly** (both from `@pocketcircle/domain`).
-3. Read the **same bounded active month set** the Dashboard/Ledger use — call
-   `collectMonthActiveTransactions(ctx, args.circleId, month)` from
+3. Read the **same bounded month set** the Dashboard/Ledger use — call
+   `collectMonthTransactions(ctx, args.circleId, month, status)` from
    [`monthActivity.ts`](../../packages/convex/convex/monthActivity.ts). Do **not** re-query
    `transactions` by hand; reusing this is what guarantees category totals can never disagree
-   with the totals cards about which Transactions count (active-only, archived excluded — TXN-3).
+   with the totals cards about which Transactions a Circle-month contains. `status` defaults to
+   `"active"`, so totals surfaces stay active-only and archived Transactions stay excluded (TXN-3).
+   A list-derived aggregate may pass a different `status`; see [ADR
+   0036](../../docs/adr/0036-filter-derived-reporting-scope-for-aggregates.md).
 4. If `type` is set, filter the returned set in memory (`txns.filter(t => t.type === type)`).
    The set is one bounded month, so an in-memory narrow is fine (README §4 forbids sorting/
    filtering _unbounded_ sets, not a bounded month) — there is no month+type index and you must
@@ -90,9 +93,10 @@ taggedTotalMinor, txnCount }[], currency }`. Money stays minor units (ADR 0009 �
 - **Non-additive by construction:** compute per-Category tagged totals; never present a
   whole-equals-sum-of-parts chart. A multi-category Transaction contributes its full amount to
   _each_ of its Categories — document this in the UI so it isn't read as additive.
-- **One shared month set:** routing through `collectMonthActiveTransactions` means the category
-  ranking, the totals cards (RPT-3), and the comparison chart (RPT-4) can never drift on what a
-  Circle-month contains.
+- **One shared month set:** routing through `collectMonthTransactions` means the category
+  ranking, the totals cards (RPT-3), and the comparison chart (RPT-4) read one Circle-month the
+  same way. Scope is a separate axis, defaulted per surface — totals surfaces pin `active`, a
+  list-derived aggregate inherits its list's lifecycle scope (ADR 0036).
 - **Archived-but-used included** so historical spend stays visible (PRD 58); purely-archived-
   unused Categories are omitted because they have no in-period link.
 
@@ -111,8 +115,9 @@ tests that don't drive the ranking still render it; never redefine per-file scaf
 - **Archived inclusion:** an Archived Category still attached to in-period active Transactions
   appears (badged via `status`); an Archived Category with no in-period active Transactions is
   excluded.
-- **Filters:** `type` and `month` narrow correctly; archived Transactions are excluded from the
-  math (collected set is active-only).
+- **Filters:** `type`, `month`, and lifecycle `status` narrow correctly. The default `status` is
+  `active`, so archived Transactions are excluded from the math unless a list-derived aggregate
+  explicitly asks for them.
 - **Access:** non-member / missing Circle → `null` (ADR 0016).
 
 ## Done when

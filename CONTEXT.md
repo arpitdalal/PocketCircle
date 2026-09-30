@@ -157,7 +157,7 @@ The optional longer text for a **Transaction**, used for item lists or extra con
 _Avoid_: Memo
 
 **Archived Transaction**:
-A **Transaction** removed from active reporting without being deleted. Archived Transactions are frozen and do not count toward Dashboard metrics. The lifecycle scope of **Ledger Filter** and **Transaction Search** defaults to all, so Archived Transactions appear alongside active ones, marked as archived; narrowing lifecycle scope to active hides them, and archived shows only them. Creator Members can restore their own Archived Transactions, and Owners can restore any Archived Transaction in the Circle.
+A **Transaction** removed from active reporting without being deleted. Archived Transactions are frozen and do not count toward Dashboard metrics unless a surface explicitly asks for them, which only a list-derived aggregate does. The lifecycle scope of **Ledger Filter** and **Transaction Search** defaults to all, so Archived Transactions appear alongside active ones, marked as archived; narrowing lifecycle scope to active hides them, and archived shows only them. Creator Members can restore their own Archived Transactions, and Owners can restore any Archived Transaction in the Circle.
 _Avoid_: Deleted Transaction
 
 **Transaction Date**:
@@ -208,8 +208,12 @@ _Avoid_: Category Profile, Category Page
 A lightweight way to narrow a **Circle's** **Category** list of one **Transaction** type by Category name text and lifecycle scope: active, archived, or all. The Category Filter is a view over the type-scoped Category list; it does not change which Categories can be attached to Transactions. It parallels **Ledger Filter** and is distinct from **Transaction Search**, which finds Transactions, not Categories.
 _Avoid_: Category Search, Category Lookup
 
+**Category Ranking**:
+A per-**Category** view of money in one month, ranked by how much was attributed to each **Category**. A Transaction's whole amount is attributed to every **Category** it carries, so a Category Ranking's parts do not sum to the period's spend and must never be drawn as shares of a whole. The **Dashboard** shows one for the current month; the **Monthly Ledger** shows one scoped to the **Ledger Filter**.
+_Avoid_: Category Breakdown, Spend Split, Tag, Budget
+
 **Dashboard**:
-A per-**Circle** summary of money activity. The v1 Dashboard shows current-month Income, Expenses, Net, recent Transactions, a selected-month Expense breakdown by Category, and month-over-month Income, Expense, and Net comparison; all metrics include active Transactions across the Circle. Category analytics are non-additive because a Transaction can have multiple Categories, and include Archived Categories when active Transactions in the selected period still use them.
+A per-**Circle** summary of money activity. The v1 Dashboard shows current-month Income, Expenses, Net, recent Transactions, a selected-month **Category Ranking** for Expenses, and month-over-month Income, Expense, and Net comparison; all metrics include active Transactions across the Circle. Category analytics are non-additive because a Transaction can have multiple Categories, and include **Archived Category** entries when active Transactions in the selected period still use them.
 _Avoid_: Overview
 
 **Home Summary**:
@@ -221,11 +225,11 @@ A cross-**Circle** list-and-filter surface of **Transactions** whose **Paid By**
 _Avoid_: Global Search, Global Ledger, Personal Ledger, Cross-Circle Transaction Search, Cross-Circle Ledger
 
 **Monthly Ledger**:
-The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, and that month's Transactions sorted by Transaction Date descending and then created-at descending.
+The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, a **Category Ranking**, and that month's Transactions sorted by Transaction Date descending and then created-at descending. The Income, Expenses, and Net figures are the whole month's and do not move when a **Ledger Filter** is applied; the ranking is derived from the filtered Transactions and does.
 _Avoid_: Transaction List
 
 **Ledger Filter**:
-A lightweight way to narrow a **Monthly Ledger** to the selected month using Transaction text, Transaction type, Category, Recorded By, Paid By, and lifecycle scope: active, archived, or all. A Ledger Filter is reset when the User changes the selected **Monthly Ledger** month.
+A lightweight way to narrow a **Monthly Ledger** to the selected month using Transaction text, Transaction type, Category, Recorded By, Paid By, and lifecycle scope: active, archived, or all. A Ledger Filter is reset when the User changes the selected **Monthly Ledger** month. A Ledger Filter narrows the Transactions on the Monthly Ledger and the **Category Ranking** above them, but not the month's Income, Expenses, and Net.
 _Avoid_: Search, Advanced Search
 
 **Comparison Range**:
@@ -382,7 +386,7 @@ _Avoid_: Announcement Modal, Feature Checklist, Changelog Popup
 
 **Engineer**: "Does removing a Transaction erase it?"
 
-**Product**: "No. It becomes an Archived Transaction, stops counting toward Dashboard metrics, is frozen, and can be restored later."
+**Product**: "No. It becomes an Archived Transaction, stops counting toward Dashboard metrics, is frozen, and can be restored later. You can still see it in the Monthly Ledger by switching the Ledger Filter to archived."
 
 **Engineer**: "Can Morgan attach one grocery Transaction to both a Personal Circle and a Trip Circle?"
 

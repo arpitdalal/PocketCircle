@@ -58,6 +58,10 @@ an Owner moderates without rewriting records.
 - **Reporting contract (set up assertions RPT consumes):** an archived Transaction is excluded
   from Dashboard totals; visible by default in Ledger Filter and Transaction Search (with visual
   distinction); excluded when lifecycle scope is `active`; included when `archived` or `all`.
+  An aggregate that summarizes a filtered list of Transactions inherits that list's lifecycle
+  scope, so it includes archived Transactions when the list does — see [ADR
+  0036](../../docs/adr/0036-filter-derived-reporting-scope-for-aggregates.md). Totals surfaces stay
+  active-only.
 - **History:** archive/restore events record the moderator as actor, correct action, no raw IDs.
 
 ## Done when
