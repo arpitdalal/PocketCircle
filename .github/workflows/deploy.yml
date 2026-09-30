@@ -1194,11 +1194,34 @@ jobs:
       - name: Publish release notes
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           version="$GITHUB_REF_NAME"
           ./scripts/release-notes.sh "$version" > release-notes.md
           expected="$(tr -d '\r' < release-notes.md)"
+
+          # The tag is re-read here, immediately before publishing, and required
+          # to still name the commit this run deployed.
+          #
+          # This is the last irreversible step in a release, and it is the one
+          # place a moved tag turns into permanent damage: publishing an immutable
+          # release locks its tag to whatever that tag names at this instant. A
+          # tag is protected from the moment a release exists, not from the moment
+          # it is created, so anything that moved it in the minutes this run spent
+          # in E2E and waiting on approval would be frozen in — production serving
+          # `github.sha`, the release attesting to a different commit, and both
+          # claims permanent. `--verify-tag` does not help: it only asserts the tag
+          # exists, never which commit it names.
+          #
+          # Read by resolved commit, not by the ref's own SHA: an annotated tag
+          # reports the tag object's SHA, which is never the SHA being deployed.
+          named="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$version")"
+          if [ "$named" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $version now names $named, but this run deployed $GITHUB_SHA. Refusing to publish a release that would permanently attest to a different commit than production is running. The tag was moved after this run started; investigate before re-running."
+            exit 1
+          fi
+          echo "$version names $named, as deployed."
 
           if ! gh release view "$version" >/dev/null 2>&1; then
             gh release create "$version" \

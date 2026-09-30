@@ -50,10 +50,19 @@ jobs:
     name: Gate release
     runs-on: ubuntu-latest
     permissions:
-      # Reading workflow runs, to ask whether `main` has cleared this commit.
-      # Not a write: this job cannot cut a tag, dispatch anything, or cancel a
-      # run. The cut job below is where the writes are, and the tag cannot be cut
-      # without this job.
+      # Both scopes, spelled out, because a job-level `permissions` map replaces
+      # the workflow-level one wholesale and sets every scope it does not name to
+      # `none` — it is not a merge. Naming only `actions: read` here would remove
+      # the `contents: read` the checkout below needs, and the workflow would fail
+      # at its first step having validated nothing. This workflow notes the rule on
+      # the cut job's map; it is noted here because this is the job where getting it
+      # wrong is invisible until a run is dispatched.
+      #
+      # `actions: read` is to ask whether `main` has cleared this commit. Not a
+      # write: this job cannot cut a tag, dispatch anything, or cancel a run. The
+      # cut job below is where the writes are, and the tag cannot be cut without
+      # this job.
+      contents: read
       actions: read
     outputs:
       version: ${{ steps.resolve.outputs.version }}
@@ -111,9 +120,23 @@ jobs:
           # The gate that stopped v0.8.1, stated as a wait rather than a re-run.
           # Both are in `main`'s own verdicts: CI covers typecheck, lint, the unit
           # tests and both production builds; E2E is the real Playwright suite.
+          #
+          # Filtered to push runs on `main`, and the filter is load-bearing rather
+          # than tidy. Both workflows also run for `pull_request`, and a commit
+          # reaches `main` with a SHA a PR run can share — every merge that keeps
+          # the commit identity, which is what a rebase or a direct promotion does.
+          # Without the filter, the first CI-shaped run for that SHA wins, so a
+          # green PR run can stand in for a red `main` run, or for one that has not
+          # started yet. A PR run says nothing about `main`: it merges a synthetic
+          # merge commit, and its `head_sha` is the branch tip.
           verdict() {
+            local name="$1"
             gh api "repos/$GH_REPO/actions/runs?head_sha=$SHA&per_page=100" \
-              --jq ".workflow_runs | map(select(.name == \"$1\")) | first
+              --jq ".workflow_runs
+                     | map(select(.name == \"$name\"
+                                  and .event == \"push\"
+                                  and .head_branch == \"main\"))
+                     | first
                      | if . == null then \"not started\"
                        elif .status == \"completed\" then (.conclusion // \"none\")
                        else \"running\" end" 2>/dev/null || echo "unreadable"
@@ -196,7 +219,14 @@ jobs:
           # and the case this branch exists for — or a real error. Which one it is
           # decides whether the version is still usable, so it is read back rather
           # than inferred from the message.
-          existing="$(gh api "repos/$GH_REPO/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null)" || {
+          #
+          # Compared by the commit the tag resolves to, not by what the ref
+          # endpoint reports. An annotated tag — which is what `git tag -a` makes,
+          # and therefore what every hand-pushed release tag in this repo's history
+          # is — reports the tag *object's* SHA, so comparing that to a commit
+          # rejects a tag that names exactly the right commit. `resolve-tag-commit.sh`
+          # dereferences, and is the one place in the repo that answers this.
+          existing="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$VERSION" 2>/dev/null)" || {
             echo "::error::Could not cut refs/tags/$VERSION, and could not read it back either:"
             cat "$err" >&2
             rm -f "$err"
@@ -206,11 +236,11 @@ jobs:
             # Not recoverable by deleting and re-cutting, and not something to
             # correct: the version is spent on different code. The next release
             # takes the next number, and the changelog says why.
-            echo "::error::$VERSION already tags $existing, not $SHA. That version is spent on different code and the tag cannot be moved — release the next one."
+            echo "::error::$VERSION already names commit $existing, not $SHA. That version is spent on different code and the tag cannot be moved — release the next one."
             rm -f "$err"
             exit 1
           fi
-          echo "$VERSION already tags $SHA — reusing it."
+          echo "$VERSION already names $SHA — reusing it."
           rm -f "$err"
 
       - name: Deploy the tag

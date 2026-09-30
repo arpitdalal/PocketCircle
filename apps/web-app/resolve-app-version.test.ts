@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -201,18 +201,68 @@ describe("release workflow", () => {
     expect(cut).toContain("actions: write");
   });
 
-  it("reuses a tag that already points at the gated commit, and refuses one that does not", () => {
+  it("reuses a tag that already names the gated commit, and refuses one that does not", () => {
     // The re-run of a release whose dispatch or deploy did not finish. Because
     // the tag already names this exact commit, deploying it is correct and the
     // version is not spent — which is the recovery this whole workflow exists to
     // make possible.
-    expect(cut).toContain('gh api "repos/$GH_REPO/git/ref/tags/$VERSION"');
     expect(cut).toContain("reusing it");
-    // A tag pointing anywhere else is that version spent on different code, and
-    // it is not recoverable by deleting and re-cutting. Refusing is the only
-    // honest answer, so the message has to say what to do instead.
-    expect(cut).toMatch(/already tags \$existing, not \$SHA/);
+    // Compared by RESOLVED commit, through the shared script, never by what the
+    // ref endpoint reports. An annotated tag — which is what `git tag -a` makes,
+    // and so every hand-pushed release tag in this repo's history — reports the
+    // tag object's SHA, and comparing that to a commit rejects a tag naming
+    // exactly the right commit.
+    expect(cut).toContain("./scripts/resolve-tag-commit.sh");
+    expect(cut).not.toMatch(/git\/ref\/tags\/\$VERSION" --jq \.object\.sha/);
+    // A tag naming anything else is that version spent on different code, and it
+    // is not recoverable by deleting and re-cutting. Refusing is the only honest
+    // answer, so the message has to say what to do instead.
+    expect(cut).toMatch(/already names commit \$existing, not \$SHA/);
     expect(cut).toMatch(/release the next one/i);
+  });
+
+  it("gates on main's own push runs, not any run of the same workflow", () => {
+    // Both CI and E2E also run for `pull_request`, and a commit reaches main with
+    // a SHA a PR run can share — every merge that keeps the commit identity,
+    // which is what a rebase or a direct promotion does. Unfiltered, the first
+    // CI-shaped run for that SHA wins, so a green PR run can stand in for a red
+    // main run, or for one that has not started. A PR run says nothing about
+    // main: it merges a synthetic merge commit and its head_sha is the branch tip.
+    // The filter is a jq expression inside a shell string inside YAML, so the
+    // quotes are backslash-escaped in the file; matched as plain text, which is
+    // what it is.
+    expect(gate).toContain('.event == \\"push\\"');
+    expect(gate).toContain('.head_branch == \\"main\\"');
+  });
+
+  it("keeps the gate job's checkout permission", () => {
+    // A job-level `permissions` map REPLACES the workflow-level one and sets
+    // every scope it does not name to `none` — it is not a merge. Naming only
+    // `actions: read` here silently removes the `contents: read` the checkout
+    // needs, and the failure is at step 1 of the run, having validated nothing.
+    // That is a bug this branch shipped once already.
+    expect(gate).toMatch(/^ {6}contents: read$/m);
+    expect(gate).toMatch(/^ {6}actions: read$/m);
+  });
+
+  it("refuses to publish a release that would attest to a different commit", () => {
+    // The last irreversible step. Publishing an immutable release locks its tag to
+    // whatever the tag names at that instant, and a tag is protected from the
+    // moment a release exists — not from the moment it is created. A tag moved
+    // during the E2E and approval minutes would be frozen in, with production
+    // serving one commit and the release attesting to another, both permanent.
+    // `--verify-tag` does not help: it asserts the tag exists, never which commit
+    // it names.
+    expect(deploy).toContain("./scripts/resolve-tag-commit.sh");
+    expect(deploy).toMatch(/\$named" != "\$GITHUB_SHA/);
+    expect(deploy).toMatch(/Refusing to publish/);
+    // And it has to be before every publish path, not only the create one.
+    const publish = deploy.indexOf("Publish release notes");
+    const create = deploy.indexOf("gh release create", publish);
+    const edit = deploy.indexOf("gh release edit", publish);
+    expect(publish).toBeGreaterThan(-1);
+    expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(create);
+    expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(edit);
   });
 
   it("dispatches the deploy on the tag, so no version is passed twice", () => {
@@ -304,5 +354,136 @@ describe("release-notes.sh", () => {
     );
     expect(stdout).toContain("### Added");
     expect(stdout).toContain("- Ship release notes from CHANGELOG.md");
+  });
+});
+
+describe("resolve-tag-commit.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/resolve-tag-commit.sh");
+
+  const LIGHTWEIGHT_COMMIT = "51e359e2" + "a".repeat(32);
+  const ANNOTATED_COMMIT = "8730aa05" + "b".repeat(32);
+  const TAG_OBJECT = "bacffa56" + "5a811e81fc732e9c9ed32d6969b35df4".slice(0, 32);
+
+  /**
+   * A `gh` that answers from a fixture, so the script's real logic runs — the
+   * ref lookup, the dereference loop, the type check, the argument validation —
+   * against ref shapes git actually produces. `gh` is the boundary here, and it
+   * is the only thing faked: the script is executed, not reimplemented.
+   *
+   * `read -r` over a here-string rather than a pipe, because a `while read` loop
+   * consuming a pipe never sees the last line without a trailing newline, and a
+   * fixture that silently drops its final rule is a fixture that lies.
+   */
+  async function resolve(fixtures: Record<string, string | "missing">) {
+    const dir = await mkdtemp(join(tmpdir(), "resolve-tag-"));
+    const gh = join(dir, "gh");
+    const rules = Object.entries(fixtures).map(([url, answer]) =>
+      answer === "missing" ? `${url}\tmissing\t-` : `${url}\t${answer}`,
+    );
+    await writeFile(
+      gh,
+      `#!/usr/bin/env bash
+# The first argument that looks like a repo path, rather than a fixed position:
+# \`gh api URL --jq FILTER\` keeps the filter as one argument, so counting
+# positions is a guess about how the caller quoted it.
+url=""
+for a in "$@"; do
+  case "$a" in
+    repos/*) url="$a"; break ;;
+  esac
+done
+while IFS=$'\\t' read -r pat type sha; do
+  [[ -z "$pat" ]] && continue
+  if [[ "$url" == *"$pat"* ]]; then
+    if [[ "$type" == "missing" ]]; then echo "gh: Not Found" >&2; exit 1; fi
+    printf '%s %s\\n' "$type" "$sha"; exit 0
+  fi
+done <<< "$(cat "$GH_FIXTURE")"
+echo "gh: unhandled $url" >&2; exit 1
+`,
+    );
+    await chmod(gh, 0o755);
+    const fixtureFile = join(dir, "fixture");
+    await writeFile(fixtureFile, `${rules.join("\n")}\n`);
+    try {
+      return await execFileAsync(script, ["arpitdalal/PocketCircle", "v1.0.0"], {
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}`, GH_FIXTURE: fixtureFile },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const ref = "git/ref/tags/v1.0.0";
+  const tags = (sha: string) => `git/tags/${sha}`;
+
+  it("resolves a lightweight tag to its commit", async () => {
+    const { stdout } = await resolve({ [ref]: `commit ${LIGHTWEIGHT_COMMIT}` });
+    expect(stdout.trim()).toBe(LIGHTWEIGHT_COMMIT);
+  });
+
+  it("dereferences an annotated tag to the commit it points at", async () => {
+    // The bug this script exists for. The ref endpoint reports the tag OBJECT's
+    // SHA for an annotated tag, so comparing `object.sha` to a commit rejects a
+    // tag naming exactly the right commit. Every hand-pushed release tag in this
+    // repo is annotated, so this is the common shape and not an edge case.
+    const { stdout } = await resolve({
+      [ref]: `tag ${TAG_OBJECT}`,
+      [tags(TAG_OBJECT)]: `commit ${ANNOTATED_COMMIT}`,
+    });
+    expect(stdout.trim()).toBe(ANNOTATED_COMMIT);
+    expect(stdout.trim()).not.toBe(TAG_OBJECT);
+  });
+
+  it("follows a tag of a tag", async () => {
+    const { stdout } = await resolve({
+      [ref]: "tag 1111111",
+      [tags("1111111")]: "tag 2222222",
+      [tags("2222222")]: `commit ${ANNOTATED_COMMIT}`,
+    });
+    expect(stdout.trim()).toBe(ANNOTATED_COMMIT);
+  });
+
+  it("refuses a tag nested past the hop bound instead of spinning", async () => {
+    await expect(
+      resolve({
+        [ref]: "tag 1111111",
+        [tags("1111111")]: "tag 2222222",
+        [tags("2222222")]: "tag 3333333",
+        [tags("3333333")]: `commit ${ANNOTATED_COMMIT}`,
+      }),
+    ).rejects.toMatchObject({ stderr: expect.stringMatching(/three tag objects deep/) });
+  });
+
+  it("names the tag when it does not exist", async () => {
+    await expect(resolve({ [ref]: "missing" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/no such tag: v1\.0\.0 in arpitdalal\/PocketCircle/),
+    });
+  });
+
+  it("refuses a tag pointing at neither a commit nor a tag", async () => {
+    // A tag on a blob is a git-legal thing to write. It is not a release, and
+    // silently treating it as a commit would compare a blob SHA to a commit SHA.
+    await expect(resolve({ [ref]: "blob deadbeef" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/'blob' object, not a commit or a tag/),
+    });
+  });
+
+  it("refuses a malformed response rather than reading it as some object", async () => {
+    // A well-formed HTTP response that is not the expected shape — an empty body,
+    // a rate-limit message — must not be read as an object of an unnamed type,
+    // which would report the tag as broken when the API is.
+    await expect(resolve({ [ref]: "commit" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/unexpected response/),
+    });
+  });
+
+  it("requires a repo and a tag", async () => {
+    await expect(execFileAsync(script, [])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/exactly two arguments/),
+    });
+    await expect(execFileAsync(script, ["not-a-repo", "v1.0.0"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/OWNER\/REPO/),
+    });
   });
 });

@@ -895,6 +895,17 @@ have one cannot be moved, and its name is reserved permanently — which is the
 guarantee worth having, and the reason a shipped version is genuinely spent
 instead of merely inconvenient to correct.
 
+That window is why the deploy re-reads the tag immediately before publishing and
+requires it to still name the commit it deployed. Publishing locks the tag to
+whatever it names at that instant, and the tag is protected from the moment a
+release *exists* rather than the moment it is created — so a tag moved during the
+E2E and approval minutes would otherwise be frozen in, leaving production serving
+one commit and the release attesting to another, both permanently.
+`gh release create --verify-tag` does not help: it asserts the tag exists, never
+which commit it names. `scripts/resolve-tag-commit.sh` is what both the deploy and
+the Release workflow use to answer that, and it dereferences annotated tags — the
+ref endpoint reports the tag *object*'s SHA for those, which is never the commit.
+
 The workflow fails before deployment when a required secret or Convex URL
 variable is missing.
 
