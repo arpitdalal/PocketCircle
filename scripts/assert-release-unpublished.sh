@@ -139,7 +139,21 @@ marker_for_attempt() {
 
 checked=0
 while IFS=$'\t' read -r run_id status attempts; do
-  [[ -n "$run_id" ]] || continue
+  # A row that cannot be read is a row whose attempts cannot be counted, and a
+  # `for` loop bounded by an unreadable count runs zero times — so a malformed row
+  # would skip its own inspection and report success. This script is fail-closed
+  # everywhere else; a row it cannot parse has to be the same. Refused rather than
+  # skipped, because skipping is what produced the bug.
+  [[ -n "$run_id" && -n "$status" && -n "$attempts" ]] ||
+    die "could not read a deploy run for $tag from the API (got id='$run_id' status='$status' attempts='$attempts'), so whether $tag reached production cannot be determined. Release the next version, or investigate before re-cutting."
+
+  # `run_attempt` is 1 or more for every real run, and bash arithmetic reads an
+  # empty or non-numeric value as 0 — which would silently reduce the loop below
+  # to nothing. Asserted rather than assumed, because the failure it prevents is
+  # the worst one available: reporting a version as never deployed when in fact
+  # nothing was ever looked at.
+  [[ "$attempts" =~ ^[1-9][0-9]*$ ]] ||
+    die "deploy run $run_id reports '$attempts' attempts, which is not a positive count, so whether $tag reached production cannot be determined. Release the next version, or investigate before re-cutting."
 
   # A run that has not finished may reach the marker seconds from now, and "it has
   # not reached production yet" is not a statement about the version.
@@ -154,5 +168,12 @@ while IFS=$'\t' read -r run_id status attempts; do
     checked=$((checked + 1))
   done
 done <<< "$runs"
+
+# Unreachable now that every row is validated to carry at least one attempt, and
+# kept as the backstop for the one thing this script must never do: report a
+# version as unspent having inspected nothing. Zero checks with a non-empty run
+# list means the loop above did not do what it says it does.
+[[ "$checked" -gt 0 ]] ||
+  die "no attempt of any deploy run for $tag was inspected, so whether it reached production is unknown. Release the next version, or investigate before re-cutting."
 
 echo "No attempt at $tag ever reached '$MARKER_STEP' ($checked checked), so it never wrote to production. $tag can be re-cut."

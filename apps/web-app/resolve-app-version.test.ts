@@ -1043,6 +1043,55 @@ describe("assert-release-unpublished.sh", () => {
     });
   });
 
+  it.each([
+    ["an empty attempt count", ["111", "completed", ""]],
+    ["a zero attempt count", ["111", "completed", "0"]],
+    ["a non-numeric attempt count", ["111", "completed", "abc"]],
+    ["a negative attempt count", ["111", "completed", "-1"]],
+  ])("refuses on %s rather than inspecting nothing", async (_label, row) => {
+    // A `for` loop bounded by an unreadable count runs zero times, and bash
+    // arithmetic reads an empty or non-numeric value as 0. So a malformed row
+    // skipped its own inspection and the script reported the version as never
+    // deployed having looked at nothing — the one answer this script must never
+    // give, and the only place it did. Refused, not skipped.
+    await expect(
+      assertUnpublished({
+        ...runs(row),
+        "runs/111/attempts/1/jobs": `1\t${MARKER}\tsuccess`,
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/cannot be determined/),
+    });
+  });
+
+  it("refuses when a run row is missing a field", async () => {
+    // Same reasoning for a truncated row: an id or status that is not there cannot
+    // be checked, and treating the row as absent would drop a run from the count
+    // that the permission to re-cut is derived from.
+    await expect(
+      assertUnpublished({ ...runs(["111", "", "1"]), "runs/111/attempts/1/jobs": "" }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/could not read a deploy run/),
+    });
+  });
+
+  it("refuses rather than reporting a permission derived from no inspection", async () => {
+    // The backstop. With every row validated to carry at least one attempt this is
+    // unreachable, and it is here because the bug it guards was real: a version was
+    // declared unspent after the loop silently did nothing.
+    const scriptText = readFileSync(script, "utf8");
+    const guard = scriptText.indexOf('[[ "$checked" -gt 0 ]]');
+    // Anchored on the closing echo's own text, not on "can be re-cut", which the
+    // header comment also uses — an earlier version of this test passed or failed
+    // on a phrase in prose, which is the fragility it was meant to remove.
+    const verdict = scriptText.lastIndexOf("$tag can be re-cut.");
+    expect(guard).toBeGreaterThan(-1);
+    // The permission is printed after the guard, and the guard refuses rather than
+    // falling through — a count of zero must not reach the verdict at all.
+    expect(verdict).toBeGreaterThan(guard);
+    expect(scriptText.slice(guard, verdict)).toContain("die ");
+  });
+
   it("selects runs by tag client-side, not by the API's head_branch filter", async () => {
     // The `head_branch` filter matches branch names only, so a tag-triggered run is
     // not found by it and the query returns every run in the repository — which
