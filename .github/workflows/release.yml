@@ -195,18 +195,25 @@ jobs:
             # a fixed commit is what makes that recovery possible at all, and it is
             # the case the README's recovery table describes.
             #
-            # Two things are checked rather than trusted. A GitHub Release is the
-            # hard boundary — a published release reserves the name permanently —
-            # so its presence refuses the re-cut whatever was asked for. And the
-            # re-cut is opt-in, because "the deploy failed" and "the deploy failed
-            # before touching anything" look identical from here.
-            if [ "${{ inputs.replace_unreleased_tag }}" != "true" ]; then
-              echo "::error::$VERSION already names $existing, not $SHA. If that attempt never reached production you can re-cut this version: fix the commit, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
+            # A GitHub Release is the hard boundary: a published release reserves
+            # the tag name permanently, so its presence refuses the re-cut whatever
+            # was asked for.
+            if gh release view "$VERSION" >/dev/null 2>&1; then
+              echo "::error::$VERSION has a published GitHub Release, so its tag cannot be moved and the name is permanently reserved. Release the next version."
               rm -f "$err"
               exit 1
             fi
-            if gh release view "$VERSION" >/dev/null 2>&1; then
-              echo "::error::$VERSION has a published GitHub Release, so its tag cannot be moved and the name is permanently reserved. replace_unreleased_tag does not apply — release the next version."
+            # And the other question — did the failed attempt reach production — is
+            # asked of the machine rather than of the operator. "The deploy failed"
+            # and "the deploy failed before touching anything" are identical from
+            # here, and guessing costs either a recoverable version or, worse, one
+            # number identifying two production states.
+            if [ "${{ inputs.replace_unreleased_tag }}" != "true" ]; then
+              echo "::error::$VERSION already names $existing, not $SHA. If its deploy never reached production you can re-cut it: fix the commit, merge, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
+              rm -f "$err"
+              exit 1
+            fi
+            if ! ./scripts/assert-release-unpublished.sh "$GH_REPO" "$VERSION"; then
               rm -f "$err"
               exit 1
             fi
@@ -277,18 +284,3 @@ jobs:
           gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION" -f gate_sha="$SHA"
           echo "Dispatched deploy.yml for $VERSION against $SHA."
 
-      # Hold this workflow open until the deployment it dispatched is finished.
-      #
-      # `gh workflow run` returns as soon as the dispatch is accepted, so without
-      # this the `release` concurrency group is released while the production run is
-      # still going. `deploy.yml` serializes on its own `production` group, which
-      # allows one running and one pending run and replaces a pending one when a
-      # third arrives — so releasing A, then B (queued behind A), then C would
-      # replace B's pending deploy with C's. B's tag is already cut by then: B
-      # never deploys and never publishes, which is the stranded version this whole
-      # workflow exists to prevent, reached by releasing twice rather than failing
-      # once. Waiting keeps the lock held for the whole release.
-      - name: Wait for the deployment to finish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./scripts/wait-for-deploy.sh "${{ github.repository }}" ".github/workflows/deploy.yml" "$SHA"

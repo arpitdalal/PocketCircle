@@ -84,6 +84,19 @@ describe("Vite version injection", () => {
 });
 
 /**
+ * The two release workflows, read once. Every describe below asserts against them,
+ * and a per-describe copy meant the ones added later could not see them at all.
+ */
+const release = readFileSync(
+  join(import.meta.dirname, "../../.github/workflows/release.yml"),
+  "utf8",
+);
+const deploy = readFileSync(
+  join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
+  "utf8",
+);
+
+/**
  * One workflow's `jobs:` block per job name, so an assertion can be about the job
  * that does a thing rather than about the file that mentions it.
  */
@@ -102,14 +115,6 @@ function jobBlocks(workflow: string) {
 const STABLE_SEMVER = String.raw`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`;
 
 describe("release workflow", () => {
-  const release = readFileSync(
-    join(import.meta.dirname, "../../.github/workflows/release.yml"),
-    "utf8",
-  );
-  const deploy = readFileSync(
-    join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
-    "utf8",
-  );
   const jobs = jobBlocks(release);
   const gate = jobs.get("gate") ?? "";
   const cut = jobs.get("cut") ?? "";
@@ -207,7 +212,27 @@ describe("release workflow", () => {
     // calling it before anything is deployed.
     expect(deploy).toMatch(/gate_sha:/);
     expect(deploy).toMatch(
-      /assert-tag-names\.sh "\$GH_REPO" "\$GITHUB_REF_NAME" "\$GITHUB_SHA" "\$\{\{ inputs\.gate_sha \}\}"/,
+      /assert-tag-names\.sh "\$GH_REPO" "\$GITHUB_REF_NAME" "\$GITHUB_SHA" "\$GATE_SHA"/,
+    );
+    // And `GATE_SHA` arrives through `env`, never template-expanded into the script
+    // body: a `${{ }}` expression is substituted before bash parses the text, so a
+    // crafted `workflow_dispatch` input is a command — in the job that holds the
+    // deploy secrets. The script's own SHA validation happens far too late to be
+    // the thing that prevents it.
+    //
+    // Counted across the whole file rather than excluded per line. A "not on a
+    // `run:` line" check passes for the dangerous form: a multi-line `run: |` block
+    // puts the expression on a line of its own, nowhere near a `run:` keyword, so
+    // the guard has to be that the expression occurs *only* on the `GATE_SHA:` env
+    // line and nowhere else in the file.
+    const gateShaEnvLines = deploy
+      .split("\n")
+      .filter((line) => /^ {10}GATE_SHA: \$\{\{ inputs\.gate_sha \}\}$/.test(line));
+    // One per call site, and there are two: the verify job and again immediately
+    // before the first production write.
+    expect(gateShaEnvLines).toHaveLength(2);
+    expect([...deploy.matchAll(/\$\{\{ inputs\.gate_sha \}\}/g)]).toHaveLength(
+      gateShaEnvLines.length,
     );
     // Unconditional, not gated on Release having dispatched. The emergency
     // hand-push path — the one the rollback runbook uses, and the one nobody is
@@ -523,49 +548,27 @@ describe("wait-for-main-gate.sh", () => {
    * spend 45 minutes proving it.
    */
   async function gate(verdicts: Record<string, string | "error">) {
-    const dir = await mkdtemp(join(tmpdir(), "main-gate-"));
-    const rules = Object.entries(verdicts).map(([workflow, verdict]) =>
-      verdict === "error" ? `${workflow}\tFAIL` : `${workflow}\t${verdict}`,
+    // The shared stub, not a second copy of it. `wait-for-main-gate.sh` was the
+    // only script with its own, which meant the harness had two places to fix when
+    // the stub gained a capability — and the two drifted.
+    const rules = Object.fromEntries(
+      Object.entries(verdicts).map(([workflow, verdict]) => [
+        workflow,
+        verdict === "error" ? "FAIL" : verdict,
+      ]),
     );
-    await writeFile(
-      join(dir, "gh"),
-      `#!/usr/bin/env bash
-# Matched against the whole command line, not one argument. The two release
-# scripts put the interesting string in different places — wait-for-main-gate.sh
-# filters inside its jq expression while resolve-tag-commit.sh passes the ref path
-# as the URL — and a stub that assumes either position matches nothing, which
-# reads as a broken script rather than a broken harness.
-query="$*"
-while IFS=$'\\t' read -r pat ans; do
-  [[ -z "$pat" ]] && continue
-  needle="\${pat//\\*/\\\\*}"
-  if [[ "$query" == *"$needle"* ]]; then
-    if [[ "$ans" == "FAIL" ]]; then echo "gh: API error" >&2; exit 1; fi
-    printf '%s\\n' "$ans"
-    exit 0
-  fi
-done <<< "$(cat "$GH_FIXTURE")"
-echo "gh: nothing matched this query" >&2
-exit 1
-`,
-    );
-    await chmod(join(dir, "gh"), 0o755);
-    const fixture = join(dir, "verdicts");
-    await writeFile(fixture, `${rules.join("\n")}\n`);
-    try {
-      return await execFileAsync(script, [SHA], {
+    return withStubbedGh(rules, (_dir, env) =>
+      execFileAsync(script, [SHA], {
         env: {
-          ...process.env,
-          PATH: `${dir}:${process.env.PATH ?? ""}`,
-          GH_FIXTURE: fixture,
+          ...env,
           GITHUB_REPOSITORY: "arpitdalal/PocketCircle",
+          // Terminate the waiting paths immediately instead of sleeping, so a test
+          // for "waits" can assert the wait rather than spend 45 minutes on it.
           GATE_TIMEOUT_SECONDS: "0",
           GATE_POLL_SECONDS: "0",
         },
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+      }),
+    );
   }
 
   const green = {
@@ -692,8 +695,8 @@ exit 1
 });
 
 /**
- * One `gh` stub for the release scripts, keyed by the workflow path in the jq
- * filter and answering from a fixture. `gh` is the only thing faked — it is the
+ * One `gh` stub for the release scripts, keyed by a URL fragment and answering
+ * from a fixture. `gh` is the only thing faked — it is the
  * only thing these scripts talk to — so the scripts run for real and their own
  * logic is what is under test.
  *
@@ -704,7 +707,7 @@ exit 1
 async function withStubbedGh<T>(
   fixtures: Record<string, string>,
   run: (dir: string, env: NodeJS.ProcessEnv) => Promise<T>,
-): Promise<T> {
+) {
   const dir = await mkdtemp(join(tmpdir(), "release-script-"));
   const rules = Object.entries(fixtures).map(([pattern, answer]) => `${pattern}\t${answer}`);
   await writeFile(
@@ -721,7 +724,12 @@ while IFS=$'\\t' read -r pat ans; do
   needle="\${pat//\\*/\\\\*}"
   if [[ "$query" == *"$needle"* ]]; then
     if [[ "$ans" == "FAIL" ]]; then echo "gh: API error" >&2; exit 1; fi
-    printf '%s\\n' "$ans"
+    # %b, not %s, so that an answer can spell its own row breaks: the
+    # fixture file is line-based and so cannot hold a real newline, while
+    # GitHub's run and job listings are multi-row. Without this a test cannot
+    # express two runs of a tag, and so cannot cover the case where the
+    # *older* run is the one that reached production.
+    printf '%b\\n' "$ans"
     exit 0
   fi
 done <<< "$(cat "$GH_FIXTURE")"
@@ -730,6 +738,10 @@ exit 1
 `,
   );
   await chmod(join(dir, "gh"), 0o755);
+  // A syntactically broken stub exits 2, which every script reads as an unreadable
+  // API — the same symptom as a real bug in the script under test, and just as
+  // misleading. Caught here, where it was authored, instead of in 25 verdicts.
+  await execFileAsync("bash", ["-n", join(dir, "gh")]);
   const fixture = join(dir, "fixtures");
   await writeFile(fixture, `${rules.join("\n")}\n`);
   // The child env is built here rather than at each call site: a stub with no
@@ -818,96 +830,177 @@ describe("assert-tag-names.sh", () => {
   });
 });
 
-describe("wait-for-deploy.sh", () => {
-  const script = join(import.meta.dirname, "../../scripts/wait-for-deploy.sh");
-  const SHA = "ccfcd40cad56ee4ce9ad199b5ea7dbee69afdb44";
-  // The `cut` job specifically: the wait only holds anything while it is in the
-  // same job as the dispatch, since that is the job the `release` concurrency
-  // group covers.
-  const cut = (() => {
-    const release = readFileSync(
-      join(import.meta.dirname, "../../.github/workflows/release.yml"),
-      "utf8",
-    );
-    const jobs = release.slice(release.indexOf("\njobs:\n"));
-    const starts = [...jobs.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)];
-    return jobs.slice(starts[1].index, starts[2]?.index ?? jobs.length);
-  })();
+describe("assert-release-unpublished.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/assert-release-unpublished.sh");
+  const MARKER = "Sync MCP Worker verification keys to Convex";
+  // The `cut` job, where the re-cut decision is made.
+  const cut = jobBlocks(release).get("cut") ?? "";
 
-  async function waitForDeploy(verdict: string) {
-    return withStubbedGh({ "workflows/deploy.yml": verdict }, (_dir, stubEnv) =>
-      execFileAsync(
-        "bash",
-        [script, "arpitdalal/PocketCircle", ".github/workflows/deploy.yml", SHA],
-        {
-          // A zero timeout turns the waiting paths into a single poll, so a test
-          // for "waits" asserts the wait without spending the two-hour bound.
-          env: { ...stubEnv, DEPLOY_WAIT_SECONDS: "0", DEPLOY_POLL_SECONDS: "0" },
-        },
-      ),
+  /**
+   * The script talks to GitHub in two shapes, and both are stubbed by URL fragment
+   * so that a change to either query becomes a fixture that stops matching — which
+   * is the failure this harness should have rather than silently answer.
+   *
+   *   * the run list: `id \t status \t attempts`, one row per run, newest first
+   *   * one attempt's steps: `number \t name \t conclusion`, one row per step
+   *
+   * Rows are spelled with `\n` because the fixture file is line-based; the stub's
+   * `printf %b` expands it back into the newlines the API would really return.
+   */
+  async function assertUnpublished(fixtures: Record<string, string>) {
+    return withStubbedGh(fixtures, (_dir, env) =>
+      execFileAsync("bash", [script, "arpitdalal/PocketCircle", "v1.0.0"], {
+        // From the repo root, because the script calls its siblings by relative
+        // path exactly as a workflow does.
+        cwd: join(import.meta.dirname, "../.."),
+        env,
+      }),
     );
   }
 
-  it("returns once the deploy succeeds", async () => {
-    const { stdout } = await waitForDeploy("success");
-    expect(stdout).toContain("finished successfully");
+  /** The run list, newest first, as the API returns it. */
+  const runs = (...rows: [id: string, status: string, attempts: number][]) => ({
+    "workflows/deploy.yml/runs": rows
+      .map(([id, status, n]) => `${id}\t${status}\t${n}`)
+      .join("\\n"),
+  });
+  /** One attempt's steps, for the marker step only. */
+  const marker = (id: string, attempt: number, conclusion: string) => ({
+    [`runs/${id}/attempts/${attempt}/jobs`]: `1\t${MARKER}\t${conclusion}`,
+  });
+  const oneRun = (conclusion: string) => ({
+    ...runs(["999", "completed", 1]),
+    ...marker("999", 1, conclusion),
   });
 
-  it("fails the release when the deploy does not succeed", async () => {
-    // A release whose deploy failed must not read as a green run, or the next
-    // release is cut believing the last one shipped.
-    await expect(waitForDeploy("failure")).rejects.toMatchObject({
-      stderr: expect.stringMatching(/did not ship/),
+  it("permits a re-cut when no attempt ever reached production", async () => {
+    // The v0.8.1 case, verified against the real run: it failed at `pnpm validate`
+    // and the marker step reads `skipped`.
+    const { stdout } = await assertUnpublished(oneRun("skipped"));
+    expect(stdout).toContain("never wrote to production");
+  });
+
+  it.each(["success", "failure", "cancelled", "timed_out", "startup_failure"])(
+    "refuses a re-cut when an attempt reached production (%s)",
+    async (conclusion) => {
+      // `failure` and `cancelled` count as reached, not as safe: a step that
+      // started may have written before it stopped, and the check cannot see how
+      // far into it got. Erring toward "spent" costs a version number in a rare
+      // case; erring the other way lets one number identify two production states.
+      await expect(assertUnpublished(oneRun(conclusion))).rejects.toMatchObject({
+        stderr: expect.stringMatching(/the version is spent/i),
+      });
+    },
+  );
+
+  it("refuses when an OLDER run reached production and the newest did not", async () => {
+    // The whole reason every run is inspected rather than the newest. A tag
+    // re-cut by hand, or re-dispatched, leaves two runs under one tag name: if the
+    // first deployed and the second failed early, reading only the newest reports
+    // "never deployed" for a version that is live in production — the exact failure
+    // this script exists to prevent, introduced by the check meant to catch it.
+    await expect(
+      assertUnpublished({
+        ...runs(["222", "completed", 1], ["111", "completed", 1]),
+        ...marker("222", 1, "skipped"),
+        ...marker("111", 1, "success"),
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/run 111 .*reached .*success.*the version is spent/is),
     });
   });
 
-  it("waits rather than concluding while the deploy is still running", async () => {
-    await expect(waitForDeploy("running")).rejects.toMatchObject({
-      stderr: expect.stringMatching(/still 'running'/),
+  it("inspects every attempt of a re-run, not just the last", async () => {
+    // Re-running a failed job keeps the same run id and increments `run_attempt`.
+    // If attempt 1 reached the marker and attempt 2 was cancelled before it, the
+    // newest attempt reads `skipped` while attempt 1 already rewrote production.
+    await expect(
+      assertUnpublished({
+        ...runs(["111", "completed", 2]),
+        ...marker("111", 1, "success"),
+        ...marker("111", 2, "skipped"),
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/attempt 1\).*the version is spent/is),
     });
   });
 
-  it("waits before the dispatched run exists", async () => {
-    // The dispatch is accepted before the run appears in the API, so `not-started`
-    // is the normal first observation, not a failure.
-    await expect(waitForDeploy("not-started")).rejects.toMatchObject({
-      stderr: expect.stringMatching(/still 'not-started'/),
+  it("refuses while a run for this version is still in flight", async () => {
+    // A queued or running deploy may reach the marker seconds from now, and "it
+    // has not reached production yet" is not a statement about the version. The
+    // run list is therefore not filtered to completed runs before this is checked.
+    await expect(assertUnpublished(runs(["999", "in_progress", 1]))).rejects.toMatchObject({
+      stderr: expect.stringMatching(/is still in_progress, so it may yet reach/),
     });
   });
 
-  it("treats an API error as unknown rather than as a failed deploy", async () => {
-    // Refusing a release because GitHub was briefly unreachable would be a false
-    // negative on the one thing this waits for.
-    await expect(waitForDeploy("FAIL")).rejects.toMatchObject({
-      stderr: expect.stringMatching(/still 'unreadable'/),
+  it("permits a re-cut when several runs all stopped short", async () => {
+    const { stdout } = await assertUnpublished({
+      ...runs(["222", "completed", 1], ["111", "completed", 1]),
+      ...marker("222", 1, "skipped"),
+      ...marker("111", 1, "skipped"),
+    });
+    expect(stdout).toContain("(2 checked)");
+  });
+
+  it("permits a re-cut when no deploy ever ran for this version", async () => {
+    const { stdout } = await assertUnpublished(runs());
+    expect(stdout).toContain("nothing was deployed");
+  });
+
+  it("permits a re-cut when the Deploy job never started", async () => {
+    // The `verify` job failed, or the run was cancelled before Deploy: a job that
+    // never started mutates nothing, so it counts as a checked attempt that stopped
+    // short rather than as an unknown.
+    const { stdout } = await assertUnpublished({
+      ...runs(["999", "completed", 1]),
+      "runs/999/attempts/1/jobs": "",
+    });
+    expect(stdout).toContain("(1 checked)");
+  });
+
+  it("refuses when an attempt has no such step, rather than assuming it is safe", async () => {
+    // The step is missing, which means that attempt ran a deploy.yml without the
+    // marker in it. Reporting "unknown" as safe would be the one answer that is
+    // wrong in every direction at once.
+    await expect(
+      assertUnpublished({
+        ...runs(["999", "completed", 1]),
+        "runs/999/attempts/1/jobs": "1\tSome Other Step\tsuccess",
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/cannot be determined/),
     });
   });
 
-  it("is what holds the release lock open until the deploy finishes", () => {
-    // The stranded-version path: the dispatch returns immediately, so without
-    // this the `release` group frees while `deploy.yml`'s own `production` group
-    // still has a pending run, and a third release replaces it — after the
-    // second one's tag is already cut.
-    const dispatch = cut.indexOf("gh workflow run deploy.yml");
-    const wait = cut.indexOf("./scripts/wait-for-deploy.sh");
-    expect(dispatch).toBeGreaterThan(-1);
-    expect(wait).toBeGreaterThan(dispatch);
-    // In the `cut` job, so the `release` concurrency group is still held while
-    // the deployment runs — which is the entire reason to wait. A wait anywhere
-    // else would end with the group and buy nothing.
+  it("selects runs by tag client-side, not by the API's head_branch filter", async () => {
+    // The `head_branch` filter matches branch names only, so a tag-triggered run is
+    // not found by it and the query returns every run in the repository — which
+    // would then judge a re-cut of v0.8.1 by whatever v0.8.2 did. The runs are
+    // listed per-workflow and narrowed here instead.
+    const scriptText = readFileSync(script, "utf8");
+    expect(scriptText).toContain("actions/workflows/$DEPLOY_WORKFLOW/runs");
+    // Quoted in the source because it sits inside a shell double-quoted string.
+    expect(scriptText).toContain('select(.head_branch == \\"$tag\\")');
+    expect(scriptText).not.toContain("head_branch=$tag");
   });
 
-  it("rejects arguments that are not a repo, a workflow and a commit", async () => {
-    const run = (args: string[]) =>
-      execFileAsync("bash", [script, ...args], { cwd: join(import.meta.dirname, "../..") });
-    await expect(run(["arpitdalal/PocketCircle"])).rejects.toMatchObject({
-      stderr: expect.stringMatching(/exactly three arguments, got 1/),
-    });
-    await expect(run(["norepo", ".github/workflows/deploy.yml", SHA])).rejects.toMatchObject({
-      stderr: expect.stringMatching(/OWNER\/REPO/),
-    });
-    await expect(run(["o/r", ".github/workflows/deploy.yml", "main"])).rejects.toMatchObject({
-      stderr: expect.stringMatching(/not a commit SHA/),
-    });
+  it("is what the re-cut consults, so the judgment is the machine's", () => {
+    // Before this existed, the only thing standing between a re-cut and a version
+    // number identifying two production states was the operator remembering where
+    // their own deploy failed.
+    expect(cut).toContain("./scripts/assert-release-unpublished.sh");
+    // After the published-release check, so a published version is refused on the
+    // harder boundary first.
+    const releaseCheck = cut.indexOf('gh release view "$VERSION"');
+    const assertion = cut.indexOf("./scripts/assert-release-unpublished.sh");
+    expect(releaseCheck).toBeGreaterThan(-1);
+    expect(assertion).toBeGreaterThan(releaseCheck);
+  });
+
+  it("keeps the marker step name in step with the deploy workflow", () => {
+    // The script cannot import a constant from the workflow, so a rename would
+    // silently make every verdict "unknown". Pinned here, a rename fails CI.
+    expect(deploy).toContain(`- name: ${MARKER}`);
   });
 });

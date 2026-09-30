@@ -25,8 +25,12 @@ release notes. Do not make the version name ambiguous by reusing a tag.
 
 1. Merge small, fully tested changes to protected `main`. CI and E2E run there;
    no production deployment runs on merge.
-2. When ready, create annotated tag `vX.Y.Z` on the already-tested `main`
-   commit, create GitHub Release notes, and trigger production from that tag.
+2. When ready, prepare the versioned `CHANGELOG.md` section on `main`
+   (`## [vX.Y.Z] - YYYY-MM-DD`, with at least one bullet or paragraph) and merge
+   it. **Do not create the tag yourself** — see step 3. Pushing a tag by hand
+   triggers `deploy.yml` straight from `push: tags`, bypassing the gate on the
+   commit entirely, which is the ungated deployment path this document used to
+   recommend.
 3. The **Release** workflow cuts the tag and dispatches the production
    workflow, which checks out **the tag SHA**, validates it, and deploys only
    that exact revision. Dispatch Release from current `main`; do not create the

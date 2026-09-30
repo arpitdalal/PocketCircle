@@ -98,7 +98,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ inputs.gate_sha }}"
+          # Through `env`, never template-expanded into the `run:` body. A
+          # `${{ }}` expression is substituted into the script text before bash
+          # parses it, so a crafted input is a command — and this job holds the
+          # deploy secrets. The script's own SHA validation happens far too late
+          # to be the thing that prevents it. An environment variable is a value,
+          # not code.
+          GATE_SHA: ${{ inputs.gate_sha }}
+        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GATE_SHA"
 
       - run: pnpm install --frozen-lockfile
 
@@ -303,7 +310,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ inputs.gate_sha }}"
+          # Through `env`, never template-expanded into the `run:` body. A
+          # `${{ }}` expression is substituted into the script text before bash
+          # parses it, so a crafted input is a command — and this job holds the
+          # deploy secrets. The script's own SHA validation happens far too late
+          # to be the thing that prevents it. An environment variable is a value,
+          # not code.
+          GATE_SHA: ${{ inputs.gate_sha }}
+        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GATE_SHA"
 
       - name: Sync MCP Worker verification keys to Convex
         env:

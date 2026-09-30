@@ -311,7 +311,8 @@ answer is possible.
 Configure the GitHub `production` environment before the first deployment:
 
 - Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
-- Add at least one required reviewer, then consider **Prevent self-review**.
+- Add at least one required reviewer. Do **not** rely on **Prevent self-review** —
+  it compares the approver against a bot, so it approves nothing (see below).
 
 ⚠️ **Two-person approval does not work the way it reads, and pretending otherwise
 is worse than saying so.** The Release workflow dispatches `deploy.yml` with
@@ -874,13 +875,15 @@ tag is what makes a failed release cost nothing.
 The question is not "is there a GitHub Release?" but **"did production move?"**
 `deploy.yml` mutates the Convex backend and both Workers *before* its release job
 runs, so a tag with no Release behind it is **not** evidence that nothing reached
-Users. The line that matters is the first production mutation, the Convex deploy:
+Users. The line that matters is the first production mutation, the **"Sync MCP
+Worker verification keys to Convex"** step — not the Convex deploy that follows
+it, which is the mistake this table used to make:
 
 | Where it failed | Production | What to do |
 | --- | --- | --- |
 | The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
 | `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
-| …and that failure needs a **code** change | untouched | Fix on `main`, merge, then re-run **Release** with the same version **and `replace_unreleased_tag=true`**. It deletes the old tag and cuts the fixed commit |
+| …and that failure needs a **code** change | untouched | Fix on `main`, merge, then re-run **Release** with the same version **and `replace_unreleased_tag=true`**. It checks that no run of that tag ever reached production, then deletes the old tag and cuts the fixed commit |
 | `deploy.yml` at or after the MCP keys sync | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
 | A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
 
@@ -897,10 +900,29 @@ fix — a flaky suite, an expired credential, a dropped connection, a wrong
 hostname — costs nothing but the re-run.
 
 `replace_unreleased_tag` is opt-in because "the deploy failed" and "the deploy
-failed before touching anything" look identical from inside the workflow — only you
-know which happened. It refuses outright if the version already has a GitHub
-Release, because a published release reserves its tag name permanently and no
-flag overrides that.
+failed before touching anything" look identical from *inside* the workflow — and
+the difference is what decides the answer. Once you opt in, the workflow does not
+take your word for it: `scripts/assert-release-unpublished.sh` reads GitHub's own
+record of the deploys and looks at **"Sync MCP Worker verification keys to
+Convex"**, the first step in the deploy that writes to production. The version is
+reusable only if that step reads `skipped` for **every attempt ever made at the
+tag** — every run of the tag, and every re-run of each of those. Anything else
+means it ran, and the version is spent.
+
+So you do not have to remember where your deploy failed, and a tag cannot be
+declared safe because its *most recent* attempt failed early: a tag accumulates
+attempts (re-running a failed job, a hand re-cut, a re-dispatch), and an earlier
+one may already be live. A run that has not finished is also treated as spent,
+since it may reach that step seconds from now.
+
+What the check cannot tell you is *how far into* that step it got — it issues four
+`convex env set` commands and GitHub reports one conclusion for all of them — so a
+failure there is treated as having reached production. That is deliberate: it
+costs a version number in a rare case rather than letting one version number
+identify two production states.
+
+A published GitHub Release refuses the re-cut regardless of the flag, because a
+published release reserves its tag name permanently.
 
 The one case the old `v*` ruleset made impossible and release immutability makes
 possible is the last-but-one: a tag with **no** release behind it is still
