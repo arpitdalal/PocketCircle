@@ -38,10 +38,25 @@ release notes. Do not make the version name ambiguous by reusing a tag.
    match the run's `GITHUB_REF`.
    [GitHub deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 5. Roll back by releasing/deploying a prior immutable tag, not by moving or
-   recreating a version tag. Protect `v*` with a GitHub tag ruleset that
-   restricts updates and deletion. GitHub rulesets support controls for tag
-   creation, update, and deletion.
-   [GitHub ruleset rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+   recreating a version tag. Protect `v*` with **GitHub's release immutability**
+   (**Settings → General → Releases**), *not* with a hand-written tag ruleset
+   restricting updates and deletion.
+   [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+
+   **Superseded 2026-09-28 (#423).** This originally recommended a `v*` ruleset
+   restricting tag updates and deletion. That is stricter than the platform
+   feature and cannot express the distinction that matters: immutability begins
+   when a release is *published*, so a tag with no release behind it stays
+   mutable and can be corrected, while a published one is locked for good. A
+   ruleset applies to both alike, so it also blocks recovering a release that
+   never deployed — v0.8.1 was stranded as a permanent tag on a commit whose
+   deploy failed, and the fix shipped as v0.8.2 with the number spent. Following
+   the original advice would restore exactly that failure.
+
+   The tag is now cut by the **Release** workflow *after* the commit is gated on
+   `main`'s own CI and E2E verdicts, rather than pushed by hand, so the failure
+   mode the ruleset was protecting against is closed at the source. See the
+   repository README's release procedure and recovery table.
 
 This produces a deliberate cadence without a long-lived release branch. A
 release can be cut whenever a coherent user-visible increment is ready; for a

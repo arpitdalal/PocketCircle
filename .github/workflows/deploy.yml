@@ -15,6 +15,16 @@ on:
   # `v*` and nothing else, so the deploy job is refused before it starts, and the
   # SemVer gate below would refuse it too.
   workflow_dispatch:
+    inputs:
+      gate_sha:
+        description: >-
+          Commit the Release workflow gated. Required when dispatched by Release,
+          which cuts the tag and dispatches this in one run; omit it only when
+          pushing a tag by hand, where the tag itself is the only statement of
+          intent. A value that disagrees with the tag stops the deploy before it
+          touches production.
+        required: false
+        type: string
 
 concurrency:
   group: production
@@ -71,6 +81,41 @@ jobs:
 
       - name: Validate release notes
         run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
+
+      # The tag is re-read here and required to still name the commit Release
+      # gated, BEFORE anything is deployed. This is the same hazard the release
+      # job checks for again before publishing, caught at the cheaper end.
+      #
+      # Release cuts the tag and dispatches this workflow, but `--ref` resolves to
+      # whatever the tag names when the dispatch begins, and a tag is protected
+      # from the moment a release *exists* rather than the moment it is created — so
+      # a tag moved in that window, or in the minutes this run spends in E2E and
+      # waiting on approval, would otherwise deploy a commit no check in this run
+      # ever saw. Everything below this step mutates production: the Convex env
+      # writes, the push-delivery gate, the backend deploy, both Workers.
+      #
+      # `--verify-tag` on the release publish does not help, and `--target` does
+      # not either: it would publish a release attesting to a commit production is
+      # not running, which is worse than not publishing at all. The answer has to
+      # come before the first mutation, which is here.
+      #
+      # A hand-pushed tag passes no `gate_sha` and is trusted as-is — that is the
+      # rollback path in the README, where the person pushing it is making the
+      # statement themselves.
+      - name: Refuse a tag that no longer names the gated commit
+        if: inputs.gate_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GATE_SHA: ${{ inputs.gate_sha }}
+        run: |
+          set -euo pipefail
+          named="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$GITHUB_REF_NAME")"
+          if [ "$named" != "$GATE_SHA" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME names $named, but Release gated $GATE_SHA. The tag moved after it was cut. Refusing before anything is deployed."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME names $named, as gated."
 
       - run: pnpm install --frozen-lockfile
 

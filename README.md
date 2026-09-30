@@ -879,9 +879,16 @@ Users. The line that matters is the first production mutation, the Convex deploy
 | Where it failed | Production | What to do |
 | --- | --- | --- |
 | The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
-| `deploy.yml` before the Convex deploy: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
-| `deploy.yml` at or after the Convex deploy | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
+| `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
+| `deploy.yml` at or after the MCP keys sync | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
 | A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
+
+The boundary is the **"Sync MCP Worker verification keys to Convex"** step, not
+the backend deploy that follows it. That step runs `convex env set` against the
+live production deployment — verification keys, HMAC secrets, the Worker origin —
+and can fail partway through, leaving them partly updated. It is the first thing in
+the job that writes to production, which is why the deploy's tag check sits above
+it rather than beside the deploy.
 
 That is the whole cost model: **a version is only spent when the production change
 it named is wrong and cannot be finished by re-running.** Everything a re-run can

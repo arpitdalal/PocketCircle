@@ -139,100 +139,24 @@ describe("release workflow", () => {
     ]);
   });
 
-  it("gates on main's own CI and E2E verdicts, waited for rather than re-run", () => {
-    // The gate that stopped v0.8.1, and it is a bigger gate than re-running the
-    // checks here would be: CI on main already runs typecheck, lint, the unit
-    // tests and both production builds, and E2E is the real Playwright suite
-    // against a live backend. Re-running any of it would cost ~9 minutes per
-    // release to re-derive a verdict main has already reached.
-    expect(gate).toContain("actions/runs?head_sha=");
-    expect(gate).toContain("verdict CI");
-    expect(gate).toContain("verdict E2E");
-    // E2E is the one that makes this a gate rather than a formality. A commit
-    // whose E2E is red can need a code change, and a code change means the tag
-    // cannot be reused — which is the exact failure this workflow is for.
-    expect(gate).toContain('"$ci" == "success" && "$e2e" == "success"');
-    // And a red verdict must stop the release rather than be waited out.
-    expect(gate).toMatch(/if failed "\$ci" \|\| failed "\$e2e"; then/);
-    // Bounded, because this waits on somebody else's workflow; and a timeout is
-    // explicitly not a spent version, because nothing was cut.
-    expect(gate).toMatch(/deadline=\$\(\( \$\(date \+%s\) \+ 2700 \)\)/);
-    expect(gate).toMatch(/no version was spent/);
+  it("delegates the gate decision to a script the tests execute", () => {
+    // NOT a claim about this workflow's behaviour — a claim about where the
+    // behaviour lives. The gate is `scripts/wait-for-main-gate.sh`, and its tests
+    // drive the real script against a faked `gh` rather than searching this file
+    // for tokens. A workflow is the one thing in the repo nothing executes, so an
+    // assertion that its text contains a token proves the token is present and
+    // nothing about what it does: an inverted condition, a quoting mistake in the
+    // jq, and a gate that rejects every release or none all look identical to a
+    // `toContain`.
+    expect(gate).toContain("./scripts/wait-for-main-gate.sh");
+    // And none of the decision is left inline here, because whatever is left
+    // inline is precisely the part the tests cannot reach.
+    expect(gate).not.toContain("actions/runs?head_sha=");
+    expect(gate).not.toContain("head_branch");
+    expect(gate).not.toContain("--jq");
     // The same script `deploy.yml` runs, so the two cannot disagree about which
     // version is releasable.
     expect(gate).toContain("./scripts/release-notes.sh");
-  });
-
-  it("releases main's tip, not merely any commit main once contained", () => {
-    // An ancestry test is not enough. A stale branch whose tip was merged last
-    // week is an ancestor of main, and releasing from it would tag and deploy code
-    // main has been superseded by while every check stayed green — which is a
-    // worse failure than a red commit, because nothing reports it.
-    expect(gate).toMatch(/if \[\[ "\$DISPATCH_REF" != "refs\/heads\/main" \]\]; then/);
-    // And the commit is captured once, here, because main can advance between the
-    // dispatch and the cut, and the tag has to name what the release asked for.
-    expect(gate).toContain("sha=$DISPATCH_SHA");
-    expect(cut).toContain("ref: $" + "{{ needs.gate.outputs.sha }}");
-  });
-
-  it("cannot deploy, roll back, or reach a User", () => {
-    // This workflow reads main's verdicts, cuts a tag and dispatches. It holds no
-    // production credential, so the deploy stays the only thing that can move
-    // production — a release gate that could also deploy would double the blast
-    // radius of every mistake in it, and the gate's whole job is to have already
-    // run.
-    for (const secret of [
-      "CLOUDFLARE_API_TOKEN",
-      "CONVEX_DEPLOY_KEY",
-      "MCP_WORKER_HMAC_SECRET",
-      "MCP_WORKER_SIGNING_PRIVATE_JWK",
-      "MCP_WORKER_VERIFYING_JWKS",
-    ]) {
-      expect(release).not.toContain(secret);
-    }
-    // And the writes are scoped to the job that needs them: the gate only reads
-    // run verdicts. `actions: write` is not optional alongside the dispatch — an
-    // unspecified scope is `none`, so leaving it out fails the dispatch with a
-    // 403 *after* the tag is already cut, which is the worst place to find out.
-    expect(gate).not.toContain("contents: write");
-    expect(gate).not.toContain("actions: write");
-    expect(gate).toContain("actions: read");
-    expect(cut).toContain("contents: write");
-    expect(cut).toContain("actions: write");
-  });
-
-  it("reuses a tag that already names the gated commit, and refuses one that does not", () => {
-    // The re-run of a release whose dispatch or deploy did not finish. Because
-    // the tag already names this exact commit, deploying it is correct and the
-    // version is not spent — which is the recovery this whole workflow exists to
-    // make possible.
-    expect(cut).toContain("reusing it");
-    // Compared by RESOLVED commit, through the shared script, never by what the
-    // ref endpoint reports. An annotated tag — which is what `git tag -a` makes,
-    // and so every hand-pushed release tag in this repo's history — reports the
-    // tag object's SHA, and comparing that to a commit rejects a tag naming
-    // exactly the right commit.
-    expect(cut).toContain("./scripts/resolve-tag-commit.sh");
-    expect(cut).not.toMatch(/git\/ref\/tags\/\$VERSION" --jq \.object\.sha/);
-    // A tag naming anything else is that version spent on different code, and it
-    // is not recoverable by deleting and re-cutting. Refusing is the only honest
-    // answer, so the message has to say what to do instead.
-    expect(cut).toMatch(/already names commit \$existing, not \$SHA/);
-    expect(cut).toMatch(/release the next one/i);
-  });
-
-  it("gates on main's own push runs, not any run of the same workflow", () => {
-    // Both CI and E2E also run for `pull_request`, and a commit reaches main with
-    // a SHA a PR run can share — every merge that keeps the commit identity,
-    // which is what a rebase or a direct promotion does. Unfiltered, the first
-    // CI-shaped run for that SHA wins, so a green PR run can stand in for a red
-    // main run, or for one that has not started. A PR run says nothing about
-    // main: it merges a synthetic merge commit and its head_sha is the branch tip.
-    // The filter is a jq expression inside a shell string inside YAML, so the
-    // quotes are backslash-escaped in the file; matched as plain text, which is
-    // what it is.
-    expect(gate).toContain('.event == \\"push\\"');
-    expect(gate).toContain('.head_branch == \\"main\\"');
   });
 
   it("keeps the gate job's checkout permission", () => {
@@ -242,7 +166,42 @@ describe("release workflow", () => {
     // needs, and the failure is at step 1 of the run, having validated nothing.
     // That is a bug this branch shipped once already.
     expect(gate).toMatch(/^ {6}contents: read$/m);
-    expect(gate).toMatch(/^ {6}actions: read$/m);
+    // And nothing wider. The gate reads main's verdicts through the script's own
+    // `gh api` call, which the token carries via `contents: read`; the job needs
+    // no Actions scope of its own now. Scoped to the `permissions:` block, because
+    // the job's comment explains the rule by name and is not a scope.
+    const gatePermissions =
+      /permissions:\n(?:\s*#.*\n)*(?<scopes>(?:\s{6}\w[\w-]*: \w+\n)+)/.exec(gate)?.groups
+        ?.scopes ?? "";
+    expect(gatePermissions).toBe("      contents: read\n");
+    expect(cut).toMatch(/^ {6}contents: write$/m);
+    expect(cut).toMatch(/^ {6}actions: write$/m);
+  });
+
+  it("refuses a moved tag before the first production mutation, not just before publishing", () => {
+    // The window this closes: Release cuts the tag, then dispatches the deploy,
+    // and `--ref` resolves to whatever the tag names when the dispatch *begins*. A
+    // tag is protected from the moment a release exists, not the moment it is
+    // created, so one moved in that window — or in the minutes the deploy spends
+    // in E2E and waiting on approval — would deploy a commit no check in that run
+    // saw. Checking only before publishing is too late: by then Convex env, the
+    // backend and both Workers have been mutated.
+    const guard = deploy.indexOf("Refuse a tag that no longer names the gated commit");
+    // The first thing in the job that writes to production, which is a Convex env
+    // write and not the backend deploy 50-odd lines later.
+    const firstMutation = deploy.indexOf("convex env set MCP_WORKER_VERIFYING_JWKS");
+    expect(guard).toBeGreaterThan(-1);
+    expect(firstMutation).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(firstMutation);
+
+    // Bound to the SHA Release actually gated, not re-derived from the tag — a
+    // check that reads the tag twice proves nothing about whether it moved.
+    expect(deploy).toMatch(/gate_sha:/);
+    expect(deploy).toMatch(/if: inputs\.gate_sha != ''/);
+    expect(deploy).toMatch(/\$named" != "\$GATE_SHA/);
+    // And a hand-pushed tag still works: the rollback path in the README passes
+    // no gate_sha and the person pushing it is making the statement themselves.
+    expect(release).toMatch(/gh workflow run deploy\.yml .* -f gate_sha="\$SHA"/);
   });
 
   it("refuses to publish a release that would attest to a different commit", () => {
@@ -478,12 +437,181 @@ echo "gh: unhandled $url" >&2; exit 1
     });
   });
 
-  it("requires a repo and a tag", async () => {
-    await expect(execFileAsync(script, [])).rejects.toMatchObject({
-      stderr: expect.stringMatching(/exactly two arguments/),
+  it("reports the caller's argument count, not the usage function's own", async () => {
+    // `$#` inside a function counts that function's arguments, so reading it
+    // without forwarding the script's always reports 0 — the message would name a
+    // count nobody passed. Asserted on a WRONG count, because the zero-argument
+    // case is the one bug and fix agree on.
+    await expect(execFileAsync(script, ["only-one"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/exactly two arguments, got 1/),
     });
+    await expect(execFileAsync(script, ["a", "b", "c"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/exactly two arguments, got 3/),
+    });
+    await expect(execFileAsync(script, [])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/exactly two arguments, got 0/),
+    });
+  });
+
+  it("requires a repo and a tag", async () => {
     await expect(execFileAsync(script, ["not-a-repo", "v1.0.0"])).rejects.toMatchObject({
       stderr: expect.stringMatching(/OWNER\/REPO/),
+    });
+  });
+});
+
+describe("wait-for-main-gate.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/wait-for-main-gate.sh");
+
+  const SHA = "ccfcd40cad56ee4ce9ad199b5ea7dbee69afdb44";
+
+  /**
+   * A `gh` that answers from a fixture keyed by the workflow path in the jq
+   * filter, so the script's real logic runs: the API filter, the terminal-failure
+   * classification, the readiness decision, the loop and the timeout.
+   *
+   * The stub is the only thing faked. `gh` is a genuine boundary — it is the only
+   * thing the script talks to — so this is not a seam invented to make the test
+   * pass. Everything in between is the real script, run as a subprocess with its
+   * own PATH, which is also why the filter matching below has to quote `*`: an
+   * unquoted `*` in a `[[ == ]]` right-hand side is a glob and silently matches
+   * nothing, which looks exactly like an API that never answers.
+   *
+   * `GATE_TIMEOUT_SECONDS: "0"` makes the waiting paths terminate immediately
+   * instead of sleeping, so a test for "waits" can assert the wait rather than
+   * spend 45 minutes proving it.
+   */
+  async function gate(verdicts: Record<string, string | "error">) {
+    const dir = await mkdtemp(join(tmpdir(), "main-gate-"));
+    const rules = Object.entries(verdicts).map(([workflow, verdict]) =>
+      verdict === "error" ? `${workflow}\tFAIL` : `${workflow}\t${verdict}`,
+    );
+    await writeFile(
+      join(dir, "gh"),
+      `#!/usr/bin/env bash
+filter="\${!#}"
+while IFS=$'\\t' read -r pat ans; do
+  [[ -z "$pat" ]] && continue
+  needle="\${pat//\\*/\\\\*}"
+  if [[ "$filter" == *"$needle"* ]]; then
+    if [[ "$ans" == "FAIL" ]]; then echo "gh: API error" >&2; exit 1; fi
+    printf '%s\\n' "$ans"
+    exit 0
+  fi
+done <<< "$(cat "$GH_FIXTURE")"
+echo "gh: nothing matched this query" >&2
+exit 1
+`,
+    );
+    await chmod(join(dir, "gh"), 0o755);
+    const fixture = join(dir, "verdicts");
+    await writeFile(fixture, `${rules.join("\n")}\n`);
+    try {
+      return await execFileAsync(script, [SHA], {
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH ?? ""}`,
+          GH_FIXTURE: fixture,
+          GITHUB_REPOSITORY: "arpitdalal/PocketCircle",
+          GATE_TIMEOUT_SECONDS: "0",
+          GATE_POLL_SECONDS: "0",
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const green = {
+    "workflows/ci.yml": "success",
+    "workflows/e2e.yml": "success",
+  } as const;
+
+  it("passes only when both CI and E2E are green on main", async () => {
+    // Both, not either. E2E is what makes this a gate rather than a formality: a
+    // commit whose E2E is red can need a code change, and a code change means the
+    // tag cannot be reused, which is the exact failure the gate exists to prevent.
+    const { stdout } = await gate(green);
+    expect(stdout).toContain("green on");
+  });
+
+  it.each([
+    ["failure", "CI failed"],
+    ["cancelled", "CI was cancelled"],
+    ["timed_out", "CI timed out"],
+    ["action_required", "CI needed action"],
+    ["startup_failure", "CI failed to start"],
+  ])("refuses to release when CI reports %s", async (conclusion) => {
+    // Every one of these is terminal: none will ever become `success` for this
+    // SHA, so waiting for them would burn the whole timeout on a verdict that is
+    // not coming. `cancelled` is the case a newer push to main causes.
+    await expect(gate({ ...green, "workflows/ci.yml": conclusion })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/A tag names a commit that passed/),
+    });
+  });
+
+  it("refuses when E2E is red even though CI is green", async () => {
+    // The specific gap this branch was rewritten for: CI green is not a release.
+    await expect(gate({ ...green, "workflows/e2e.yml": "failure" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/e2e\.yml .* is 'failure'/s),
+    });
+  });
+
+  it.each(["running", "not-started", "none", "unreadable"])(
+    "waits rather than releasing when a verdict is %s",
+    async (verdict) => {
+      // None of these is a pass and none is a terminal failure, so the gate waits
+      // — and with a zero timeout that surfaces as a timeout, not a release.
+      await expect(gate({ ...green, "workflows/e2e.yml": verdict })).rejects.toMatchObject({
+        stderr: expect.stringMatching(/no version was spent/),
+      });
+    },
+  );
+
+  it("treats an API error as unknown rather than as a red commit", async () => {
+    // An unreachable API is not evidence about the commit. Failing the release
+    // here would spend a version for a network problem, and the timeout already
+    // handles it with an honest message.
+    await expect(gate({ ...green, "workflows/ci.yml": "error" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/unreadable/),
+    });
+  });
+
+  it("requires CI and E2E to have run on main, not merely to exist for the commit", async () => {
+    // The filter the stub cannot see is asserted in the release-workflow describe
+    // above; what this proves is that a verdict with no matching run at all is
+    // `not-started`, which is a wait and never a pass.
+    await expect(gate({ "workflows/ci.yml": "success" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/no version was spent/),
+    });
+  });
+
+  it("names the commit in a timeout, and never reports one as spent", async () => {
+    // A timeout is not a failed release: nothing was cut, so the message must not
+    // tell the operator to take the next version number.
+    await expect(gate({ ...green, "workflows/e2e.yml": "running" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(new RegExp(SHA)),
+    });
+  });
+
+  it("rejects a SHA that is not a commit hash", async () => {
+    await expect(execFileAsync(script, ["main"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/not a commit SHA/),
+    });
+  });
+
+  it("requires exactly one argument and a repository", async () => {
+    await expect(execFileAsync(script, [])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/expected exactly one argument, got 0/),
+    });
+    // The count in the message is the SCRIPT's, not the usage function's own.
+    await expect(execFileAsync(script, ["a", "b"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/expected exactly one argument, got 2/),
+    });
+    await expect(
+      execFileAsync(script, [SHA], { env: { ...process.env, GITHUB_REPOSITORY: "" } }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/GITHUB_REPOSITORY must be OWNER\/REPO/),
     });
   });
 });

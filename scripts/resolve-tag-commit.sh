@@ -29,10 +29,13 @@ die() {
 
 usage() {
   echo "usage: resolve-tag-commit.sh OWNER/REPO TAG" >&2
-  die "expected exactly two arguments, got $#"
+  # `$1` of the SCRIPT, not of this function. Inside a function, `$#` counts the
+  # function's own arguments, so reading it without forwarding `"$@"` always
+  # reports 0 and the message names a count the caller never passed.
+  die "expected exactly two arguments, got ${1:-0}"
 }
 
-[[ $# -eq 2 ]] || usage
+[[ $# -eq 2 ]] || usage "$#"
 repo="$1"
 tag="$2"
 

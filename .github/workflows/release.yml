@@ -50,20 +50,14 @@ jobs:
     name: Gate release
     runs-on: ubuntu-latest
     permissions:
-      # Both scopes, spelled out, because a job-level `permissions` map replaces
-      # the workflow-level one wholesale and sets every scope it does not name to
-      # `none` — it is not a merge. Naming only `actions: read` here would remove
-      # the `contents: read` the checkout below needs, and the workflow would fail
-      # at its first step having validated nothing. This workflow notes the rule on
-      # the cut job's map; it is noted here because this is the job where getting it
-      # wrong is invisible until a run is dispatched.
-      #
-      # `actions: read` is to ask whether `main` has cleared this commit. Not a
-      # write: this job cannot cut a tag, dispatch anything, or cancel a run. The
-      # cut job below is where the writes are, and the tag cannot be cut without
-      # this job.
+      # Spelled out even though it equals the workflow-level map, because a
+      # job-level `permissions` REPLACES the workflow-level one and sets every
+      # scope it does not name to `none` — it is not a merge. An earlier version of
+      # this workflow named only `actions: read` here, which silently removed the
+      # `contents: read` the checkout needs, and the Release workflow failed at step
+      # 1 of every run having validated nothing. Nothing in CI would have caught
+      # it, because CI does not execute workflows, so the test asserts it instead.
       contents: read
-      actions: read
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.resolve.outputs.sha }}
@@ -113,68 +107,7 @@ jobs:
       - name: Wait for main to clear this commit
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          SHA: ${{ steps.resolve.outputs.sha }}
-        run: |
-          set -euo pipefail
-          # The gate that stopped v0.8.1, stated as a wait rather than a re-run.
-          # Both are in `main`'s own verdicts: CI covers typecheck, lint, the unit
-          # tests and both production builds; E2E is the real Playwright suite.
-          #
-          # Filtered to push runs on `main`, and the filter is load-bearing rather
-          # than tidy. Both workflows also run for `pull_request`, and a commit
-          # reaches `main` with a SHA a PR run can share — every merge that keeps
-          # the commit identity, which is what a rebase or a direct promotion does.
-          # Without the filter, the first CI-shaped run for that SHA wins, so a
-          # green PR run can stand in for a red `main` run, or for one that has not
-          # started yet. A PR run says nothing about `main`: it merges a synthetic
-          # merge commit, and its `head_sha` is the branch tip.
-          verdict() {
-            local name="$1"
-            gh api "repos/$GH_REPO/actions/runs?head_sha=$SHA&per_page=100" \
-              --jq ".workflow_runs
-                     | map(select(.name == \"$name\"
-                                  and .event == \"push\"
-                                  and .head_branch == \"main\"))
-                     | first
-                     | if . == null then \"not started\"
-                       elif .status == \"completed\" then (.conclusion // \"none\")
-                       else \"running\" end" 2>/dev/null || echo "unreadable"
-          }
-          failed() {
-            case "$1" in
-              failure|cancelled|timed_out|action_required|startup_failure|"") return 0 ;;
-              *) return 1 ;;
-            esac
-          }
-
-          # Bounded because this waits on someone else's workflow: 45 minutes is
-          # well past a normal E2E (about nine) and short enough that a wedged run
-          # is reported rather than sat on. Exceeding it is not a failed release —
-          # nothing was cut — so the message says to re-run rather than to use a
-          # different version.
-          deadline=$(( $(date +%s) + 2700 ))
-          while :; do
-            ci="$(verdict CI)"
-            e2e="$(verdict E2E)"
-            if [[ "$ci" == "success" && "$e2e" == "success" ]]; then
-              echo "main's CI and E2E are both green on $SHA."
-              break
-            fi
-            if failed "$ci" || failed "$e2e"; then
-              # The case this workflow exists for. A red commit that got tagged is
-              # a version spent; caught here it is nothing, and the same version
-              # number is still free to use on the fix.
-              echo "::error::On $SHA, CI is '$ci' and E2E is '$e2e'. A tag names a commit that passed, and this one did not. Fix it on main, then re-run this workflow with the same version."
-              exit 1
-            fi
-            if (( $(date +%s) >= deadline )); then
-              echo "::error::Gave up after 45m waiting for main's checks on $SHA (CI: $ci, E2E: $e2e). Nothing was cut and no version was spent — re-run this workflow once they finish."
-              exit 1
-            fi
-            echo "Waiting on main's checks for $SHA — CI: $ci, E2E: $e2e"
-            sleep 30
-          done
+        run: ./scripts/wait-for-main-gate.sh "${{ steps.resolve.outputs.sha }}"
 
   cut:
     name: Cut tag and deploy
@@ -262,5 +195,12 @@ jobs:
           # the version it releases, the commit it deploys and the changelog
           # section it publishes all still come from the tag, and there is no
           # second copy of the version to keep in step with the first.
-          gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION"
-          echo "Dispatched deploy.yml for $VERSION. If it fails, re-run it on this tag."
+          #
+          # `gate_sha` is the binding that closes the window between the tag being
+          # cut and the deploy starting. `--ref` alone resolves to whatever the tag
+          # names when the dispatch begins, so a tag moved in between would deploy a
+          # commit the gate never cleared — and the deploy's own tag check runs
+          # after production has already been mutated. Passing the gated SHA lets
+          # the deploy refuse at its first step, before touching anything.
+          gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION" -f gate_sha="$SHA"
+          echo "Dispatched deploy.yml for $VERSION against $SHA."
