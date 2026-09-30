@@ -20,10 +20,12 @@ import {
   MOCK_CIRCLES,
   MOCK_MEMBERS,
   MOCK_MONTHLY_SUMMARY,
+  mockCategoryRanking,
   mockFilterTransactions,
 } from "../fixtures.js";
 import { useStableQuery } from "../use-stable-query.js";
 import type { Circle } from "./circles.js";
+import type { CategoryAnalyticsRow } from "./dashboard.js";
 import {
   type PaginatedTransactions,
   type PaginationStatus,
@@ -97,6 +99,118 @@ export function useMonthlyLedger(
 
 export type FilterType = "all" | TransactionType;
 export type LifecycleFilter = "active" | "archived" | "all";
+
+/**
+ * One Category Ranking bar: `getCategoryAnalytics`' row plus the Transaction `type`
+ * that produced it. `taggedTotalMinor` stays POSITIVE — the sign is a chart concern
+ * (income above the zero baseline, expense below), never a data-layer one.
+ */
+export type CategoryRankingRow = {
+  categoryId: string;
+  name: string;
+  color: string;
+  status: CategoryAnalyticsRow["status"];
+  type: TransactionType;
+  taggedTotalMinor: number;
+  txnCount: number;
+};
+
+/** Ledger Filter dimensions the Category Ranking follows (ADR 0036 — list-derived). */
+export interface CategoryRankingFilters {
+  month: PlainMonth;
+  type: FilterType;
+  status: LifecycleFilter;
+  categoryIds?: readonly string[];
+}
+
+/**
+ * One lifecycle-scoped `getCategoryAnalytics` read, retained across arg changes so the
+ * ranking chart stays mounted across a Ledger Filter edit instead of flashing a skeleton
+ * (ADR 0032). `enabled: false` skips the subscription entirely — a narrowed type filter
+ * must not pay for the other type's query — and reads as no rows rather than as retained
+ * rows from the scope it just left.
+ */
+function useRetainedCategoryAnalytics(
+  circleId: Circle["id"],
+  type: TransactionType,
+  filters: CategoryRankingFilters,
+  enabled: boolean,
+) {
+  const retained = useStableQuery(
+    api.dashboard.getCategoryAnalytics,
+    MOCKS || !enabled
+      ? "skip"
+      : {
+          circleId,
+          month: filters.month,
+          type,
+          status: filters.status,
+          ...(filters.categoryIds && filters.categoryIds.length > 0
+            ? { categoryIds: [...filters.categoryIds] }
+            : {}),
+        },
+    { resetKey: circleId },
+  );
+  if (MOCKS) {
+    return {
+      rows: enabled ? mockCategoryRanking(type, filters).rows.map(withType(type)) : [],
+      pending: false,
+    };
+  }
+  if (!enabled) {
+    return { rows: [], pending: false };
+  }
+  return {
+    rows: retained.value?.rows.map(withType(type)),
+    pending: retained.value === undefined || retained.isPending,
+  };
+}
+
+function withType(type: TransactionType) {
+  return (row: CategoryAnalyticsRow): CategoryRankingRow => ({ ...row, type });
+}
+
+/**
+ * The Monthly Ledger's Category Ranking (RPT-8): ranked, non-additive tagged spend for
+ * the filtered month, taking scope from the Ledger Filter — lifecycle scope, type, and
+ * Category selection — so it describes exactly the Transactions listed beneath it and
+ * deliberately disagrees with the filter-blind Month Scope Totals cards above it
+ * (ADR 0036).
+ *
+ * `type: "all"` makes TWO reads, one per type, rather than one with `type: undefined`:
+ * the aggregator merges both types into a single set sorted by raw amount, so a salary
+ * would outrank every grocery. Each read reuses the server's tested ranking.
+ *
+ * `undefined` while the first scope loads; `isPending` is true while a retained
+ * (previous-scope) ranking bridges a reload.
+ */
+export function useLedgerCategoryRanking(circleId: Circle["id"], filters: CategoryRankingFilters) {
+  // Both hooks always run — a narrowed type filter only SKIPS the other type's
+  // subscription, so hook order never depends on the filter.
+  const expense = useRetainedCategoryAnalytics(
+    circleId,
+    "expense",
+    filters,
+    filters.type !== "income",
+  );
+  const income = useRetainedCategoryAnalytics(
+    circleId,
+    "income",
+    filters,
+    filters.type !== "expense",
+  );
+  const sides =
+    filters.type === "income"
+      ? [income]
+      : filters.type === "expense"
+        ? [expense]
+        : [expense, income];
+  const loaded = sides.map((side) => side.rows).filter((rows) => rows !== undefined);
+  return {
+    ranking: loaded.length === sides.length ? loaded.flat() : undefined,
+    isPending: sides.some((side) => side.pending),
+  };
+}
 
 export type TransactionFilterOptions = NonNullable<
   FunctionReturnType<typeof api.search.getTransactionSearchOptions>

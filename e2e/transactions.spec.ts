@@ -485,6 +485,65 @@ test("the transaction detail shows audit metadata and history reflecting an edit
 });
 
 /**
+ * RPT-8 true-E2E: the Monthly Ledger's Category Ranking is LIST-DERIVED, so it follows the
+ * Ledger Filter's lifecycle scope while the Month Scope Totals cards above it stay
+ * month-wide and active-only (ADR 0036). Two Categories, one active Transaction and one
+ * archived Transaction, both in a private far-future month: narrowing the Ledger Filter to
+ * `archived` swaps the ranking to the archived Transaction's Category and leaves the totals
+ * card on the active Transaction's month total — the two numbers disagreeing on purpose.
+ */
+test("the ledger category ranking follows the lifecycle filter while the totals do not", async ({
+  page,
+}, testInfo) => {
+  const stamp = `${Date.now()}-${testInfo.project.name}`;
+  const activeCat = `E2E RA ${stamp}`; // ≤ 40 chars (categoryNameMax)
+  const archivedCat = `E2E RB ${stamp}`;
+  const activeTitle = `E2E RankActive ${stamp}`;
+  const archivedTitle = `E2E RankArchived ${stamp}`;
+  const month = testInfo.project.name === "mobile-chromium" ? "2993-06" : "2993-05";
+
+  await openPersonalCircleFromHome(page);
+
+  await clickCircleChromeTab(page, "Categories");
+  await createCategoryViaForm(page, { name: activeCat });
+  await createCategoryViaForm(page, { name: archivedCat });
+
+  await clickCircleChromeTab(page, "Transactions");
+  await selectMonth(page, month);
+  await page.getByRole("link", { name: "Add expense" }).click();
+  const activeForm = page.getByRole("form", { name: /add expense/i });
+  await activeForm.getByLabel("Title").fill(activeTitle);
+  await activeForm.getByLabel(/Amount/).fill("10.00");
+  await pickFormCategory(page, activeForm, activeCat);
+  await saveButton(activeForm).click();
+  await page.getByRole("link", { name: "Add expense" }).click();
+  const archivedForm = page.getByRole("form", { name: /add expense/i });
+  await archivedForm.getByLabel("Title").fill(archivedTitle);
+  await archivedForm.getByLabel(/Amount/).fill("4.00");
+  await pickFormCategory(page, archivedForm, archivedCat);
+  await saveButton(archivedForm).click();
+
+  // Archive one of them: it leaves the month totals but stays in the ledger's default view.
+  await archiveWithDoubleCheck(
+    page.getByRole("listitem").filter({ hasText: archivedTitle }),
+    archivedTitle,
+  );
+
+  const ranking = page.getByRole("table", { name: /tagged spend by category/i });
+  const totals = page.getByRole("group", { name: "Monthly totals" });
+  await expect(ranking.getByRole("rowheader", { name: activeCat })).toBeVisible();
+  await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();
+  // Only the ACTIVE Transaction counts toward the month totals, whatever the filter says.
+  await expectHeadlineMoney(totals, "-$10.00");
+
+  await applyLedgerStatus(page, "archived");
+  await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();
+  await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
+  // The totals card is filter-blind: the month total did not move with the ranking.
+  await expectHeadlineMoney(totals, "-$10.00");
+});
+
+/**
  * TXN-4 UX: opening the editor FROM the detail page returns to that detail page on close
  * (Cancel or a successful save), not the Ledger — so a Ledger → Detail → Edit → close trip
  * lands back on Detail. Covers the full real nav round-trip end to end; a private far-future

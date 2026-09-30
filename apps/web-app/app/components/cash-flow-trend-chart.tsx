@@ -13,7 +13,7 @@ import {
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { SCOPE_CHART_ANIMATION_MS } from "~/lib/motion.js";
-import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-shell.js";
+import { CHART_SHELL_CLASSNAME } from "./chart-shell.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -47,7 +47,7 @@ export function CashFlowTrendChart({
     <div
       aria-hidden="true"
       data-chart-animation-active={String(chartAnimationActive)}
-      className={CASH_FLOW_CHART_SHELL_CLASSNAME}
+      className={CHART_SHELL_CLASSNAME}
     >
       <ResponsiveContainer
         width="100%"

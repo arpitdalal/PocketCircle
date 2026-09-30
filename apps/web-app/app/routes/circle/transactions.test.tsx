@@ -8,6 +8,7 @@ import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type Category,
+  type CategoryAnalytics,
   type Circle,
   type Member,
   type MonthlySummary,
@@ -20,6 +21,7 @@ import {
   assertFilterOptionsLiveForUrlFilters,
   assertFilterOptionsSkippedUntilPanelOpens,
   assertFilterPanelDiscardsDraftOnClose,
+  type ConvexState,
   configureConvex,
   convexReactMock,
   FILTER_OPTIONS_URL_ID_PARAMS,
@@ -88,6 +90,7 @@ function setup(
     filteredTransactions?: Transaction[];
     status?: PaginationStatus;
     monthlySummary?: MonthlySummary | null;
+    categoryAnalytics?: ConvexState["categoryAnalytics"];
     filterOptions?:
       | TransactionFilterOptions
       | null
@@ -112,6 +115,7 @@ function setup(
     ledgerFilterStatus: opts.status,
     ledgerFilterOptions: opts.filterOptions ?? makeFilterOptions(),
     ...(opts.monthlySummary === undefined ? {} : { monthlySummary: opts.monthlySummary }),
+    ...(opts.categoryAnalytics === undefined ? {} : { categoryAnalytics: opts.categoryAnalytics }),
     loadMore: paginatedLoadMore,
     createTransaction,
     archiveTransaction,
@@ -633,6 +637,124 @@ describe("CircleTransactions", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Restore Old buy" })).toBeEnabled(),
     );
+  });
+});
+
+describe("CircleTransactions — Category Ranking (RPT-8)", () => {
+  const CATEGORY_ANALYTICS = getFunctionName(api.dashboard.getCategoryAnalytics);
+  const GROCERIES = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-grocery"),
+    name: "Groceries",
+    color: "green",
+    status: "active" as const,
+    taggedTotalMinor: 6_000,
+    txnCount: 2,
+  };
+  const SALARY = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-salary"),
+    name: "Salary",
+    color: "teal",
+    status: "active" as const,
+    taggedTotalMinor: 500_000,
+    txnCount: 1,
+  };
+  /** Tagged only on an archived Transaction, so it only appears under `status=archived`. */
+  const RENT = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-rent"),
+    name: "Rent",
+    color: "amber",
+    status: "archived" as const,
+    taggedTotalMinor: 120_000,
+    txnCount: 1,
+  };
+
+  /** Args of the LATEST render's two ranking reads, one per Transaction type. */
+  function rankingArgs() {
+    const calls = convexReactMock.useQuery.mock.calls
+      .filter(([fn]) => getFunctionName(fn) === CATEGORY_ANALYTICS)
+      .map(([, args]) => args);
+    // Both ranking hooks run every render, so the last two calls are this render's reads.
+    return calls.slice(-2);
+  }
+
+  /**
+   * The backend's own narrowing, modelled per read: a Category belongs to ONE type, the
+   * lifecycle scope picks which Transactions count, and `categoryIds` narrows the rows.
+   */
+  function rankingAnalytics() {
+    return (args: Record<string, unknown>) => {
+      const archived = args.status === "archived";
+      const expense = archived ? [RENT] : [GROCERIES];
+      const scoped = args.type === "income" ? [SALARY] : expense;
+      const selected = Array.isArray(args.categoryIds) ? (args.categoryIds as string[]) : [];
+      return {
+        currency: "USD",
+        rows: scoped.filter((row) => selected.length === 0 || selected.includes(row.categoryId)),
+      };
+    };
+  }
+
+  it("ranks both types for the selected month under the default filter", () => {
+    setup({ categoryAnalytics: rankingAnalytics() });
+
+    // Two reads, one per type: a single `type: undefined` read would rank both in one
+    // set by raw amount and let a salary outrank every grocery.
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ month: "2026-05", type: "expense", status: "all" }),
+      expect.objectContaining({ month: "2026-05", type: "income", status: "all" }),
+    ]);
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
+    // Both scopes say so — non-additivity and the lifecycle scope in view (ADR 0036).
+    expect(screen.getByText(/not additive/i)).toBeInTheDocument();
+    expect(screen.getByText(/showing active and archived transactions/i)).toBeInTheDocument();
+  });
+
+  it("narrows the ranking with the ledger filter while the monthly totals stay put", async () => {
+    const user = userEvent.setup();
+    setup({
+      monthlySummary: {
+        totals: { incomeMinor: 0, expenseMinor: 12_500, netMinor: -12_500 },
+        currency: "USD",
+      },
+      categoryAnalytics: rankingAnalytics(),
+    });
+
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Archived" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    // Narrowing lifecycle scope to `archived` swaps which Transaction set is ranked…
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ status: "archived" }),
+      expect.objectContaining({ status: "archived" }),
+    ]);
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Rent (archived)" })).toBeInTheDocument();
+    // …while the month's Expenses / Net stay filter-blind (ADR 0036 split).
+    expect(screen.getAllByText(/\$125\.00/, { selector: ".sr-only" })).toHaveLength(2);
+  });
+
+  it("re-queries the ranking for a narrowed type and a selected category", async () => {
+    const user = userEvent.setup();
+    setup({ categoryAnalytics: rankingAnalytics() });
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Expense" }));
+    await pickCombobox(user, dialog, "Categories", "Groceries");
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    // One read for the narrowed type; the income side is SKIPPED, not fetched.
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ type: "expense", categoryIds: ["cat-grocery"] }),
+      "skip",
+    ]);
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
   });
 });
 

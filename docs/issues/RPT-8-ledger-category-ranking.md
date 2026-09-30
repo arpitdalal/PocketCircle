@@ -52,7 +52,7 @@ optional and both default to today's behaviour.
 
 1. **`status`** — `v.optional(v.union(v.literal("active"), v.literal("archived")))`, **defaulting to
    `"active"`.** Thread it into `collectMonthTransactions(ctx, circleId, month, status)`.
-   The existing `collectMonthActiveTransactions` becomes the `status = "active"` case of a
+   The existing `collectMonthActiveTransactions` became the `status = "active"` case of a
    status-parameterised reader; `by_circle_status_date` (`schema.ts:190`) already serves both
    scopes, so **no new index**. The default stays `active` so `mcpApproval.test.ts:1569` and
    `dashboard.test.ts:858` stay green.

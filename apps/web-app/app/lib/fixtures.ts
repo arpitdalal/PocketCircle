@@ -356,6 +356,31 @@ export const MOCK_CATEGORY_ANALYTICS: CategoryAnalytics = {
 };
 
 /**
+ * One type's Category Ranking rows under MOCKS (RPT-8), narrowed from the shared
+ * fixture by the same dimensions the backend narrows by — the Category's own type, the
+ * requested lifecycle scope, and an explicit Category selection (ADR 0036). Typed
+ * against {@link CategoryAnalytics} so the derived row contract can't drift.
+ */
+export function mockCategoryRanking(
+  type: TransactionType,
+  filters: { status: "active" | "archived" | "all"; categoryIds?: readonly string[] },
+): CategoryAnalytics {
+  const ofType = new Set(
+    MOCK_CATEGORIES.filter((category) => category.type === type).map((category) => category.id),
+  );
+  const selected = filters.categoryIds ?? [];
+  return {
+    currency: MOCK_CATEGORY_ANALYTICS.currency,
+    rows: MOCK_CATEGORY_ANALYTICS.rows.filter(
+      (row) =>
+        ofType.has(row.categoryId) &&
+        (filters.status === "all" || row.status === filters.status) &&
+        (selected.length === 0 || selected.includes(row.categoryId)),
+    ),
+  };
+}
+
+/**
  * Synthesizes the month-over-month comparison series for the requested Comparison
  * Range under MOCKS (RPT-4), so the Dashboard chart renders offline and the range
  * selector visibly reshapes the window (ADR 0006). Typed against the derived

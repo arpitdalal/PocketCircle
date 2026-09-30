@@ -8,7 +8,9 @@ import {
 import { SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { LedgerCategoryRanking } from "~/components/ledger-category-ranking.js";
 import { MonthScopeTotalsCards } from "~/components/month-scope-totals-cards.js";
+import { Skeleton } from "~/components/skeleton.js";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
@@ -20,7 +22,9 @@ import { track } from "~/lib/analytics.js";
 import { ledgerFilterAnalyticsProps } from "~/lib/analytics-props.js";
 import { circlePath } from "~/lib/circle-path.js";
 import {
+  type Circle,
   filterOptionsQueryEnabled,
+  useLedgerCategoryRanking,
   useLedgerFilterOptions,
   useLedgerTransactionFilter,
   useMonthlySummary,
@@ -217,6 +221,8 @@ export default function CircleTransactions() {
         busy={summaryPending}
       />
 
+      <LedgerCategoryRankingSection circle={circle} filters={filters} />
+
       {!writable ? (
         <p className="rounded-lg border border-border bg-card p-3 shadow-sm text-sm text-muted-foreground">
           This circle is archived. Restore it to add transactions.
@@ -259,6 +265,51 @@ export default function CircleTransactions() {
       </FilterPanel>
     </div>
   );
+}
+
+/**
+ * The Ledger's Category Ranking (RPT-8): ranked, non-additive tagged spend for the
+ * filtered month, above the Transaction list so it summarises the rows beneath it. It
+ * follows the Ledger Filter — lifecycle scope, type, and Category selection — so unlike
+ * the totals cards above it, it DOES move with the filter, and it says which scope it is
+ * showing (ADR 0036).
+ */
+function LedgerCategoryRankingSection({
+  circle,
+  filters,
+}: {
+  circle: Circle;
+  filters: LedgerFilters;
+}) {
+  const { ranking, isPending } = useLedgerCategoryRanking(circle.id, {
+    month: filters.month,
+    type: filters.type,
+    status: filters.status,
+    categoryIds: filters.categories,
+  });
+
+  if (ranking === undefined) {
+    // Presentational placeholder — no announcement: the Transaction list announces its own load.
+    return <Skeleton className="h-72 w-full rounded-xl" />;
+  }
+
+  return (
+    <LedgerCategoryRanking
+      month={filters.month}
+      ranking={ranking}
+      currency={circle.currency}
+      scope={lifecycleScopeLabel(filters.status)}
+      scopeKey={`ledger-ranking:${circle.id}:${filters.month}:${filters.type}:${filters.status}:${filters.categories.join(",")}`}
+      pending={isPending}
+    />
+  );
+}
+
+function lifecycleScopeLabel(status: LedgerFilters["status"]) {
+  if (status === "archived") {
+    return "archived";
+  }
+  return status === "active" ? "active" : "active and archived";
 }
 
 function toLedgerQuery(filters: LedgerFilters) {

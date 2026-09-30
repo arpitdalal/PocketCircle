@@ -106,9 +106,26 @@ export const getMonthlyComparison = query({
  * Archived Categories appear when in-period active Transactions still use them (PRD 58).
  *
  * Reads the same bounded active month set as `getDashboard` via
- * {@link collectMonthActiveTransactions}, optionally narrowed by `type`. Returns rows
+ * {@link collectMonthTransactions}, optionally narrowed by `type`. Returns rows
  * sorted by `taggedTotalMinor` descending (name ascending on ties) plus the Circle
  * Currency in minor units (ADR 0009).
+ *
+ * Two optional args serve the Monthly Ledger's Category Ranking (RPT-8), which is
+ * list-derived and so follows the Ledger Filter rather than pinning `active` (ADR 0036):
+ *
+ * - `status` — Transaction lifecycle scope, defaulting to `active` so the Dashboard route
+ *   and the MCP tool (whose published description says archived are excluded) are unchanged.
+ *   It widens the Transaction set, which widens Category scope for free: the analytics join
+ *   has no Category-status predicate, and filtering Categories symmetrically would hide an
+ *   Archived Category that in-scope Transactions still use (PRD 58).
+ * - `categoryIds` — filters the accumulated ROWS after aggregation, never the Transaction
+ *   set, which would silently drop Categories. Plain strings (not `v.id`) so the Ledger
+ *   Filter hands over its URL ids exactly as `filterLedgerTransactions` does; an id that
+ *   matches no row simply narrows the ranking to nothing.
+ *
+ * `type` stays optional and must not be `undefined` for "both types": the aggregator keeps
+ * both types in one set sorted by raw amount. A caller wanting both sides ranked
+ * separately makes two calls.
  *
  * Anti-enumeration (ADR 0016): an inaccessible or missing Circle returns `null`.
  */
@@ -117,6 +134,8 @@ export const getCategoryAnalytics = query({
     circleId: v.id("circles"),
     month: v.optional(v.string()),
     type: v.optional(transactionType),
+    categoryIds: v.optional(v.array(v.string())),
+    status: v.optional(v.union(v.literal("active"), v.literal("archived"), v.literal("all"))),
   },
   handler: async (ctx, args) => {
     const access = await resolveCircleAccess(ctx, args.circleId);
@@ -129,6 +148,9 @@ export const getCategoryAnalytics = query({
       throw new Error("Invalid month");
     }
 
-    return categoryAnalyticsForAccess(ctx, access, month, args.type);
+    return categoryAnalyticsForAccess(ctx, access, month, args.type, {
+      ...(args.status === undefined ? {} : { status: args.status }),
+      ...(args.categoryIds === undefined ? {} : { categoryIds: args.categoryIds }),
+    });
   },
 });

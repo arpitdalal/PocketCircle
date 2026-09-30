@@ -104,6 +104,25 @@ export function cashFlowSeriesMotionKey(
     .join("|");
 }
 
+/** Stable fingerprint for the Category Ranking rows (scope-motion value key). */
+export function categoryRankingMotionKey(
+  rows: ReadonlyArray<{
+    categoryId: string;
+    name: string;
+    type: string;
+    status: string;
+    taggedTotalMinor: number;
+    txnCount: number;
+  }>,
+) {
+  return rows
+    .map(
+      (row) =>
+        `${row.type}:${row.categoryId}:${row.taggedTotalMinor}:${row.txnCount}:${row.status}`,
+    )
+    .join("|");
+}
+
 /** Stable fingerprint for Income/Expense/Net totals. */
 export function scopeTotalsMotionKey(totals: {
   incomeMinor: number;
