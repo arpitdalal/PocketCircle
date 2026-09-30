@@ -57,7 +57,16 @@ jobs:
       # `contents: read` the checkout needs, and the Release workflow failed at step
       # 1 of every run having validated nothing. Nothing in CI would have caught
       # it, because CI does not execute workflows, so the test asserts it instead.
+      #
+      # `actions: read` is not optional either, and its absence is quieter than
+      # the checkout's. `wait-for-main-gate.sh` lists workflow runs, which is an
+      # Actions read, so without this scope `gh api` returns 403 — which the
+      # script correctly reports as `unreadable` rather than as a red commit,
+      # because an unreachable API is not evidence about the code. The result is a
+      # gate that waits out its full 45 minutes on every release and then gives
+      # up, having correctly refused to release anything.
       contents: read
+      actions: read
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.resolve.outputs.sha }}
@@ -181,6 +190,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.gate.outputs.version }}
+          # Exported because `set -u` aborts on an unset name, and this step runs
+          # AFTER the tag exists. A missing export here is the worst failure shape
+          # this workflow has: the version is already spent on a tag, no deploy is
+          # ever dispatched, and nothing reports it until someone notices the
+          # release never started. It is named from the gate job's output rather
+          # than recomputed, so it is the same SHA the gate cleared and the same
+          # one the tag was cut at.
+          SHA: ${{ needs.gate.outputs.sha }}
         run: |
           set -euo pipefail
           # A tag pushed with GITHUB_TOKEN does not trigger workflows, so the

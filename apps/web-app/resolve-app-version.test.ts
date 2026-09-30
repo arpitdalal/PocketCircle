@@ -173,7 +173,12 @@ describe("release workflow", () => {
     const gatePermissions =
       /permissions:\n(?:\s*#.*\n)*(?<scopes>(?:\s{6}\w[\w-]*: \w+\n)+)/.exec(gate)?.groups
         ?.scopes ?? "";
-    expect(gatePermissions).toBe("      contents: read\n");
+    // `actions: read` as well, and the assertion names the reason: the gate script
+    // lists workflow runs, which is an Actions read. Without it `gh api` 403s, the
+    // script reports `unreadable` rather than a red commit, and the gate burns its
+    // whole 45-minute timeout on every release before refusing. Quieter than the
+    // checkout's failure because nothing goes red.
+    expect(gatePermissions).toBe("      contents: read\n      actions: read\n");
     expect(cut).toMatch(/^ {6}contents: write$/m);
     expect(cut).toMatch(/^ {6}actions: write$/m);
   });
@@ -222,6 +227,48 @@ describe("release workflow", () => {
     expect(publish).toBeGreaterThan(-1);
     expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(create);
     expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(edit);
+  });
+
+  it("exports every name the dispatch step reads", () => {
+    // `set -u` aborts on an unset name, and this step runs AFTER the tag has been
+    // cut. A `$VAR` that appears in the `run:` body but not in the step's `env:` is
+    // therefore a spent version with no deploy and no red run to explain it — the
+    // precise outcome #423 exists to prevent, arrived at by a different road. It
+    // happened once on this branch: `-f gate_sha="$SHA"` referenced an SHA the
+    // step never exported.
+    //
+    // Resolved by reading the step rather than by matching a line, because the
+    // earlier test asserted the dispatch *contained* the flag and passed against
+    // a step that could not run.
+    // To the end of the `cut` job: this is its last step, so the terminator is a
+    // following step, the job boundary, or the end of the block — whichever comes
+    // first. A lookahead that assumed a following step would not match at all.
+    const step = /- name: Deploy the tag\n(?<body>[\s\S]*?)(?=\n {6}- name:|\n {2}\w|$)/.exec(cut)
+      ?.groups?.body;
+    expect(step).toBeDefined();
+    // Comments are allowed between the `env:` entries, because that is where the
+    // reasoning for an export lives, and a regex that stopped at the first comment
+    // would silently under-report the exports and pass a step missing one.
+    const envBlock =
+      /env:\n(?<env>(?:\s{10}(?:#[^\n]*\n|\w+: [^\n]+\n))+)/.exec(step ?? "")?.groups?.env ?? "";
+    const exported = new Set(
+      [...envBlock.matchAll(/^ {10}(\w+):/gm)]
+        .map(([, name]) => name)
+        .filter((name) => !name.startsWith("#")),
+    );
+    // Every `$NAME` the body expands must be in the env block. `run:`'s own
+    // `GITHUB_*` names are injected by the runner, not by `env:`.
+    const runnerInjected = new Set(["GITHUB_REF_NAME", "GITHUB_SHA", "GITHUB_REPOSITORY"]);
+    const used = new Set(
+      [...(step ?? "").matchAll(/\$\{?(\w+)\}?/g)]
+        .map(([, name]) => name)
+        .filter((name) => !runnerInjected.has(name)),
+    );
+    for (const name of used) {
+      expect(exported, `${name} is used by the dispatch step but not exported`).toContain(name);
+    }
+    // Specifically the gated SHA, which is the whole point of the binding.
+    expect(envBlock).toContain("SHA: $" + "{{ needs.gate.outputs.sha }}");
   });
 
   it("dispatches the deploy on the tag, so no version is passed twice", () => {
