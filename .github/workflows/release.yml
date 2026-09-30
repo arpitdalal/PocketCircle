@@ -161,6 +161,13 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.gate.outputs.sha }}
 
+      - name: Refuse a version production has already moved past
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: ./scripts/assert-release-not-superseded.sh "$GH_REPO" "$VERSION"
+
       - name: Create the release tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,58 +177,67 @@ jobs:
         run: |
           set -euo pipefail
           err="$(mktemp)"
-          if gh api --method POST "repos/$GH_REPO/git/refs" \
-            -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>"$err"; then
-            echo "Cut $VERSION at $SHA."
-            rm -f "$err"
-            exit 0
-          fi
 
-          # The create failed, which is either "this tag already exists" — the
-          # ordinary re-run of a release whose dispatch or deploy did not finish,
-          # and the case this branch exists for — or a real error. Which one it is
-          # decides whether the version is still usable, so it is read back rather
-          # than inferred from the message.
+          # Where does this name already point? Resolved FIRST, before anything is
+          # created, because a name can be absent and still have been deployed: a tag
+          # is mutable until its release publishes, so a version whose deploy reached
+          # production and then failed before publishing has a deletable tag. Delete
+          # it and the name is free again, and a POST creates it at whatever commit
+          # is current — one version number, two production states, and no tag left to
+          # contradict it. The ref cannot answer that, because the ref is what is
+          # missing; the deploy runs can.
+          existing="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$VERSION" 2>/dev/null || true)"
+
+          # Whether this version has deploy history. Captured with its own status
+          # check rather than compared inline: inside a `[ "$(…)" = … ]` the
+          # substitution's exit code is discarded, so a failed API query would read as
+          # an empty answer — and empty means "never cut before", which is the one
+          # answer that would let a spent version be re-cut.
+          # Whether this version has deploy history. The ref cannot answer it: a
+          # tag is mutable until its release publishes, so a version whose deploy
+          # reached production and then failed before publishing has a deletable tag,
+          # and if that tag is deleted the name is free again for a create at any
+          # commit. The deploy runs can answer it, which is why they are asked.
           #
-          # Compared by the commit the tag resolves to, not by what the ref
-          # endpoint reports. An annotated tag — which is what `git tag -a` makes,
-          # and therefore what every hand-pushed release tag in this repo's history
-          # is — reports the tag *object's* SHA, so comparing that to a commit
-          # rejects a tag that names exactly the right commit. `resolve-tag-commit.sh`
-          # dereferences, and is the one place in the repo that answers this.
-          existing="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$VERSION" 2>/dev/null)" || {
-            echo "::error::Could not cut refs/tags/$VERSION, and could not read it back either:"
-            cat "$err" >&2
+          # Captured with its own status check rather than compared inline: inside a
+          # `[ "$(…)" = … ]` the substitution's exit code is discarded, so a failed
+          # API query would read as an empty answer — and empty means "never cut
+          # before", the one answer that would let a spent version be re-cut.
+          history=""
+          if ! history="$(./scripts/assert-release-unpublished.sh --has-deploy-history "$GH_REPO" "$VERSION")"; then
+            echo "::error::Could not determine whether $VERSION has been deployed before, so whether it is spent is unknown. Nothing was cut."
             rm -f "$err"
             exit 1
-          }
-          if [ "$existing" != "$SHA" ]; then
-            # The tag names different code than this release wants. Whether that
-            # is recoverable is not a fact about git, it is a question about what
-            # the previous attempt did to production, and only the operator knows.
+          fi
+
+          if [ -n "$existing" ] && [ "$existing" = "$SHA" ]; then
+            # The name already points at exactly this commit, so there is nothing to
+            # move and nothing to recreate. This is the ordinary re-run of a release
+            # whose dispatch or deploy did not finish, and it deliberately needs no
+            # `replace_unreleased_tag`: requiring the operator to confirm a change
+            # that is not happening would break the recovery for a failed dispatch,
+            # where the tag is correct and only the deploy never started.
+            echo "$VERSION already names $SHA — reusing it."
+          elif [ "$history" = "history" ] || [ -n "$existing" ]; then
+            # The name is absent-but-deployed, or present and pointing elsewhere: this
+            # run would move it or bring it back, so the operator is confirming a
+            # change to a version that already exists.
             #
-            # It IS recoverable in exactly one case: the attempt failed before the
-            # first production mutation (the MCP verification-keys sync), nothing
-            # was ever published under the name, and the tag is therefore still
-            # deletable under release immutability. Re-cutting the same number at
-            # a fixed commit is what makes that recovery possible at all, and it is
-            # the case the README's recovery table describes.
-            #
-            # A GitHub Release is the hard boundary: a published release reserves
-            # the tag name permanently, so its presence refuses the re-cut whatever
-            # was asked for.
+            # A published GitHub Release is the hard boundary: it reserves the tag
+            # name permanently, so its presence refuses the re-cut whatever was asked
+            # for.
             if gh release view "$VERSION" >/dev/null 2>&1; then
               echo "::error::$VERSION has a published GitHub Release, so its tag cannot be moved and the name is permanently reserved. Release the next version."
               rm -f "$err"
               exit 1
             fi
-            # And the other question — did the failed attempt reach production — is
-            # asked of the machine rather than of the operator. "The deploy failed"
-            # and "the deploy failed before touching anything" are identical from
-            # here, and guessing costs either a recoverable version or, worse, one
-            # number identifying two production states.
+            # And whether the earlier attempt reached production is asked of the
+            # machine rather than of the operator. "The deploy failed" and "the deploy
+            # failed before touching anything" are identical from here, and guessing
+            # costs either a recoverable version or, worse, one number identifying two
+            # production states.
             if [ "${{ inputs.replace_unreleased_tag }}" != "true" ]; then
-              echo "::error::$VERSION already names $existing, not $SHA. If its deploy never reached production you can re-cut it: fix the commit, merge, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
+              echo "::error::$VERSION has already been cut. If that attempt never reached production you can re-cut it: fix the commit, merge, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
               rm -f "$err"
               exit 1
             fi
@@ -229,33 +245,53 @@ jobs:
               rm -f "$err"
               exit 1
             fi
-            # Delete AND recreate, in this step. Deleting alone would leave the
-            # name absent, and the very next step dispatches the deploy against
-            # `refs/tags/$VERSION` — so the documented recovery would fail at the
-            # dispatch and need a second, unexpected Release run to finish.
-            #
-            # Recreating here also means the version is never absent from the
-            # repository between runs: a ref that exists naming the wrong commit
-            # is recoverable and visible, whereas a name that has vanished looks
-            # like a release that was cut and is now being rewritten.
-            echo "No release published for $VERSION. Re-cutting it from $existing to $SHA."
-            if ! gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION" >/dev/null 2>>"$err"; then
-              echo "::error::Could not delete refs/tags/$VERSION, so $VERSION cannot be re-cut at $SHA:"
-              cat "$err" >&2
-              exit 1
+
+            if [ -n "$existing" ]; then
+              # The name is taken and points at other code. Delete AND recreate, in
+              # this step. Deleting alone would leave the name absent, and the very
+              # next step dispatches the deploy against `refs/tags/$VERSION` — so the
+              # documented recovery would fail at the dispatch and need a second,
+              # unexpected Release run to finish.
+              #
+              # Recreating here also means the version is never absent from the
+              # repository between runs: a ref that exists naming the wrong commit is
+              # recoverable and visible, whereas a name that has vanished looks like a
+              # release that was cut and is now being rewritten.
+              echo "No release published for $VERSION. Re-cutting it from $existing to $SHA."
+              if ! gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION" >/dev/null 2>>"$err"; then
+                echo "::error::Could not delete refs/tags/$VERSION, so $VERSION cannot be re-cut at $SHA:"
+                cat "$err" >&2
+                rm -f "$err"
+                exit 1
+              fi
+            else
+              echo "No release published for $VERSION, and no tag — recreating it at $SHA."
             fi
+
             if ! gh api --method POST "repos/$GH_REPO/git/refs" \
               -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>>"$err"; then
               # The tag is gone and not replaced. Saying so plainly matters: this is
               # the one window where the name does not exist at all, and an operator
               # who is not told will read the next failure as a version collision.
-              echo "::error::Deleted refs/tags/$VERSION but could not re-cut it at $SHA. The name now exists nowhere; re-run this workflow with the same version to cut it fresh."
+              echo "::error::$VERSION could not be created at $SHA. The name now exists nowhere; re-run this workflow with the same version to cut it fresh."
               cat "$err" >&2
+              rm -f "$err"
               exit 1
             fi
             echo "$VERSION now names $SHA."
           else
-            echo "$VERSION already names $SHA — reusing it."
+            # A version with no history and no tag: the ordinary first release. The
+            # POST is the only thing that can go wrong, and it is reported as what it
+            # is rather than read back as a collision.
+            if gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>"$err"; then
+              echo "Cut $VERSION at $SHA."
+            else
+              echo "::error::Could not cut refs/tags/$VERSION, and the name was free beforehand:"
+              cat "$err" >&2
+              rm -f "$err"
+              exit 1
+            fi
           fi
           rm -f "$err"
 

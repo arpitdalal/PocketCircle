@@ -46,9 +46,12 @@ release notes. Do not make the version name ambiguous by reusing a tag.
    Environment and is the mechanism that prevents concurrent production jobs.
    [GitHub deployment control](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 4. Give the `production` Environment an explicit allowed **tag** pattern
-   (`v*`), required reviewer(s), and self-review prevention. Environment rules
-   run before the job gets its environment secrets; selected branch/tag rules
-   match the run's `GITHUB_REF`.
+   (`v*`) and required reviewer(s). Environment rules run before the job gets its
+   environment secrets; selected branch/tag rules match the run's `GITHUB_REF`.
+   Do **not** rely on self-review prevention here: Release dispatches the deploy
+   with `GITHUB_TOKEN`, so the run is attributed to `github-actions[bot]` and the
+   rule compares the approver against the bot, which approves nothing. The README
+   section on the `production` environment explains this in full.
    [GitHub deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 5. Roll back by releasing/deploying a prior immutable tag, not by moving or
    recreating a version tag. Protect `v*` with **GitHub's release immutability**

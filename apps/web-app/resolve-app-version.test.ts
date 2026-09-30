@@ -1112,7 +1112,10 @@ describe("assert-release-unpublished.sh", () => {
     // After the published-release check, so a published version is refused on the
     // harder boundary first.
     const releaseCheck = cut.indexOf('gh release view "$VERSION"');
-    const assertion = cut.indexOf("./scripts/assert-release-unpublished.sh");
+    // The full call, not the bare script path: the script now also appears earlier
+    // as the `--has-deploy-history` probe, and this is about the published-release
+    // check preceding the assertion, not about the script being mentioned first.
+    const assertion = cut.indexOf('./scripts/assert-release-unpublished.sh "$GH_REPO" "$VERSION"');
     expect(releaseCheck).toBeGreaterThan(-1);
     expect(assertion).toBeGreaterThan(releaseCheck);
   });
@@ -1121,5 +1124,303 @@ describe("assert-release-unpublished.sh", () => {
     // The script cannot import a constant from the workflow, so a rename would
     // silently make every verdict "unknown". Pinned here, a rename fails CI.
     expect(deploy).toContain(`- name: ${MARKER}`);
+  });
+});
+
+describe("assert-release-not-superseded.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/assert-release-not-superseded.sh");
+  const MARKER = "Sync MCP Worker verification keys to Convex";
+
+  /**
+   * The boundary stubbed is `gh`, and only `gh`. This script decides ordering, and it
+   * decides it by delegating "did this version reach production" to
+   * `assert-release-unpublished.sh` — so both run for real here, against the same
+   * stubbed API, which is the only way the two can be shown to agree.
+   *
+   * One builder rather than hand-written fixture keys, because the two scripts ask
+   * the same endpoint for different shapes: this one wants `.head_branch` per run,
+   * the delegate wants `id`, `status` and `run_attempt` for one specific version.
+   * Answering the endpoint once for both was the earlier mistake, and it fails in a
+   * way that looks like a pass: the delegate is handed a run belonging to a different
+   * version, fails closed on the phantom, and the test then asserts a refusal that
+   * has nothing to do with the version under test.
+   */
+  const world = (
+    tags: string[],
+    outcome: Partial<Record<string, "skipped" | "in_progress">> = {},
+  ) =>
+    Object.assign(
+      { ".workflow_runs[].head_branch": tags.join("\\n") },
+      ...tags.map((tag, i) => {
+        const id = String(100 + i);
+        return {
+          // The delegate interpolates the version into its own jq filter, so the
+          // command line is what says which version is being asked about.
+          [`head_branch == "${tag}"`]: `${id}\t${outcome[tag] === "in_progress" ? "in_progress" : "completed"}\t1`,
+          [`runs/${id}/attempts/1/jobs`]: `1\t${MARKER}\t${outcome[tag] === "skipped" ? "skipped" : "success"}`,
+        };
+      }),
+    );
+
+  async function notSuperseded(fixtures: Record<string, string>, version = "v1.2.3") {
+    return withStubbedGh(fixtures, (_dir, env) =>
+      execFileAsync("bash", [script, "arpitdalal/PocketCircle", version], {
+        cwd: join(import.meta.dirname, "../.."),
+        env,
+      }),
+    );
+  }
+
+  it("permits a version ahead of every version ever deployed", async () => {
+    const { stdout } = await notSuperseded(world(["v1.0.0", "v1.2.0", "v1.1.9"]));
+    expect(stdout).toContain("is current");
+  });
+
+  it("permits a version no newer version has followed into production", async () => {
+    // The ordinary case: v1.2.3 is the newest thing deployed, so it is current.
+    const { stdout } = await notSuperseded(world(["v1.0.0", "v1.1.0", "v1.2.3"]));
+    expect(stdout).toContain("is current");
+  });
+
+  it("refuses a version a newer one has already replaced in production", async () => {
+    // The recovery table tells an operator whose deploy failed before the first
+    // production mutation to re-run that deploy with the same version. Once a newer
+    // version has been in production, doing that is not a recovery — it moves
+    // production back to older code and publishes the older version after the newer
+    // one. The tag checks cannot see it: they prove the tag names the commit being
+    // deployed, not that the commit is the newest production has seen.
+    await expect(notSuperseded(world(["v1.0.0", "v1.2.4", "v1.1.0"]))).rejects.toMatchObject({
+      stderr: expect.stringMatching(/v1\.2\.4 has already been in production.*behind it/s),
+    });
+  });
+
+  it("counts a version that reached production but never published", async () => {
+    // The case a release-list check cannot see. v1.2.4's deploy reached the first
+    // production mutation and then failed before `gh release create`, so nothing was
+    // published and no release exists for it — yet production is running v1.2.4.
+    // Reading only published releases would call v1.2.3 current, and releasing it
+    // would roll production back.
+    await expect(notSuperseded(world(["v1.2.3", "v1.2.4"]))).rejects.toMatchObject({
+      stderr: expect.stringMatching(/v1\.2\.4 has already been in production/),
+    });
+  });
+
+  it("ignores a newer version whose deploy never reached production", async () => {
+    // v1.2.4 failed before the mutation, so production is still on this version and
+    // the operator is entitled to release v1.2.3. Refusing here would strand a
+    // recoverable version — the failure this whole change exists to prevent.
+    const { stdout } = await notSuperseded(world(["v1.2.3", "v1.2.4"], { "v1.2.4": "skipped" }));
+    expect(stdout).toContain("is current");
+  });
+
+  it("orders versions numerically, not as strings", async () => {
+    // Lexicographically "v1.2.10" sorts before "v1.2.3", so a string comparison waves
+    // through exactly the case this guard exists for.
+    await expect(notSuperseded(world(["v1.2.10"]), "v1.2.3")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/behind it/),
+    });
+  });
+
+  it("refuses while a newer version's deploy is still in flight", async () => {
+    // Not yet in production is not the same as never going to be.
+    // `assert-release-unpublished.sh` refuses an unfinished run for exactly this
+    // reason, and the refusal is inherited here rather than re-derived.
+    await expect(
+      notSuperseded(world(["v1.2.4"], { "v1.2.4": "in_progress" })),
+    ).rejects.toMatchObject({
+      stderr: expect.stringMatching(/behind it/),
+    });
+  });
+
+  it("permits the first release when nothing has ever been deployed", async () => {
+    const { stdout } = await notSuperseded(world([]));
+    expect(stdout).toContain("is current");
+  });
+
+  it("refuses rather than assuming currency when the run list is unreadable", async () => {
+    // An unreadable list means the ordering is unknown, and unknown is not evidence
+    // that this version is current. `FAIL` is the harness's API-error sentinel.
+    await expect(notSuperseded({ ".workflow_runs[].head_branch": "FAIL" })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/could not list deploy runs/),
+    });
+  });
+
+  it("rejects a version it cannot order at all", async () => {
+    // A pre-release or hand-invented tag has no place on the line; guessing one
+    // would be a way to refuse a legitimate release.
+    await expect(notSuperseded(world([]), "v1.2.3-rc.1")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/not vMAJOR\.MINOR\.PATCH/),
+    });
+  });
+
+  it("reads the whole history rather than a capped page", async () => {
+    // A truncated history reports the wrong newest version, and "we only looked at
+    // the first hundred" is not a safe basis for deciding whether production has
+    // moved. Both lists are walked to the end.
+    const scriptText = readFileSync(script, "utf8");
+    expect(scriptText).toContain("--paginate");
+    expect(scriptText).not.toMatch(/--limit \d+/);
+  });
+});
+
+describe("the cut step, executed", () => {
+  const SHA = "ccfcd40cad56ee4ce9ad199b5ea7dbee69afdb44";
+  const OTHER = "51e359e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  /**
+   * `Create the release tag`, run as a real subprocess against a stubbed `gh`.
+   *
+   * This replaces a set of assertions that matched the step's source text, and they
+   * are worth replacing: a test that checks the step *contains* a branch cannot tell
+   * a branch that runs from one that is merely present. Changing the reuse condition
+   * to `if false` left every text assertion passing while making the recovery
+   * unreachable — the step would demand `replace_unreleased_tag` for a tag that
+   * already names the right commit.
+   *
+   * The YAML is parsed rather than sliced out of the file, so the body under test is
+   * the one GitHub would run, dedented by the block scalar and with the one `${{ }}`
+   * expression supplied. `gh` is the only thing stubbed; the step, the three scripts
+   * it calls, and the decision table between them all run for real.
+   */
+  function createStep() {
+    const step = (
+      parsed.release.jobs as Record<string, { steps: { name?: string; run?: string }[] }>
+    ).cut.steps.find((s) => s.name === "Create the release tag");
+    if (!step?.run) throw new Error("Create the release tag step has no run body");
+    return step.run;
+  }
+
+  async function cutTag(
+    fixtures: Record<string, string>,
+    opts: { version?: string; sha?: string; replace?: boolean } = {},
+  ) {
+    const body = createStep().replace(
+      /\$\{\{ inputs\.replace_unreleased_tag \}\}/g,
+      opts.replace ? "true" : "false",
+    );
+    return withStubbedGh(fixtures, (_dir, env) =>
+      execFileAsync("bash", ["-c", body], {
+        // The repo root, so `./scripts/…` resolves exactly as it does in a checkout.
+        cwd: join(import.meta.dirname, "../.."),
+        env: {
+          ...env,
+          GH_REPO: "arpitdalal/PocketCircle",
+          VERSION: opts.version ?? "v1.0.0",
+          SHA: opts.sha ?? SHA,
+        },
+      }),
+    );
+  }
+
+  // The `gh` endpoints the step and its three scripts use, named by what the step
+  // needs rather than by what happens to match first. `FAIL` is the harness's
+  // API-error sentinel and is how "this does not exist" is expressed, because these
+  // are all reads whose absence is expressed by a non-zero exit.
+  const noRelease = { "release view": "FAIL" };
+  const createOk = { "--method POST": "" };
+  const deleteOk = { "--method DELETE": "" };
+  const tagMissing = { "git/ref/tags/v1.0.0": "FAIL" };
+  const tagAt = (target: string) => ({ "git/ref/tags/v1.0.0": `commit ${target}` });
+  const runsFor = (rows: string) => ({ "workflows/deploy.yml/runs": rows });
+  const reachedProduction = {
+    "runs/999/attempts/1/jobs": "1\tSync MCP Worker verification keys to Convex\tsuccess",
+  };
+
+  it("cuts a first version with no history and no tag, with no flag", async () => {
+    // The ordinary case, and the one the earlier source-matching version could not
+    // distinguish from a re-cut.
+    const { stdout } = await cutTag({ ...runsFor(""), ...tagMissing, ...noRelease, ...createOk });
+    expect(stdout).toContain(`Cut v1.0.0 at ${SHA}`);
+  });
+
+  it("reuses a tag that already names the commit, with no flag", async () => {
+    // The recovery for a failed dispatch, where the tag is correct and only the
+    // deploy never started. Requiring the operator to confirm a change that is not
+    // happening would break it — and an earlier version of this step did require it.
+    const { stdout } = await cutTag({
+      ...runsFor("999\tcompleted\t1"),
+      ...tagAt(SHA),
+      ...noRelease,
+      ...createOk,
+    });
+    expect(stdout).toContain("already names");
+  });
+
+  it("refuses to move a tag to a different commit without the flag", async () => {
+    await expect(
+      cutTag({ ...runsFor("999\tcompleted\t1"), ...tagAt(OTHER), ...noRelease }),
+    ).rejects.toMatchObject({
+      // `::error::` is an `echo`, so it is on stdout. Asserting stderr here would
+      // pass for a step that failed for an unrelated reason.
+      stdout: expect.stringMatching(/::error::.*has already been cut/),
+    });
+  });
+
+  it("reports a spent version as spent rather than as recoverable", async () => {
+    // History exists and the attempt reached production, so the flag is not enough.
+    await expect(
+      cutTag(
+        {
+          ...runsFor("999\tcompleted\t1"),
+          ...reachedProduction,
+          ...tagAt(OTHER),
+          ...noRelease,
+          ...deleteOk,
+          ...createOk,
+        },
+        { replace: true },
+      ),
+    ).rejects.toMatchObject({
+      // The refusal comes from the delegated script, so it is the script's own
+      // wording on stderr — which is also what proves the decision was delegated
+      // rather than re-derived here.
+      stderr: expect.stringMatching(/version is spent/i),
+    });
+  });
+
+  it("recreates a deleted tag only with the flag and only when it never deployed", async () => {
+    // The hole this branch exists for: the name is gone, so the ref check sees
+    // nothing, and a create would succeed at any commit. History is what says the
+    // version was already spent.
+    await expect(
+      cutTag({
+        ...runsFor("999\tcompleted\t1"),
+        ...reachedProduction,
+        ...tagMissing,
+        ...noRelease,
+      }),
+    ).rejects.toMatchObject({
+      stdout: expect.stringMatching(/::error::.*has already been cut/),
+    });
+  });
+
+  it("reports an API failure on a free name as an error, not a collision", async () => {
+    // Without the history question answered first, this same failure falls through to
+    // the read-back and reads as "already exists", sending the operator after a
+    // version collision that does not exist.
+    await expect(
+      cutTag({ ...runsFor(""), ...tagMissing, ...noRelease, "--method POST": "FAIL" }),
+    ).rejects.toMatchObject({
+      stdout: expect.stringMatching(/the name was free beforehand/),
+      // And the API's own error is surfaced, not swallowed into the temp file.
+      stderr: expect.stringMatching(/gh/),
+    });
+  });
+
+  it("refuses a superseded version in the step ahead of the cut", () => {
+    // Ordering only, and it is ordering that matters: the guard has to run before
+    // anything is created, or a version behind production gets a tag before anyone
+    // finds out.
+    const steps = (
+      parsed.release.jobs as Record<string, { steps: { name?: string; run?: string }[] }>
+    ).cut.steps;
+    const names = steps.map((s) => s.name);
+    const guard = names.indexOf("Refuse a version production has already moved past");
+    const cutAt = names.indexOf("Create the release tag");
+    expect(guard).toBeGreaterThan(-1);
+    expect(cutAt).toBeGreaterThan(guard);
+    expect(steps[guard]?.run).toContain("assert-release-not-superseded.sh");
+    // And it consults the same evidence the script uses, not a separate list.
+    expect(steps[guard]?.run).toContain('"$GH_REPO" "$VERSION"');
   });
 });

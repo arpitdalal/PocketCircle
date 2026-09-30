@@ -53,9 +53,20 @@ die() {
 }
 
 usage() {
-  echo "usage: assert-release-unpublished.sh OWNER/REPO TAG" >&2
-  die "expected exactly two arguments, got ${1:-0}"
+  echo "usage: assert-release-unpublished.sh [--has-deploy-history] OWNER/REPO TAG" >&2
+  die "expected two arguments, got ${1:-0}"
 }
+
+# `--has-deploy-history` answers a different question and shares the same query, so
+# it is a mode on this script rather than a second script re-listing the runs.
+# It reports the answer on stdout and exits 0 either way, because "no" must not be
+# spelled the same way as "could not tell": the caller acts on this answer, and an
+# error that looked like "no" would let a previously-cut version be re-cut.
+history_only=false
+if [[ "${1:-}" == "--has-deploy-history" ]]; then
+  history_only=true
+  shift
+fi
 
 [[ $# -eq 2 ]] || usage "$#"
 
@@ -88,6 +99,21 @@ runs="$(gh api \
   --jq ".workflow_runs[] | select(.head_branch == \"$tag\")
          | \"\(.id)\t\(.status)\t\(.run_attempt)\"" 2>/dev/null)" ||
   die "could not list deploy runs for $tag in $repo"
+
+if $history_only; then
+  # "Has this version been cut before?" — the question the create path has to ask
+  # *before* it creates a ref, because a tag that no longer exists can still have
+  # been deployed. A tag is mutable until its release publishes, so a version whose
+  # deploy reached production but then failed before publishing can have had its tag
+  # deleted, and re-creating that name at a different commit would put one version
+  # number on two production states with nothing left to contradict it.
+  if [[ -z "$runs" ]]; then
+    echo "none"
+  else
+    echo "history"
+  fi
+  exit 0
+fi
 
 if [[ -z "$runs" ]]; then
   # No deploy ever ran for this tag, so nothing reached production. The re-cut is

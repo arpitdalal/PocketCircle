@@ -871,6 +871,16 @@ first deploy is still deploying. That is safe because the deploy workflow's
 `production` group is `queue: max`: a deploy that is already waiting stays in the
 queue instead of being replaced by a newer one.
 
+A second guard refuses a version that production has already moved past. A
+published GitHub Release is written only after a deploy succeeds, so the set of
+published tags is the record of what production has actually run; Release compares
+your version against the newest of them, in version order rather than string order
+(`v0.8.10` is newer than `v0.8.3`, which a string comparison gets backwards). This
+is what stops a documented recovery — re-running a failed version — from quietly
+becoming a rollback once a later release has gone out. The tag checks cannot catch
+it: they prove the tag names the commit being deployed, not that the commit is the
+newest production has seen.
+
 This is the one setting worth understanding before changing it. With GitHub's
 default `queue: single`, a newer pending deploy **cancels** the older pending one —
 and the older one's tag is already cut, so its version would be spent having changed
@@ -898,7 +908,7 @@ it, which is the mistake this table used to make:
 | Where it failed | Production | What to do |
 | --- | --- | --- |
 | The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
-| `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
+| `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version — but only while no newer version has shipped. Once one has, re-running this would move production back to older code, so the release workflow refuses it and the version is simply superseded |
 | …and that failure needs a **code** change | untouched | Fix on `main`, merge, then re-run **Release** with the same version **and `replace_unreleased_tag=true`**. It checks that no run of that tag ever reached production, then deletes the old tag and cuts the fixed commit |
 | `deploy.yml` at or after the MCP keys sync | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
 | A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
