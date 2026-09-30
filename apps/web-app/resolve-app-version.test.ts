@@ -330,6 +330,35 @@ describe("release workflow", () => {
     // the first, and the newest request is the one that should run.
     expect(release).toMatch(/concurrency:\n {2}group: release\n {2}cancel-in-progress: false/);
   });
+
+  it("never replaces a production deploy that is already queued", () => {
+    // The `release` lock spans only the Release run, which ends the moment the
+    // dispatch is created — so a second and then a third release can each cut a tag
+    // and dispatch while the first deploy is still running.
+    //
+    // With GitHub's default `queue: single`, a newer pending run replaces the older
+    // pending one. So the third dispatch would cancel the second, whose tag is
+    // already cut: that version is spent having changed nothing in production —
+    // the stranded-version failure this workflow exists to prevent, arriving
+    // through the queue rather than through the tag. `queue: max` is GitHub's own
+    // answer, and it has to be explicit: absent, the default is `single`.
+    expect(deploy).toMatch(
+      /concurrency:\n {2}group: production\n {2}cancel-in-progress: false\n {2}queue: max/,
+    );
+    // And it is a queue, not a licence to abandon a deploy half-done. The two
+    // together are the whole contract, and GitHub rejects the combination of
+    // `queue: max` with `cancel-in-progress: true` as a validation error.
+    expect(deploy).not.toMatch(/concurrency:\n(?:[^\n]*\n)*? {2}cancel-in-progress: true/);
+  });
+
+  it("queues deploys but not releases, and says why", () => {
+    // The two concurrency groups differ on purpose, and the difference is
+    // load-bearing: a pending *release* has cut nothing, so replacing it strands no
+    // version, while a pending *deploy* already has a tag cut for it. Pinning the
+    // asymmetry stops a future reader from "fixing" one group to match the other.
+    expect(release).not.toMatch(/concurrency:\n(?:[^\n]*\n)*? {2}queue:/);
+    expect(deploy).toMatch(/queue: max/);
+  });
 });
 
 describe("release-notes.sh", () => {

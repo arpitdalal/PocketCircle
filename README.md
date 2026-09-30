@@ -863,6 +863,22 @@ a commit it once contained: a stale merged branch would pass an ancestry test an
 release code `main` has been superseded by, with every check green and nothing to
 report it.
 
+**Releases queue; they do not collide.** Two Release runs cannot overlap, because
+the `release` concurrency group lets a running one finish rather than cancelling
+it. But that lock covers only the Release run itself, which ends the moment the
+deploy is *dispatched* — so a second release can cut its tag and dispatch while the
+first deploy is still deploying. That is safe because the deploy workflow's
+`production` group is `queue: max`: a deploy that is already waiting stays in the
+queue instead of being replaced by a newer one.
+
+This is the one setting worth understanding before changing it. With GitHub's
+default `queue: single`, a newer pending deploy **cancels** the older pending one —
+and the older one's tag is already cut, so its version would be spent having changed
+nothing in production. That is precisely the stranded version #423 was filed about,
+arriving through the queue rather than through the tag. A consequence worth knowing:
+release three can therefore sit behind two, and production reaches the newest
+version only once the earlier deploys finish.
+
 **Do not push the tag by hand.** The tag is what makes a version number real —
 `51e359e2` (v0.8.1) was tagged onto a commit whose own CI run had already gone
 red, so the deploy re-ran the same `pnpm validate`, failed, and the fix shipped as

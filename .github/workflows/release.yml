@@ -50,6 +50,18 @@ permissions:
 # gate for a version somebody is waiting on. A pending run is replaced by a newer
 # pending one, which is the right way round here: a second dispatch is a
 # correction of the first, and the newest request is the one that should run.
+#
+# This is deliberately *not* `queue: max`, unlike deploy.yml's `production` group,
+# and the difference is the whole point rather than an inconsistency. A pending run
+# of *this* workflow has cut nothing, so replacing it strands no version. A pending
+# *deploy* already has a tag cut for it, so it has to queue instead of being
+# replaced — see the comment on `production` in deploy.yml.
+#
+# The lock deliberately spans only this run, not the deploy it dispatches. Holding
+# it through the deployment would mean polling for a run this workflow did not
+# create, on an API with a visibility delay on exactly that run, against a
+# `production` approval that can be pending for as long as a human takes. Instead
+# the deploy queues in `production`, which is what makes the next release safe.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -281,6 +293,15 @@ jobs:
           # commit the gate never cleared — and the deploy's own tag check runs
           # after production has already been mutated. Passing the gated SHA lets
           # the deploy refuse at its first step, before touching anything.
+          #
+          # This returns as soon as the dispatch is *created*; it does not wait for
+          # the deploy. That is deliberate, and it is safe because the deploy
+          # workflow's `production` group is `queue: max`: the next release may
+          # dispatch while this one is still deploying, and its deploy waits its
+          # turn rather than replacing it. The `release` lock above is what
+          # serialises the part that spends a version — cutting the tag — and the
+          # queue is what stops the deployments from being cancelled out from under
+          # an already-cut tag.
           gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION" -f gate_sha="$SHA"
-          echo "Dispatched deploy.yml for $VERSION against $SHA."
+          echo "Dispatched deploy.yml for $VERSION against $SHA. It will deploy after any production run already in flight."
 

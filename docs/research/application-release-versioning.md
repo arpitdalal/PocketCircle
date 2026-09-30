@@ -36,7 +36,13 @@ release notes. Do not make the version name ambiguous by reusing a tag.
    that exact revision. Dispatch Release from current `main`; do not create the
    tag or the GitHub Release by hand, which skips the gate on the commit and is
    the failure this document's point 5 used to make permanent. Use one production concurrency group; do not cancel
-   an active deployment. GitHub documents that concurrency is independent of an
+   an active deployment **or replace a pending one**, so set `queue: max` on it
+   rather than accepting the default. Release's own lock spans only the Release
+   run, which ends when the dispatch is created, so a later release can dispatch
+   while an earlier deploy is still queued; under `queue: single` that newer
+   dispatch cancels the older pending deploy, whose tag is already cut, spending
+   the version without changing production. GitHub documents that concurrency is
+   independent of an
    Environment and is the mechanism that prevents concurrent production jobs.
    [GitHub deployment control](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 4. Give the `production` Environment an explicit allowed **tag** pattern

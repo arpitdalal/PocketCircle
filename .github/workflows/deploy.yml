@@ -26,9 +26,30 @@ on:
         required: false
         type: string
 
+# One production deployment at a time, and — the part that is easy to get wrong —
+# a *pending* deploy is queued, never replaced.
+#
+# Release cuts the tag and then dispatches this workflow, and the `release`
+# concurrency group in release.yml spans only the Release run, which ends the
+# moment the dispatch is created. So while one deploy is running, the next release
+# can already cut its tag and dispatch a second deploy, and the one after that a
+# third.
+#
+# With the default `queue: single`, GitHub keeps one running run and one pending
+# run, and a *newer* pending run replaces the older pending one. So the third
+# dispatch cancels the second: that version's tag is already cut, its deploy is
+# cancelled before it ever runs, and the version is spent having changed nothing
+# in production. That is the stranded-version failure this whole workflow exists
+# to prevent, reintroduced through the queue rather than through the tag.
+#
+# `queue: max` is GitHub's own answer to exactly this: up to 100 runs wait their
+# turn instead of replacing one another, so every dispatched deploy runs and no
+# version is stranded. `cancel-in-progress` stays false, because abandoning a
+# half-finished deploy is the one outcome worse than queueing behind it.
 concurrency:
   group: production
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
