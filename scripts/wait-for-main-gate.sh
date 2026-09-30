@@ -60,14 +60,25 @@ readonly -a REQUIRED=(".github/workflows/ci.yml" ".github/workflows/e2e.yml")
 readonly TIMEOUT_SECONDS="${GATE_TIMEOUT_SECONDS:-2700}"
 readonly POLL_SECONDS="${GATE_POLL_SECONDS:-30}"
 
-# A verdict is one of: success, running, not-started, unreadable, or a terminal
-# failure. Terminal is anything that will never become success for this SHA —
-# including `cancelled`, which is what a newer push to `main` does to a
-# superseded run, and which must stop the release rather than wait forever for a
-# verdict that is not coming.
+# A verdict is one of: success, still-running, not-started, unreadable, or a
+# terminal non-success. Terminal means the run has finished and will never become
+# `success` for this SHA, so waiting for it only spends the timeout.
+#
+# The list is every terminal conclusion the workflow-runs API documents, not the
+# ones this repo has happened to produce: `action_required`, `cancelled`,
+# `failure`, `neutral`, `skipped`, `stale`, `timed_out`, `startup_failure`. An
+# earlier version listed only the five this repo's own history contains, and the
+# other three — a skipped matrix job, a stale check run — were classified as
+# still-running, so a release that could never succeed sat out the full 45
+# minutes before reporting a failure it already knew. Enumerated rather than
+# negated, because the safe default for an unlisted conclusion is to stop and not
+# cut a tag, not to keep waiting.
+#
+# `cancelled` is the ordinary case: it is what a newer push to `main` does to a
+# superseded run.
 is_terminal_failure() {
   case "$1" in
-    failure | cancelled | timed_out | action_required | startup_failure | "") return 0 ;;
+    action_required | cancelled | failure | neutral | skipped | stale |       startup_failure | timed_out | "") return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -33,6 +33,15 @@ on:
         description: Stable SemVer to release, e.g. v0.8.3
         required: true
         type: string
+      replace_unreleased_tag:
+        description: >-
+          Re-cut this version when its existing tag names a DIFFERENT commit and
+          the failed deploy never reached production. Only for a failure known to
+          have stopped before the first production mutation; see the recovery
+          table in the README. Refuses if the version has a GitHub Release.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -175,14 +184,41 @@ jobs:
             exit 1
           }
           if [ "$existing" != "$SHA" ]; then
-            # Not recoverable by deleting and re-cutting, and not something to
-            # correct: the version is spent on different code. The next release
-            # takes the next number, and the changelog says why.
-            echo "::error::$VERSION already names commit $existing, not $SHA. That version is spent on different code and the tag cannot be moved — release the next one."
-            rm -f "$err"
-            exit 1
+            # The tag names different code than this release wants. Whether that
+            # is recoverable is not a fact about git, it is a question about what
+            # the previous attempt did to production, and only the operator knows.
+            #
+            # It IS recoverable in exactly one case: the attempt failed before the
+            # first production mutation (the MCP verification-keys sync), nothing
+            # was ever published under the name, and the tag is therefore still
+            # deletable under release immutability. Re-cutting the same number at
+            # a fixed commit is what makes that recovery possible at all, and it is
+            # the case the README's recovery table describes.
+            #
+            # Two things are checked rather than trusted. A GitHub Release is the
+            # hard boundary — a published release reserves the name permanently —
+            # so its presence refuses the re-cut whatever was asked for. And the
+            # re-cut is opt-in, because "the deploy failed" and "the deploy failed
+            # before touching anything" look identical from here.
+            if [ "${{ inputs.replace_unreleased_tag }}" != "true" ]; then
+              echo "::error::$VERSION already names $existing, not $SHA. If that attempt never reached production you can re-cut this version: fix the commit, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
+              rm -f "$err"
+              exit 1
+            fi
+            if gh release view "$VERSION" >/dev/null 2>&1; then
+              echo "::error::$VERSION has a published GitHub Release, so its tag cannot be moved and the name is permanently reserved. replace_unreleased_tag does not apply — release the next version."
+              rm -f "$err"
+              exit 1
+            fi
+            echo "No release published for $VERSION. Deleting the tag at $existing and re-cutting at $SHA."
+            if ! gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION" >/dev/null 2>>"$err"; then
+              echo "::error::Could not delete refs/tags/$VERSION, so $VERSION cannot be re-cut at $SHA:"
+              cat "$err" >&2
+              exit 1
+            fi
+          else
+            echo "$VERSION already names $SHA — reusing it."
           fi
-          echo "$VERSION already names $SHA — reusing it."
           rm -f "$err"
 
       - name: Deploy the tag

@@ -880,6 +880,7 @@ Users. The line that matters is the first production mutation, the Convex deploy
 | --- | --- | --- |
 | The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
 | `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version |
+| …and that failure needs a **code** change | untouched | Fix on `main`, merge, then re-run **Release** with the same version **and `replace_unreleased_tag=true`**. It deletes the old tag and cuts the fixed commit |
 | `deploy.yml` at or after the MCP keys sync | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
 | A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
 
@@ -894,6 +895,12 @@ That is the whole cost model: **a version is only spent when the production chan
 it named is wrong and cannot be finished by re-running.** Everything a re-run can
 fix — a flaky suite, an expired credential, a dropped connection, a wrong
 hostname — costs nothing but the re-run.
+
+`replace_unreleased_tag` is opt-in because "the deploy failed" and "the deploy
+failed before touching anything" look identical from inside the workflow — only you
+know which happened. It refuses outright if the version already has a GitHub
+Release, because a published release reserves its tag name permanently and no
+flag overrides that.
 
 The one case the old `v*` ruleset made impossible and release immutability makes
 possible is the last-but-one: a tag with **no** release behind it is still

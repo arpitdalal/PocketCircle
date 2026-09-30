@@ -27,8 +27,11 @@ release notes. Do not make the version name ambiguous by reusing a tag.
    no production deployment runs on merge.
 2. When ready, create annotated tag `vX.Y.Z` on the already-tested `main`
    commit, create GitHub Release notes, and trigger production from that tag.
-3. The production workflow checks out **the tag SHA**, validates it, and deploys
-   only that exact revision. Use one production concurrency group; do not cancel
+3. The **Release** workflow cuts the tag and dispatches the production
+   workflow, which checks out **the tag SHA**, validates it, and deploys only
+   that exact revision. Dispatch Release from current `main`; do not create the
+   tag or the GitHub Release by hand, which skips the gate on the commit and is
+   the failure this document's point 5 used to make permanent. Use one production concurrency group; do not cancel
    an active deployment. GitHub documents that concurrency is independent of an
    Environment and is the mechanism that prevents concurrent production jobs.
    [GitHub deployment control](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)

@@ -166,10 +166,11 @@ describe("release workflow", () => {
     // needs, and the failure is at step 1 of the run, having validated nothing.
     // That is a bug this branch shipped once already.
     expect(gate).toMatch(/^ {6}contents: read$/m);
-    // And nothing wider. The gate reads main's verdicts through the script's own
-    // `gh api` call, which the token carries via `contents: read`; the job needs
-    // no Actions scope of its own now. Scoped to the `permissions:` block, because
-    // the job's comment explains the rule by name and is not a scope.
+    // Scoped to the `permissions:` block, because the job's comment explains the
+    // rule by name and is not a scope. Both scopes are asserted by exact value so
+    // that neither can be dropped and neither can be widened without this
+    // failing — the second matters as much as the first, because a scope nothing
+    // reads is a permission nobody has audited.
     const gatePermissions =
       /permissions:\n(?:\s*#.*\n)*(?<scopes>(?:\s{6}\w[\w-]*: \w+\n)+)/.exec(gate)?.groups
         ?.scopes ?? "";
@@ -269,6 +270,43 @@ describe("release workflow", () => {
     }
     // Specifically the gated SHA, which is the whole point of the binding.
     expect(envBlock).toContain("SHA: $" + "{{ needs.gate.outputs.sha }}");
+  });
+
+  it("requires the run to have resolved to the gated commit, not only the tag to still name it", () => {
+    // The loop a tag-only check cannot see: moved from gated commit A to B before
+    // this run resolved its SHA, so `GITHUB_SHA` is B, then back to A during E2E.
+    // `named == GATE_SHA` passes, both checkouts stay pinned to B, and the deploy
+    // mutates production with a commit the gate never cleared — while every check
+    // reported exactly what it was asked. `GITHUB_SHA == GATE_SHA` makes it
+    // impossible, because a run pinned to the wrong commit cannot be repaired by
+    // the tag moving back.
+    expect(deploy).toMatch(/\$GITHUB_SHA" != "\$GATE_SHA/);
+    expect(deploy).toMatch(/\$named" != "\$GATE_SHA/);
+    // Checked before the first production mutation, still.
+    expect(deploy.indexOf("$GITHUB_SHA")).toBeLessThan(
+      deploy.indexOf("convex env set MCP_WORKER_VERIFYING_JWKS"),
+    );
+  });
+
+  it("offers the recovery the README documents instead of only refusing", async () => {
+    // The README's recovery table says a failure before the first production
+    // mutation leaves the tag deletable, and release immutability makes that true.
+    // The workflow only ever refused, so following the README stranded the version
+    // anyway — the exact outcome #423 is about, reached by following the docs.
+    //
+    // Opt-in, because "the deploy failed" and "the deploy failed before touching
+    // anything" are indistinguishable from inside the workflow. And gated on the
+    // absence of a GitHub Release, because a published release reserves the tag
+    // name permanently whatever the operator asks for.
+    expect(cut).toContain("replace_unreleased_tag");
+    expect(cut).toMatch(/inputs\.replace_unreleased_tag/);
+    expect(cut).toMatch(/if \[ "\$\{\{ inputs\.replace_unreleased_tag \}\}"/);
+    expect(cut).toMatch(/--method DELETE "repos\/\$GH_REPO\/git\/refs\/tags\/\$VERSION"/);
+    expect(cut).toMatch(/has a published GitHub Release/);
+    // And the refusal is still the default path, with the recovery named in it, so
+    // somebody who hits it is told both answers rather than only one.
+    expect(cut).toMatch(/replace_unreleased_tag=true/);
+    expect(cut).toMatch(/the version is spent/);
   });
 
   it("dispatches the deploy on the tag, so no version is passed twice", () => {
@@ -588,6 +626,13 @@ exit 1
     ["timed_out", "CI timed out"],
     ["action_required", "CI needed action"],
     ["startup_failure", "CI failed to start"],
+    // The three this repo's own history had never produced, and which the first
+    // version of this classifier treated as still-running. All three are terminal
+    // in the workflow-runs API, so a release that could never succeed waited out
+    // the full timeout instead of reporting a failure it already knew.
+    ["neutral", "CI was neutral"],
+    ["skipped", "CI was skipped"],
+    ["stale", "CI was stale"],
   ])("refuses to release when CI reports %s", async (conclusion) => {
     // Every one of these is terminal: none will ever become `success` for this
     // SHA, so waiting for them would burn the whole timeout on a verdict that is
@@ -614,6 +659,28 @@ exit 1
       });
     },
   );
+
+  it("treats every documented terminal conclusion as terminal, not the ones seen so far", async () => {
+    // The list is enumerated rather than "anything that is not success", because
+    // the safe default for a conclusion nobody has seen yet is to stop and not cut
+    // a tag. A negated check would silently promote a new GitHub conclusion to
+    // "keep waiting", which is the failure this whole script exists to prevent.
+    const documented = [
+      "action_required",
+      "cancelled",
+      "failure",
+      "neutral",
+      "skipped",
+      "stale",
+      "startup_failure",
+      "timed_out",
+    ];
+    for (const conclusion of documented) {
+      await expect(gate({ ...green, "workflows/ci.yml": conclusion })).rejects.toMatchObject({
+        stderr: expect.stringMatching(/A tag names a commit that passed/),
+      });
+    }
+  });
 
   it("treats an API error as unknown rather than as a red commit", async () => {
     // An unreachable API is not evidence about the commit. Failing the release

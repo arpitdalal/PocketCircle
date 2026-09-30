@@ -110,12 +110,33 @@ jobs:
           GATE_SHA: ${{ inputs.gate_sha }}
         run: |
           set -euo pipefail
+          # Both halves are required, and the second is the one that closes the
+          # loop: `GITHUB_SHA` is fixed for this run and is what every checkout
+          # below uses, while `named` is re-read from a tag that can move.
+          #
+          # Checking only the tag leaves a window the tag check cannot see: moved
+          # from gated commit A to B before this run resolved its SHA, so
+          # `GITHUB_SHA` is B, then back to A during E2E. `named == GATE_SHA`
+          # passes, both checkouts stay pinned to B, and the deploy mutates
+          # production with a commit the gate never cleared — while every check
+          # reported exactly what it was asked to report. Requiring
+          # `GITHUB_SHA == GATE_SHA` makes that impossible, because a run that
+          # resolved to the wrong commit cannot be repaired by the tag moving
+          # back.
+          #
+          # A hand-pushed tag passes no `gate_sha` and skips this entirely: the
+          # person pushing it is the one making the statement, and there is no
+          # gated commit for it to disagree with.
           named="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$GITHUB_REF_NAME")"
-          if [ "$named" != "$GATE_SHA" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME names $named, but Release gated $GATE_SHA. The tag moved after it was cut. Refusing before anything is deployed."
+          if [ "$GITHUB_SHA" != "$GATE_SHA" ]; then
+            echo "::error::This run resolved to $GITHUB_SHA but Release gated $GATE_SHA. The tag moved before the dispatch resolved it. Refusing before anything is deployed."
             exit 1
           fi
-          echo "$GITHUB_REF_NAME names $named, as gated."
+          if [ "$named" != "$GATE_SHA" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME names $named, but Release gated $GATE_SHA. The tag moved after this run started. Refusing before anything is deployed."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME names $named, and this run resolved to $GITHUB_SHA — both the gated commit."
 
       - run: pnpm install --frozen-lockfile
 
