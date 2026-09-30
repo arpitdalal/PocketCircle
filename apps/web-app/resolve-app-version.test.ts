@@ -200,30 +200,34 @@ describe("release workflow", () => {
     expect(firstMutation).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(firstMutation);
 
-    // Two comparisons, and both are needed. `named != GITHUB_SHA` catches a tag
-    // that moved during this run — `GITHUB_SHA` is what every checkout below pins,
-    // so the tag naming anything else is a version whose name and content
-    // disagree. `GITHUB_SHA != GATE_SHA` catches the loop a tag-only check cannot
-    // see: moved from gated A to B before the run resolved its SHA, then back to A
-    // during E2E, where `named == GATE_SHA` passes while both checkouts stay
-    // pinned to B. Requiring the run itself to be the gated commit cannot be
-    // repaired by the tag moving back.
-    //
-    // Bound to the SHA Release actually gated, not re-derived from the tag: a
-    // check that reads the tag twice proves nothing about whether it moved.
+    // The comparisons themselves live in `scripts/assert-tag-names.sh`, which
+    // dereferences the tag, compares it to this run's own `GITHUB_SHA`, and —
+    // when Release dispatched this — to the commit it gated. Both are tested there
+    // against the real script; what belongs to the workflow is calling it, and
+    // calling it before anything is deployed.
     expect(deploy).toMatch(/gate_sha:/);
-    expect(deploy).toMatch(/\$named" != "\$GITHUB_SHA/);
-    expect(deploy).toMatch(/\$GITHUB_SHA" != "\$GATE_SHA/);
-
+    expect(deploy).toMatch(
+      /assert-tag-names\.sh "\$GH_REPO" "\$GITHUB_REF_NAME" "\$GITHUB_SHA" "\$\{\{ inputs\.gate_sha \}\}"/,
+    );
     // Unconditional, not gated on Release having dispatched. The emergency
     // hand-push path — the one the rollback runbook uses, and the one nobody is
     // watching closely — had no tag check at all before production, because the
-    // whole step was skipped without a `gate_sha`. And the GATE_SHA comparison is
-    // guarded on being non-empty rather than on the step existing at all, because
-    // for a hand-pushed tag it is the same commit by construction and asserting
-    // it would prove nothing.
+    // whole step was skipped without a `gate_sha`. The script treats an absent
+    // gate as the hand-push case rather than as a failure.
     expect(deploy).not.toMatch(/if: inputs\.gate_sha/);
-    expect(deploy).toMatch(/\$\{GATE_SHA:-\}/);
+
+    // And called again immediately before the first production write. One call
+    // near the top of the job is only true at the moment it ran, and
+    // `pnpm install`, `pnpm validate` and two production builds sit between here
+    // and there — long enough for a tag to be moved. Two calls, one script.
+    const calls = [...deploy.matchAll(/\.\/scripts\/assert-tag-names\.sh/g)];
+    expect(calls).toHaveLength(2);
+    const firstWrite = deploy.indexOf("convex env set MCP_WORKER_VERIFYING_JWKS");
+    expect(calls[1].index).toBeGreaterThan(-1);
+    expect(calls[1].index).toBeLessThan(firstWrite);
+    // Far enough after the first that the gap is real work, not the same check
+    // twice in adjacent lines.
+    expect(calls[1].index - calls[0].index).toBeGreaterThan(1000);
 
     // And a hand-pushed tag still works: the rollback path passes no gate_sha and
     // the person pushing it is making the statement themselves.
@@ -356,9 +360,9 @@ describe("release-notes.sh", () => {
 describe("resolve-tag-commit.sh", () => {
   const script = join(import.meta.dirname, "../../scripts/resolve-tag-commit.sh");
 
-  const LIGHTWEIGHT_COMMIT = "51e359e2" + "a".repeat(32);
-  const ANNOTATED_COMMIT = "8730aa05" + "b".repeat(32);
-  const TAG_OBJECT = "bacffa56" + "5a811e81fc732e9c9ed32d6969b35df4".slice(0, 32);
+  const LIGHTWEIGHT_COMMIT = "51e359e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const ANNOTATED_COMMIT = "8730aa05bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const TAG_OBJECT = "bacffa565a811e81fc732e9c9ed32d6969b35df4";
 
   /**
    * A `gh` that answers from a fixture, so the script's real logic runs — the
@@ -526,11 +530,16 @@ describe("wait-for-main-gate.sh", () => {
     await writeFile(
       join(dir, "gh"),
       `#!/usr/bin/env bash
-filter="\${!#}"
+# Matched against the whole command line, not one argument. The two release
+# scripts put the interesting string in different places — wait-for-main-gate.sh
+# filters inside its jq expression while resolve-tag-commit.sh passes the ref path
+# as the URL — and a stub that assumes either position matches nothing, which
+# reads as a broken script rather than a broken harness.
+query="$*"
 while IFS=$'\\t' read -r pat ans; do
   [[ -z "$pat" ]] && continue
   needle="\${pat//\\*/\\\\*}"
-  if [[ "$filter" == *"$needle"* ]]; then
+  if [[ "$query" == *"$needle"* ]]; then
     if [[ "$ans" == "FAIL" ]]; then echo "gh: API error" >&2; exit 1; fi
     printf '%s\\n' "$ans"
     exit 0
@@ -678,6 +687,227 @@ exit 1
       execFileAsync(script, [SHA], { env: { ...process.env, GITHUB_REPOSITORY: "" } }),
     ).rejects.toMatchObject({
       stderr: expect.stringMatching(/GITHUB_REPOSITORY must be OWNER\/REPO/),
+    });
+  });
+});
+
+/**
+ * One `gh` stub for the release scripts, keyed by the workflow path in the jq
+ * filter and answering from a fixture. `gh` is the only thing faked — it is the
+ * only thing these scripts talk to — so the scripts run for real and their own
+ * logic is what is under test.
+ *
+ * The `*` in a fixture pattern is escaped before the comparison, because an
+ * unquoted `*` on the right of `[[ == ]]` is a glob: it matches nothing, which
+ * looks exactly like an API that never answers.
+ */
+async function withStubbedGh<T>(
+  fixtures: Record<string, string>,
+  run: (dir: string, env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "release-script-"));
+  const rules = Object.entries(fixtures).map(([pattern, answer]) => `${pattern}\t${answer}`);
+  await writeFile(
+    join(dir, "gh"),
+    `#!/usr/bin/env bash
+# Matched against the whole command line, not one argument. The two release
+# scripts put the interesting string in different places — wait-for-main-gate.sh
+# filters inside its jq expression while resolve-tag-commit.sh passes the ref path
+# as the URL — and a stub that assumes either position matches nothing, which
+# reads as a broken script rather than a broken harness.
+query="$*"
+while IFS=$'\\t' read -r pat ans; do
+  [[ -z "$pat" ]] && continue
+  needle="\${pat//\\*/\\\\*}"
+  if [[ "$query" == *"$needle"* ]]; then
+    if [[ "$ans" == "FAIL" ]]; then echo "gh: API error" >&2; exit 1; fi
+    printf '%s\\n' "$ans"
+    exit 0
+  fi
+done <<< "$(cat "$GH_FIXTURE")"
+echo "gh: nothing matched" >&2
+exit 1
+`,
+  );
+  await chmod(join(dir, "gh"), 0o755);
+  const fixture = join(dir, "fixtures");
+  await writeFile(fixture, `${rules.join("\n")}\n`);
+  // The child env is built here rather than at each call site: a stub with no
+  // `GH_FIXTURE` reads an empty path and reports "nothing matched", which looks
+  // like a broken script rather than a broken harness.
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}`, GH_FIXTURE: fixture };
+  try {
+    return await run(dir, env);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+describe("assert-tag-names.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/assert-tag-names.sh");
+  const COMMIT = "ccfcd40cad56ee4ce9ad199b5ea7dbee69afdb44";
+  const OTHER = "51e359e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  async function assertTag(tagResolvesTo: string, expected: string, gated?: string) {
+    return withStubbedGh({ "git/ref/tags/v1.0.0": `commit ${tagResolvesTo}` }, (_dir, env) =>
+      execFileAsync(
+        "bash",
+        [script, "arpitdalal/PocketCircle", "v1.0.0", expected, ...(gated ? [gated] : [])],
+        {
+          // Run from the repo root so the script's `./scripts/…` call resolves,
+          // exactly as it does in a workflow's checkout.
+          cwd: join(import.meta.dirname, "../.."),
+          env,
+        },
+      ),
+    );
+  }
+
+  it("passes when the tag names what the run is deploying", async () => {
+    const { stdout } = await assertTag(COMMIT, COMMIT);
+    expect(stdout).toContain("which is what this run deploys");
+  });
+
+  it("refuses when the tag was moved after the run started", async () => {
+    // The whole reason the script exists: `github.sha` is fixed for the run, so a
+    // tag naming anything else is a version whose name and its content disagree.
+    await expect(assertTag(OTHER, COMMIT)).rejects.toMatchObject({
+      stderr: expect.stringMatching(/was moved after the run started/),
+    });
+  });
+
+  it("refuses when the run did not resolve to the commit Release gated", async () => {
+    // The loop a tag-only check cannot see: the run resolved to B before the tag
+    // moved back to A, so the tag agrees while the deploy does not.
+    await expect(assertTag(OTHER, OTHER, COMMIT)).rejects.toMatchObject({
+      stderr: expect.stringMatching(/Release gated/),
+    });
+  });
+
+  it("ignores the gate check when there is no gate, as a hand-pushed tag has", async () => {
+    // For a hand-pushed tag the run and the gate are the same commit by
+    // construction, so asserting it would prove nothing.
+    const { stdout } = await assertTag(COMMIT, COMMIT);
+    expect(stdout).toContain("which is what this run deploys");
+  });
+
+  it("dereferences an annotated tag rather than comparing the tag object's SHA", async () => {
+    // The ref endpoint reports the tag object for an annotated tag, which is never
+    // the commit anything deploys — and every hand-pushed release tag in this
+    // repo's history is annotated.
+    await withStubbedGh(
+      {
+        "git/ref/tags/v1.0.0": `tag ${"bacffa5655555555555555555555555555555555"}`,
+        "git/tags/": `commit ${COMMIT}`,
+      },
+      async (_dir, env) => {
+        const { stdout } = await execFileAsync(
+          "bash",
+          [script, "arpitdalal/PocketCircle", "v1.0.0", COMMIT],
+          { cwd: join(import.meta.dirname, "../.."), env },
+        );
+        expect(stdout).toContain("which is what this run deploys");
+      },
+    );
+  });
+
+  it("rejects a SHA that is not a commit hash, before touching the API", async () => {
+    await expect(assertTag(COMMIT, "main")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/not a commit SHA/),
+    });
+  });
+});
+
+describe("wait-for-deploy.sh", () => {
+  const script = join(import.meta.dirname, "../../scripts/wait-for-deploy.sh");
+  const SHA = "ccfcd40cad56ee4ce9ad199b5ea7dbee69afdb44";
+  // The `cut` job specifically: the wait only holds anything while it is in the
+  // same job as the dispatch, since that is the job the `release` concurrency
+  // group covers.
+  const cut = (() => {
+    const release = readFileSync(
+      join(import.meta.dirname, "../../.github/workflows/release.yml"),
+      "utf8",
+    );
+    const jobs = release.slice(release.indexOf("\njobs:\n"));
+    const starts = [...jobs.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gm)];
+    return jobs.slice(starts[1].index, starts[2]?.index ?? jobs.length);
+  })();
+
+  async function waitForDeploy(verdict: string) {
+    return withStubbedGh({ "workflows/deploy.yml": verdict }, (_dir, stubEnv) =>
+      execFileAsync(
+        "bash",
+        [script, "arpitdalal/PocketCircle", ".github/workflows/deploy.yml", SHA],
+        {
+          // A zero timeout turns the waiting paths into a single poll, so a test
+          // for "waits" asserts the wait without spending the two-hour bound.
+          env: { ...stubEnv, DEPLOY_WAIT_SECONDS: "0", DEPLOY_POLL_SECONDS: "0" },
+        },
+      ),
+    );
+  }
+
+  it("returns once the deploy succeeds", async () => {
+    const { stdout } = await waitForDeploy("success");
+    expect(stdout).toContain("finished successfully");
+  });
+
+  it("fails the release when the deploy does not succeed", async () => {
+    // A release whose deploy failed must not read as a green run, or the next
+    // release is cut believing the last one shipped.
+    await expect(waitForDeploy("failure")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/did not ship/),
+    });
+  });
+
+  it("waits rather than concluding while the deploy is still running", async () => {
+    await expect(waitForDeploy("running")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/still 'running'/),
+    });
+  });
+
+  it("waits before the dispatched run exists", async () => {
+    // The dispatch is accepted before the run appears in the API, so `not-started`
+    // is the normal first observation, not a failure.
+    await expect(waitForDeploy("not-started")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/still 'not-started'/),
+    });
+  });
+
+  it("treats an API error as unknown rather than as a failed deploy", async () => {
+    // Refusing a release because GitHub was briefly unreachable would be a false
+    // negative on the one thing this waits for.
+    await expect(waitForDeploy("FAIL")).rejects.toMatchObject({
+      stderr: expect.stringMatching(/still 'unreadable'/),
+    });
+  });
+
+  it("is what holds the release lock open until the deploy finishes", () => {
+    // The stranded-version path: the dispatch returns immediately, so without
+    // this the `release` group frees while `deploy.yml`'s own `production` group
+    // still has a pending run, and a third release replaces it — after the
+    // second one's tag is already cut.
+    const dispatch = cut.indexOf("gh workflow run deploy.yml");
+    const wait = cut.indexOf("./scripts/wait-for-deploy.sh");
+    expect(dispatch).toBeGreaterThan(-1);
+    expect(wait).toBeGreaterThan(dispatch);
+    // In the `cut` job, so the `release` concurrency group is still held while
+    // the deployment runs — which is the entire reason to wait. A wait anywhere
+    // else would end with the group and buy nothing.
+  });
+
+  it("rejects arguments that are not a repo, a workflow and a commit", async () => {
+    const run = (args: string[]) =>
+      execFileAsync("bash", [script, ...args], { cwd: join(import.meta.dirname, "../..") });
+    await expect(run(["arpitdalal/PocketCircle"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/exactly three arguments, got 1/),
+    });
+    await expect(run(["norepo", ".github/workflows/deploy.yml", SHA])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/OWNER\/REPO/),
+    });
+    await expect(run(["o/r", ".github/workflows/deploy.yml", "main"])).rejects.toMatchObject({
+      stderr: expect.stringMatching(/not a commit SHA/),
     });
   });
 });

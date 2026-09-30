@@ -82,64 +82,23 @@ jobs:
       - name: Validate release notes
         run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
 
-      # The tag is re-read here and required to still name the commit this run is
-      # about to deploy, BEFORE anything is deployed. This is the same hazard the
-      # release job checks for again before publishing, caught at the cheaper end.
+      # The tag is checked here and again immediately before the first live write,
+      # by `scripts/assert-tag-names.sh`. Both calls are load-bearing: this one fails
+      # in seconds rather than after `pnpm install`, `pnpm validate` and two
+      # production builds, and the other is the only one that is still true when
+      # the mutation happens. Everything between the two is a long stretch of work,
+      # and the question that matters — does the tag still name what I am about to
+      # ship? — is only worth asking as late as possible.
       #
-      # A tag is protected from the moment a release *exists* rather than the
-      # moment it is created, so one moved during the minutes this run spends in
-      # E2E and waiting on approval would otherwise leave the tag naming a commit
-      # production is not running. Everything below this step mutates production:
-      # the Convex env writes, the push-delivery gate, the backend deploy, both
-      # Workers. `--verify-tag` on the release publish does not help, and
-      # `--target` does not either: it would publish a release attesting to a
-      # commit production is not running, which is worse than not publishing at
-      # all. The answer has to come before the first mutation, which is here.
-      #
-      # Two checks, and the first is unconditional rather than gated on Release
-      # having dispatched. An earlier version skipped the whole step without a
-      # `gate_sha`, which left the emergency hand-push path — the one the README's
-      # rollback runbook uses, and the one where nobody is watching closely —
-      # without any tag check before production at all. Whichever way the run was
-      # triggered, `GITHUB_SHA` is what every checkout below pins, so the tag
-      # naming anything else is a version whose name and content disagree.
+      # `--verify-tag` on the release publish does not help, and `--target` does
+      # not either: it would publish a release attesting to a commit production is
+      # not running, which is worse than not publishing at all. The answer has to
+      # come before the first mutation.
       - name: Refuse a tag that no longer names the commit being deployed
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          GATE_SHA: ${{ inputs.gate_sha }}
-        run: |
-          set -euo pipefail
-          # Both halves are required, and the second is the one that closes the
-          # loop: `GITHUB_SHA` is fixed for this run and is what every checkout
-          # below uses, while `named` is re-read from a tag that can move.
-          #
-          # Checking only the tag leaves a window the tag check cannot see: moved
-          # from gated commit A to B before this run resolved its SHA, so
-          # `GITHUB_SHA` is B, then back to A during E2E. `named == GATE_SHA`
-          # passes, both checkouts stay pinned to B, and the deploy mutates
-          # production with a commit the gate never cleared — while every check
-          # reported exactly what it was asked to report. Requiring
-          # `GITHUB_SHA == GATE_SHA` makes that impossible, because a run that
-          # resolved to the wrong commit cannot be repaired by the tag moving
-          # back.
-          #
-          # A hand-pushed tag passes no `gate_sha` and skips this entirely: the
-          # person pushing it is the one making the statement, and there is no
-          # gated commit for it to disagree with.
-          named="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$GITHUB_REF_NAME")"
-          if [ "$named" != "$GITHUB_SHA" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME names $named, but this run is pinned to $GITHUB_SHA. The tag moved after the run started. Refusing before anything is deployed."
-            exit 1
-          fi
-          # Only meaningful when Release dispatched: it is the same commit by
-          # construction for a tag pushed by hand, so requiring it there would
-          # assert nothing. Empty is the hand-push case, not a failure.
-          if [ -n "${GATE_SHA:-}" ] && [ "$GITHUB_SHA" != "$GATE_SHA" ]; then
-            echo "::error::This run resolved to $GITHUB_SHA but Release gated $GATE_SHA. The tag moved before the dispatch resolved it. Refusing before anything is deployed."
-            exit 1
-          fi
-          echo "$GITHUB_REF_NAME names $named, which is what this run deploys."
+        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ inputs.gate_sha }}"
 
       - run: pnpm install --frozen-lockfile
 
@@ -336,6 +295,16 @@ jobs:
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously
       # deployed Worker remain valid while the new Worker rolls out.
+      # The last possible moment before anything in this run writes to production.
+      # The guard near the top of the job was true when it ran and nothing since
+      # has re-asked; `pnpm install`, `pnpm validate` and both production builds sit
+      # between them, which is long enough for a tag to be moved.
+      - name: Re-check the tag immediately before the first production write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ inputs.gate_sha }}"
+
       - name: Sync MCP Worker verification keys to Convex
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

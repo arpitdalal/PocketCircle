@@ -276,3 +276,19 @@ jobs:
           # the deploy refuse at its first step, before touching anything.
           gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION" -f gate_sha="$SHA"
           echo "Dispatched deploy.yml for $VERSION against $SHA."
+
+      # Hold this workflow open until the deployment it dispatched is finished.
+      #
+      # `gh workflow run` returns as soon as the dispatch is accepted, so without
+      # this the `release` concurrency group is released while the production run is
+      # still going. `deploy.yml` serializes on its own `production` group, which
+      # allows one running and one pending run and replaces a pending one when a
+      # third arrives — so releasing A, then B (queued behind A), then C would
+      # replace B's pending deploy with C's. B's tag is already cut by then: B
+      # never deploys and never publishes, which is the stranded version this whole
+      # workflow exists to prevent, reached by releasing twice rather than failing
+      # once. Waiting keeps the lock held for the whole release.
+      - name: Wait for the deployment to finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/wait-for-deploy.sh "${{ github.repository }}" ".github/workflows/deploy.yml" "$SHA"
