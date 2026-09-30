@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { LOCAL_APP_VERSION, resolveAppRelease, resolveAppVersion } from "./resolve-app-version.js";
 
 const execFileAsync = promisify(execFile);
@@ -94,6 +95,26 @@ const release = readFileSync(
 const deploy = readFileSync(
   join(import.meta.dirname, "../../.github/workflows/deploy.yml"),
   "utf8",
+);
+
+/**
+ * The same two workflows, parsed.
+ *
+ * The text above is for asserting on a script body, where the source *is* the
+ * subject. Concurrency configuration is not a script: `queue: max` is a grammar
+ * fact about a mapping, and a regex over the file cannot tell a key that GitHub
+ * reads from one that merely appears in a comment, cannot tell a workflow-level
+ * group from a job-level one spelled the same way, and would happily match a file
+ * GitHub rejects as invalid. Reading the parsed document settles all three, and
+ * also makes the file fail to parse if it stops being a workflow.
+ */
+const parsed = Object.fromEntries(
+  ["release", "deploy"].map((name) => [
+    name,
+    parseYaml(
+      readFileSync(join(import.meta.dirname, `../../.github/workflows/${name}.yml`), "utf8"),
+    ),
+  ]),
 );
 
 /**
@@ -328,7 +349,10 @@ describe("release workflow", () => {
     // somebody is waiting on. A *pending* run is still replaced by a newer one,
     // which is the right way round here: a second dispatch is a correction of
     // the first, and the newest request is the one that should run.
-    expect(release).toMatch(/concurrency:\n {2}group: release\n {2}cancel-in-progress: false/);
+    expect(parsed.release.concurrency).toEqual({
+      group: "release",
+      "cancel-in-progress": false,
+    });
   });
 
   it("never replaces a production deploy that is already queued", () => {
@@ -342,13 +366,30 @@ describe("release workflow", () => {
     // the stranded-version failure this workflow exists to prevent, arriving
     // through the queue rather than through the tag. `queue: max` is GitHub's own
     // answer, and it has to be explicit: absent, the default is `single`.
-    expect(deploy).toMatch(
-      /concurrency:\n {2}group: production\n {2}cancel-in-progress: false\n {2}queue: max/,
-    );
-    // And it is a queue, not a licence to abandon a deploy half-done. The two
-    // together are the whole contract, and GitHub rejects the combination of
-    // `queue: max` with `cancel-in-progress: true` as a validation error.
-    expect(deploy).not.toMatch(/concurrency:\n(?:[^\n]*\n)*? {2}cancel-in-progress: true/);
+    //
+    // Asserted on the whole mapping with `toEqual` rather than by matching the
+    // text, so this also fails if the key is dropped, renamed, given a value
+    // outside GitHub's `single | max` enum, or moved onto a job instead of the
+    // workflow group — none of which a substring check can see, and all of which
+    // would leave the deploy group's real behaviour quietly reverted to `single`.
+    expect(parsed.deploy.concurrency).toEqual({
+      group: "production",
+      "cancel-in-progress": false,
+      queue: "max",
+    });
+    // It is a queue, not a licence to abandon a deploy half-done. GitHub rejects
+    // the combination of `queue: max` with `cancel-in-progress: true` as a workflow
+    // validation error, so the two are read together on purpose.
+    expect(parsed.deploy.concurrency["cancel-in-progress"]).toBe(false);
+
+    // And no job may declare its own `concurrency`, because a job-level group
+    // *overrides* the workflow-level one for that job. Adding one to `deploy` would
+    // restore `queue: single` for the only job that matters while leaving the
+    // mapping above correct and intact — so the override has to be ruled out
+    // explicitly rather than assumed absent.
+    for (const [name, job] of Object.entries(parsed.deploy.jobs)) {
+      expect(job, `deploy.yml job "${name}"`).not.toHaveProperty("concurrency");
+    }
   });
 
   it("queues deploys but not releases, and says why", () => {
@@ -356,8 +397,8 @@ describe("release workflow", () => {
     // load-bearing: a pending *release* has cut nothing, so replacing it strands no
     // version, while a pending *deploy* already has a tag cut for it. Pinning the
     // asymmetry stops a future reader from "fixing" one group to match the other.
-    expect(release).not.toMatch(/concurrency:\n(?:[^\n]*\n)*? {2}queue:/);
-    expect(deploy).toMatch(/queue: max/);
+    expect(parsed.release.concurrency).not.toHaveProperty("queue");
+    expect(parsed.deploy.concurrency).toHaveProperty("queue", "max");
   });
 });
 
