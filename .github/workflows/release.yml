@@ -210,12 +210,31 @@ jobs:
               rm -f "$err"
               exit 1
             fi
-            echo "No release published for $VERSION. Deleting the tag at $existing and re-cutting at $SHA."
+            # Delete AND recreate, in this step. Deleting alone would leave the
+            # name absent, and the very next step dispatches the deploy against
+            # `refs/tags/$VERSION` — so the documented recovery would fail at the
+            # dispatch and need a second, unexpected Release run to finish.
+            #
+            # Recreating here also means the version is never absent from the
+            # repository between runs: a ref that exists naming the wrong commit
+            # is recoverable and visible, whereas a name that has vanished looks
+            # like a release that was cut and is now being rewritten.
+            echo "No release published for $VERSION. Re-cutting it from $existing to $SHA."
             if ! gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION" >/dev/null 2>>"$err"; then
               echo "::error::Could not delete refs/tags/$VERSION, so $VERSION cannot be re-cut at $SHA:"
               cat "$err" >&2
               exit 1
             fi
+            if ! gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>>"$err"; then
+              # The tag is gone and not replaced. Saying so plainly matters: this is
+              # the one window where the name does not exist at all, and an operator
+              # who is not told will read the next failure as a version collision.
+              echo "::error::Deleted refs/tags/$VERSION but could not re-cut it at $SHA. The name now exists nowhere; re-run this workflow with the same version to cut it fresh."
+              cat "$err" >&2
+              exit 1
+            fi
+            echo "$VERSION now names $SHA."
           else
             echo "$VERSION already names $SHA — reusing it."
           fi

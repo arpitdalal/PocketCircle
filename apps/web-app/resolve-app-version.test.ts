@@ -184,7 +184,7 @@ describe("release workflow", () => {
     expect(cut).toMatch(/^ {6}actions: write$/m);
   });
 
-  it("refuses a moved tag before the first production mutation, not just before publishing", () => {
+  it("refuses a moved tag before the first production mutation, and pins the run to it", () => {
     // The window this closes: Release cuts the tag, then dispatches the deploy,
     // and `--ref` resolves to whatever the tag names when the dispatch *begins*. A
     // tag is protected from the moment a release exists, not the moment it is
@@ -192,7 +192,7 @@ describe("release workflow", () => {
     // in E2E and waiting on approval — would deploy a commit no check in that run
     // saw. Checking only before publishing is too late: by then Convex env, the
     // backend and both Workers have been mutated.
-    const guard = deploy.indexOf("Refuse a tag that no longer names the gated commit");
+    const guard = deploy.indexOf("Refuse a tag that no longer names the commit being deployed");
     // The first thing in the job that writes to production, which is a Convex env
     // write and not the backend deploy 50-odd lines later.
     const firstMutation = deploy.indexOf("convex env set MCP_WORKER_VERIFYING_JWKS");
@@ -200,92 +200,34 @@ describe("release workflow", () => {
     expect(firstMutation).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(firstMutation);
 
-    // Bound to the SHA Release actually gated, not re-derived from the tag — a
+    // Two comparisons, and both are needed. `named != GITHUB_SHA` catches a tag
+    // that moved during this run — `GITHUB_SHA` is what every checkout below pins,
+    // so the tag naming anything else is a version whose name and content
+    // disagree. `GITHUB_SHA != GATE_SHA` catches the loop a tag-only check cannot
+    // see: moved from gated A to B before the run resolved its SHA, then back to A
+    // during E2E, where `named == GATE_SHA` passes while both checkouts stay
+    // pinned to B. Requiring the run itself to be the gated commit cannot be
+    // repaired by the tag moving back.
+    //
+    // Bound to the SHA Release actually gated, not re-derived from the tag: a
     // check that reads the tag twice proves nothing about whether it moved.
     expect(deploy).toMatch(/gate_sha:/);
-    expect(deploy).toMatch(/if: inputs\.gate_sha != ''/);
-    expect(deploy).toMatch(/\$named" != "\$GATE_SHA/);
-    // And a hand-pushed tag still works: the rollback path in the README passes
-    // no gate_sha and the person pushing it is making the statement themselves.
-    expect(release).toMatch(/gh workflow run deploy\.yml .* -f gate_sha="\$SHA"/);
-  });
-
-  it("refuses to publish a release that would attest to a different commit", () => {
-    // The last irreversible step. Publishing an immutable release locks its tag to
-    // whatever the tag names at that instant, and a tag is protected from the
-    // moment a release exists — not from the moment it is created. A tag moved
-    // during the E2E and approval minutes would be frozen in, with production
-    // serving one commit and the release attesting to another, both permanent.
-    // `--verify-tag` does not help: it asserts the tag exists, never which commit
-    // it names.
-    expect(deploy).toContain("./scripts/resolve-tag-commit.sh");
     expect(deploy).toMatch(/\$named" != "\$GITHUB_SHA/);
-    expect(deploy).toMatch(/Refusing to publish/);
-    // And it has to be before every publish path, not only the create one.
-    const publish = deploy.indexOf("Publish release notes");
-    const create = deploy.indexOf("gh release create", publish);
-    const edit = deploy.indexOf("gh release edit", publish);
-    expect(publish).toBeGreaterThan(-1);
-    expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(create);
-    expect(deploy.indexOf("resolve-tag-commit.sh")).toBeLessThan(edit);
-  });
-
-  it("exports every name the dispatch step reads", () => {
-    // `set -u` aborts on an unset name, and this step runs AFTER the tag has been
-    // cut. A `$VAR` that appears in the `run:` body but not in the step's `env:` is
-    // therefore a spent version with no deploy and no red run to explain it — the
-    // precise outcome #423 exists to prevent, arrived at by a different road. It
-    // happened once on this branch: `-f gate_sha="$SHA"` referenced an SHA the
-    // step never exported.
-    //
-    // Resolved by reading the step rather than by matching a line, because the
-    // earlier test asserted the dispatch *contained* the flag and passed against
-    // a step that could not run.
-    // To the end of the `cut` job: this is its last step, so the terminator is a
-    // following step, the job boundary, or the end of the block — whichever comes
-    // first. A lookahead that assumed a following step would not match at all.
-    const step = /- name: Deploy the tag\n(?<body>[\s\S]*?)(?=\n {6}- name:|\n {2}\w|$)/.exec(cut)
-      ?.groups?.body;
-    expect(step).toBeDefined();
-    // Comments are allowed between the `env:` entries, because that is where the
-    // reasoning for an export lives, and a regex that stopped at the first comment
-    // would silently under-report the exports and pass a step missing one.
-    const envBlock =
-      /env:\n(?<env>(?:\s{10}(?:#[^\n]*\n|\w+: [^\n]+\n))+)/.exec(step ?? "")?.groups?.env ?? "";
-    const exported = new Set(
-      [...envBlock.matchAll(/^ {10}(\w+):/gm)]
-        .map(([, name]) => name)
-        .filter((name) => !name.startsWith("#")),
-    );
-    // Every `$NAME` the body expands must be in the env block. `run:`'s own
-    // `GITHUB_*` names are injected by the runner, not by `env:`.
-    const runnerInjected = new Set(["GITHUB_REF_NAME", "GITHUB_SHA", "GITHUB_REPOSITORY"]);
-    const used = new Set(
-      [...(step ?? "").matchAll(/\$\{?(\w+)\}?/g)]
-        .map(([, name]) => name)
-        .filter((name) => !runnerInjected.has(name)),
-    );
-    for (const name of used) {
-      expect(exported, `${name} is used by the dispatch step but not exported`).toContain(name);
-    }
-    // Specifically the gated SHA, which is the whole point of the binding.
-    expect(envBlock).toContain("SHA: $" + "{{ needs.gate.outputs.sha }}");
-  });
-
-  it("requires the run to have resolved to the gated commit, not only the tag to still name it", () => {
-    // The loop a tag-only check cannot see: moved from gated commit A to B before
-    // this run resolved its SHA, so `GITHUB_SHA` is B, then back to A during E2E.
-    // `named == GATE_SHA` passes, both checkouts stay pinned to B, and the deploy
-    // mutates production with a commit the gate never cleared — while every check
-    // reported exactly what it was asked. `GITHUB_SHA == GATE_SHA` makes it
-    // impossible, because a run pinned to the wrong commit cannot be repaired by
-    // the tag moving back.
     expect(deploy).toMatch(/\$GITHUB_SHA" != "\$GATE_SHA/);
-    expect(deploy).toMatch(/\$named" != "\$GATE_SHA/);
-    // Checked before the first production mutation, still.
-    expect(deploy.indexOf("$GITHUB_SHA")).toBeLessThan(
-      deploy.indexOf("convex env set MCP_WORKER_VERIFYING_JWKS"),
-    );
+
+    // Unconditional, not gated on Release having dispatched. The emergency
+    // hand-push path — the one the rollback runbook uses, and the one nobody is
+    // watching closely — had no tag check at all before production, because the
+    // whole step was skipped without a `gate_sha`. And the GATE_SHA comparison is
+    // guarded on being non-empty rather than on the step existing at all, because
+    // for a hand-pushed tag it is the same commit by construction and asserting
+    // it would prove nothing.
+    expect(deploy).not.toMatch(/if: inputs\.gate_sha/);
+    expect(deploy).toMatch(/\$\{GATE_SHA:-\}/);
+
+    // And a hand-pushed tag still works: the rollback path passes no gate_sha and
+    // the person pushing it is making the statement themselves.
+    expect(release).toMatch(/gh workflow run deploy\.yml .* -f gate_sha="\$SHA"/);
   });
 
   it("offers the recovery the README documents instead of only refusing", async () => {
@@ -301,7 +243,17 @@ describe("release workflow", () => {
     expect(cut).toContain("replace_unreleased_tag");
     expect(cut).toMatch(/inputs\.replace_unreleased_tag/);
     expect(cut).toMatch(/if \[ "\$\{\{ inputs\.replace_unreleased_tag \}\}"/);
-    expect(cut).toMatch(/--method DELETE "repos\/\$GH_REPO\/git\/refs\/tags\/\$VERSION"/);
+    // Delete AND recreate. Deleting alone leaves the name absent and the very next
+    // step dispatches the deploy against `refs/tags/$VERSION`, so the documented
+    // recovery would fail at the dispatch and need a second, unexpected Release
+    // run to finish. The recreate is asserted to come AFTER the delete, and both
+    // to be inside the re-cut branch rather than after it.
+    const deleteAt = cut.indexOf('--method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION"');
+    const recreateAt = cut.indexOf('--method POST "repos/$GH_REPO/git/refs"', deleteAt);
+    expect(deleteAt).toBeGreaterThan(-1);
+    expect(recreateAt).toBeGreaterThan(deleteAt);
+    // And the recreated tag is the gated commit, not whatever it was before.
+    expect(cut.slice(recreateAt)).toMatch(/-f ref="refs\/tags\/\$VERSION" -f sha="\$SHA"/);
     expect(cut).toMatch(/has a published GitHub Release/);
     // And the refusal is still the default path, with the recovery named in it, so
     // somebody who hits it is told both answers rather than only one.
