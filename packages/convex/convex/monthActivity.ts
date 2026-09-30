@@ -22,7 +22,7 @@ import type { OperationReader } from "./operationReader.js";
  * before the next month's prefix — letting a date-ordered index (`by_circle_status_date`
  * or `by_circle_and_date`) range a month at the source instead of bucketing in memory
  * (ADR 0009 dates; README §4 index-backed reads). Shared by the month-scoped list, the
-* Ledger totals, and the Dashboard set so they never disagree about what a month contains.
+ * Ledger totals, and the Dashboard set so they never disagree about what a month contains.
  */
 export function monthDateRange(month: string): { start: string; endExclusive: string } {
   return { start: month, endExclusive: addMonths(month, 1) };

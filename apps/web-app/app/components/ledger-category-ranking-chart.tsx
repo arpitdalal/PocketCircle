@@ -54,7 +54,9 @@ export function toCategoryRankingBars(ranking: CategoryRankingRow[]): RankingBar
  * Category name lives in the tooltip and the sr-only table.
  */
 function truncateCategoryTick(name: string) {
-  return name.length > CATEGORY_TICK_MAX_CHARS ? `${name.slice(0, CATEGORY_TICK_MAX_CHARS - 1)}…` : name;
+  return name.length > CATEGORY_TICK_MAX_CHARS
+    ? `${name.slice(0, CATEGORY_TICK_MAX_CHARS - 1)}…`
+    : name;
 }
 
 const CATEGORY_TICK_MAX_CHARS = 14;
