@@ -50,6 +50,16 @@ export function toCategoryRankingBars(ranking: CategoryRankingRow[]): RankingBar
 }
 
 /**
+ * Axis labels stay short so a busy month doesn't turn into overlapping text: the full
+ * Category name lives in the tooltip and the sr-only table.
+ */
+function truncateCategoryTick(name: string) {
+  return name.length > CATEGORY_TICK_MAX_CHARS ? `${name.slice(0, CATEGORY_TICK_MAX_CHARS - 1)}…` : name;
+}
+
+const CATEGORY_TICK_MAX_CHARS = 14;
+
+/**
  * Recharts visual for the Monthly Ledger's Category Ranking — its own chunk so the Ledger
  * route stays light. Vertical bars diverging from a zero baseline: income above, expense
  * below. Bars are independent magnitudes, NOT parts of a whole — a Transaction's full
@@ -106,6 +116,7 @@ export function LedgerCategoryRankingChart({
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             dataKey="name"
+            tickFormatter={truncateCategoryTick}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
             tickLine={false}
             axisLine={{ stroke: "var(--border)" }}
@@ -132,6 +143,7 @@ export function LedgerCategoryRankingChart({
             dataKey="signedMinor"
             name="Tagged total"
             shape={renderRankingBar}
+            maxBarSize={48}
             isAnimationActive={chartAnimationActive}
             animationDuration={SCOPE_CHART_ANIMATION_MS}
             animationEasing="ease-out"
