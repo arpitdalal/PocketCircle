@@ -311,38 +311,19 @@ answer is possible.
 Configure the GitHub `production` environment before the first deployment:
 
 - Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
-- Add at least one required reviewer. Do **not** rely on **Prevent self-review** —
-  it compares the approver against a bot, so it approves nothing (see below).
+- Add at least one required reviewer. See the self-review limitation below.
 
-⚠️ **Two-person approval does not work the way it reads, and pretending otherwise
-is worse than saying so.** The Release workflow dispatches `deploy.yml` with
-`GITHUB_TOKEN`, so the deployment is initiated as `github-actions[bot]`, not as
-the person who ran Release. GitHub's "Prevent self-review" therefore compares the
-approver against the *bot*, which approves nothing — so the person who started the
-release can still approve its deployment, and enabling the setting would give the
-appearance of a control that is not there. On a single-maintainer repository it is
-also not satisfiable: there is no second person.
+Release dispatches deployment using `GITHUB_TOKEN`, so GitHub attributes it to
+`github-actions[bot]`. Prevent self-review therefore cannot enforce a second human
+approver. If two-person approval is needed, assign a reviewer other than the
+Release initiator.
 
-The real controls are the gate (no tag is cut on a commit `main` has not cleared)
-and the audit trail (`gh release list`, and the Actions log of who dispatched
-what). If a genuine second approver is ever needed, it has to be a person who is
-not the Release initiator approving the `production` environment — a rule about
-roles, not about self-review, because the platform no longer sees the human.
+Enable **Settings → General → Releases → Enable release immutability**. Published
+release tags are locked; prepared draft releases remain editable for recovery.
+Do not add a blanket `v*` ruleset blocking tag updates, which would also prevent
+correcting a version that never touched production.
 
-Tag immutability comes from **Settings → General → Releases → Enable release
-immutability**, not from a hand-written ruleset. GitHub's own feature locks a tag
-at the moment a release is published against it and leaves a tag with no release
-mutable, which is exactly the distinction that matters: the thing worth protecting
-is the history of what Users received, not the history of what was attempted. A
-hand-written `v*` ruleset restricting updates and deletion cannot tell those apart,
-so it also blocks the correction of a release that never deployed — which is how
-v0.8.1 ended up as a permanent tag on a commit whose deploy failed
-([#423](https://github.com/arpitdalal/PocketCircle/issues/423)).
-
-Two releases on the same day are ordinary and supported. Nothing keys on the date:
-`packages/domain/src/changelog.ts` identifies a release by its version, and every
-consumer of that (the unread badge, both What's New surfaces) keys on the version
-too. `v0.8.0` and `v0.8.1` are both dated 2026-09-27.
+Two releases can share a date; changelog consumers identify them by version.
 
 The release workflow runs the real E2E suite again, waits for the production
 approval, then deploys only an immutable stable SemVer tag (`vMAJOR.MINOR.PATCH`).
@@ -678,9 +659,8 @@ the commits have to reach `main`, not just the tags:
 #    (git revert -m 1 <#412 SHA> && git push origin HEAD:main)
 #    Then run the **Release** workflow on main with version=vA.B.C, which gates the
 #    commit, cuts the tag and dispatches the deploy. During an incident, pushing the
-#    tag by hand instead (`git tag vA.B.C && git push origin vA.B.C`) still works and
-#    still triggers deploy.yml — it just skips the gate, which during a rollback is
-#    the trade you are there to make.
+#    tag by hand still triggers deploy.yml and applies the same identity and
+#    version-ordering guards. Use a newer version for rollback; prefer the gated Release workflow.
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
@@ -840,136 +820,50 @@ Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.
 
-First prepare the versioned `CHANGELOG.md` section on `main` and get it merged
-(the repo-local `$generate-changelog` skill drafts it). The heading must be
-exactly `## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD` with at least one bullet or
-paragraph under it, and the deployment workflow publishes that section as the
-GitHub Release only after production succeeds.
+Prepare and merge a versioned `CHANGELOG.md` section on `main`, using
+`## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD` with substantive notes. Then run
+**Actions → Release → Run workflow** from `main`, supplying that version.
 
-Then run the **Release** workflow on `main` (**Actions → Release → Run workflow**)
-with `version` set to the same `vMAJOR.MINOR.PATCH`:
+Release waits for successful CI and E2E push runs on the dispatch's exact SHA.
+Only then does it create the tag, create a **prepared draft GitHub Release**, and
+dispatch deployment on the tag. The deploy checks out that exact SHA and verifies
+that the tag still names it. Merges to `main` never deploy automatically.
 
-```sh
-# What the workflow does, for reading rather than for running:
-#   wait for main's CI + E2E to be green on the commit   ->  tag vX.Y.Z  ->  deploy.yml
-```
+Tag edits and deployments share the `production` concurrency group with
+`cancel-in-progress: false` and `queue: max`. This prevents a tag correction from
+racing a deployment and keeps pending deploys from replacing one another.
+GitHub does not guarantee dispatch order, so both Release and Deploy refuse
+versions older than any published or spent draft release.
 
-The gate is `main`'s own verdicts, **waited for rather than re-run**. Every push to
-`main` already runs typecheck, lint, the unit tests, both production builds, and
-the real E2E suite against a live Convex backend (ADR [0019](docs/adr/0019-e2e-against-self-hosted-convex-backend.md)),
-so there is nothing to re-run — only something to wait for, which normally
-returns on the first poll. `main` must be the branch you dispatch from, not merely
-a commit it once contained: a stale merged branch would pass an ancestry test and
-release code `main` has been superseded by, with every check green and nothing to
-report it.
-
-**Releases queue; they do not collide.** Two Release runs cannot overlap, because
-the `release` concurrency group lets a running one finish rather than cancelling
-it. But that lock covers only the Release run itself, which ends the moment the
-deploy is *dispatched* — so a second release can cut its tag and dispatch while the
-first deploy is still deploying. That is safe because the deploy workflow's
-`production` group is `queue: max`: a deploy that is already waiting stays in the
-queue instead of being replaced by a newer one.
-
-A second guard refuses a version that production has already moved past. A
-published GitHub Release is written only after a deploy succeeds, so the set of
-published tags is the record of what production has actually run; Release compares
-your version against the newest of them, in version order rather than string order
-(`v0.8.10` is newer than `v0.8.3`, which a string comparison gets backwards). This
-is what stops a documented recovery — re-running a failed version — from quietly
-becoming a rollback once a later release has gone out. The tag checks cannot catch
-it: they prove the tag names the commit being deployed, not that the commit is the
-newest production has seen.
-
-This is the one setting worth understanding before changing it. With GitHub's
-default `queue: single`, a newer pending deploy **cancels** the older pending one —
-and the older one's tag is already cut, so its version would be spent having changed
-nothing in production. That is precisely the stranded version #423 was filed about,
-arriving through the queue rather than through the tag. A consequence worth knowing:
-release three can therefore sit behind two, and production reaches the newest
-version only once the earlier deploys finish.
-
-**Do not push the tag by hand.** The tag is what makes a version number real —
-`51e359e2` (v0.8.1) was tagged onto a commit whose own CI run had already gone
-red, so the deploy re-ran the same `pnpm validate`, failed, and the fix shipped as
-v0.8.2 with v0.8.1 stranded on a deploy that never happened
-([#423](https://github.com/arpitdalal/PocketCircle/issues/423)). Gating before the
-tag is what makes a failed release cost nothing.
+Immediately before **Sync MCP Worker verification keys to Convex**, the first
+production write, Deploy changes the draft marker from **prepared** to **spent**.
+A spent draft means production may have changed, even if deployment later fails.
+Successful deployment publishes that draft with the changelog notes. A published
+version cannot be deployed again by this workflow.
 
 ### Recovering a failed release
 
-The question is not "is there a GitHub Release?" but **"did production move?"**
-`deploy.yml` mutates the Convex backend and both Workers *before* its release job
-runs, so a tag with no Release behind it is **not** evidence that nothing reached
-Users. The line that matters is the first production mutation, the **"Sync MCP
-Worker verification keys to Convex"** step — not the Convex deploy that follows
-it, which is the mistake this table used to make:
+| Failure | Recovery |
+| --- | --- |
+| Release gate | Fix on `main`, merge, retry the same version. No tag exists yet. |
+| Deploy before the production marker | Retry the same deploy. For a code fix, merge it and run Release with the same version and `replace_unreleased_tag=true`. Only a prepared draft permits moving the tag. |
+| Deploy at or after the production marker | Retry the same SHA while no newer version has reached production. A code change requires a new version. |
+| Publication after deployment | Re-run the failed publication job while no newer version has reached production. Keep the spent draft. |
+| Published or superseded version | Use a new version. For rollback, release the desired older code under a newer version. |
 
-| Where it failed | Production | What to do |
-| --- | --- | --- |
-| The Release workflow's gate | untouched — no tag was cut | Fix on `main`, merge, re-run Release with the **same** version |
-| `deploy.yml` before the MCP keys sync: config validation, `pnpm validate`, a build, E2E | untouched | **Re-run the failed `deploy.yml` run.** Same tag, same commit, same version — but only while no newer version has shipped. Once one has, re-running this would move production back to older code, so the release workflow refuses it and the version is simply superseded |
-| …and that failure needs a **code** change | untouched | Fix on `main`, merge, then re-run **Release** with the same version **and `replace_unreleased_tag=true`**. It checks that no run of that tag ever reached production, then deletes the old tag and cuts the fixed commit |
-| `deploy.yml` at or after the MCP keys sync | **moved** | Re-run it. If that succeeds, the version stands. If it needs a **code** change, the version is spent — take the next number and say so in `CHANGELOG.md` |
-| A tag that already has a GitHub Release | shipped | Immutable. A fix is a new version, always |
+**Never delete a prepared or spent draft to recover a release.** Its marker is the
+durable recovery record, independent of Actions run/log deletion. An API error
+stops the workflow; absence of readable history is never used as proof of safety.
+Unmanaged tags from before this workflow have no prepared marker and cannot be
+moved automatically. Retrying their exact SHA is conservative: the workflow records
+them as spent, so a later code change requires a new version.
 
-The boundary is the **"Sync MCP Worker verification keys to Convex"** step, not
-the backend deploy that follows it. That step runs `convex env set` against the
-live production deployment — verification keys, HMAC secrets, the Worker origin —
-and can fail partway through, leaving them partly updated. It is the first thing in
-the job that writes to production, which is why the deploy's tag check sits above
-it rather than beside the deploy.
+If tag creation succeeds but draft creation fails, retry Release at the same SHA.
+The unrecorded tag is treated conservatively as spent. If the draft was created but
+dispatch failed, retry Release with the same version and SHA.
 
-That is the whole cost model: **a version is only spent when the production change
-it named is wrong and cannot be finished by re-running.** Everything a re-run can
-fix — a flaky suite, an expired credential, a dropped connection, a wrong
-hostname — costs nothing but the re-run.
-
-`replace_unreleased_tag` is opt-in because "the deploy failed" and "the deploy
-failed before touching anything" look identical from *inside* the workflow — and
-the difference is what decides the answer. Once you opt in, the workflow does not
-take your word for it: `scripts/assert-release-unpublished.sh` reads GitHub's own
-record of the deploys and looks at **"Sync MCP Worker verification keys to
-Convex"**, the first step in the deploy that writes to production. The version is
-reusable only if that step reads `skipped` for **every attempt ever made at the
-tag** — every run of the tag, and every re-run of each of those. Anything else
-means it ran, and the version is spent.
-
-So you do not have to remember where your deploy failed, and a tag cannot be
-declared safe because its *most recent* attempt failed early: a tag accumulates
-attempts (re-running a failed job, a hand re-cut, a re-dispatch), and an earlier
-one may already be live. A run that has not finished is also treated as spent,
-since it may reach that step seconds from now.
-
-What the check cannot tell you is *how far into* that step it got — it issues four
-`convex env set` commands and GitHub reports one conclusion for all of them — so a
-failure there is treated as having reached production. That is deliberate: it
-costs a version number in a rare case rather than letting one version number
-identify two production states.
-
-A published GitHub Release refuses the re-cut regardless of the flag, because a
-published release reserves its tag name permanently.
-
-The one case the old `v*` ruleset made impossible and release immutability makes
-possible is the last-but-one: a tag with **no** release behind it is still
-deletable, because nothing was ever published under that name. A tag that *does*
-have one cannot be moved, and its name is reserved permanently — which is the
-guarantee worth having, and the reason a shipped version is genuinely spent
-instead of merely inconvenient to correct.
-
-That window is why the deploy re-reads the tag immediately before publishing and
-requires it to still name the commit it deployed. Publishing locks the tag to
-whatever it names at that instant, and the tag is protected from the moment a
-release *exists* rather than the moment it is created — so a tag moved during the
-E2E and approval minutes would otherwise be frozen in, leaving production serving
-one commit and the release attesting to another, both permanently.
-`gh release create --verify-tag` does not help: it asserts the tag exists, never
-which commit it names. `scripts/resolve-tag-commit.sh` is what both the deploy and
-the Release workflow use to answer that, and it dereferences annotated tags — the
-ref endpoint reports the tag *object*'s SHA for those, which is never the commit.
-
-The workflow fails before deployment when a required secret or Convex URL
-variable is missing.
+Two releases may share a date; version identifies them. Required configuration,
+release notes, builds, and E2E are validated before the first production write.
 
 ### End-to-end (Playwright)
 

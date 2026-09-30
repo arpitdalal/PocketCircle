@@ -3,49 +3,14 @@ name: Deploy Production
 on:
   push:
     tags: [v*]
-  # The Release workflow cuts the tag after gating the commit, and then dispatches
-  # this workflow on it: a tag pushed with GITHUB_TOKEN does not trigger
-  # `push: tags`, and waiting for a trigger that will not fire is how a release
-  # silently stops. Dispatched with `--ref vMAJOR.MINOR.PATCH`, this workflow runs
-  # against the tag ref itself, so everything below still reads the version from
-  # `GITHUB_REF_NAME` and the deploy is the same one a hand-pushed tag gets.
-  #
-  # A dispatch from a branch is not a release and cannot become one: the
-  # `production` environment's deployment branch policy allows the tag pattern
-  # `v*` and nothing else, so the deploy job is refused before it starts, and the
-  # SemVer gate below would refuse it too.
   workflow_dispatch:
     inputs:
       gate_sha:
-        description: >-
-          Commit the Release workflow gated. Required when dispatched by Release,
-          which cuts the tag and dispatches this in one run; omit it only when
-          pushing a tag by hand, where the tag itself is the only statement of
-          intent. A value that disagrees with the tag stops the deploy before it
-          touches production.
+        description: Commit validated by Release; must match this run's SHA
         required: false
         type: string
 
-# One production deployment at a time, and — the part that is easy to get wrong —
-# a *pending* deploy is queued, never replaced.
-#
-# Release cuts the tag and then dispatches this workflow, and the `release`
-# concurrency group in release.yml spans only the Release run, which ends the
-# moment the dispatch is created. So while one deploy is running, the next release
-# can already cut its tag and dispatch a second deploy, and the one after that a
-# third.
-#
-# With the default `queue: single`, GitHub keeps one running run and one pending
-# run, and a *newer* pending run replaces the older pending one. So the third
-# dispatch cancels the second: that version's tag is already cut, its deploy is
-# cancelled before it ever runs, and the version is spent having changed nothing
-# in production. That is the stranded-version failure this whole workflow exists
-# to prevent, reintroduced through the queue rather than through the tag.
-#
-# `queue: max` is GitHub's own answer to exactly this: up to 100 runs wait their
-# turn instead of replacing one another, so every dispatched deploy runs and no
-# version is stranded. `cancel-in-progress` stays false, because abandoning a
-# half-finished deploy is the one outcome worse than queueing behind it.
+# Share this lock with Release's tag edits; never replace an already queued deploy.
 concurrency:
   group: production
   cancel-in-progress: false
@@ -63,6 +28,8 @@ jobs:
     needs: verify
     name: Deploy
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     environment:
       name: production
       # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
@@ -74,14 +41,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          # `github.sha`, not `github.ref`. A tag stops being protected the moment
-          # it is created — immutability begins when a release is published against
-          # it, and a tag with no release is still deletable — so between this run
-          # starting and the release job finishing, the ref could be moved.
-          # `github.ref` would re-resolve the tag at each checkout and deploy
-          # whatever it points at by then, which may be a commit no check in this
-          # run ever saw. `github.sha` is the commit this run was dispatched
-          # against and is fixed for the run's whole life.
           ref: ${{ github.sha }}
 
       - uses: pnpm/action-setup@v6
@@ -103,30 +62,14 @@ jobs:
       - name: Validate release notes
         run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
 
-      # The tag is checked here and again immediately before the first live write,
-      # by `scripts/assert-tag-names.sh`. Both calls are load-bearing: this one fails
-      # in seconds rather than after `pnpm install`, `pnpm validate` and two
-      # production builds, and the other is the only one that is still true when
-      # the mutation happens. Everything between the two is a long stretch of work,
-      # and the question that matters — does the tag still name what I am about to
-      # ship? — is only worth asking as late as possible.
-      #
-      # `--verify-tag` on the release publish does not help, and `--target` does
-      # not either: it would publish a release attesting to a commit production is
-      # not running, which is worse than not publishing at all. The answer has to
-      # come before the first mutation.
-      - name: Refuse a tag that no longer names the commit being deployed
+      - name: Check release identity and ordering
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          # Through `env`, never template-expanded into the `run:` body. A
-          # `${{ }}` expression is substituted into the script text before bash
-          # parses it, so a crafted input is a command — and this job holds the
-          # deploy secrets. The script's own SHA validation happens far too late
-          # to be the thing that prevents it. An environment variable is a value,
-          # not code.
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
           GATE_SHA: ${{ inputs.gate_sha }}
-        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GATE_SHA"
+        run: node scripts/release.mjs check
 
       - run: pnpm install --frozen-lockfile
 
@@ -323,22 +266,14 @@ jobs:
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously
       # deployed Worker remain valid while the new Worker rolls out.
-      # The last possible moment before anything in this run writes to production.
-      # The guard near the top of the job was true when it ran and nothing since
-      # has re-asked; `pnpm install`, `pnpm validate` and both production builds sit
-      # between them, which is long enough for a tag to be moved.
-      - name: Re-check the tag immediately before the first production write
+      - name: Record production attempt before the first write
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          # Through `env`, never template-expanded into the `run:` body. A
-          # `${{ }}` expression is substituted into the script text before bash
-          # parses it, so a crafted input is a command — and this job holds the
-          # deploy secrets. The script's own SHA validation happens far too late
-          # to be the thing that prevents it. An environment variable is a value,
-          # not code.
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
           GATE_SHA: ${{ inputs.gate_sha }}
-        run: ./scripts/assert-tag-names.sh "$GH_REPO" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GATE_SHA"
+        run: node scripts/release.mjs mark
 
       - name: Sync MCP Worker verification keys to Convex
         env:
@@ -1254,15 +1189,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          # `github.sha`, not `github.ref`. A tag stops being protected the moment
-          # it is created — immutability begins when a release is published against
-          # it, and a tag with no release is still deletable — so between this run
-          # starting and the release job finishing, the ref could be moved.
-          # `github.ref` would re-resolve the tag at each checkout and deploy
-          # whatever it points at by then, which may be a commit no check in this
-          # run ever saw. `github.sha` is the commit this run was dispatched
-          # against and is fixed for the run's whole life.
           ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
 
       - name: Publish release notes
         env:
@@ -1274,27 +1205,7 @@ jobs:
           ./scripts/release-notes.sh "$version" > release-notes.md
           expected="$(tr -d '\r' < release-notes.md)"
 
-          # The tag is re-read here, immediately before publishing, and required
-          # to still name the commit this run deployed.
-          #
-          # This is the last irreversible step in a release, and it is the one
-          # place a moved tag turns into permanent damage: publishing an immutable
-          # release locks its tag to whatever that tag names at this instant. A
-          # tag is protected from the moment a release exists, not from the moment
-          # it is created, so anything that moved it in the minutes this run spent
-          # in E2E and waiting on approval would be frozen in — production serving
-          # `github.sha`, the release attesting to a different commit, and both
-          # claims permanent. `--verify-tag` does not help: it only asserts the tag
-          # exists, never which commit it names.
-          #
-          # Read by resolved commit, not by the ref's own SHA: an annotated tag
-          # reports the tag object's SHA, which is never the SHA being deployed.
-          named="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$version")"
-          if [ "$named" != "$GITHUB_SHA" ]; then
-            echo "::error::Tag $version now names $named, but this run deployed $GITHUB_SHA. Refusing to publish a release that would permanently attest to a different commit than production is running. The tag was moved after this run started; investigate before re-running."
-            exit 1
-          fi
-          echo "$version names $named, as deployed."
+          VERSION="$version" SHA="$GITHUB_SHA" node scripts/release.mjs assert-tag
 
           if ! gh release view "$version" >/dev/null 2>&1; then
             gh release create "$version" \

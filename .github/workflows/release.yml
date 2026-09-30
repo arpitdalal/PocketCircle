@@ -1,343 +1,72 @@
 name: Release
 
-# Cuts the release tag, and only once the commit it will name has passed
-# everything. This workflow exists because of v0.8.1 (#423).
-#
-# The tag is what makes a version number real. Once `refs/tags/v*` carries a
-# release it is immutable, and GitHub reserves the name permanently — so a
-# version that produced a tag cannot be re-cut. v0.8.1 was tagged by hand onto
-# 51e359e2, a commit whose own CI run on `main` had already gone red; the deploy
-# re-ran the same `pnpm validate`, failed at step 8 of 25, deployed nothing, and
-# the fix shipped as v0.8.2 with v0.8.1 stranded on a deploy that never
-# happened. A tag cut by hand, before anything had checked the commit, is a
-# version spent before there is anything to show for it.
-#
-# So the tag is cut here, at the end, from a commit `main` has already cleared.
-#
-# The gate is main's own CI and E2E verdicts, waited for rather than re-run.
-# Every push to `main` already runs typecheck, lint, the unit tests, both
-# production builds and the real Playwright suite against a live Convex backend
-# (ADR 0019). That is a strictly larger gate than re-running `pnpm validate` and
-# two builds here would be, because it includes the E2E — and it costs seconds
-# instead of the nine minutes a second run of the suite would put on every
-# release. It is also the honest question: not "does this pass again" but "did
-# the commit this tag will name, forever, pass".
-#
-# Waiting also means the common case never waits: main is normally already green,
-# and the step returns on its first poll.
-
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Stable SemVer to release, e.g. v0.8.3
+        description: Stable SemVer, e.g. v0.8.3
         required: true
         type: string
       replace_unreleased_tag:
-        description: >-
-          Re-cut this version when its existing tag names a DIFFERENT commit and
-          the failed deploy never reached production. Only for a failure known to
-          have stopped before the first production mutation; see the recovery
-          table in the README. Refuses if the version has a GitHub Release.
-        required: false
+        description: Move a prepared release tag after a fix, only before production was touched
         default: false
         type: boolean
 
 permissions:
   contents: read
 
-# One release at a time. A run in progress is never cancelled — it is holding the
-# gate for a version somebody is waiting on. A pending run is replaced by a newer
-# pending one, which is the right way round here: a second dispatch is a
-# correction of the first, and the newest request is the one that should run.
-#
-# This is deliberately *not* `queue: max`, unlike deploy.yml's `production` group,
-# and the difference is the whole point rather than an inconsistency. A pending run
-# of *this* workflow has cut nothing, so replacing it strands no version. A pending
-# *deploy* already has a tag cut for it, so it has to queue instead of being
-# replaced — see the comment on `production` in deploy.yml.
-#
-# The lock deliberately spans only this run, not the deploy it dispatches. Holding
-# it through the deployment would mean polling for a run this workflow did not
-# create, on an API with a visibility delay on exactly that run, against a
-# `production` approval that can be pending for as long as a human takes. Instead
-# the deploy queues in `production`, which is what makes the next release safe.
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   gate:
-    name: Gate release
     runs-on: ubuntu-latest
     permissions:
-      # Spelled out even though it equals the workflow-level map, because a
-      # job-level `permissions` REPLACES the workflow-level one and sets every
-      # scope it does not name to `none` — it is not a merge. An earlier version of
-      # this workflow named only `actions: read` here, which silently removed the
-      # `contents: read` the checkout needs, and the Release workflow failed at step
-      # 1 of every run having validated nothing. Nothing in CI would have caught
-      # it, because CI does not execute workflows, so the test asserts it instead.
-      #
-      # `actions: read` is not optional either, and its absence is quieter than
-      # the checkout's. `wait-for-main-gate.sh` lists workflow runs, which is an
-      # Actions read, so without this scope `gh api` returns 403 — which the
-      # script correctly reports as `unreadable` rather than as a red commit,
-      # because an unreachable API is not evidence about the code. The result is a
-      # gate that waits out its full 45 minutes on every release and then gives
-      # up, having correctly refused to release anything.
       contents: read
       actions: read
-    outputs:
-      version: ${{ steps.resolve.outputs.version }}
-      sha: ${{ steps.resolve.outputs.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-
-      - name: Resolve release
-        id: resolve
-        env:
-          REQUESTED: ${{ inputs.version }}
-          DISPATCH_REF: ${{ github.ref }}
-          DISPATCH_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # The same shape `deploy.yml` gates on, and the same one
-          # `scripts/release-notes.sh` and `packages/domain/src/changelog.ts`
-          # parse. A version that is not this cannot be a changelog heading, and a
-          # changelog heading that is not this cannot be released.
-          if [[ ! "$REQUESTED" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release version must be stable SemVer: vMAJOR.MINOR.PATCH (got '$REQUESTED')"
-            exit 1
-          fi
-          # `main` and not merely "a commit main once contained". A stale branch
-          # whose tip was merged last week is an ancestor of main and would pass
-          # an ancestry test, and releasing from it would tag and deploy code the
-          # branch has been superseded by — while looking entirely healthy.
-          if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
-            echo "::error::Release from '$DISPATCH_REF'. Run this workflow from main (Actions → Release → Run workflow, with main selected)."
-            exit 1
-          fi
-          # Captured once, here, and passed to the cut job explicitly. `main` can
-          # advance between this dispatch and that job, and the tag has to name
-          # the commit this release was asked for rather than whatever main's tip
-          # happens to be later.
-          echo "version=$REQUESTED" >> "$GITHUB_OUTPUT"
-          echo "sha=$DISPATCH_SHA" >> "$GITHUB_OUTPUT"
-          echo "Gating $REQUESTED at $DISPATCH_SHA"
-
-      # The same script `deploy.yml` runs, on the same changelog, so the two
-      # cannot disagree about which version is releasable. A section that exists
-      # but says nothing fails here rather than after the tag.
-      - name: Validate release notes
-        run: ./scripts/release-notes.sh "${{ steps.resolve.outputs.version }}" >/dev/null
-
-      - name: Wait for main to clear this commit
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Gate exact main commit
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/wait-for-main-gate.sh "${{ steps.resolve.outputs.sha }}"
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          ./scripts/release-notes.sh "$VERSION" >/dev/null
+          node scripts/release.mjs gate
 
   cut:
-    name: Cut tag and deploy
     needs: gate
     runs-on: ubuntu-latest
     permissions:
-      # The only two writes this workflow has, and both are needed exactly once:
-      # creating `refs/tags/<version>`, and dispatching the deploy that consumes
-      # it. `Create a workflow dispatch event` is an Actions write, and an
-      # unspecified scope is `none` — leaving it out fails the dispatch with a
-      # 403 *after* the tag is already cut, which is the worst place to find out.
-      #
-      # `contents: write` on this repository can also rewrite `main`, which is a
-      # much larger claim than cutting a tag deserves. GitHub offers no narrower
-      # scope, and the tag is the price of making a version real at all.
       contents: write
       actions: write
+    # Tag edits and production writes share a lock. Dispatch returns before deploy acquires it.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ needs.gate.outputs.sha }}
-
-      - name: Refuse a version production has already moved past
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Prepare release and dispatch deployment
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.gate.outputs.version }}
-        run: ./scripts/assert-release-not-superseded.sh "$GH_REPO" "$VERSION"
-
-      - name: Create the release tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.gate.outputs.version }}
-          SHA: ${{ needs.gate.outputs.sha }}
-        run: |
-          set -euo pipefail
-          err="$(mktemp)"
-
-          # Where does this name already point? Resolved FIRST, before anything is
-          # created, because a name can be absent and still have been deployed: a tag
-          # is mutable until its release publishes, so a version whose deploy reached
-          # production and then failed before publishing has a deletable tag. Delete
-          # it and the name is free again, and a POST creates it at whatever commit
-          # is current — one version number, two production states, and no tag left to
-          # contradict it. The ref cannot answer that, because the ref is what is
-          # missing; the deploy runs can.
-          existing="$(./scripts/resolve-tag-commit.sh "$GH_REPO" "$VERSION" 2>/dev/null || true)"
-
-          # Whether this version has deploy history. Captured with its own status
-          # check rather than compared inline: inside a `[ "$(…)" = … ]` the
-          # substitution's exit code is discarded, so a failed API query would read as
-          # an empty answer — and empty means "never cut before", which is the one
-          # answer that would let a spent version be re-cut.
-          # Whether this version has deploy history. The ref cannot answer it: a
-          # tag is mutable until its release publishes, so a version whose deploy
-          # reached production and then failed before publishing has a deletable tag,
-          # and if that tag is deleted the name is free again for a create at any
-          # commit. The deploy runs can answer it, which is why they are asked.
-          #
-          # Captured with its own status check rather than compared inline: inside a
-          # `[ "$(…)" = … ]` the substitution's exit code is discarded, so a failed
-          # API query would read as an empty answer — and empty means "never cut
-          # before", the one answer that would let a spent version be re-cut.
-          history=""
-          if ! history="$(./scripts/assert-release-unpublished.sh --has-deploy-history "$GH_REPO" "$VERSION")"; then
-            echo "::error::Could not determine whether $VERSION has been deployed before, so whether it is spent is unknown. Nothing was cut."
-            rm -f "$err"
-            exit 1
-          fi
-
-          if [ -n "$existing" ] && [ "$existing" = "$SHA" ]; then
-            # The name already points at exactly this commit, so there is nothing to
-            # move and nothing to recreate. This is the ordinary re-run of a release
-            # whose dispatch or deploy did not finish, and it deliberately needs no
-            # `replace_unreleased_tag`: requiring the operator to confirm a change
-            # that is not happening would break the recovery for a failed dispatch,
-            # where the tag is correct and only the deploy never started.
-            echo "$VERSION already names $SHA — reusing it."
-          elif [ "$history" = "history" ] || [ -n "$existing" ]; then
-            # The name is absent-but-deployed, or present and pointing elsewhere: this
-            # run would move it or bring it back, so the operator is confirming a
-            # change to a version that already exists.
-            #
-            # A published GitHub Release is the hard boundary: it reserves the tag
-            # name permanently, so its presence refuses the re-cut whatever was asked
-            # for.
-            if gh release view "$VERSION" >/dev/null 2>&1; then
-              echo "::error::$VERSION has a published GitHub Release, so its tag cannot be moved and the name is permanently reserved. Release the next version."
-              rm -f "$err"
-              exit 1
-            fi
-            # And whether the earlier attempt reached production is asked of the
-            # machine rather than of the operator. "The deploy failed" and "the deploy
-            # failed before touching anything" are identical from here, and guessing
-            # costs either a recoverable version or, worse, one number identifying two
-            # production states.
-            if [ "${{ inputs.replace_unreleased_tag }}" != "true" ]; then
-              echo "::error::$VERSION has already been cut. If that attempt never reached production you can re-cut it: fix the commit, merge, then re-run with replace_unreleased_tag=true. If it did reach production, the version is spent — release the next one."
-              rm -f "$err"
-              exit 1
-            fi
-            if ! ./scripts/assert-release-unpublished.sh "$GH_REPO" "$VERSION"; then
-              rm -f "$err"
-              exit 1
-            fi
-
-            if [ -n "$existing" ]; then
-              # The name is taken and points at other code. Delete AND recreate, in
-              # this step. Deleting alone would leave the name absent, and the very
-              # next step dispatches the deploy against `refs/tags/$VERSION` — so the
-              # documented recovery would fail at the dispatch and need a second,
-              # unexpected Release run to finish.
-              #
-              # Recreating here also means the version is never absent from the
-              # repository between runs: a ref that exists naming the wrong commit is
-              # recoverable and visible, whereas a name that has vanished looks like a
-              # release that was cut and is now being rewritten.
-              echo "No release published for $VERSION. Re-cutting it from $existing to $SHA."
-              if ! gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$VERSION" >/dev/null 2>>"$err"; then
-                echo "::error::Could not delete refs/tags/$VERSION, so $VERSION cannot be re-cut at $SHA:"
-                cat "$err" >&2
-                rm -f "$err"
-                exit 1
-              fi
-            else
-              echo "No release published for $VERSION, and no tag — recreating it at $SHA."
-            fi
-
-            if ! gh api --method POST "repos/$GH_REPO/git/refs" \
-              -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>>"$err"; then
-              # The tag is gone and not replaced. Saying so plainly matters: this is
-              # the one window where the name does not exist at all, and an operator
-              # who is not told will read the next failure as a version collision.
-              echo "::error::$VERSION could not be created at $SHA. The name now exists nowhere; re-run this workflow with the same version to cut it fresh."
-              cat "$err" >&2
-              rm -f "$err"
-              exit 1
-            fi
-            echo "$VERSION now names $SHA."
-          else
-            # A version with no history and no tag: the ordinary first release. The
-            # POST is the only thing that can go wrong, and it is reported as what it
-            # is rather than read back as a collision.
-            if gh api --method POST "repos/$GH_REPO/git/refs" \
-              -f ref="refs/tags/$VERSION" -f sha="$SHA" >/dev/null 2>"$err"; then
-              echo "Cut $VERSION at $SHA."
-            else
-              echo "::error::Could not cut refs/tags/$VERSION, and the name was free beforehand:"
-              cat "$err" >&2
-              rm -f "$err"
-              exit 1
-            fi
-          fi
-          rm -f "$err"
-
-      - name: Deploy the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.gate.outputs.version }}
-          # Exported because `set -u` aborts on an unset name, and this step runs
-          # AFTER the tag exists. A missing export here is the worst failure shape
-          # this workflow has: the version is already spent on a tag, no deploy is
-          # ever dispatched, and nothing reports it until someone notices the
-          # release never started. It is named from the gate job's output rather
-          # than recomputed, so it is the same SHA the gate cleared and the same
-          # one the tag was cut at.
-          SHA: ${{ needs.gate.outputs.sha }}
-        run: |
-          set -euo pipefail
-          # A tag pushed with GITHUB_TOKEN does not trigger workflows, so the
-          # deploy cannot wait on `deploy.yml`'s `push: tags` trigger the way a
-          # hand-pushed tag would. It is dispatched explicitly instead, on the tag
-          # ref itself — which is what keeps the `production` environment's
-          # deployment branch policy satisfied, since that policy allows the tag
-          # pattern `v*` and nothing else.
-          #
-          # Dispatching on the tag rather than passing a version in also means
-          # `deploy.yml` needs no input for this: it reads `GITHUB_REF_NAME`, so
-          # the version it releases, the commit it deploys and the changelog
-          # section it publishes all still come from the tag, and there is no
-          # second copy of the version to keep in step with the first.
-          #
-          # `gate_sha` is the binding that closes the window between the tag being
-          # cut and the deploy starting. `--ref` alone resolves to whatever the tag
-          # names when the dispatch begins, so a tag moved in between would deploy a
-          # commit the gate never cleared — and the deploy's own tag check runs
-          # after production has already been mutated. Passing the gated SHA lets
-          # the deploy refuse at its first step, before touching anything.
-          #
-          # This returns as soon as the dispatch is *created*; it does not wait for
-          # the deploy. That is deliberate, and it is safe because the deploy
-          # workflow's `production` group is `queue: max`: the next release may
-          # dispatch while this one is still deploying, and its deploy waits its
-          # turn rather than replacing it. The `release` lock above is what
-          # serialises the part that spends a version — cutting the tag — and the
-          # queue is what stops the deployments from being cancelled out from under
-          # an already-cut tag.
-          gh workflow run deploy.yml --repo "$GH_REPO" --ref "$VERSION" -f gate_sha="$SHA"
-          echo "Dispatched deploy.yml for $VERSION against $SHA. It will deploy after any production run already in flight."
-
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+          REPLACE_UNRELEASED_TAG: ${{ inputs.replace_unreleased_tag }}
+        run: node scripts/release.mjs cut
