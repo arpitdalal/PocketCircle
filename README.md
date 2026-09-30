@@ -311,10 +311,19 @@ answer is possible.
 Configure the GitHub `production` environment before the first deployment:
 
 - Under **Deployment branches and tags**, allow only the selected tag pattern `v*`.
-- Add at least one required reviewer who is not the person initiating deployments,
-  then enable **Prevent self-review**.
-- Add a tag ruleset for `v*` that restricts updates and deletion. Release tags are
-  immutable; use a new tag for a fix or rollback.
+- Add at least one required reviewer. See the self-review limitation below.
+
+Release dispatches deployment using `GITHUB_TOKEN`, so GitHub attributes it to
+`github-actions[bot]`. Prevent self-review therefore cannot enforce a second human
+approver. If two-person approval is needed, assign a reviewer other than the
+Release initiator.
+
+Enable **Settings → General → Releases → Enable release immutability**. Published
+release tags are locked; prepared draft releases remain editable for recovery.
+Do not add a blanket `v*` ruleset blocking tag updates, which would also prevent
+correcting a version that never touched production.
+
+Two releases can share a date; changelog consumers identify them by version.
 
 The release workflow runs the real E2E suite again, waits for the production
 approval, then deploys only an immutable stable SemVer tag (`vMAJOR.MINOR.PATCH`).
@@ -638,18 +647,20 @@ things people get wrong are that the releases need *different* version numbers a
 the commits have to reach `main`, not just the tags:
 
 ```sh
-# 1. Revert #412: push the BRANCH, then tag it as vA.B.C.
+# 1. Revert #412: push the BRANCH, then release it as vA.B.C.
 #    Both, and the order matters. Pushing only the tag would roll production back while
 #    main still carried #412, so the next ordinary release from main would silently
 #    restore everything being rolled back.
 #    This repo squash-merges, so #412 lands on main as a single-parent commit;
 #    `git revert -m 1` is still correct (git 2.51 treats the only parent as the mainline
 #    and produces the same tree as a plain revert) and is also what you would need if
-#    that ever changes. The tag needs a `## [vA.B.C] - YYYY-MM-DD` section with real
-#    content in CHANGELOG.md, because `scripts/release-notes.sh` refuses to tag without
-#    one:
-#    (git revert -m 1 <#412 SHA> && git push origin HEAD:main && \
-#     git tag vA.B.C && git push origin vA.B.C)
+#    that ever changes. The CHANGELOG needs a `## [vA.B.C] - YYYY-MM-DD` section with
+#    real content, because `scripts/release-notes.sh` refuses to release without one:
+#    (git revert -m 1 <#412 SHA> && git push origin HEAD:main)
+#    Then run the **Release** workflow on main with version=vA.B.C, which gates the
+#    commit, cuts the tag and dispatches the deploy. During an incident, pushing the
+#    tag by hand still triggers deploy.yml and applies the same identity and
+#    version-ordering guards. Use a newer version for rollback; prefer the gated Release workflow.
 #    The variable is still unset in production, so at this point auth trusts the app
 #    origin and nothing else — exactly as it does today. Step 2 is what changes that.
 
@@ -663,7 +674,7 @@ the commits have to reach `main`, not just the tags:
 #    No deploy here.
 pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIGIN https://pocketcircle.app
 
-# 3. Revert #411 AND #410 in ONE release, then tag it as vD.E.F — a DIFFERENT
+# 3. Revert #411 AND #410 in ONE release, then release it as vD.E.F — a DIFFERENT
 #    version from step 1. One release is the whole point:
 #
 #    - #411 restores the apex route to the product Worker and the marketing Site drops
@@ -678,10 +689,10 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #    gets round to the next tag, which during an incident is not a safe assumption.
 #    In one release it is bounded by a single job.
 #
-#    vD.E.F must not be vA.B.C. Step 1 already created that tag, and `git tag` on an
-#    existing tag fails without `-f` — which is not something to force on a tag that has
-#    already triggered a release. So this needs its own CHANGELOG section too, and it is
-#    a real release, not a retag.
+#    vD.E.F must not be vA.B.C. Step 1 already released that version, and a tag
+#    that carries a GitHub Release cannot be moved — that is the one guarantee
+#    release immutability actually gives, and it is the right one. So this needs
+#    its own CHANGELOG section too, and it is a real release, not a retag.
 #
 #    **This step WILL conflict in CHANGELOG.md, and that is expected.** #411 wrote the
 #    migration notes under `[Unreleased]`, and the v0.8.0 release commit afterwards moved
@@ -696,7 +707,7 @@ pnpm --filter @pocketcircle/convex exec convex env set --prod MIGRATION_APP_ORIG
 #      GIT_EDITOR=true git revert --continue
 #      git revert -m 1 <#410 SHA>        # no conflict
 #      git push origin HEAD:main
-#      git tag vD.E.F && git push origin vD.E.F
+#    Then run the **Release** workflow on main with version=vD.E.F.
 #
 #    Do not let the `git revert` for #411 sit unresolved: a conflict stops the command
 #    before the push and the tag, so the route handoff silently never ships and the
@@ -809,20 +820,50 @@ Resend's `onboarding@resend.dev` test sender can deliver only to the Resend
 account owner. Invitations and Account Deletion verification for other beta
 users require a verified sender domain.
 
-Before tagging, prepare the versioned `CHANGELOG.md` section on `main` (the
-repo-local `$generate-changelog` skill drafts it). The deployment workflow
-requires the exact heading `## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD`, then
-publishes that section as the GitHub Release only after production succeeds.
+Prepare and merge a versioned `CHANGELOG.md` section on `main`, using
+`## [vMAJOR.MINOR.PATCH] - YYYY-MM-DD` with substantive notes. Then run
+**Actions → Release → Run workflow** from `main`, supplying that version.
 
-Tag the tested release-preparation commit and push the tag:
+Release waits for successful CI and E2E push runs on the dispatch's exact SHA.
+Only then does it create the tag, create a **prepared draft GitHub Release**, and
+dispatch deployment on the tag. The deploy checks out that exact SHA and verifies
+that the tag still names it. Merges to `main` never deploy automatically.
 
-```sh
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
-```
+Tag edits and deployments share the `production` concurrency group with
+`cancel-in-progress: false` and `queue: max`. This prevents a tag correction from
+racing a deployment and keeps pending deploys from replacing one another.
+GitHub does not guarantee dispatch order, so both Release and Deploy refuse
+versions older than any published or spent draft release.
 
-The workflow fails before deployment when a required secret or Convex URL
-variable is missing.
+Immediately before **Sync MCP Worker verification keys to Convex**, the first
+production write, Deploy changes the draft marker from **prepared** to **spent**.
+A spent draft means production may have changed, even if deployment later fails.
+Successful deployment publishes that draft with the changelog notes. A published
+version cannot be deployed again by this workflow.
+
+### Recovering a failed release
+
+| Failure | Recovery |
+| --- | --- |
+| Release gate | Fix on `main`, merge, retry the same version. No tag exists yet. |
+| Deploy before the production marker | Retry the same deploy. For a code fix, merge it and run Release with the same version and `replace_unreleased_tag=true`. Only a prepared draft permits moving the tag. |
+| Deploy at or after the production marker | Retry the same SHA while no newer version has reached production. A code change requires a new version. |
+| Publication after deployment | Re-run the failed publication job while no newer version has reached production. Keep the spent draft. |
+| Published or superseded version | Use a new version. For rollback, release the desired older code under a newer version. |
+
+**Never delete a prepared or spent draft to recover a release.** Its marker is the
+durable recovery record, independent of Actions run/log deletion. An API error
+stops the workflow; absence of readable history is never used as proof of safety.
+Unmanaged tags from before this workflow have no prepared marker and cannot be
+moved automatically. Retrying their exact SHA is conservative: the workflow records
+them as spent, so a later code change requires a new version.
+
+If tag creation succeeds but draft creation fails, retry Release at the same SHA.
+The unrecorded tag is treated conservatively as spent. If the draft was created but
+dispatch failed, retry Release with the same version and SHA.
+
+Two releases may share a date; version identifies them. Required configuration,
+release notes, builds, and E2E are validated before the first production write.
 
 ### End-to-end (Playwright)
 

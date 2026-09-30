@@ -3,10 +3,18 @@ name: Deploy Production
 on:
   push:
     tags: [v*]
+  workflow_dispatch:
+    inputs:
+      gate_sha:
+        description: Commit validated by Release; must match this run's SHA
+        required: false
+        type: string
 
+# Share this lock with Release's tag edits; never replace an already queued deploy.
 concurrency:
   group: production
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -20,6 +28,8 @@ jobs:
     needs: verify
     name: Deploy
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     environment:
       name: production
       # Must equal `APP_ORIGIN` in packages/domain/src/origins.ts — a workflow
@@ -31,7 +41,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
 
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
@@ -43,7 +53,7 @@ jobs:
         id: release
         run: |
           if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Production tags must be stable SemVer: vMAJOR.MINOR.PATCH"
+            echo "::error::Production deploys run against an immutable stable SemVer tag: vMAJOR.MINOR.PATCH. Got '$GITHUB_REF_NAME' — push that tag, or dispatch this workflow with --ref vMAJOR.MINOR.PATCH."
             exit 1
           fi
           echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
@@ -51,6 +61,15 @@ jobs:
 
       - name: Validate release notes
         run: ./scripts/release-notes.sh "${{ steps.release.outputs.version }}" >/dev/null
+
+      - name: Check release identity and ordering
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          GATE_SHA: ${{ inputs.gate_sha }}
+        run: node scripts/release.mjs check
 
       - run: pnpm install --frozen-lockfile
 
@@ -247,6 +266,15 @@ jobs:
       # Install verification material before deploying code that requires it.
       # Current + previous keys let in-flight handoffs and the previously
       # deployed Worker remain valid while the new Worker rolls out.
+      - name: Record production attempt before the first write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          GATE_SHA: ${{ inputs.gate_sha }}
+        run: node scripts/release.mjs mark
+
       - name: Sync MCP Worker verification keys to Convex
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
@@ -1161,16 +1189,23 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
 
       - name: Publish release notes
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           version="$GITHUB_REF_NAME"
           ./scripts/release-notes.sh "$version" > release-notes.md
           expected="$(tr -d '\r' < release-notes.md)"
+
+          VERSION="$version" SHA="$GITHUB_SHA" node scripts/release.mjs assert-tag
 
           if ! gh release view "$version" >/dev/null 2>&1; then
             gh release create "$version" \

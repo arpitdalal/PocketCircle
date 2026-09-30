@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable SemVer, e.g. v0.8.3
+        required: true
+        type: string
+      replace_unreleased_tag:
+        description: Move a prepared release tag after a fix, only before production was touched
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Gate exact main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          ./scripts/release-notes.sh "$VERSION" >/dev/null
+          node scripts/release.mjs gate
+
+  cut:
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    # Tag edits and production writes share a lock. Dispatch returns before deploy acquires it.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Prepare release and dispatch deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+          REPLACE_UNRELEASED_TAG: ${{ inputs.replace_unreleased_tag }}
+        run: node scripts/release.mjs cut

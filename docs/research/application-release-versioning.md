@@ -23,30 +23,31 @@ release notes. Do not make the version name ambiguous by reusing a tag.
 
 ## Recommended workflow
 
-1. Merge small, fully tested changes to protected `main`. CI and E2E run there;
-   no production deployment runs on merge.
-2. When ready, create annotated tag `vX.Y.Z` on the already-tested `main`
-   commit, create GitHub Release notes, and trigger production from that tag.
-3. The production workflow checks out **the tag SHA**, validates it, and deploys
-   only that exact revision. Use one production concurrency group; do not cancel
-   an active deployment. GitHub documents that concurrency is independent of an
-   Environment and is the mechanism that prevents concurrent production jobs.
-   [GitHub deployment control](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
-4. Give the `production` Environment an explicit allowed **tag** pattern
-   (`v*`), required reviewer(s), and self-review prevention. Environment rules
-   run before the job gets its environment secrets; selected branch/tag rules
-   match the run's `GITHUB_REF`.
-   [GitHub deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
-5. Roll back by releasing/deploying a prior immutable tag, not by moving or
-   recreating a version tag. Protect `v*` with a GitHub tag ruleset that
-   restricts updates and deletion. GitHub rulesets support controls for tag
-   creation, update, and deletion.
-   [GitHub ruleset rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+1. Merge tested changes and the versioned changelog section to `main`.
+2. Dispatch **Release** from `main`. It waits for CI/E2E on the exact SHA, creates
+   the version tag and a prepared draft, then dispatches deployment on that tag.
+3. Serialize tag edits and deployment with a shared `production` concurrency
+   group, `cancel-in-progress: false`, and `queue: max`. Queuing preserves pending
+   runs, but does not guarantee dispatch order; check version ordering inside the
+   production lock before writes.
+   [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+4. Restrict the `production` Environment to the `v*` tag pattern and require
+   reviewers. Release dispatches as `github-actions[bot]`, so self-review
+   prevention cannot enforce a distinct human approver.
+   [GitHub environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
+5. Before the first production write, mark the draft spent. Keep failed drafts as
+   durable records; publish only after deployment succeeds. Correct a tag only
+   while its draft is prepared. A spent draft binds retries to the same SHA.
+   [Creating draft releases](https://cli.github.com/manual/gh_release_create),
+   [Publishing drafts](https://cli.github.com/manual/gh_release_edit)
+6. Enable repository release immutability. Published tags cannot move; deploy
+   retries refuse published or superseded versions. Roll back old code under a
+   **newer** version, preserving the history of what Users received.
+   [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 
-This produces a deliberate cadence without a long-lived release branch. A
-release can be cut whenever a coherent user-visible increment is ready; for a
-small app, weekly or on-demand is normally preferable to batching a calendar
-release.
+This supersedes the original blanket immutable-tag ruleset recommendation,
+which prevented recovering a tag that never deployed. See the README recovery
+procedure. Do not delete failed drafts or infer safety from missing Actions runs.
 
 ## Artifact principle and PocketCircle scope
 
@@ -58,7 +59,7 @@ be verified; GitHub also recommends immutable releases to reduce build-system
 risk. [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
 [GitHub build-system guidance](https://docs.github.com/en/code-security/tutorials/implement-supply-chain-best-practices/securing-builds)
 
-Today, the deploy workflow correctly checks out the successful E2E run's exact
+Today, the deploy workflow checks out its dispatch's exact
 SHA before rebuilding, so it never deploys a newer `main` commit by accident.
 That is a good source-revision guarantee, but not yet strict artifact
 promotion. Adopt tag-based releases first. Later, if deploy assurance warrants
