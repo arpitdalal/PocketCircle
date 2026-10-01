@@ -8,7 +8,7 @@ import {
   useScopeChangeMotion,
 } from "~/lib/motion.js";
 import type { CashFlowSeriesEntry } from "./cash-flow-trend-chart.js";
-import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-shell.js";
+import { ChartShellFallback } from "./chart-shell.js";
 
 export type { CashFlowSeriesEntry };
 
@@ -16,17 +16,6 @@ const CashFlowTrendChart = lazy(async () => {
   const mod = await import("./cash-flow-trend-chart.js");
   return { default: mod.CashFlowTrendChart };
 });
-
-function ChartShellFallback() {
-  return (
-    <div
-      aria-hidden="true"
-      data-chart-shell="fallback"
-      data-chart-animation-active="false"
-      className={CASH_FLOW_CHART_SHELL_CLASSNAME}
-    />
-  );
-}
 
 /**
  * Reusable accessible Cash Flow Trend chart (GH-273 req 4). Accepts a currency,

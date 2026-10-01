@@ -485,6 +485,93 @@ test("the transaction detail shows audit metadata and history reflecting an edit
 });
 
 /**
+ * RPT-8 true-E2E: the Monthly Ledger's Category Ranking is LIST-DERIVED, so it follows the
+ * Ledger Filter's lifecycle scope while the Month Scope Totals cards above it stay
+ * month-wide and active-only (ADR 0036). Two Categories in a private far-future month (one
+ * per Playwright project), each with one Transaction, one of them archived: narrowing the
+ * Ledger Filter to `archived` swaps the ranking to the archived Transaction's Category and
+ * leaves the totals card on the active Transaction's month total — the two numbers
+ * disagreeing on purpose.
+ *
+ * The archived Category is also ARCHIVED (lifecycle), which jsdom cannot assert: the hatch
+ * fill and the chart's keyboard-inertness only exist in a real rendering, so they are
+ * pinned here rather than in the unit suite.
+ */
+test("the ledger category ranking follows the lifecycle filter while the totals do not", async ({
+  page,
+}, testInfo) => {
+  const stamp = `${Date.now()}-${testInfo.project.name}`;
+  const activeCat = `E2E RA ${stamp}`; // ≤ 40 chars (categoryNameMax)
+  const archivedCat = `E2E RB ${stamp}`;
+  const activeTitle = `E2E RankActive ${stamp}`;
+  const archivedTitle = `E2E RankArchived ${stamp}`;
+  const month = testInfo.project.name === "mobile-chromium" ? "2993-06" : "2993-05";
+
+  await openPersonalCircleFromHome(page);
+
+  await clickCircleChromeTab(page, "Categories");
+  await createCategoryViaForm(page, { name: activeCat });
+  await createCategoryViaForm(page, { name: archivedCat });
+
+  await clickCircleChromeTab(page, "Transactions");
+  await selectMonth(page, month);
+  await page.getByRole("link", { name: "Add expense" }).click();
+  const activeForm = page.getByRole("form", { name: /add expense/i });
+  await activeForm.getByLabel("Title").fill(activeTitle);
+  await activeForm.getByLabel(/Amount/).fill("36000.00");
+  await pickFormCategory(page, activeForm, activeCat);
+  await saveButton(activeForm).click();
+  await page.getByRole("link", { name: "Add expense" }).click();
+  const archivedForm = page.getByRole("form", { name: /add expense/i });
+  await archivedForm.getByLabel("Title").fill(archivedTitle);
+  await archivedForm.getByLabel(/Amount/).fill("4.00");
+  await pickFormCategory(page, archivedForm, archivedCat);
+  await saveButton(archivedForm).click();
+
+  // Archive one of them: it leaves the month totals but stays in the ledger's default view.
+  await archiveWithDoubleCheck(
+    page.getByRole("listitem").filter({ hasText: archivedTitle }),
+    archivedTitle,
+  );
+
+  const ranking = page.getByRole("table", { name: /tagged totals by category/i });
+  const totals = page.getByRole("group", { name: "Monthly totals" });
+  await expect(ranking.getByRole("rowheader", { name: activeCat })).toBeVisible();
+  await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();
+  // Only the ACTIVE Transaction counts toward the month totals, whatever the filter says.
+  await expectHeadlineMoney(totals, "-$36,000.00");
+
+  // An Archived Category keeps its bar and gains a hatched fill — distinguishable in the
+  // chart, not only in the sr-only table (PRD 58, never by colour alone). Leaving the Ledger
+  // drops its month from the URL, so select the private month again on return.
+  await clickCircleChromeTab(page, "Categories");
+  await archiveWithDoubleCheck(page, archivedCat);
+  await clickCircleChromeTab(page, "Transactions");
+  await selectMonth(page, month);
+  await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
+  const chart = page.locator("[data-chart-animation-active]");
+  await expect(chart.locator('path[fill^="url(#"]')).toHaveCount(1);
+  await expect(chart.locator("[data-axis-break]")).toHaveCount(1);
+  await expect(chart.locator("[data-axis-break-caption]")).toContainText("omitted");
+  // Extreme totals still leave a readable archived $4 bar beside the $36,000 expense.
+  await expect
+    .poll(async () => (await chart.locator('path[fill^="url(#"]').boundingBox())?.height)
+    .toBeGreaterThan(20);
+  // Read-only: the aria-hidden visual is never a tab stop.
+  // Read-only: nothing in the aria-hidden visual is reachable by keyboard. Recharts'
+  // internal layers carry tabindex="-1" (programmatic focus only); a real tab stop is 0.
+  await expect(chart.locator('[tabindex="0"]')).toHaveCount(0);
+  await expect(chart.locator('[role="application"]')).toHaveCount(0);
+
+  await applyLedgerStatus(page, "archived");
+  await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
+  await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
+  // The totals card is filter-blind: the month total did not move with the ranking.
+  await expectHeadlineMoney(totals, "-$36,000.00");
+  await expect(chart.locator("[data-axis-break]")).toHaveCount(0);
+});
+
+/**
  * TXN-4 UX: opening the editor FROM the detail page returns to that detail page on close
  * (Cancel or a successful save), not the Ledger — so a Ledger → Detail → Edit → close trip
  * lands back on Detail. Covers the full real nav round-trip end to end; a private far-future

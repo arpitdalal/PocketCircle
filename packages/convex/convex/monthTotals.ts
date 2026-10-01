@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel.js";
 import type { MutationCtx } from "./_generated/server.js";
-import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
+import { collectMonthTransactions, sumMonthTotals } from "./monthActivity.js";
 import type { OperationReader } from "./operationReader.js";
 
 const ZERO_TOTALS = { incomeMinor: 0, expenseMinor: 0, netMinor: 0 } as const;
@@ -282,7 +282,7 @@ export async function recomputeCircleMonthTotals(
   circleId: Id<"circles">,
   month: string,
 ) {
-  const totals = sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month));
+  const totals = sumMonthTotals(await collectMonthTransactions(ctx, circleId, month));
   const existing = await ctx.db
     .query("circleMonthTotals")
     .withIndex("by_circle_month", (q) => q.eq("circleId", circleId).eq("month", month))
@@ -305,7 +305,7 @@ export async function recomputeMemberMonthTotals(
   month: string,
 ) {
   const totals = sumMonthTotals(
-    await collectMonthActiveTransactions(ctx, circleId, month, paidByMemberId),
+    await collectMonthTransactions(ctx, circleId, month, "active", paidByMemberId),
   );
   const existing = await ctx.db
     .query("memberMonthTotals")
@@ -333,7 +333,7 @@ export async function recomputeCircleMonthWithMembers(
   circleId: Id<"circles">,
   month: string,
 ) {
-  const txns = await collectMonthActiveTransactions(ctx, circleId, month);
+  const txns = await collectMonthTransactions(ctx, circleId, month);
   const circleTotals = sumMonthTotals(txns);
   const circleRow = await ctx.db
     .query("circleMonthTotals")
@@ -413,7 +413,7 @@ export async function readCircleMonthTotals(
   if (row) {
     return toMonthTotals(row);
   }
-  return sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month));
+  return sumMonthTotals(await collectMonthTransactions(ctx, circleId, month));
 }
 
 /**
@@ -435,7 +435,9 @@ export async function readMemberMonthTotals(
   if (row) {
     return toMonthTotals(row);
   }
-  return sumMonthTotals(await collectMonthActiveTransactions(ctx, circleId, month, paidByMemberId));
+  return sumMonthTotals(
+    await collectMonthTransactions(ctx, circleId, month, "active", paidByMemberId),
+  );
 }
 
 /**

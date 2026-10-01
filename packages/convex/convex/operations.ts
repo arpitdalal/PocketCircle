@@ -58,8 +58,9 @@ import { getExcludedCircleIds } from "./homeSummary.js";
 import { isEffectiveActiveMember } from "./memberIdentity.js";
 import { toMemberView } from "./memberViews.js";
 import {
-  collectMonthActiveTransactions,
   collectMonthTransactionCategoryLinks,
+  collectMonthTransactions,
+  type MonthTransactionScope,
   monthDateRange,
 } from "./monthActivity.js";
 import { collectRecentMonthActiveTransactions, readCircleMonthTotals } from "./monthTotals.js";
@@ -164,13 +165,40 @@ function compareCategoryAnalyticsSort(
   );
 }
 
+/**
+ * Ranked, non-additive per-Category tagged spend for one Circle-month.
+ *
+ * `type` narrows to one Transaction type. Omitting it keeps both types in ONE set, which
+ * sorts by raw amount — a salary outranks every grocery — so a caller that wants both
+ * sides ranked separately must make two calls, one per type (the Monthly Ledger's
+ * Category Ranking does; RPT-8).
+ *
+ * `status` is the Transaction lifecycle scope. It defaults to `active` so totals
+ * surfaces, the Dashboard route, and MCP stay active-only by contract. A list-derived
+ * aggregate passes its list's scope instead (ADR 0036), which is why the Ledger's
+ * ranking can disagree with the filter-blind totals cards beside it.
+ *
+ * `categoryIds` filters the ACCUMULATED ROWS, after aggregation: filtering the
+ * Transaction set instead would silently drop Categories that also carry other selected
+ * Categories' Transactions. An unknown id therefore yields an empty row set, not an
+ * empty page.
+ */
 export async function categoryAnalyticsForAccess(
   ctx: OperationReader,
   access: AuthorizedCircle,
   month: string,
   type?: "expense" | "income",
+  scope: {
+    status?: MonthTransactionScope;
+    categoryIds?: readonly string[];
+  } = {},
 ) {
-  const monthTxns = await collectMonthActiveTransactions(ctx, access.circle._id, month);
+  const monthTxns = await collectMonthTransactions(
+    ctx,
+    access.circle._id,
+    month,
+    scope.status ?? "active",
+  );
   const scopedTxns = type ? monthTxns.filter((txn) => txn.type === type) : monthTxns;
   const scopedById = new Map(scopedTxns.map((txn) => [txn._id, txn]));
 
@@ -189,7 +217,12 @@ export async function categoryAnalyticsForAccess(
     accum.set(link.categoryId, existing);
   }
 
-  const categoryIds = [...accum.keys()];
+  // Row-level Category selection (ADR 0036): never filter Categories by lifecycle —
+  // an Archived Category stays visible while in-scope Transactions still use it (PRD 58).
+  const selectedIds = scope.categoryIds ? new Set(scope.categoryIds) : null;
+  const categoryIds = [...accum.keys()].filter(
+    (categoryId) => selectedIds === null || selectedIds.has(categoryId),
+  );
   const loadedCategories = await asyncMapChunked(
     categoryIds,
     DEFAULT_READ_CONCURRENCY,

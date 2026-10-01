@@ -13,17 +13,19 @@ import type { Value } from "convex/values";
 // queries that call ctx.db's own .paginate(). Transaction Search (#97) uses numbered
 // pages and `useQuery` instead.
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
   MOCK_CIRCLES,
+  MOCK_LEDGER_CATEGORY_ANALYTICS,
   MOCK_MEMBERS,
   MOCK_MONTHLY_SUMMARY,
   mockFilterTransactions,
 } from "../fixtures.js";
-import { useStableQuery } from "../use-stable-query.js";
+import { useRetainedQueryResult, useStableQuery } from "../use-stable-query.js";
 import type { Circle } from "./circles.js";
+import type { CategoryAnalyticsRow } from "./dashboard.js";
 import {
   type PaginatedTransactions,
   type PaginationStatus,
@@ -97,6 +99,93 @@ export function useMonthlyLedger(
 
 export type FilterType = "all" | TransactionType;
 export type LifecycleFilter = "active" | "archived" | "all";
+
+/**
+ * One Category Ranking bar: `getCategoryAnalytics`' row plus the Transaction `type`
+ * that produced it. `taggedTotalMinor` stays POSITIVE — the sign is a chart concern
+ * (income above the zero baseline, expense below), never a data-layer one.
+ */
+export type CategoryRankingRow = CategoryAnalyticsRow & { type: TransactionType };
+
+/** Ledger Filter dimensions the Category Ranking follows (ADR 0036 — list-derived). */
+export interface CategoryRankingFilters {
+  month: PlainMonth;
+  type: FilterType;
+  status: LifecycleFilter;
+  categoryIds?: readonly string[];
+}
+
+/** Subscribe only to selected types; retention belongs to the complete ranking. */
+function useCategoryRankingAnalytics(
+  circleId: Circle["id"],
+  type: TransactionType,
+  filters: CategoryRankingFilters,
+  enabled: boolean,
+) {
+  const queried = useQuery(
+    api.dashboard.getCategoryAnalytics,
+    MOCKS || !enabled
+      ? "skip"
+      : {
+          circleId,
+          month: filters.month,
+          type,
+          status: filters.status,
+          ...(filters.categoryIds && filters.categoryIds.length > 0
+            ? { categoryIds: [...filters.categoryIds] }
+            : {}),
+        },
+  );
+  return MOCKS ? MOCK_LEDGER_CATEGORY_ANALYTICS : queried;
+}
+
+/**
+ * The Monthly Ledger's Category Ranking (RPT-8): ranked, non-additive tagged spend for
+ * the filtered month, taking scope from the Ledger Filter — lifecycle scope, type, and
+ * Category selection — while ignoring text and Member filters. It
+ * deliberately disagrees with the filter-blind Month Scope Totals cards above it
+ * (ADR 0036).
+ *
+ * `type: "all"` makes TWO reads, one per type, rather than one with `type: undefined`:
+ * the aggregator merges both types into a single set sorted by raw amount, so a salary
+ * would outrank every grocery. Each read reuses the server's tested ranking.
+ *
+ * The two sides publish as ONE ranking: a composite is only handed on once every side in
+ * scope has resolved, so the chart never mixes rows from two different scopes. Until then
+ * the last complete composite stays on screen, marked `isPending` — the same continuous
+ * tree the totals cards keep (ADR 0032). `undefined` only until the FIRST composite of a
+ * Circle resolves.
+ */
+export function useLedgerCategoryRanking(circleId: Circle["id"], filters: CategoryRankingFilters) {
+  // Both hooks always run — a narrowed type filter only SKIPS the other type's
+  // subscription, so hook order never depends on the filter.
+  const expense = useCategoryRankingAnalytics(
+    circleId,
+    "expense",
+    filters,
+    filters.type !== "income",
+  );
+  const income = useCategoryRankingAnalytics(
+    circleId,
+    "income",
+    filters,
+    filters.type !== "expense",
+  );
+  const complete = useMemo(() => {
+    const sides = [
+      ...(filters.type === "income" ? [] : [{ analytics: expense, type: "expense" as const }]),
+      ...(filters.type === "expense" ? [] : [{ analytics: income, type: "income" as const }]),
+    ];
+    // Access denial clears retained rows immediately, even if the other read is loading.
+    if (sides.some((side) => side.analytics === null)) return [];
+    if (sides.some((side) => side.analytics === undefined)) return undefined;
+    return sides.flatMap(({ analytics, type }) =>
+      (analytics?.rows ?? []).map((row) => ({ ...row, type })),
+    );
+  }, [expense, income, filters.type]);
+  const retained = useRetainedQueryResult(complete, { resetKey: circleId });
+  return { ranking: retained.value, isPending: retained.isPending };
+}
 
 export type TransactionFilterOptions = NonNullable<
   FunctionReturnType<typeof api.search.getTransactionSearchOptions>

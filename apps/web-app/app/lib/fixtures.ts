@@ -281,6 +281,12 @@ export const MOCK_MONTHLY_SUMMARY: MonthlySummary = {
   currency: "USD",
 };
 
+/** The mock Ledger has no Transactions, so every ranking scope is empty too. */
+export const MOCK_LEDGER_CATEGORY_ANALYTICS: CategoryAnalytics = {
+  currency: MOCK_MONTHLY_SUMMARY.currency,
+  rows: [],
+};
+
 /**
  * Mock per-Circle Dashboard, typed against the derived {@link Dashboard} contract so
  * a shape change to `getDashboard` fails typecheck here (ADR 0003). A couple of recent

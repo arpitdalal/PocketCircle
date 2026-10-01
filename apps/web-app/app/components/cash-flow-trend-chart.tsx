@@ -13,7 +13,7 @@ import {
 import { formatMonthLabel, formatMonthTick } from "~/lib/datetime.js";
 import { viewerLocale } from "~/lib/locale.js";
 import { SCOPE_CHART_ANIMATION_MS } from "~/lib/motion.js";
-import { CASH_FLOW_CHART_SHELL_CLASSNAME } from "./cash-flow-trend-shell.js";
+import { CHART_SHELL_CLASSNAME } from "./chart-shell.js";
 
 export interface CashFlowSeriesEntry {
   month: string;
@@ -47,7 +47,7 @@ export function CashFlowTrendChart({
     <div
       aria-hidden="true"
       data-chart-animation-active={String(chartAnimationActive)}
-      className={CASH_FLOW_CHART_SHELL_CLASSNAME}
+      className={CHART_SHELL_CLASSNAME}
     >
       <ResponsiveContainer
         width="100%"
@@ -56,7 +56,14 @@ export function CashFlowTrendChart({
         // before measure and breaks fixed bottom chrome.
         initialDimension={{ width: 320, height: 260 }}
       >
-        <ComposedChart data={series} barGap={2}>
+        <ComposedChart
+          data={series}
+          barGap={2}
+          // The visual is `aria-hidden` and the sr-only table is its accessible reading,
+          // so Recharts' own keyboard layer (a focusable role="application" surface that
+          // duplicates that table) must stay off — an aria-hidden tab stop is a trap.
+          accessibilityLayer={false}
+        >
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             dataKey="month"

@@ -1,10 +1,17 @@
 import { currentMonth } from "@pocketcircle/domain";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addMember, makeCategory, makeUser, seedFixture, seedTransaction } from "../test/seed.js";
+import {
+  addMember,
+  type Fixture,
+  makeCategory,
+  makeUser,
+  seedFixture,
+  seedTransaction,
+} from "../test/seed.js";
 import { api } from "./_generated/api.js";
 import { RECENT_TRANSACTIONS_LIMIT } from "./dashboard.js";
-import { collectMonthActiveTransactions, sumMonthTotals } from "./monthActivity.js";
+import { collectMonthTransactions, sumMonthTotals } from "./monthActivity.js";
 import schema from "./schema.js";
 
 // getDashboard resolves access through guard.ts, which folds
@@ -751,9 +758,7 @@ describe("getCategoryAnalytics — tagged spend (RPT-5)", () => {
     const categorySum = analytics?.rows.reduce((sum, row) => sum + row.taggedTotalMinor, 0);
     expect(categorySum).toBe(2_000);
 
-    const monthTxns = await t.run((ctx) =>
-      collectMonthActiveTransactions(ctx, f.circleId, "2026-06"),
-    );
+    const monthTxns = await t.run((ctx) => collectMonthTransactions(ctx, f.circleId, "2026-06"));
     expect(sumMonthTotals(monthTxns).expenseMinor).toBe(1_000);
   });
 
@@ -963,6 +968,224 @@ describe("getCategoryAnalytics — isolation & access (ADR 0016)", () => {
     });
     expect(analytics?.rows).toEqual([
       expect.objectContaining({ name: "Groceries", taggedTotalMinor: 100 }),
+    ]);
+  });
+});
+
+/**
+ * RPT-8: the Monthly Ledger's Category Ranking is LIST-DERIVED — it follows the Ledger
+ * Filter's lifecycle scope and Category selection (ADR 0036) while the Ledger's totals
+ * cards stay month-wide and active-only. These cover the scope args the ranking adds and
+ * the invariants the Dashboard/MCP defaults depend on.
+ */
+describe("getCategoryAnalytics — filter-derived scope (RPT-8, ADR 0036)", () => {
+  async function seedActiveAndArchived(t: ReturnType<typeof convexTest>, f: Fixture) {
+    return await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-10",
+        categoryIds: [f.groceriesId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 9_999,
+        date: "2026-06-11",
+        status: "archived",
+        categoryIds: [f.diningId],
+      });
+    });
+  }
+
+  it("reads only archived Transactions under status=archived, both under status=all", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await seedActiveAndArchived(t, f);
+
+    const archived = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      status: "archived",
+    });
+    expect(archived?.rows).toEqual([
+      expect.objectContaining({ name: "Dining", taggedTotalMinor: 9_999 }),
+    ]);
+
+    const all = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      status: "all",
+    });
+    expect(all?.rows).toEqual([
+      expect.objectContaining({ name: "Dining", taggedTotalMinor: 9_999 }),
+      expect.objectContaining({ name: "Groceries", taggedTotalMinor: 1_000 }),
+    ]);
+  });
+
+  it("still reads active-only when status is omitted", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await seedActiveAndArchived(t, f);
+
+    const analytics = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+    });
+    expect(analytics?.rows).toEqual([
+      expect.objectContaining({ name: "Groceries", taggedTotalMinor: 1_000 }),
+    ]);
+  });
+
+  it("includes an Archived Category tagged only on archived Transactions", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    const archivedCategoryId = await t.run((ctx) =>
+      makeCategory(ctx, f.circleId, {
+        name: "Old Subscriptions",
+        creatorUserId: f.owner._id,
+        status: "archived",
+      }),
+    );
+    await t.run((ctx) =>
+      seedTransaction(ctx, f, {
+        amountMinorUnits: 2_100,
+        date: "2026-06-12",
+        status: "archived",
+        categoryIds: [archivedCategoryId],
+      }),
+    );
+
+    const archived = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      status: "archived",
+    });
+    expect(archived?.rows).toEqual([
+      expect.objectContaining({
+        categoryId: archivedCategoryId,
+        name: "Old Subscriptions",
+        status: "archived",
+        taggedTotalMinor: 2_100,
+      }),
+    ]);
+  });
+
+  it("filters accumulated rows by categoryIds, and an unknown id yields no rows", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 3_000,
+        date: "2026-06-05",
+        categoryIds: [f.diningId],
+      });
+      // Tagged with BOTH: selecting only Dining must still show its full amount, which
+      // filtering the Transaction set instead of the rows would silently drop.
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 2_000,
+        date: "2026-06-06",
+        categoryIds: [f.diningId, f.groceriesId],
+      });
+    });
+
+    const selected = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      categoryIds: [f.diningId],
+    });
+    expect(selected?.rows).toEqual([
+      expect.objectContaining({ name: "Dining", taggedTotalMinor: 5_000 }),
+    ]);
+
+    const unknown = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      categoryIds: [f.salaryId],
+    });
+    expect(unknown?.rows).toEqual([]);
+    expect(unknown?.currency).toBe("USD");
+  });
+
+  it("leaves getMonthlyLedger totals active-only under every analytics status (ADR 0036 split)", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await seedActiveAndArchived(t, f);
+    // Drop the write-maintained month row so the totals fall back to the month COLLECT —
+    // the reader this slice parameterised. Reading the maintained row would pass even if
+    // the collect's default scope were wrong.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("circleMonthTotals")
+        .withIndex("by_circle_month", (q) => q.eq("circleId", f.circleId).eq("month", "2026-06"))
+        .unique();
+      if (row) {
+        await ctx.db.delete(row._id);
+      }
+    });
+
+    for (const status of ["active", "archived", "all"] as const) {
+      await t.query(api.dashboard.getCategoryAnalytics, {
+        circleId: f.circleId,
+        month: "2026-06",
+        type: "expense",
+        status,
+      });
+      const ledger = await t.query(api.ledger.getMonthlyLedger, {
+        circleId: f.circleId,
+        month: "2026-06",
+      });
+      expect(ledger?.totals).toEqual({
+        incomeMinor: 0,
+        expenseMinor: 1_000,
+        netMinor: -1_000,
+      });
+    }
+  });
+
+  it("applies categoryIds to rows under a narrowed lifecycle scope", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-10",
+        categoryIds: [f.groceriesId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 4_000,
+        date: "2026-06-11",
+        status: "archived",
+        categoryIds: [f.diningId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 9_000,
+        date: "2026-06-12",
+        status: "archived",
+        categoryIds: [f.groceriesId],
+      });
+    });
+
+    // Groceries has BOTH an active and an archived Transaction; selecting it under the
+    // archived scope must show only the archived one.
+    const archivedGroceries = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      status: "archived",
+      categoryIds: [f.groceriesId],
+    });
+    expect(archivedGroceries?.rows).toEqual([
+      expect.objectContaining({ name: "Groceries", taggedTotalMinor: 9_000 }),
     ]);
   });
 });

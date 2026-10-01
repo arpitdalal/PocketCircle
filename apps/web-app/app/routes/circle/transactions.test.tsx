@@ -1,6 +1,6 @@
 import { api } from "@pocketcircle/convex";
 import { addMonths, currentMonth, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -8,6 +8,8 @@ import { Route } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type Category,
+  type CategoryAnalytics,
+  type CategoryRankingFilters,
   type Circle,
   type Member,
   type MonthlySummary,
@@ -15,11 +17,13 @@ import {
   TRANSACTIONS_PAGE_SIZE,
   type Transaction,
   type TransactionFilterOptions,
+  useLedgerCategoryRanking,
 } from "~/lib/data.js";
 import {
   assertFilterOptionsLiveForUrlFilters,
   assertFilterOptionsSkippedUntilPanelOpens,
   assertFilterPanelDiscardsDraftOnClose,
+  type ConvexState,
   configureConvex,
   convexReactMock,
   FILTER_OPTIONS_URL_ID_PARAMS,
@@ -88,6 +92,7 @@ function setup(
     filteredTransactions?: Transaction[];
     status?: PaginationStatus;
     monthlySummary?: MonthlySummary | null;
+    categoryAnalytics?: ConvexState["categoryAnalytics"];
     filterOptions?:
       | TransactionFilterOptions
       | null
@@ -112,6 +117,7 @@ function setup(
     ledgerFilterStatus: opts.status,
     ledgerFilterOptions: opts.filterOptions ?? makeFilterOptions(),
     ...(opts.monthlySummary === undefined ? {} : { monthlySummary: opts.monthlySummary }),
+    ...(opts.categoryAnalytics === undefined ? {} : { categoryAnalytics: opts.categoryAnalytics }),
     loadMore: paginatedLoadMore,
     createTransaction,
     archiveTransaction,
@@ -633,6 +639,303 @@ describe("CircleTransactions", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Restore Old buy" })).toBeEnabled(),
     );
+  });
+});
+
+describe("CircleTransactions — Category Ranking (RPT-8)", () => {
+  const CATEGORY_ANALYTICS = getFunctionName(api.dashboard.getCategoryAnalytics);
+  const GROCERIES = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-grocery"),
+    name: "Groceries",
+    color: "green",
+    status: "active" as const,
+    taggedTotalMinor: 6_000,
+    txnCount: 2,
+  };
+  const SALARY = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-salary"),
+    name: "Salary",
+    color: "teal",
+    status: "active" as const,
+    taggedTotalMinor: 500_000,
+    txnCount: 1,
+  };
+  /** Tagged only on an archived Transaction, so it only appears under `status=archived`. */
+  const RENT = {
+    categoryId: testId<CategoryAnalytics["rows"][number]["categoryId"]>("cat-rent"),
+    name: "Rent",
+    color: "amber",
+    status: "archived" as const,
+    taggedTotalMinor: 120_000,
+    txnCount: 1,
+  };
+
+  /** Args of the LATEST render's two ranking reads, one per Transaction type. */
+  function rankingArgs() {
+    const calls = convexReactMock.useQuery.mock.calls
+      .filter(([fn]) => getFunctionName(fn) === CATEGORY_ANALYTICS)
+      .map(([, args]) => args);
+    // Both ranking hooks run every render, so the last two calls are this render's reads.
+    return calls.slice(-2);
+  }
+
+  /**
+   * Stands in for the backend per read: which Transaction set a scope ranks, and the
+   * `categoryIds` row filter. Deliberately a FIXTURE lookup, not a re-implementation —
+   * the real narrowing is the hook under test.
+   */
+  function rankingAnalytics() {
+    const byScope: Record<string, CategoryAnalytics["rows"]> = {
+      "expense:all": [GROCERIES],
+      "expense:active": [GROCERIES],
+      "expense:archived": [RENT],
+      "income:all": [SALARY],
+      "income:active": [SALARY],
+      "income:archived": [],
+    };
+    return (args: Record<string, unknown>) => {
+      const rows = byScope[`${String(args.type)}:${String(args.status)}`] ?? [];
+      const selected = Array.isArray(args.categoryIds)
+        ? args.categoryIds.filter((id): id is string => typeof id === "string")
+        : [];
+      return {
+        currency: "USD",
+        rows: rows.filter((row) => selected.length === 0 || selected.includes(row.categoryId)),
+      };
+    };
+  }
+
+  it("ranks both types for the selected month under the default filter", () => {
+    setup({ categoryAnalytics: rankingAnalytics() });
+
+    // Two reads, one per type: a single `type: undefined` read would rank both in one
+    // set by raw amount and let a salary outrank every grocery.
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ month: "2026-05", type: "expense", status: "all" }),
+      expect.objectContaining({ month: "2026-05", type: "income", status: "all" }),
+    ]);
+    // Expenses then income: the diverging chart reads expense-first below the baseline,
+    // so the merged order is part of the contract, not an accident of merge order.
+    expect(screen.getAllByRole("rowheader").map((cell) => cell.textContent)).toEqual([
+      "Groceries",
+      "Salary",
+    ]);
+    // Both scopes say so — non-additivity, the lifecycle scope in view, and the filter
+    // dimensions the ranking does NOT follow (ADR 0036).
+    expect(screen.getByText(/not additive/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/showing active and archived transactions, not narrowed by/i),
+    ).toBeInTheDocument();
+  });
+
+  it("publishes both sides together rather than a partial ranking", () => {
+    // The income read is in flight from the first render: the ranking must stay in its
+    // loading state instead of publishing the expense side alone.
+    setup({
+      categoryAnalytics: (args) => (args.type === "income" ? undefined : rankingAnalytics()(args)),
+    });
+
+    expect(screen.getByTestId("category-ranking-skeleton")).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
+  });
+
+  it("holds the last complete ranking when a widened scope is still loading", async () => {
+    const user = userEvent.setup();
+    let incomeInFlight = false;
+    setup({
+      categoryAnalytics: (args) =>
+        args.type === "income" && incomeInFlight ? undefined : rankingAnalytics()(args),
+    });
+    expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
+
+    // Narrow to Expense: the income side stops being queried…
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    let dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Expense" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
+
+    // …then widen back to All under the archived scope with the income read IN FLIGHT.
+    // Neither side may publish alone: the ranking holds the last COMPLETE composite
+    // (Groceries alone), never a mix of this scope's Rent and the pre-narrowing Salary.
+    incomeInFlight = true;
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(
+      within(within(dialog).getByRole("group", { name: "Type" })).getByRole("button", {
+        name: "All",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Archived" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Rent (Archived)" })).not.toBeInTheDocument();
+  });
+
+  const initialRankingFilters: CategoryRankingFilters = {
+    month: NOW_MONTH,
+    type: "all",
+    status: "all",
+  };
+
+  it.each([
+    { dimension: "month", filters: { ...initialRankingFilters, month: addMonths(NOW_MONTH, 1) } },
+    { dimension: "status", filters: { ...initialRankingFilters, status: "archived" as const } },
+    {
+      dimension: "categories",
+      filters: { ...initialRankingFilters, categoryIds: [GROCERIES.categoryId] },
+    },
+  ])(
+    "retains one complete scope across a $dimension change, whichever side resolves first",
+    ({ filters }) => {
+      for (const firstType of ["expense", "income"] as const) {
+        let phase: "old" | "loading" | "partial" | "complete" = "old";
+        configureConvex({
+          categoryAnalytics: (args) => {
+            if (phase === "loading" || (phase === "partial" && args.type !== firstType))
+              return undefined;
+            const row = args.type === "income" ? SALARY : GROCERIES;
+            return {
+              currency: "USD",
+              rows: [
+                { ...row, taggedTotalMinor: row.taggedTotalMinor + (phase === "old" ? 0 : 100) },
+              ],
+            };
+          },
+        });
+        const { result, rerender, unmount } = renderHook(
+          ({ scope }) => useLedgerCategoryRanking(makeCircleView().id, scope),
+          { initialProps: { scope: initialRankingFilters } },
+        );
+        const previous = result.current.ranking;
+        expect(previous?.map((row) => row.taggedTotalMinor)).toEqual([6_000, 500_000]);
+
+        phase = "loading";
+        rerender({ scope: filters });
+        expect(result.current).toEqual({ ranking: previous, isPending: true });
+
+        phase = "partial";
+        rerender({ scope: filters });
+        expect(result.current).toEqual({ ranking: previous, isPending: true });
+
+        phase = "complete";
+        rerender({ scope: filters });
+        expect(result.current.ranking?.map((row) => row.taggedTotalMinor)).toEqual([
+          6_100, 500_100,
+        ]);
+        expect(result.current.isPending).toBe(false);
+        unmount();
+      }
+    },
+  );
+
+  it.each(["expense", "income"])(
+    "clears retained ranking on %s access denial while the other read loads",
+    (deniedType) => {
+      let denied = false;
+      configureConvex({
+        categoryAnalytics: (args) =>
+          denied
+            ? args.type === deniedType
+              ? null
+              : undefined
+            : { currency: "USD", rows: [args.type === "income" ? SALARY : GROCERIES] },
+      });
+      const { result, rerender } = renderHook(() =>
+        useLedgerCategoryRanking(makeCircleView().id, initialRankingFilters),
+      );
+      expect(result.current.ranking).toHaveLength(2);
+      denied = true;
+      rerender();
+      expect(result.current).toEqual({ ranking: [], isPending: false });
+    },
+  );
+
+  it("drops retained rows when switching Circles while the next ranking loads", () => {
+    const circleId = makeCircleView().id;
+    configureConvex({
+      categoryAnalytics: (args) =>
+        args.circleId === circleId
+          ? { currency: "USD", rows: [args.type === "income" ? SALARY : GROCERIES] }
+          : undefined,
+    });
+    const { result, rerender } = renderHook(
+      ({ id }) => useLedgerCategoryRanking(id, initialRankingFilters),
+      { initialProps: { id: circleId } },
+    );
+    expect(result.current.ranking).toHaveLength(2);
+    rerender({ id: testId<Circle["id"]>("other-circle") });
+    expect(result.current.ranking).toBeUndefined();
+  });
+
+  it("re-queries the ranking when the selected month changes", async () => {
+    const user = userEvent.setup();
+    setup({
+      categoryAnalytics: (args) => ({
+        currency: "USD",
+        rows: args.type === "income" ? [SALARY] : args.month === "2026-05" ? [GROCERIES] : [RENT],
+      }),
+    });
+
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ month: "2026-06", type: "expense" }),
+      expect.objectContaining({ month: "2026-06", type: "income" }),
+    ]);
+    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
+  });
+
+  it("narrows the ranking with the ledger filter while the monthly totals stay put", async () => {
+    const user = userEvent.setup();
+    setup({
+      monthlySummary: {
+        totals: { incomeMinor: 0, expenseMinor: 12_500, netMinor: -12_500 },
+        currency: "USD",
+      },
+      categoryAnalytics: rankingAnalytics(),
+    });
+
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Archived" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    // Narrowing lifecycle scope to `archived` swaps which Transaction set is ranked…
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ status: "archived" }),
+      expect.objectContaining({ status: "archived" }),
+    ]);
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
+    // …while the month's Expenses / Net stay filter-blind (ADR 0036 split).
+    expect(screen.getAllByText(/\$125\.00/, { selector: ".sr-only" })).toHaveLength(2);
+  });
+
+  it("re-queries the ranking for a narrowed type and a selected category", async () => {
+    const user = userEvent.setup();
+    setup({ categoryAnalytics: rankingAnalytics() });
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Expense" }));
+    await pickCombobox(user, dialog, "Categories", "Groceries");
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    // One read for the narrowed type; the income side is SKIPPED, not fetched.
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ type: "expense", categoryIds: ["cat-grocery"] }),
+      "skip",
+    ]);
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
   });
 });
 

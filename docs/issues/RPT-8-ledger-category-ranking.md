@@ -37,6 +37,11 @@ Scope Totals cards by design and says so.
 - **Unifying the two presentations.** The Dashboard keeps its clickable ranked list and remains the
   only path to a category-filtered Ledger. Revisit once we know which surface gets used.
 - **The `MonthNavigator` extraction.** It stays inline in `transactions.tsx`; it is not reused.
+- **Following every Ledger Filter dimension.** The ranking follows the filter's month, type,
+  lifecycle scope, and Category selection — the dimensions the "Done when" list names.
+  Transaction text search, Recorded By, and Paid By do **not** narrow it: they select
+  *Transactions*, not Categories, and `getCategoryAnalytics` would grow three more args and a
+  second code path through the aggregator for no Category-level answer.
 
 ## Convex
 
@@ -50,15 +55,18 @@ optional and both default to today's behaviour.
 
 `getCategoryAnalytics` args become `{ circleId, month?, type?, categoryIds?, status? }`.
 
-1. **`status`** — `v.optional(v.union(v.literal("active"), v.literal("archived")))`, **defaulting to
-   `"active"`.** Thread it into `collectMonthTransactions(ctx, circleId, month, status)`.
-   The existing `collectMonthActiveTransactions` becomes the `status = "active"` case of a
-   status-parameterised reader; `by_circle_status_date` (`schema.ts:190`) already serves both
-   scopes, so **no new index**. The default stays `active` so `mcpApproval.test.ts:1569` and
-   `dashboard.test.ts:858` stay green.
-2. **`categoryIds`** — `v.optional(v.array(v.id("categories")))`. Applied **to the accumulated
-   rows, after aggregation**, not to the Transaction set. Filtering the Transaction set would
-   silently drop Categories; filtering rows shows the selected Categories' totals.
+1. **`status`** — `v.optional(v.union(v.literal("all"), v.literal("active"), v.literal("archived")))`,
+   **defaulting to `"active"`.** Thread it into `collectMonthTransactions(ctx, circleId, month, status)`.
+   The existing `collectMonthActiveTransactions` became the `active` and `archived` cases of a
+   status-parameterised reader; `"all"` reads every Transaction in the month. Both scoped reads use
+   `by_circle_status_date` (`schema.ts:190`), and `"all"` uses `by_circle_and_date`, so **no new
+   index**. The default stays `active` so `mcpApproval.test.ts:1569` and `dashboard.test.ts:858` stay
+   green.
+2. **`categoryIds`** — `v.optional(v.array(v.string()))`. Plain ids, not `v.id("categories")`: the
+   filter mirrors `filterLedgerTransactions`, which already takes `v.array(v.string())` so a category
+   could be selected before it existed. Applied **to the accumulated rows, after aggregation**, not
+   to the Transaction set. Filtering the Transaction set would silently drop Categories; filtering
+   rows shows the selected Categories' totals.
 
 ### Archived Categories come free
 
