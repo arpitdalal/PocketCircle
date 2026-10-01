@@ -396,7 +396,7 @@ export const MOCK_CATEGORY_RANKING: CategoryAnalytics = {
 export function mockCategoryRanking(
   type: TransactionType,
   filters: { categoryIds?: readonly string[] },
-): CategoryAnalytics {
+) {
   const ofType = new Set(
     MOCK_CATEGORIES.filter((category) => category.type === type).map((category) => category.id),
   );
@@ -407,7 +407,7 @@ export function mockCategoryRanking(
       (row) =>
         ofType.has(row.categoryId) && (selected.length === 0 || selected.includes(row.categoryId)),
     ),
-  };
+  } satisfies CategoryAnalytics;
 }
 
 /**

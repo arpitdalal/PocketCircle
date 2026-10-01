@@ -1,6 +1,6 @@
 import { api } from "@pocketcircle/convex";
 import { addMonths, currentMonth, MUTATION_ERRORS, mutationErrorData } from "@pocketcircle/domain";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type Category,
   type CategoryAnalytics,
+  type CategoryRankingFilters,
   type Circle,
   type Member,
   type MonthlySummary,
@@ -16,6 +17,7 @@ import {
   TRANSACTIONS_PAGE_SIZE,
   type Transaction,
   type TransactionFilterOptions,
+  useLedgerCategoryRanking,
 } from "~/lib/data.js";
 import {
   assertFilterOptionsLiveForUrlFilters,
@@ -770,6 +772,102 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
     expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Rent (Archived)" })).not.toBeInTheDocument();
+  });
+
+  const initialRankingFilters: CategoryRankingFilters = {
+    month: NOW_MONTH,
+    type: "all",
+    status: "all",
+  };
+
+  it.each([
+    { dimension: "month", filters: { ...initialRankingFilters, month: addMonths(NOW_MONTH, 1) } },
+    { dimension: "status", filters: { ...initialRankingFilters, status: "archived" as const } },
+    {
+      dimension: "categories",
+      filters: { ...initialRankingFilters, categoryIds: [GROCERIES.categoryId] },
+    },
+  ])(
+    "retains one complete scope across a $dimension change, whichever side resolves first",
+    ({ filters }) => {
+      for (const firstType of ["expense", "income"] as const) {
+        let phase: "old" | "loading" | "partial" | "complete" = "old";
+        configureConvex({
+          categoryAnalytics: (args) => {
+            if (phase === "loading" || (phase === "partial" && args.type !== firstType))
+              return undefined;
+            const row = args.type === "income" ? SALARY : GROCERIES;
+            return {
+              currency: "USD",
+              rows: [
+                { ...row, taggedTotalMinor: row.taggedTotalMinor + (phase === "old" ? 0 : 100) },
+              ],
+            };
+          },
+        });
+        const { result, rerender, unmount } = renderHook(
+          ({ scope }) => useLedgerCategoryRanking(makeCircleView().id, scope),
+          { initialProps: { scope: initialRankingFilters } },
+        );
+        const previous = result.current.ranking;
+        expect(previous?.map((row) => row.taggedTotalMinor)).toEqual([6_000, 500_000]);
+
+        phase = "loading";
+        rerender({ scope: filters });
+        expect(result.current).toEqual({ ranking: previous, isPending: true });
+
+        phase = "partial";
+        rerender({ scope: filters });
+        expect(result.current).toEqual({ ranking: previous, isPending: true });
+
+        phase = "complete";
+        rerender({ scope: filters });
+        expect(result.current.ranking?.map((row) => row.taggedTotalMinor)).toEqual([
+          6_100, 500_100,
+        ]);
+        expect(result.current.isPending).toBe(false);
+        unmount();
+      }
+    },
+  );
+
+  it.each(["expense", "income"])(
+    "clears retained ranking on %s access denial while the other read loads",
+    (deniedType) => {
+      let denied = false;
+      configureConvex({
+        categoryAnalytics: (args) =>
+          denied
+            ? args.type === deniedType
+              ? null
+              : undefined
+            : { currency: "USD", rows: [args.type === "income" ? SALARY : GROCERIES] },
+      });
+      const { result, rerender } = renderHook(() =>
+        useLedgerCategoryRanking(makeCircleView().id, initialRankingFilters),
+      );
+      expect(result.current.ranking).toHaveLength(2);
+      denied = true;
+      rerender();
+      expect(result.current).toEqual({ ranking: [], isPending: false });
+    },
+  );
+
+  it("drops retained rows when switching Circles while the next ranking loads", () => {
+    const circleId = makeCircleView().id;
+    configureConvex({
+      categoryAnalytics: (args) =>
+        args.circleId === circleId
+          ? { currency: "USD", rows: [args.type === "income" ? SALARY : GROCERIES] }
+          : undefined,
+    });
+    const { result, rerender } = renderHook(
+      ({ id }) => useLedgerCategoryRanking(id, initialRankingFilters),
+      { initialProps: { id: circleId } },
+    );
+    expect(result.current.ranking).toHaveLength(2);
+    rerender({ id: testId<Circle["id"]>("other-circle") });
+    expect(result.current.ranking).toBeUndefined();
   });
 
   it("re-queries the ranking when the selected month changes", async () => {

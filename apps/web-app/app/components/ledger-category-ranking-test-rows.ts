@@ -1,4 +1,5 @@
 import type { CategoryRankingRow } from "~/lib/data.js";
+import { testId } from "~/test/convex-react.js";
 
 /**
  * Category Ranking rows shared by the chart and shell component tests (ADR 0006: one
@@ -8,7 +9,7 @@ import type { CategoryRankingRow } from "~/lib/data.js";
  */
 export const CATEGORY_RANKING_TEST_ROWS: CategoryRankingRow[] = [
   {
-    categoryId: "cat-salary",
+    categoryId: testId<CategoryRankingRow["categoryId"]>("cat-salary"),
     name: "Salary",
     color: "teal",
     status: "active",
@@ -17,7 +18,7 @@ export const CATEGORY_RANKING_TEST_ROWS: CategoryRankingRow[] = [
     txnCount: 1,
   },
   {
-    categoryId: "cat-groceries",
+    categoryId: testId<CategoryRankingRow["categoryId"]>("cat-groceries"),
     name: "Groceries",
     color: "green",
     status: "active",
@@ -26,7 +27,7 @@ export const CATEGORY_RANKING_TEST_ROWS: CategoryRankingRow[] = [
     txnCount: 3,
   },
   {
-    categoryId: "cat-subscriptions",
+    categoryId: testId<CategoryRankingRow["categoryId"]>("cat-subscriptions"),
     name: "Old Subscriptions",
     color: "orange",
     status: "archived",
