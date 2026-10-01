@@ -534,7 +534,7 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
     archivedTitle,
   );
 
-  const ranking = page.getByRole("table", { name: /tagged spend by category/i });
+  const ranking = page.getByRole("table", { name: /tagged totals by category/i });
   const totals = page.getByRole("group", { name: "Monthly totals" });
   await expect(ranking.getByRole("rowheader", { name: activeCat })).toBeVisible();
   await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();

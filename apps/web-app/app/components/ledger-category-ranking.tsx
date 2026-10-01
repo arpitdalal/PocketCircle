@@ -69,7 +69,7 @@ export function LedgerCategoryRanking({
     >
       <div className="space-y-1">
         <h3 id="ledger-category-ranking-heading" className="text-sm font-semibold text-foreground">
-          Tagged spend by category
+          Tagged totals by category
         </h3>
         <p className="text-xs text-muted-foreground">
           A transaction tagged with multiple categories counts its full amount toward each category,
@@ -83,12 +83,12 @@ export function LedgerCategoryRanking({
       </div>
 
       {ranking === undefined ? (
-        <SkeletonRegion label="Loading tagged spend…" testId="category-ranking-skeleton">
+        <SkeletonRegion label="Loading tagged totals…" testId="category-ranking-skeleton">
           <Skeleton className="h-72 w-full rounded-xl" />
         </SkeletonRegion>
       ) : ranking.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          No tagged spend for this period.
+          No tagged totals for this period.
         </p>
       ) : (
         <>
@@ -104,7 +104,7 @@ export function LedgerCategoryRanking({
               document scrollWidth (~58px at 390), breaking fixed bottom chrome. */}
           <div className="sr-only">
             <table>
-              <caption>Tagged spend by category</caption>
+              <caption>Tagged totals by category</caption>
               <thead>
                 <tr>
                   <th scope="col">Category</th>

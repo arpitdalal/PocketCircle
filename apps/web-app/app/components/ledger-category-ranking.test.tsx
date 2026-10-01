@@ -22,7 +22,7 @@ describe("LedgerCategoryRanking", () => {
     renderRanking();
 
     const table = screen.getByRole("table");
-    expect(table).toHaveAccessibleName("Tagged spend by category");
+    expect(table).toHaveAccessibleName("Tagged totals by category");
     // Wrapper (not the table) carries sr-only — WebKit expands page scrollWidth when
     // sr-only is on <table> itself (#398 horizontal overflow / clipped bottom nav).
     expect(table.parentElement).toHaveClass("sr-only");
@@ -57,7 +57,7 @@ describe("LedgerCategoryRanking", () => {
     // otherwise be invisible to this assertion.
     expect(screen.queryByRole("button", { name: /groceries/i, hidden: true })).toBeNull();
     expect(screen.queryByRole("link", { name: /groceries/i, hidden: true })).toBeNull();
-    const section = screen.getByRole("region", { name: "Tagged spend by category" });
+    const section = screen.getByRole("region", { name: "Tagged totals by category" });
     expect(section.querySelector("[tabindex]")).toBeNull();
     expect(container.querySelector("button, a")).toBeNull();
   });
@@ -77,25 +77,25 @@ describe("LedgerCategoryRanking", () => {
   it("reads as an empty period rather than an empty chart when nothing is tagged", () => {
     renderRanking({ ranking: [] });
 
-    expect(screen.getByText("No tagged spend for this period.")).toBeInTheDocument();
+    expect(screen.getByText("No tagged totals for this period.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("keeps its heading while the first scope loads, and marks the section busy", () => {
     renderRanking({ ranking: undefined });
 
-    const section = screen.getByRole("region", { name: "Tagged spend by category" });
+    const section = screen.getByRole("region", { name: "Tagged totals by category" });
     expect(section).toHaveAttribute("aria-busy", "true");
     const loading = screen.getByTestId("category-ranking-skeleton");
     expect(loading).toHaveAttribute("role", "status");
-    expect(loading).toHaveTextContent("Loading tagged spend…");
+    expect(loading).toHaveTextContent("Loading tagged totals…");
     expect(loading.querySelector(".h-72")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("drops the scope clause while a retained ranking bridges a scope reload", () => {
     const { rerender } = renderRanking();
-    const section = screen.getByRole("region", { name: "Tagged spend by category" });
+    const section = screen.getByRole("region", { name: "Tagged totals by category" });
     expect(section).toHaveAttribute("aria-busy", "false");
     expect(screen.getByText(/showing active and archived transactions/i)).toBeInTheDocument();
 
