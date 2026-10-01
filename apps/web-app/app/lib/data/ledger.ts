@@ -126,9 +126,12 @@ export interface CategoryRankingFilters {
 /**
  * One lifecycle-scoped `getCategoryAnalytics` read, retained across arg changes so the
  * ranking chart stays mounted across a Ledger Filter edit instead of flashing a skeleton
- * (ADR 0032). `enabled: false` skips the subscription entirely — a narrowed type filter
- * must not pay for the other type's query — and reads as no rows rather than as retained
- * rows from the scope it just left.
+ * (ADR 0032).
+ *
+ * `enabled: false` skips the subscription entirely — a narrowed type filter must not pay
+ * for the other type's query. Being part of the reset key, it also drops that side's
+ * retention: re-enabling a side (widening `expense` back to `all`) must load fresh rows,
+ * never merge the ones it held before the narrowing into the new scope's ranking.
  */
 function useRetainedCategoryAnalytics(
   circleId: Circle["id"],
@@ -149,7 +152,7 @@ function useRetainedCategoryAnalytics(
             ? { categoryIds: [...filters.categoryIds] }
             : {}),
         },
-    { resetKey: circleId },
+    { resetKey: `${circleId}:${enabled}` },
   );
   if (MOCKS) {
     return {

@@ -71,15 +71,4 @@ describe("LedgerCategoryRankingChart", () => {
     );
     expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
   });
-
-  // jsdom gives ResponsiveContainer no size, so the rendered surface itself is never
-  // focusable here — but the prop that keeps Recharts' keyboard layer OFF must be pinned,
-  // because an aria-hidden tab stop is invisible to every other assertion in this file.
-  it("keeps Recharts' keyboard accessibility layer off", () => {
-    const { container } = render(
-      <LedgerCategoryRankingChart currency="USD" ranking={ranking} chartAnimationActive={false} />,
-    );
-    expect(container.querySelector("[tabindex]")).toBeNull();
-    expect(container.querySelector("[role='application']")).toBeNull();
-  });
 });

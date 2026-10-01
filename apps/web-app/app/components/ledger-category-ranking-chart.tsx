@@ -106,6 +106,7 @@ export function LedgerCategoryRankingChart({
           // The visual is `aria-hidden` and the sr-only table is its accessible reading,
           // so Recharts' own keyboard layer (a focusable role="application" surface that
           // duplicates that table) must stay off — an aria-hidden tab stop is a trap.
+          // jsdom draws no chart surface, so `e2e/transactions.spec.ts` guards this.
           accessibilityLayer={false}
         >
           <defs>

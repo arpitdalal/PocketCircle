@@ -726,6 +726,43 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
     ).toBeInTheDocument();
   });
 
+  it("drops a skipped side's retained rows when the type filter widens again", async () => {
+    const user = userEvent.setup();
+    // The widened income read is modelled as STILL IN FLIGHT (`undefined`), so a stale
+    // retention would merge the pre-narrowing Salary into the new scope's ranking.
+    setup({
+      categoryAnalytics: (args) => {
+        if (args.status === "archived" && args.type === "income") {
+          return undefined;
+        }
+        return rankingAnalytics()(args);
+      },
+    });
+    expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
+
+    // Narrow to Expense: the income side stops being queried…
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    let dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(within(dialog).getByRole("button", { name: "Expense" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
+
+    // …then widen back to All under the archived scope. The income side must RELOAD —
+    // merging the rows it held before the narrowing would rank a stale Salary here.
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    dialog = screen.getByRole("dialog", { name: "Filters" });
+    await user.click(
+      within(within(dialog).getByRole("group", { name: "Type" })).getByRole("button", {
+        name: "All",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Archived" }));
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
+  });
+
   it("re-queries the ranking when the selected month changes", async () => {
     const user = userEvent.setup();
     setup({
