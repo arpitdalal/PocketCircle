@@ -18,9 +18,9 @@ import { MOCKS } from "../env.js";
 import {
   MOCK_CATEGORIES,
   MOCK_CIRCLES,
+  MOCK_LEDGER_CATEGORY_ANALYTICS,
   MOCK_MEMBERS,
   MOCK_MONTHLY_SUMMARY,
-  mockCategoryRanking,
   mockFilterTransactions,
 } from "../fixtures.js";
 import { useRetainedQueryResult, useStableQuery } from "../use-stable-query.js";
@@ -136,7 +136,7 @@ function useCategoryRankingAnalytics(
             : {}),
         },
   );
-  return MOCKS ? mockCategoryRanking(type, filters) : queried;
+  return MOCKS ? MOCK_LEDGER_CATEGORY_ANALYTICS : queried;
 }
 
 /**

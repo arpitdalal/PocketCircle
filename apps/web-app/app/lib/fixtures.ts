@@ -281,6 +281,12 @@ export const MOCK_MONTHLY_SUMMARY: MonthlySummary = {
   currency: "USD",
 };
 
+/** The mock Ledger has no Transactions, so every ranking scope is empty too. */
+export const MOCK_LEDGER_CATEGORY_ANALYTICS: CategoryAnalytics = {
+  currency: MOCK_MONTHLY_SUMMARY.currency,
+  rows: [],
+};
+
 /**
  * Mock per-Circle Dashboard, typed against the derived {@link Dashboard} contract so
  * a shape change to `getDashboard` fails typecheck here (ADR 0003). A couple of recent
@@ -354,61 +360,6 @@ export const MOCK_CATEGORY_ANALYTICS: CategoryAnalytics = {
     },
   ],
 };
-
-/**
- * Mock Category Ranking rows under MOCKS (RPT-8): the same rows the Dashboard fixture
- * uses plus an income Category and an Archived one, so the Ledger's diverging chart can
- * render both sides and its Archived hatch offline. Typed against
- * {@link CategoryAnalytics} so the derived row contract can't drift.
- */
-export const MOCK_CATEGORY_RANKING: CategoryAnalytics = {
-  currency: MOCK_CATEGORY_ANALYTICS.currency,
-  rows: [
-    ...MOCK_CATEGORY_ANALYTICS.rows,
-    {
-      categoryId: testId<Category["id"]>("mock-cat-salary"),
-      name: "Salary",
-      color: "teal",
-      status: "active",
-      taggedTotalMinor: 500_000,
-      txnCount: 1,
-    },
-    {
-      categoryId: testId<Category["id"]>("mock-cat-subscriptions"),
-      name: "Old Subscriptions",
-      color: "orange",
-      status: "archived",
-      taggedTotalMinor: 2_100,
-      txnCount: 1,
-    },
-  ],
-};
-
-/**
- * One type's Category Ranking rows under MOCKS, narrowed by the dimensions the backend
- * narrows by — the Category's own type and an explicit Category selection.
- *
- * Deliberately NOT narrowed by lifecycle scope: the backend's rule is that the scope
- * filters Transactions, never Categories (ADR 0036, PRD 58), so an Archived Category stays
- * in the ranking whatever scope is in view. These fixtures carry no Transaction lifecycle
- * to narrow with, so every scope shows the same rows — which is that rule.
- */
-export function mockCategoryRanking(
-  type: TransactionType,
-  filters: { categoryIds?: readonly string[] },
-) {
-  const ofType = new Set(
-    MOCK_CATEGORIES.filter((category) => category.type === type).map((category) => category.id),
-  );
-  const selected = filters.categoryIds ?? [];
-  return {
-    currency: MOCK_CATEGORY_RANKING.currency,
-    rows: MOCK_CATEGORY_RANKING.rows.filter(
-      (row) =>
-        ofType.has(row.categoryId) && (selected.length === 0 || selected.includes(row.categoryId)),
-    ),
-  } satisfies CategoryAnalytics;
-}
 
 /**
  * Synthesizes the month-over-month comparison series for the requested Comparison
