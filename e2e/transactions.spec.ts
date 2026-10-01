@@ -518,7 +518,7 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   await page.getByRole("link", { name: "Add expense" }).click();
   const activeForm = page.getByRole("form", { name: /add expense/i });
   await activeForm.getByLabel("Title").fill(activeTitle);
-  await activeForm.getByLabel(/Amount/).fill("10.00");
+  await activeForm.getByLabel(/Amount/).fill("36000.00");
   await pickFormCategory(page, activeForm, activeCat);
   await saveButton(activeForm).click();
   await page.getByRole("link", { name: "Add expense" }).click();
@@ -539,7 +539,7 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   await expect(ranking.getByRole("rowheader", { name: activeCat })).toBeVisible();
   await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();
   // Only the ACTIVE Transaction counts toward the month totals, whatever the filter says.
-  await expectHeadlineMoney(totals, "-$10.00");
+  await expectHeadlineMoney(totals, "-$36,000.00");
 
   // An Archived Category keeps its bar and gains a hatched fill — distinguishable in the
   // chart, not only in the sr-only table (PRD 58, never by colour alone). Leaving the Ledger
@@ -551,6 +551,12 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
   const chart = page.locator("[data-chart-animation-active]");
   await expect(chart.locator('path[fill^="url(#"]')).toHaveCount(1);
+  await expect(chart.locator("[data-axis-break]")).toHaveCount(1);
+  await expect(chart.locator("[data-axis-break-caption]")).toContainText("omitted");
+  // Extreme totals still leave a readable archived $4 bar beside the $36,000 expense.
+  await expect
+    .poll(async () => (await chart.locator('path[fill^="url(#"]').boundingBox())?.height)
+    .toBeGreaterThan(20);
   // Read-only: the aria-hidden visual is never a tab stop.
   // Read-only: nothing in the aria-hidden visual is reachable by keyboard. Recharts'
   // internal layers carry tabindex="-1" (programmatic focus only); a real tab stop is 0.
@@ -561,7 +567,8 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
   await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
   // The totals card is filter-blind: the month total did not move with the ranking.
-  await expectHeadlineMoney(totals, "-$10.00");
+  await expectHeadlineMoney(totals, "-$36,000.00");
+  await expect(chart.locator("[data-axis-break]")).toHaveCount(0);
 });
 
 /**
