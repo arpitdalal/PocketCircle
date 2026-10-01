@@ -104,7 +104,10 @@ export function cashFlowSeriesMotionKey(
     .join("|");
 }
 
-/** Stable fingerprint for the Category Ranking rows (scope-motion value key). */
+/**
+ * Stable fingerprint for the Category Ranking rows (scope-motion value key). Identity +
+ * magnitude + lifecycle: a rename or re-archival is a different bar, so it belongs here.
+ */
 export function categoryRankingMotionKey(
   rows: ReadonlyArray<{
     categoryId: string;
@@ -116,10 +119,7 @@ export function categoryRankingMotionKey(
   }>,
 ) {
   return rows
-    .map(
-      (row) =>
-        `${row.type}:${row.categoryId}:${row.taggedTotalMinor}:${row.txnCount}:${row.status}`,
-    )
+    .map((row) => `${row.type}:${row.categoryId}:${row.name}:${row.status}:${row.taggedTotalMinor}`)
     .join("|");
 }
 

@@ -487,10 +487,15 @@ test("the transaction detail shows audit metadata and history reflecting an edit
 /**
  * RPT-8 true-E2E: the Monthly Ledger's Category Ranking is LIST-DERIVED, so it follows the
  * Ledger Filter's lifecycle scope while the Month Scope Totals cards above it stay
- * month-wide and active-only (ADR 0036). Two Categories, one active Transaction and one
- * archived Transaction, both in a private far-future month: narrowing the Ledger Filter to
- * `archived` swaps the ranking to the archived Transaction's Category and leaves the totals
- * card on the active Transaction's month total — the two numbers disagreeing on purpose.
+ * month-wide and active-only (ADR 0036). Two Categories in a private far-future month (one
+ * per Playwright project), each with one Transaction, one of them archived: narrowing the
+ * Ledger Filter to `archived` swaps the ranking to the archived Transaction's Category and
+ * leaves the totals card on the active Transaction's month total — the two numbers
+ * disagreeing on purpose.
+ *
+ * The archived Category is also ARCHIVED (lifecycle), which jsdom cannot assert: the hatch
+ * fill and the chart's keyboard-inertness only exist in a real rendering, so they are
+ * pinned here rather than in the unit suite.
  */
 test("the ledger category ranking follows the lifecycle filter while the totals do not", async ({
   page,
@@ -541,6 +546,17 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
   // The totals card is filter-blind: the month total did not move with the ranking.
   await expectHeadlineMoney(totals, "-$10.00");
+
+  // An Archived Category keeps its bar and gains a hatched fill — distinguishable in the
+  // chart, not only in the sr-only table (PRD 58, never by colour alone).
+  await clickCircleChromeTab(page, "Categories");
+  await archiveWithDoubleCheck(page, archivedCat);
+  await clickCircleChromeTab(page, "Transactions");
+  await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
+  const chart = page.locator("[data-chart-animation-active]");
+  await expect(chart.locator('path[fill^="url(#"]')).toHaveCount(1);
+  // Read-only: the aria-hidden visual is never a tab stop.
+  await expect(chart.locator("[tabindex]")).toHaveCount(0);
 });
 
 /**

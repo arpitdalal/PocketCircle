@@ -225,11 +225,11 @@ A cross-**Circle** list-and-filter surface of **Transactions** whose **Paid By**
 _Avoid_: Global Search, Global Ledger, Personal Ledger, Cross-Circle Transaction Search, Cross-Circle Ledger
 
 **Monthly Ledger**:
-The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, a **Category Ranking**, and that month's Transactions sorted by Transaction Date descending and then created-at descending. The Income, Expenses, and Net figures are the whole month's and do not move when a **Ledger Filter** is applied; the ranking is derived from the filtered Transactions and does.
+The month-focused Transaction view for a **Circle**. A Monthly Ledger shows one selected month and year, that month's Income, Expenses, and Net, a **Category Ranking**, and that month's Transactions sorted by Transaction Date descending and then created-at descending. The Income, Expenses, and Net figures are the whole month's and do not move when a **Ledger Filter** is applied; the ranking is derived from the filter's month, Transaction type, lifecycle scope, and Category selection, and does move with those. Transaction text, Recorded By, and Paid By narrow the list only.
 _Avoid_: Transaction List
 
 **Ledger Filter**:
-A lightweight way to narrow a **Monthly Ledger** to the selected month using Transaction text, Transaction type, Category, Recorded By, Paid By, and lifecycle scope: active, archived, or all. A Ledger Filter is reset when the User changes the selected **Monthly Ledger** month. A Ledger Filter narrows the Transactions on the Monthly Ledger and the **Category Ranking** above them, but not the month's Income, Expenses, and Net.
+A lightweight way to narrow a **Monthly Ledger** to the selected month using Transaction text, Transaction type, Category, Recorded By, Paid By, and lifecycle scope: active, archived, or all. A Ledger Filter is reset when the User changes the selected **Monthly Ledger** month. A Ledger Filter narrows the Transactions on the Monthly Ledger and the **Category Ranking** above them — the ranking by month, Transaction type, lifecycle scope, and Category selection — but not the month's Income, Expenses, and Net. Transaction text, Recorded By, and Paid By narrow the Transactions only.
 _Avoid_: Search, Advanced Search
 
 **Comparison Range**:

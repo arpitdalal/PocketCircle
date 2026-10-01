@@ -8,7 +8,6 @@ const ranking = CATEGORY_RANKING_TEST_ROWS;
 function renderRanking(overrides: Partial<Parameters<typeof LedgerCategoryRanking>[0]> = {}) {
   return render(
     <LedgerCategoryRanking
-      month="2026-06"
       ranking={ranking}
       currency="USD"
       scope="active and archived"
@@ -23,7 +22,7 @@ describe("LedgerCategoryRanking", () => {
     renderRanking();
 
     const table = screen.getByRole("table");
-    expect(table).toHaveAccessibleName("Tagged spend by category for 2026-06");
+    expect(table).toHaveAccessibleName("Tagged spend by category");
     // Wrapper (not the table) carries sr-only — WebKit expands page scrollWidth when
     // sr-only is on <table> itself (#398 horizontal overflow / clipped bottom nav).
     expect(table.parentElement).toHaveClass("sr-only");
@@ -32,7 +31,7 @@ describe("LedgerCategoryRanking", () => {
     }
     expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
     expect(
-      screen.getByRole("rowheader", { name: "Old Subscriptions (archived)" }),
+      screen.getByRole("rowheader", { name: "Old Subscriptions (Archived)" }),
     ).toBeInTheDocument();
     // $5,000.00 income above the baseline, $73.50 and $21.00 expense below it.
     expect(screen.getByText("$5,000.00")).toBeInTheDocument();
@@ -42,18 +41,25 @@ describe("LedgerCategoryRanking", () => {
     expect(screen.getAllByText("Expense")).toHaveLength(2);
   });
 
-  it("states both non-additivity and the lifecycle scope in view", () => {
+  it("states non-additivity, the lifecycle scope in view, and what does not narrow it", () => {
     renderRanking({ scope: "archived" });
 
-    expect(screen.getByText(/counts its full amount toward each category/i)).toBeInTheDocument();
-    expect(screen.getByText(/showing archived transactions/i)).toBeInTheDocument();
+    expect(screen.getByText(/counts its full amount toward each/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/showing archived transactions, not narrowed by search text or member/i),
+    ).toBeInTheDocument();
   });
 
-  it("is read-only: the chart exposes no control to filter by Category", () => {
-    renderRanking();
+  it("is read-only: nothing inside the section is focusable or a control", () => {
+    const { container } = renderRanking();
 
-    expect(screen.queryByRole("button", { name: /groceries/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /groceries/i })).not.toBeInTheDocument();
+    // `hidden: true` — the chart is aria-hidden, and a control smuggled inside it would
+    // otherwise be invisible to this assertion.
+    expect(screen.queryByRole("button", { name: /groceries/i, hidden: true })).toBeNull();
+    expect(screen.queryByRole("link", { name: /groceries/i, hidden: true })).toBeNull();
+    const section = screen.getByRole("region", { name: "Tagged spend by category" });
+    expect(section.querySelector("[tabindex]")).toBeNull();
+    expect(container.querySelector("button, a")).toBeNull();
   });
 
   it("swaps the lazy chart shell for the real Recharts visual once its chunk loads", async () => {
@@ -75,21 +81,36 @@ describe("LedgerCategoryRanking", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("marks the section busy while a retained ranking bridges a scope reload", () => {
+  it("keeps its heading while the first scope loads, and marks the section busy", () => {
+    renderRanking({ ranking: undefined });
+
+    const section = screen.getByRole("region", { name: "Tagged spend by category" });
+    expect(section).toHaveAttribute("aria-busy", "true");
+    const loading = screen.getByTestId("category-ranking-skeleton");
+    expect(loading).toHaveAttribute("role", "status");
+    expect(loading).toHaveTextContent("Loading tagged spend…");
+    expect(loading.querySelector(".h-72")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("drops the scope clause while a retained ranking bridges a scope reload", () => {
     const { rerender } = renderRanking();
     const section = screen.getByRole("region", { name: "Tagged spend by category" });
     expect(section).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByText(/showing active and archived transactions/i)).toBeInTheDocument();
 
+    // The rows on screen still belong to the PREVIOUS scope, so the caption must not
+    // relabel them with the scope now being loaded.
     rerender(
       <LedgerCategoryRanking
-        month="2026-07"
         ranking={ranking}
         currency="USD"
-        scope="active and archived"
-        scopeKey="ledger-ranking:c1:2026-07:all:all"
+        scope="archived"
+        scopeKey="ledger-ranking:c1:2026-07:all:archived"
         pending
       />,
     );
     expect(section).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText(/showing .* transactions/i)).not.toBeInTheDocument();
   });
 });

@@ -37,6 +37,11 @@ Scope Totals cards by design and says so.
 - **Unifying the two presentations.** The Dashboard keeps its clickable ranked list and remains the
   only path to a category-filtered Ledger. Revisit once we know which surface gets used.
 - **The `MonthNavigator` extraction.** It stays inline in `transactions.tsx`; it is not reused.
+- **Following every Ledger Filter dimension.** The ranking follows the filter's month, type,
+  lifecycle scope, and Category selection — the dimensions the "Done when" list names.
+  Transaction text search, Recorded By, and Paid By do **not** narrow it: they select
+  *Transactions*, not Categories, and `getCategoryAnalytics` would grow three more args and a
+  second code path through the aggregator for no Category-level answer.
 
 ## Convex
 

@@ -160,6 +160,11 @@ function useRetainedCategoryAnalytics(
   if (!enabled) {
     return { rows: [], pending: false };
   }
+  if (retained.value === null) {
+    // `null` ≡ inaccessible Circle (ADR 0016) — a real result, not a load. The guard ejects;
+    // rendering an empty ranking beats a placeholder that never resolves.
+    return { rows: [], pending: false };
+  }
   return {
     rows: retained.value?.rows.map(withType(type)),
     pending: retained.value === undefined || retained.isPending,
@@ -181,8 +186,9 @@ function withType(type: TransactionType) {
  * the aggregator merges both types into a single set sorted by raw amount, so a salary
  * would outrank every grocery. Each read reuses the server's tested ranking.
  *
- * `undefined` while the first scope loads; `isPending` is true while a retained
- * (previous-scope) ranking bridges a reload.
+ * `undefined` only until the FIRST read of a scope resolves — a side that widens in later
+ * (type `all` → `expense`, say) keeps whatever it has and reports `isPending`, so the chart
+ * never blanks to a placeholder for data it already had.
  */
 export function useLedgerCategoryRanking(circleId: Circle["id"], filters: CategoryRankingFilters) {
   // Both hooks always run — a narrowed type filter only SKIPS the other type's
@@ -207,8 +213,8 @@ export function useLedgerCategoryRanking(circleId: Circle["id"], filters: Catego
         : [expense, income];
   const loaded = sides.map((side) => side.rows).filter((rows) => rows !== undefined);
   return {
-    ranking: loaded.length === sides.length ? loaded.flat() : undefined,
-    isPending: sides.some((side) => side.pending),
+    ranking: loaded.length > 0 ? loaded.flat() : undefined,
+    isPending: loaded.length < sides.length || sides.some((side) => side.pending),
   };
 }
 

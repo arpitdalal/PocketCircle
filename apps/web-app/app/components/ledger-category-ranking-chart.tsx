@@ -33,12 +33,12 @@ export interface RankingBarDatum {
  * (PRD 58) and stays distinguishable (CONTEXT: never identify by colour alone), so its bar
  * is hatched rather than dropped or silently recoloured.
  */
-const ARCHIVED_HATCH_ID = "ledger-category-ranking-archived-hatch";
+export const ARCHIVED_HATCH_ID = "ledger-category-ranking-archived-hatch";
 
 /**
  * Projects ranking rows onto diverging bars. The sign is presentation only — the row's
- * `taggedTotalMinor` stays a positive magnitude — and an Archived Category keeps its
- * Category colour but draws it as a hatch.
+ * `taggedTotalMinor` stays a positive magnitude — and an Archived Category draws in the
+ * shared hatch instead of its Category colour.
  */
 export function toCategoryRankingBars(ranking: CategoryRankingRow[]): RankingBarDatum[] {
   return ranking.map((row) => ({
@@ -49,17 +49,14 @@ export function toCategoryRankingBars(ranking: CategoryRankingRow[]): RankingBar
   }));
 }
 
-/**
- * Axis labels stay short so a busy month doesn't turn into overlapping text: the full
- * Category name lives in the tooltip and the sr-only table.
- */
+/** X-axis label budget; the full name lives in the tooltip and the sr-only table. */
+const CATEGORY_TICK_MAX_CHARS = 14;
+
 function truncateCategoryTick(name: string) {
   return name.length > CATEGORY_TICK_MAX_CHARS
     ? `${name.slice(0, CATEGORY_TICK_MAX_CHARS - 1)}…`
     : name;
 }
-
-const CATEGORY_TICK_MAX_CHARS = 14;
 
 /**
  * Recharts visual for the Monthly Ledger's Category Ranking — its own chunk so the Ledger
@@ -103,7 +100,14 @@ export function LedgerCategoryRankingChart({
         // before measure and breaks fixed bottom chrome.
         initialDimension={{ width: 320, height: 260 }}
       >
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+        <BarChart
+          data={data}
+          margin={{ top: 8, right: 8, bottom: 8, left: 0 }}
+          // The visual is `aria-hidden` and the sr-only table is its accessible reading,
+          // so Recharts' own keyboard layer (a focusable role="application" surface that
+          // duplicates that table) must stay off — an aria-hidden tab stop is a trap.
+          accessibilityLayer={false}
+        >
           <defs>
             <pattern
               id={ARCHIVED_HATCH_ID}
@@ -156,13 +160,16 @@ export function LedgerCategoryRankingChart({
   );
 }
 
+/** The geometry Recharts hands a bar shape, plus the row it draws. */
+export type RankingBarShapeProps = Pick<BarShapeProps, "x" | "y" | "width" | "height" | "payload">;
+
 /**
  * Recharts renders each bar through `shape` with the row it draws, so the bar can carry
  * its own fill — the Category colour, or the Archived hatch — instead of one series colour.
  */
-function renderRankingBar(props: BarShapeProps) {
-  const datum: RankingBarDatum | undefined = props.payload;
-  return <Rectangle {...props} fill={datum?.fill} radius={3} />;
+export function renderRankingBar({ x, y, width, height, payload }: RankingBarShapeProps) {
+  const datum: RankingBarDatum | undefined = payload;
+  return <Rectangle x={x} y={y} width={width} height={height} fill={datum?.fill} radius={3} />;
 }
 
 /**

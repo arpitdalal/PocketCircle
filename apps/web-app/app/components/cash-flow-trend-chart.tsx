@@ -56,7 +56,14 @@ export function CashFlowTrendChart({
         // before measure and breaks fixed bottom chrome.
         initialDimension={{ width: 320, height: 260 }}
       >
-        <ComposedChart data={series} barGap={2}>
+        <ComposedChart
+          data={series}
+          barGap={2}
+          // The visual is `aria-hidden` and the sr-only table is its accessible reading,
+          // so Recharts' own keyboard layer (a focusable role="application" surface that
+          // duplicates that table) must stay off — an aria-hidden tab stop is a trap.
+          accessibilityLayer={false}
+        >
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis
             dataKey="month"

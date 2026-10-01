@@ -1,16 +1,18 @@
-# Animated headline money totals and cash-flow charts
+# Animated headline money totals and summary charts
 
-PocketCircle animates **headline Income / Expenses / Net totals** and the **Cash flow trend chart** when the User changes a **reporting scope control** (Home Summary currency or range, Circle Dashboard comparison range, Monthly Ledger month). Totals use [`@number-flow/react`](https://number-flow.barvian.me/); the chart uses Recharts' built-in transition. Both bridge an otherwise instant swap so the User can track how a scope change moved the summary.
+PocketCircle animates **headline Income / Expenses / Net totals** and its two **summary charts** — the **Cash flow trend** and the Monthly Ledger's **Category Ranking** — when the User changes a **reporting scope control** (Home Summary currency or range, Circle Dashboard comparison range, Monthly Ledger month or Ledger Filter). Totals use [`@number-flow/react`](https://number-flow.barvian.me/); the chart uses Recharts' built-in transition. Both bridge an otherwise instant swap so the User can track how a scope change moved the summary.
 
 The prior chart policy (`isAnimationActive={false}`) rejected Recharts' **default 1500ms** draw — too slow for a finance UI. **Fast** chart transitions (~200ms) on scope change are in scope; slow decorative draw-in is not.
 
-This applies only to **read-only summary surfaces** recomputed for a new scope. It does **not** apply to row-level money in Transaction lists, recent feeds, history, detail views, category analytics breakdowns, chart tooltips, or export formatting. Those surfaces are for scanning, editing, or reading dense data; motion there hinders rather than helps (Emil Kowalski frequency/purpose bar).
+This applies only to **read-only summary surfaces** recomputed for a new scope. It does **not** apply to row-level money in Transaction lists, recent feeds, history, detail views, the Dashboard's Category Ranking *list*, chart tooltips, or export formatting. Those surfaces are for scanning, editing, or reading dense data; motion there hinders rather than helps (Emil Kowalski frequency/purpose bar).
 
 **Home Summary** (ADR 0031): the three Cash flow total cards (`Income`, `Expenses`, `Net cash flow`) animate when currency, comparison range, or Circle inclusion changes. Per-Circle contribution amounts, recent Transaction rows, and the sr-only chart table stay static `formatMoney` strings.
 
 **Circle Dashboard** (CONTEXT **Dashboard**): the **current-month** totals grid (`MonthScopeTotalsCards`) animates when live Dashboard data refreshes (new transactions in the viewer's current month) or when the comparison-range control changes the chart below. Dashboard totals do not offer month navigation — that belongs to the **Monthly Ledger** (see route docstring: month navigation is RPT-4 comparison, not headline totals).
 
 **Monthly Ledger** (CONTEXT **Monthly Ledger**): the month totals grid (`MonthScopeTotalsCards`, legend `Monthly totals`) animates when the User changes the selected ledger month. Ledger **Filters** do not change these totals (only the Transaction list narrows); do not tie animation to filter Apply.
+
+**Monthly Ledger Category Ranking** (RPT-8): the diverging bar chart above the Transaction list animates when the Ledger Filter's month, type, lifecycle scope, or Category selection changes — the same scope-change case as the totals grid, on a read-only summary surface. Its `scopeKey` carries all four; retained rows bridge the reload through `useStableQuery`, exactly as the month totals do.
 
 **Home Summary** uses `HomeCashFlowTotalsCards` (fieldset-card layout). **Dashboard** and **Monthly Ledger** share `MonthScopeTotalsCards` (definition-list layout). Both wire `AnimatedMoney` + `NumberFlowGroup` rather than duplicating NumberFlow formatting.
 
@@ -31,7 +33,7 @@ Home Summary keeps the previous result while currency/range args reload and expo
 
 Motion is gated by `useScopeChangeMotion` (`~/lib/motion.ts`): callers pass a **reporting-scope key** (currency/range/inclusion, ledger month, comparison range) plus a value fingerprint and the query's **`pending`** flag from retention (`useStableQuery` / Home). Digit/chart animation runs only when values change after that scope key changes while pending — not on live Convex refreshes with the same scope. If the new scope settles with an **unchanged** fingerprint (e.g. two empty ledger months), `pending` going false disarms so a later live update does not falsely animate. Dashboard current-month totals use mode `always` so live month refreshes still animate (ADR above).
 
-**Cash flow chart** (`apps/web-app/app/components/cash-flow-trend.tsx`): used on Home Summary and Dashboard month-over-month comparison. Requires an explicit `scopeKey` from the route; enable fast animation here only — not other hypothetical chart surfaces.
+**Charts** (`apps/web-app/app/components/cash-flow-trend.tsx`, `ledger-category-ranking.tsx`): the cash-flow trend (Home Summary, Dashboard month-over-month comparison) and the Monthly Ledger's Category Ranking. Each requires an explicit `scopeKey` from its route. Enable fast animation on these two summary charts only — not on row-level or hypothetical surfaces. Both keep Recharts' own `accessibilityLayer` OFF: the visual is `aria-hidden` and its sr-only table is the accessible reading, so Recharts' focusable `role="application"` surface would be a hidden tab stop duplicating it.
 
 Grouping: wrap the three totals on a given surface in `NumberFlowGroup` when all three update in the same render (currency/range/month change) so digit transitions stay synchronized.
 

@@ -678,18 +678,27 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
   }
 
   /**
-   * The backend's own narrowing, modelled per read: a Category belongs to ONE type, the
-   * lifecycle scope picks which Transactions count, and `categoryIds` narrows the rows.
+   * Stands in for the backend per read: which Transaction set a scope ranks, and the
+   * `categoryIds` row filter. Deliberately a FIXTURE lookup, not a re-implementation —
+   * the real narrowing is the hook under test.
    */
   function rankingAnalytics() {
+    const byScope: Record<string, CategoryAnalytics["rows"]> = {
+      "expense:all": [GROCERIES],
+      "expense:active": [GROCERIES],
+      "expense:archived": [RENT],
+      "income:all": [SALARY],
+      "income:active": [SALARY],
+      "income:archived": [],
+    };
     return (args: Record<string, unknown>) => {
-      const archived = args.status === "archived";
-      const expense = archived ? [RENT] : [GROCERIES];
-      const scoped = args.type === "income" ? [SALARY] : expense;
-      const selected = Array.isArray(args.categoryIds) ? (args.categoryIds as string[]) : [];
+      const rows = byScope[`${String(args.type)}:${String(args.status)}`] ?? [];
+      const selected = Array.isArray(args.categoryIds)
+        ? args.categoryIds.filter((id): id is string => typeof id === "string")
+        : [];
       return {
         currency: "USD",
-        rows: scoped.filter((row) => selected.length === 0 || selected.includes(row.categoryId)),
+        rows: rows.filter((row) => selected.length === 0 || selected.includes(row.categoryId)),
       };
     };
   }
@@ -703,11 +712,39 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
       expect.objectContaining({ month: "2026-05", type: "expense", status: "all" }),
       expect.objectContaining({ month: "2026-05", type: "income", status: "all" }),
     ]);
-    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
-    expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
-    // Both scopes say so — non-additivity and the lifecycle scope in view (ADR 0036).
+    // Expenses then income: the diverging chart reads expense-first below the baseline,
+    // so the merged order is part of the contract, not an accident of merge order.
+    expect(screen.getAllByRole("rowheader").map((cell) => cell.textContent)).toEqual([
+      "Groceries",
+      "Salary",
+    ]);
+    // Both scopes say so — non-additivity, the lifecycle scope in view, and the filter
+    // dimensions the ranking does NOT follow (ADR 0036).
     expect(screen.getByText(/not additive/i)).toBeInTheDocument();
-    expect(screen.getByText(/showing active and archived transactions/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/showing active and archived transactions, not narrowed by/i),
+    ).toBeInTheDocument();
+  });
+
+  it("re-queries the ranking when the selected month changes", async () => {
+    const user = userEvent.setup();
+    setup({
+      categoryAnalytics: (args) => ({
+        currency: "USD",
+        rows: args.type === "income" ? [SALARY] : args.month === "2026-05" ? [GROCERIES] : [RENT],
+      }),
+    });
+
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+
+    expect(rankingArgs()).toEqual([
+      expect.objectContaining({ month: "2026-06", type: "expense" }),
+      expect.objectContaining({ month: "2026-06", type: "income" }),
+    ]);
+    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
   });
 
   it("narrows the ranking with the ledger filter while the monthly totals stay put", async () => {
@@ -733,7 +770,7 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
       expect.objectContaining({ status: "archived" }),
     ]);
     expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
-    expect(screen.getByRole("rowheader", { name: "Rent (archived)" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
     // …while the month's Expenses / Net stay filter-blind (ADR 0036 split).
     expect(screen.getAllByText(/\$125\.00/, { selector: ".sr-only" })).toHaveLength(2);
   });

@@ -23,7 +23,7 @@ The Monthly Ledger is the first surface where an aggregate and a filtered list c
 
 - `getCategoryAnalytics` gains optional `categoryIds` and lifecycle-scope arguments. The scope default stays `active`, so the Dashboard route, the MCP tool, and existing behaviour are unchanged; the MCP surface stays active-only and its published "Archived Transactions are excluded" description stays true.
 - The RPT-5 "one shared month set" invariant is narrowed, not deleted: surfaces still share one reader, but a list-derived aggregate shares the *scope* as well. RPT-5's doc is amended accordingly.
-- `by_circle_status_date` already supports both scopes, so no new index is required. `circleMonthTotals` stays active-only and the chart never reads it — the two aggregates are deliberately decoupled.
+- No new index is required. A single Transaction scope ranges `by_circle_status_date`; `all` ranges the date-ordered `by_circle_and_date` in one pass, and the Paid By variant reads one status at a time (`by_circle_paidby_status_date` has no date-ordered sibling spanning both). `circleMonthTotals` stays active-only and the ranking never reads it — the two aggregates are deliberately decoupled.
 - The next report added to a filtered surface must decide which of the two kinds it is. Copying `collectMonthTransactions` without that decision is the mistake this ADR exists to prevent.
 - A Transaction is required to have at least one Category (PRD 52), but that is enforced at the edge — the domain schema and the form — not by the Convex argument validators, which accept an empty array. Category aggregates silently drop any Transaction that reaches the data layer untagged. This is a product invariant, not a schema guarantee.
 

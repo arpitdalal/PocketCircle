@@ -356,26 +356,56 @@ export const MOCK_CATEGORY_ANALYTICS: CategoryAnalytics = {
 };
 
 /**
- * One type's Category Ranking rows under MOCKS (RPT-8), narrowed from the shared
- * fixture by the same dimensions the backend narrows by — the Category's own type, the
- * requested lifecycle scope, and an explicit Category selection (ADR 0036). Typed
- * against {@link CategoryAnalytics} so the derived row contract can't drift.
+ * Mock Category Ranking rows under MOCKS (RPT-8): the same rows the Dashboard fixture
+ * uses plus an income Category and an Archived one, so the Ledger's diverging chart can
+ * render both sides and its Archived hatch offline. Typed against
+ * {@link CategoryAnalytics} so the derived row contract can't drift.
+ */
+export const MOCK_CATEGORY_RANKING: CategoryAnalytics = {
+  currency: MOCK_CATEGORY_ANALYTICS.currency,
+  rows: [
+    ...MOCK_CATEGORY_ANALYTICS.rows,
+    {
+      categoryId: "mock-cat-salary" as Category["id"],
+      name: "Salary",
+      color: "teal",
+      status: "active",
+      taggedTotalMinor: 500_000,
+      txnCount: 1,
+    },
+    {
+      categoryId: "mock-cat-subscriptions" as Category["id"],
+      name: "Old Subscriptions",
+      color: "orange",
+      status: "archived",
+      taggedTotalMinor: 2_100,
+      txnCount: 1,
+    },
+  ],
+};
+
+/**
+ * One type's Category Ranking rows under MOCKS, narrowed by the dimensions the backend
+ * narrows by — the Category's own type and an explicit Category selection.
+ *
+ * Deliberately NOT narrowed by lifecycle scope: the backend's rule is that the scope
+ * filters Transactions, never Categories (ADR 0036, PRD 58), so an Archived Category stays
+ * in the ranking whatever scope is in view. These fixtures carry no Transaction lifecycle
+ * to narrow with, so every scope shows the same rows — which is that rule.
  */
 export function mockCategoryRanking(
   type: TransactionType,
-  filters: { status: "active" | "archived" | "all"; categoryIds?: readonly string[] },
+  filters: { categoryIds?: readonly string[] },
 ): CategoryAnalytics {
   const ofType = new Set(
     MOCK_CATEGORIES.filter((category) => category.type === type).map((category) => category.id),
   );
   const selected = filters.categoryIds ?? [];
   return {
-    currency: MOCK_CATEGORY_ANALYTICS.currency,
-    rows: MOCK_CATEGORY_ANALYTICS.rows.filter(
+    currency: MOCK_CATEGORY_RANKING.currency,
+    rows: MOCK_CATEGORY_RANKING.rows.filter(
       (row) =>
-        ofType.has(row.categoryId) &&
-        (filters.status === "all" || row.status === filters.status) &&
-        (selected.length === 0 || selected.includes(row.categoryId)),
+        ofType.has(row.categoryId) && (selected.length === 0 || selected.includes(row.categoryId)),
     ),
   };
 }

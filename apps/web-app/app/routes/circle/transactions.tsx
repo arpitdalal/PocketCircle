@@ -10,7 +10,6 @@ import { type FormEvent, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { LedgerCategoryRanking } from "~/components/ledger-category-ranking.js";
 import { MonthScopeTotalsCards } from "~/components/month-scope-totals-cards.js";
-import { Skeleton } from "~/components/skeleton.js";
 import { TransactionList } from "~/components/transaction-list.js";
 import { Button } from "~/components/ui/button.js";
 import { buttonVariants } from "~/components/ui/button-variants.js";
@@ -269,10 +268,10 @@ export default function CircleTransactions() {
 
 /**
  * The Ledger's Category Ranking (RPT-8): ranked, non-additive tagged spend for the
- * filtered month, above the Transaction list so it summarises the rows beneath it. It
- * follows the Ledger Filter — lifecycle scope, type, and Category selection — so unlike
- * the totals cards above it, it DOES move with the filter, and it says which scope it is
- * showing (ADR 0036).
+ * selected month, above the Transaction list so it summarises the rows beneath it. It
+ * follows the Ledger Filter's month, type, lifecycle scope, and Category selection — so
+ * unlike the totals cards above it, it DOES move with those filters — and its caption
+ * names that scope plus the dimensions it does not follow (ADR 0036).
  */
 function LedgerCategoryRankingSection({
   circle,
@@ -288,18 +287,21 @@ function LedgerCategoryRankingSection({
     categoryIds: filters.categories,
   });
 
-  if (ranking === undefined) {
-    // Presentational placeholder — no announcement: the Transaction list announces its own load.
-    return <Skeleton className="h-72 w-full rounded-xl" />;
-  }
-
   return (
     <LedgerCategoryRanking
-      month={filters.month}
       ranking={ranking}
       currency={circle.currency}
       scope={lifecycleScopeLabel(filters.status)}
-      scopeKey={`ledger-ranking:${circle.id}:${filters.month}:${filters.type}:${filters.status}:${filters.categories.join(",")}`}
+      // Sorted ids: re-picking the same Categories in another order is the same scope, and
+      // must not re-arm the chart's scope-change animation.
+      scopeKey={[
+        "ledger-ranking",
+        circle.id,
+        filters.month,
+        filters.type,
+        filters.status,
+        ...[...filters.categories].sort(),
+      ].join(":")}
       pending={isPending}
     />
   );

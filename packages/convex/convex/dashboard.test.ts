@@ -1119,6 +1119,18 @@ describe("getCategoryAnalytics — filter-derived scope (RPT-8, ADR 0036)", () =
     const f = await t.run((ctx) => seedFixture(ctx));
     mockCurrentUser.mockResolvedValue(f.owner);
     await seedActiveAndArchived(t, f);
+    // Drop the write-maintained month row so the totals fall back to the month COLLECT —
+    // the reader this slice parameterised. Reading the maintained row would pass even if
+    // the collect's default scope were wrong.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("circleMonthTotals")
+        .withIndex("by_circle_month", (q) => q.eq("circleId", f.circleId).eq("month", "2026-06"))
+        .unique();
+      if (row) {
+        await ctx.db.delete(row._id);
+      }
+    });
 
     for (const status of ["active", "archived", "all"] as const) {
       await t.query(api.dashboard.getCategoryAnalytics, {
@@ -1137,5 +1149,43 @@ describe("getCategoryAnalytics — filter-derived scope (RPT-8, ADR 0036)", () =
         netMinor: -1_000,
       });
     }
+  });
+
+  it("applies categoryIds to rows under a narrowed lifecycle scope", async () => {
+    const t = convexTest(schema, modules);
+    const f = await t.run((ctx) => seedFixture(ctx));
+    mockCurrentUser.mockResolvedValue(f.owner);
+    await t.run(async (ctx) => {
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 1_000,
+        date: "2026-06-10",
+        categoryIds: [f.groceriesId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 4_000,
+        date: "2026-06-11",
+        status: "archived",
+        categoryIds: [f.diningId],
+      });
+      await seedTransaction(ctx, f, {
+        amountMinorUnits: 9_000,
+        date: "2026-06-12",
+        status: "archived",
+        categoryIds: [f.groceriesId],
+      });
+    });
+
+    // Groceries has BOTH an active and an archived Transaction; selecting it under the
+    // archived scope must show only the archived one.
+    const archivedGroceries = await t.query(api.dashboard.getCategoryAnalytics, {
+      circleId: f.circleId,
+      month: "2026-06",
+      type: "expense",
+      status: "archived",
+      categoryIds: [f.groceriesId],
+    });
+    expect(archivedGroceries?.rows).toEqual([
+      expect.objectContaining({ name: "Groceries", taggedTotalMinor: 9_000 }),
+    ]);
   });
 });
