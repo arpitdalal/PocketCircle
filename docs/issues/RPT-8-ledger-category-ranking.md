@@ -55,15 +55,18 @@ optional and both default to today's behaviour.
 
 `getCategoryAnalytics` args become `{ circleId, month?, type?, categoryIds?, status? }`.
 
-1. **`status`** — `v.optional(v.union(v.literal("active"), v.literal("archived")))`, **defaulting to
-   `"active"`.** Thread it into `collectMonthTransactions(ctx, circleId, month, status)`.
-   The existing `collectMonthActiveTransactions` became the `status = "active"` case of a
-   status-parameterised reader; `by_circle_status_date` (`schema.ts:190`) already serves both
-   scopes, so **no new index**. The default stays `active` so `mcpApproval.test.ts:1569` and
-   `dashboard.test.ts:858` stay green.
-2. **`categoryIds`** — `v.optional(v.array(v.id("categories")))`. Applied **to the accumulated
-   rows, after aggregation**, not to the Transaction set. Filtering the Transaction set would
-   silently drop Categories; filtering rows shows the selected Categories' totals.
+1. **`status`** — `v.optional(v.union(v.literal("all"), v.literal("active"), v.literal("archived")))`,
+   **defaulting to `"active"`.** Thread it into `collectMonthTransactions(ctx, circleId, month, status)`.
+   The existing `collectMonthActiveTransactions` became the `active` and `archived` cases of a
+   status-parameterised reader; `"all"` reads every Transaction in the month. Both scoped reads use
+   `by_circle_status_date` (`schema.ts:190`), and `"all"` uses `by_circle_and_date`, so **no new
+   index**. The default stays `active` so `mcpApproval.test.ts:1569` and `dashboard.test.ts:858` stay
+   green.
+2. **`categoryIds`** — `v.optional(v.array(v.string()))`. Plain ids, not `v.id("categories")`: the
+   filter mirrors `filterLedgerTransactions`, which already takes `v.array(v.string())` so a category
+   could be selected before it existed. Applied **to the accumulated rows, after aggregation**, not
+   to the Transaction set. Filtering the Transaction set would silently drop Categories; filtering
+   rows shows the selected Categories' totals.
 
 ### Archived Categories come free
 
