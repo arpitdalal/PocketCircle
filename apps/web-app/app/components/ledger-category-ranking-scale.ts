@@ -12,7 +12,7 @@ export function categoryRankingScale(values: number[]) {
   let selectedVisibility = originalVisibility;
   const gapShare = 0.3;
   const upperShare = 0.5;
-  let gap: { low: number; high: number } | undefined;
+  let gap: { lower: number; upper: number; tickStep: number } | undefined;
   for (const [index, low] of magnitudes.entries()) {
     const high = magnitudes[index + 1];
     if (high === undefined) break;
@@ -35,7 +35,7 @@ export function categoryRankingScale(values: number[]) {
       (candidateVisibility >= visibility ||
         (selectedVisibility < visibility && candidateVisibility > selectedVisibility))
     ) {
-      gap = { low, high };
+      gap = { lower, upper, tickStep };
       selectedVisibility = candidateVisibility;
     }
   }
@@ -43,10 +43,7 @@ export function categoryRankingScale(values: number[]) {
     return { project: (value: number) => value, domain: [min, max], ticks: undefined, breaks: [] };
   }
 
-  const lowStep = 10 ** Math.floor(Math.log10(gap.low));
-  const highStep = 10 ** (Math.floor(Math.log10(gap.high)) - 1);
-  const lower = Math.ceil(gap.low / lowStep) * lowStep;
-  const upper = (Math.ceil(gap.high / highStep) - 1) * highStep;
+  const { lower, upper, tickStep: step } = gap;
   const largest = Math.max(-min, max);
   const gapSize = lower * gapShare;
   const upperSize = lower * upperShare;
@@ -61,7 +58,6 @@ export function categoryRankingScale(values: number[]) {
     return Math.sign(value) * position;
   };
   // Pad the unbroken side to the same low-range checkpoints; no tiny endpoint ticks.
-  const step = Math.ceil(lower / 3 / lowStep) * lowStep;
   const bound = (value: number) =>
     Math.abs(value) <= lower ? Math.sign(value) * Math.ceil(Math.abs(value) / step) * step : value;
   const domainMin = project(bound(min));
