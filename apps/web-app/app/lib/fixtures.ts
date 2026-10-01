@@ -366,7 +366,7 @@ export const MOCK_CATEGORY_RANKING: CategoryAnalytics = {
   rows: [
     ...MOCK_CATEGORY_ANALYTICS.rows,
     {
-      categoryId: "mock-cat-salary" as Category["id"],
+      categoryId: testId<Category["id"]>("mock-cat-salary"),
       name: "Salary",
       color: "teal",
       status: "active",
@@ -374,7 +374,7 @@ export const MOCK_CATEGORY_RANKING: CategoryAnalytics = {
       txnCount: 1,
     },
     {
-      categoryId: "mock-cat-subscriptions" as Category["id"],
+      categoryId: testId<Category["id"]>("mock-cat-subscriptions"),
       name: "Old Subscriptions",
       color: "orange",
       status: "archived",

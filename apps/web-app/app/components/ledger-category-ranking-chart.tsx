@@ -40,7 +40,7 @@ export const ARCHIVED_HATCH_ID = "ledger-category-ranking-archived-hatch";
  * `taggedTotalMinor` stays a positive magnitude — and an Archived Category draws in the
  * shared hatch instead of its Category colour.
  */
-export function toCategoryRankingBars(ranking: CategoryRankingRow[]): RankingBarDatum[] {
+export function toCategoryRankingBars(ranking: CategoryRankingRow[]) {
   return ranking.map((row) => ({
     name: row.name,
     signedMinor: row.type === "income" ? row.taggedTotalMinor : -row.taggedTotalMinor,
@@ -144,12 +144,6 @@ export function LedgerCategoryRankingChart({
           <Tooltip
             content={<RankingTooltip formatMinor={formatMinor} />}
             cursor={{ fill: "var(--muted)" }}
-            contentStyle={{
-              backgroundColor: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: "0.5rem",
-              color: "var(--foreground)",
-            }}
           />
           <Bar
             dataKey="signedMinor"
@@ -196,7 +190,10 @@ function RankingTooltip({
     return null;
   }
   return (
-    <div className="text-xs">
+    // Custom `content` REPLACES Recharts' default tooltip, and `contentStyle` only styles
+    // that default — so the card chrome lives here or the readout sits unreadable over the
+    // bars (same chrome as `cash-flow-trend-chart.tsx`).
+    <div className="rounded-lg border border-border bg-card p-2 text-xs text-foreground shadow-sm">
       <p className="font-medium">
         {datum.name}
         {datum.archived ? " (Archived)" : ""}

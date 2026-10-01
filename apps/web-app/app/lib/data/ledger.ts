@@ -23,7 +23,7 @@ import {
   mockCategoryRanking,
   mockFilterTransactions,
 } from "../fixtures.js";
-import { useStableQuery } from "../use-stable-query.js";
+import { useRetainedQueryResult, useStableQuery } from "../use-stable-query.js";
 import type { Circle } from "./circles.js";
 import type { CategoryAnalyticsRow } from "./dashboard.js";
 import {
@@ -175,7 +175,7 @@ function useRetainedCategoryAnalytics(
 }
 
 function withType(type: TransactionType) {
-  return (row: CategoryAnalyticsRow): CategoryRankingRow => ({ ...row, type });
+  return (row: CategoryAnalyticsRow) => ({ ...row, type });
 }
 
 /**
@@ -189,9 +189,11 @@ function withType(type: TransactionType) {
  * the aggregator merges both types into a single set sorted by raw amount, so a salary
  * would outrank every grocery. Each read reuses the server's tested ranking.
  *
- * `undefined` only until the FIRST read of a scope resolves — a side that widens in later
- * (type `all` → `expense`, say) keeps whatever it has and reports `isPending`, so the chart
- * never blanks to a placeholder for data it already had.
+ * The two sides publish as ONE ranking: a composite is only handed on once every side in
+ * scope has resolved, so the chart never mixes rows from two different scopes. Until then
+ * the last complete composite stays on screen, marked `isPending` — the same continuous
+ * tree the totals cards keep (ADR 0032). `undefined` only until the FIRST composite of a
+ * Circle resolves.
  */
 export function useLedgerCategoryRanking(circleId: Circle["id"], filters: CategoryRankingFilters) {
   // Both hooks always run — a narrowed type filter only SKIPS the other type's
@@ -214,10 +216,12 @@ export function useLedgerCategoryRanking(circleId: Circle["id"], filters: Catego
       : filters.type === "expense"
         ? [expense]
         : [expense, income];
-  const loaded = sides.map((side) => side.rows).filter((rows) => rows !== undefined);
+  const rows = sides.map((side) => side.rows);
+  const complete = rows.every((side) => side !== undefined) ? rows.flat() : undefined;
+  const retained = useRetainedQueryResult(complete, { resetKey: circleId });
   return {
-    ranking: loaded.length > 0 ? loaded.flat() : undefined,
-    isPending: loaded.length < sides.length || sides.some((side) => side.pending),
+    ranking: retained.value,
+    isPending: retained.isPending || sides.some((side) => side.pending),
   };
 }
 

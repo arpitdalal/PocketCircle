@@ -726,17 +726,23 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
     ).toBeInTheDocument();
   });
 
-  it("drops a skipped side's retained rows when the type filter widens again", async () => {
-    const user = userEvent.setup();
-    // The widened income read is modelled as STILL IN FLIGHT (`undefined`), so a stale
-    // retention would merge the pre-narrowing Salary into the new scope's ranking.
+  it("publishes both sides together rather than a partial ranking", () => {
+    // The income read is in flight from the first render: the ranking must stay in its
+    // loading state instead of publishing the expense side alone.
     setup({
-      categoryAnalytics: (args) => {
-        if (args.status === "archived" && args.type === "income") {
-          return undefined;
-        }
-        return rankingAnalytics()(args);
-      },
+      categoryAnalytics: (args) => (args.type === "income" ? undefined : rankingAnalytics()(args)),
+    });
+
+    expect(screen.getByTestId("category-ranking-skeleton")).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Groceries" })).not.toBeInTheDocument();
+  });
+
+  it("holds the last complete ranking when a widened scope is still loading", async () => {
+    const user = userEvent.setup();
+    let incomeInFlight = false;
+    setup({
+      categoryAnalytics: (args) =>
+        args.type === "income" && incomeInFlight ? undefined : rankingAnalytics()(args),
     });
     expect(screen.getByRole("rowheader", { name: "Salary" })).toBeInTheDocument();
 
@@ -747,8 +753,10 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
     expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
 
-    // …then widen back to All under the archived scope. The income side must RELOAD —
-    // merging the rows it held before the narrowing would rank a stale Salary here.
+    // …then widen back to All under the archived scope with the income read IN FLIGHT.
+    // Neither side may publish alone: the ranking holds the last COMPLETE composite
+    // (Groceries alone), never a mix of this scope's Rent and the pre-narrowing Salary.
+    incomeInFlight = true;
     await user.click(screen.getByRole("button", { name: /Filters/ }));
     dialog = screen.getByRole("dialog", { name: "Filters" });
     await user.click(
@@ -759,8 +767,9 @@ describe("CircleTransactions — Category Ranking (RPT-8)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Archived" }));
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
 
-    expect(screen.getByRole("rowheader", { name: "Rent (Archived)" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Groceries" })).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Salary" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Rent (Archived)" })).not.toBeInTheDocument();
   });
 
   it("re-queries the ranking when the selected month changes", async () => {
