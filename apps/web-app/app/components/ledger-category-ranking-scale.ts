@@ -3,18 +3,42 @@ export function categoryRankingScale(values: number[]) {
   const magnitudes = [...new Set(values.map(Math.abs).filter((value) => value > 0))].sort(
     (a, b) => a - b,
   );
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const smallest = magnitudes[0] ?? 0;
+  // Aim for 5% of the scale for the smallest bar, about 10px in a 200px plot.
+  const visibility = 0.05;
+  const originalVisibility = smallest / (max - min);
+  let selectedVisibility = originalVisibility;
+  const gapShare = 0.3;
+  const upperShare = 0.5;
   let gap: { low: number; high: number } | undefined;
   for (const [index, low] of magnitudes.entries()) {
     const high = magnitudes[index + 1];
-    if (high !== undefined && high / low >= 20) {
-      // The first large gap gives the smallest totals the most space. A later,
-      // wider gap would leave those totals squeezed into an oversized lower range.
+    if (high === undefined) break;
+    const step = 10 ** Math.floor(Math.log10(low));
+    const lower = Math.ceil(low / step) * step;
+    const upperStep = 10 ** (Math.floor(Math.log10(high)) - 1);
+    const upper = (Math.ceil(high / upperStep) - 1) * upperStep;
+    const tickStep = Math.ceil(lower / 3 / step) * step;
+    const otherExtent = Math.min(-min, max);
+    const sideSpan = lower * (1 + gapShare + upperShare);
+    const otherSpan =
+      otherExtent <= lower ? Math.ceil(otherExtent / tickStep) * tickStep : sideSpan;
+    const candidateVisibility = smallest / (sideSpan + otherSpan);
+    // Keep as much of the original lower scale as possible without squeezing the
+    // smallest total. Only cut meaningful empty ranges, never through observations.
+    if (
+      originalVisibility < visibility &&
+      high / low >= 2 &&
+      upper > lower &&
+      (candidateVisibility >= visibility ||
+        (selectedVisibility < visibility && candidateVisibility > selectedVisibility))
+    ) {
       gap = { low, high };
-      break;
+      selectedVisibility = candidateVisibility;
     }
   }
-  const min = Math.min(0, ...values);
-  const max = Math.max(0, ...values);
   if (!gap) {
     return { project: (value: number) => value, domain: [min, max], ticks: undefined, breaks: [] };
   }
@@ -24,8 +48,8 @@ export function categoryRankingScale(values: number[]) {
   const lower = Math.ceil(gap.low / lowStep) * lowStep;
   const upper = (Math.ceil(gap.high / highStep) - 1) * highStep;
   const largest = Math.max(-min, max);
-  const gapSize = lower * 0.3;
-  const upperSize = lower * 0.5;
+  const gapSize = lower * gapShare;
+  const upperSize = lower * upperShare;
   const project = (value: number) => {
     const magnitude = Math.abs(value);
     const position =

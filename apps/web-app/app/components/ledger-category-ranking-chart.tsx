@@ -101,7 +101,7 @@ export function LedgerCategoryRankingChart({
           {scale.breaks
             .map(({ lower, upper }) => `${formatTick(lower)} to ${formatTick(upper)}`)
             .join("; ")}{" "}
-          omitted. Larger steps beyond the cut.
+          omitted. Steps change beyond the cut.
         </p>
       )}
       <div className="min-h-0 flex-1">

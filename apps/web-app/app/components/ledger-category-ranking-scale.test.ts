@@ -39,13 +39,34 @@ describe("categoryRankingScale", () => {
     expect(sorted.map(scale.project)).toEqual(sorted.map(scale.project).sort((a, b) => a - b));
   });
 
-  it.each([1, -1])("keeps three magnitude tiers visible with sign %s", (sign) => {
-    const values = [100, 2_000, 100_000].map((value) => sign * value);
+  it.each([
+    { sign: 1, middle: 2_000 },
+    { sign: -1, middle: 2_000 },
+    { sign: 1, middle: 1_900 },
+    { sign: -1, middle: 1_900 },
+  ])("keeps three magnitude tiers visible: $sign, $middle", ({ sign, middle }) => {
+    const values = [100, middle, 100_000].map((value) => sign * value);
     const scale = categoryRankingScale(values);
-    expect(scale.breaks).toEqual([{ lower: sign * 100, upper: sign * 1_900 }]);
+    expect(scale.breaks).toEqual([{ lower: sign * 100, upper: sign * (middle - 100) }]);
     const span = (scale.domain.at(1) ?? 0) - (scale.domain.at(0) ?? 0);
     for (const value of values) {
       expect((Math.abs(scale.project(value)) / span) * 200).toBeGreaterThan(20);
     }
+  });
+
+  it("keeps the widest readable lower range and handles a cluster with no 20x gap", () => {
+    const values = [-100, 500, 9_000];
+    const scale = categoryRankingScale(values);
+    const span = (scale.domain.at(1) ?? 0) - (scale.domain.at(0) ?? 0);
+    expect(scale.breaks).toEqual([{ lower: 500, upper: 8_900 }]);
+    expect((Math.abs(scale.project(-100)) / span) * 200).toBeGreaterThanOrEqual(10);
+  });
+
+  it("still improves visibility when a dense lower cluster cannot reach the target", () => {
+    const values = [100, 150, 225, 337, 505, 757, 1_135, 1_702, 2_553, 100_000];
+    const scale = categoryRankingScale(values);
+    const span = (scale.domain.at(1) ?? 0) - (scale.domain.at(0) ?? 0);
+    expect(scale.breaks).toHaveLength(1);
+    expect(scale.project(100) / span).toBeGreaterThan(100 / 100_000);
   });
 });
