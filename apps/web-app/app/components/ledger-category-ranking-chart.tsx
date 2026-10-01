@@ -154,7 +154,7 @@ export function LedgerCategoryRankingChart({
               // disappears from the chart.
               domain={scale.domain}
               ticks={scale.ticks?.map(scale.project)}
-              interval={scale.breaks.length > 0 ? 0 : "preserveEnd"}
+              interval={scale.breaks.length > 0 ? "preserveStartEnd" : "preserveEnd"}
               tickFormatter={(value) => formatTick(tickLabels.get(value) ?? value)}
               tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
               tickLine={false}

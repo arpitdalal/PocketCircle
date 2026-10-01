@@ -1,15 +1,16 @@
-/** Compress the largest empty magnitude range, keeping zero and both signs symmetric. */
+/** Keep the smallest magnitude cluster readable, with a shared scale for both signs. */
 export function categoryRankingScale(values: number[]) {
   const magnitudes = [...new Set(values.map(Math.abs).filter((value) => value > 0))].sort(
     (a, b) => a - b,
   );
   let gap: { low: number; high: number } | undefined;
-  let ratio = 20;
   for (const [index, low] of magnitudes.entries()) {
     const high = magnitudes[index + 1];
-    if (high !== undefined && high / low >= ratio) {
+    if (high !== undefined && high / low >= 20) {
+      // The first large gap gives the smallest totals the most space. A later,
+      // wider gap would leave those totals squeezed into an oversized lower range.
       gap = { low, high };
-      ratio = high / low;
+      break;
     }
   }
   const min = Math.min(0, ...values);
@@ -50,7 +51,7 @@ export function categoryRankingScale(values: number[]) {
       if (value <= Math.min(lower, Math.abs(bound(extent)))) ticks.push(sign * value);
     }
     if (extent >= upper) {
-      ticks.push(sign * upper, sign * largest);
+      ticks.push(sign * upper, sign * extent);
       breaks.push({ lower: sign * lower, upper: sign * upper });
     }
   }

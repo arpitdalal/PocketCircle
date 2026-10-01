@@ -28,6 +28,8 @@ describe("categoryRankingScale", () => {
     const values = [-4_000_000, -10_100, 21_300, 3_600_000];
     const scale = categoryRankingScale(values);
     expect(scale.breaks).toHaveLength(2);
+    expect(scale.ticks).toContain(-4_000_000);
+    expect(scale.ticks).toContain(3_600_000);
     for (const cut of scale.breaks) {
       const low = Math.min(cut.lower, cut.upper);
       const high = Math.max(cut.lower, cut.upper);
@@ -35,5 +37,15 @@ describe("categoryRankingScale", () => {
     }
     const sorted = [...values, 0].sort((a, b) => a - b);
     expect(sorted.map(scale.project)).toEqual(sorted.map(scale.project).sort((a, b) => a - b));
+  });
+
+  it.each([1, -1])("keeps three magnitude tiers visible with sign %s", (sign) => {
+    const values = [100, 2_000, 100_000].map((value) => sign * value);
+    const scale = categoryRankingScale(values);
+    expect(scale.breaks).toEqual([{ lower: sign * 100, upper: sign * 1_900 }]);
+    const span = (scale.domain.at(1) ?? 0) - (scale.domain.at(0) ?? 0);
+    for (const value of values) {
+      expect((Math.abs(scale.project(value)) / span) * 200).toBeGreaterThan(20);
+    }
   });
 });
