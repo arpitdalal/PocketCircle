@@ -1,9 +1,10 @@
-import { colorHex } from "@pocketcircle/domain";
-import { render } from "@testing-library/react";
+import { colorHex, formatMoney, money, toCurrencyCode } from "@pocketcircle/domain";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
   ARCHIVED_HATCH_ID,
   LedgerCategoryRankingChart,
+  RankingTooltip,
   renderRankingBar,
   toCategoryRankingBars,
 } from "./ledger-category-ranking-chart.js";
@@ -71,4 +72,26 @@ describe("LedgerCategoryRankingChart", () => {
     );
     expect(container.querySelector("[data-chart-animation-active='true']")).toBeInTheDocument();
   });
+});
+
+describe("RankingTooltip", () => {
+  it.each(["income", "expense"] as const)(
+    "identifies %s even when Category names and amounts match",
+    (type) => {
+      const datum = toCategoryRankingBars(
+        ranking.map((row) => ({ ...row, name: "Transfers", taggedTotalMinor: 1_000 })),
+      ).find((bar) => bar.type === type);
+      render(
+        <RankingTooltip
+          active
+          payload={[{ graphicalItemId: "ranking", payload: datum }]}
+          formatMinor={(minor) => formatMoney(money(minor, toCurrencyCode("USD")), "en-US")}
+        />,
+      );
+      expect(screen.getByText("Transfers")).toBeInTheDocument();
+      expect(
+        screen.getByText(`${type === "income" ? "Income" : "Expense"} · $10.00`),
+      ).toBeInTheDocument();
+    },
+  );
 });

@@ -21,12 +21,7 @@ import { CHART_SHELL_CLASSNAME } from "./chart-shell.js";
  * One bar: a Category's name, its magnitude SIGNED for the diverging baseline (income
  * above zero, expense below), and the fill it draws with.
  */
-export interface RankingBarDatum {
-  name: string;
-  signedMinor: number;
-  fill: string;
-  archived: boolean;
-}
+export type RankingBarDatum = ReturnType<typeof toCategoryRankingBars>[number];
 
 /**
  * Hatched fill id for Archived Categories. An Archived Category's spending stays visible
@@ -43,6 +38,7 @@ export const ARCHIVED_HATCH_ID = "ledger-category-ranking-archived-hatch";
 export function toCategoryRankingBars(ranking: CategoryRankingRow[]) {
   return ranking.map((row) => ({
     name: row.name,
+    type: row.type,
     signedMinor: row.type === "income" ? row.taggedTotalMinor : -row.taggedTotalMinor,
     fill: row.status === "archived" ? `url(#${ARCHIVED_HATCH_ID})` : colorHex(row.color),
     archived: row.status === "archived",
@@ -178,7 +174,7 @@ export function renderRankingBar({ x, y, width, height, payload }: RankingBarSha
  * reading and carries the same Archived badge. Recharts injects the tooltip state when it
  * clones this element, so those props are optional here.
  */
-function RankingTooltip({
+export function RankingTooltip({
   active,
   payload,
   formatMinor,
@@ -198,7 +194,10 @@ function RankingTooltip({
         {datum.name}
         {datum.archived ? " (Archived)" : ""}
       </p>
-      <p className="tabular-nums">{formatMinor(Math.abs(datum.signedMinor))}</p>
+      <p className="tabular-nums">
+        {datum.type === "income" ? "Income" : "Expense"} ·{" "}
+        {formatMinor(Math.abs(datum.signedMinor))}
+      </p>
     </div>
   );
 }
