@@ -541,22 +541,27 @@ test("the ledger category ranking follows the lifecycle filter while the totals 
   // Only the ACTIVE Transaction counts toward the month totals, whatever the filter says.
   await expectHeadlineMoney(totals, "-$10.00");
 
-  await applyLedgerStatus(page, "archived");
-  await expect(ranking.getByRole("rowheader", { name: archivedCat })).toBeVisible();
-  await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
-  // The totals card is filter-blind: the month total did not move with the ranking.
-  await expectHeadlineMoney(totals, "-$10.00");
-
   // An Archived Category keeps its bar and gains a hatched fill — distinguishable in the
-  // chart, not only in the sr-only table (PRD 58, never by colour alone).
+  // chart, not only in the sr-only table (PRD 58, never by colour alone). Leaving the Ledger
+  // drops its month from the URL, so select the private month again on return.
   await clickCircleChromeTab(page, "Categories");
   await archiveWithDoubleCheck(page, archivedCat);
   await clickCircleChromeTab(page, "Transactions");
+  await selectMonth(page, month);
   await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
   const chart = page.locator("[data-chart-animation-active]");
   await expect(chart.locator('path[fill^="url(#"]')).toHaveCount(1);
   // Read-only: the aria-hidden visual is never a tab stop.
-  await expect(chart.locator("[tabindex]")).toHaveCount(0);
+  // Read-only: nothing in the aria-hidden visual is reachable by keyboard. Recharts'
+  // internal layers carry tabindex="-1" (programmatic focus only); a real tab stop is 0.
+  await expect(chart.locator('[tabindex="0"]')).toHaveCount(0);
+  await expect(chart.locator('[role="application"]')).toHaveCount(0);
+
+  await applyLedgerStatus(page, "archived");
+  await expect(ranking.getByRole("rowheader", { name: `${archivedCat} (Archived)` })).toBeVisible();
+  await expect(ranking.getByRole("rowheader", { name: activeCat })).toHaveCount(0);
+  // The totals card is filter-blind: the month total did not move with the ranking.
+  await expectHeadlineMoney(totals, "-$10.00");
 });
 
 /**

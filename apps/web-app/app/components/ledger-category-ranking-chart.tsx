@@ -129,6 +129,11 @@ export function LedgerCategoryRankingChart({
             axisLine={{ stroke: "var(--border)" }}
           />
           <YAxis
+            // Always keep the zero baseline inside the domain. Left to itself Recharts fits
+            // an all-expense (or all-income) month to its own extremes, which puts the
+            // smallest bar exactly on an axis bound — zero height, so that Category silently
+            // disappears from the chart.
+            domain={([dataMin, dataMax]) => [Math.min(dataMin, 0), Math.max(dataMax, 0)]}
             tickFormatter={formatTick}
             tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
             tickLine={false}
