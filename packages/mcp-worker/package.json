@@ -15,13 +15,13 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@pocketcircle/domain": "workspace:*",
     "agents": "0.21.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "5.20260826.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.12",
     "wrangler": "4.121.0"
   }
 }

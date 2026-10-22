@@ -27,8 +27,8 @@
     "better-auth": "1.6.16",
     "convex": "^1.43.0",
     "convex-helpers": "0.1.122",
-    "web-push": "3.6.5",
-    "zod": "^4.4.3"
+    "web-push": "3.6.7",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
@@ -36,6 +36,6 @@
     "@types/web-push": "3.6.4",
     "convex-test": "0.0.55",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.12"
   }
 }
