@@ -32,7 +32,7 @@ MCP_STATE_DIR=""
 
 # Single source of truth for the image: read the SHA-pinned tag straight out of
 # the CI workflow so this script can never drift from what CI actually runs.
-CONVEX_IMAGE="$(grep -oE 'ghcr.io/get-convex/convex-backend@sha256:[a-f0-9]+' .github/workflows/e2e.yml | head -1)"
+CONVEX_IMAGE="$(grep -oE 'ghcr.io/convex/convex-backend@sha256:[a-f0-9]+' .github/workflows/e2e.yml | head -1)"
 if [[ -z "${CONVEX_IMAGE:-}" ]]; then
   echo "✗ Could not read CONVEX_IMAGE from .github/workflows/e2e.yml" >&2
   exit 1
