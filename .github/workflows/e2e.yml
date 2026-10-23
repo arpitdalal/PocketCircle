@@ -28,7 +28,7 @@ jobs:
     env:
       # Pinned to the exact image the viability spike validated (deterministic).
       # Re-pin when bumping the `convex` npm version; a mismatch fails at `convex deploy`.
-      CONVEX_IMAGE: ghcr.io/get-convex/convex-backend@sha256:1f2044e3eac463ac78973b136c0baf72d4ada602611d853d6f99f280e29e0a98
+      CONVEX_IMAGE: ghcr.io/convex/convex-backend@sha256:1f2044e3eac463ac78973b136c0baf72d4ada602611d853d6f99f280e29e0a98
       CONVEX_SELF_HOSTED_URL: http://127.0.0.1:3210
       VITE_CONVEX_URL: http://127.0.0.1:3210
       VITE_CONVEX_SITE_URL: http://127.0.0.1:3211
